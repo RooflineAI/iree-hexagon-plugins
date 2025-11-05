@@ -1,0 +1,20 @@
+# Copyright 2025 RooflineAI GmbH
+
+load("@iree//build_tools/bazel:external_hal_driver.bzl", "iree_register_external_hal_driver")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+iree_register_external_hal_driver(
+    name = "hexagon",
+    srcs = ["driver_module.c"],
+    hdrs = ["driver_module.h"],
+    deps = [
+        "//hexagon",
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/hal",
+    ],
+)

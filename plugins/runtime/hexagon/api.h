@@ -14,13 +14,21 @@ extern "C" {
 // iree_hal_hexagon_device_t
 //===----------------------------------------------------------------------===//
 
+// DSP domain ID used by Hexagon SDK
+typedef int iree_hal_hexagon_domain_id_t;
+
 // Parameters configuring an iree_hal_hexagon_device_t.
 // Must be initialized with iree_hal_hexagon_device_options_initialize prior to
 // use.
 typedef struct iree_hal_hexagon_device_options_t {
+  /// verbose (Debug) output enabled, 0 by default, 1 if enabled
+  int verbose;
+  /// notify about DSP status changes, 0 by default, 1 if enabled
+  int dsp_status_notify;
+  // note: This sdata structure is copied into the device data in
+  // iree_hal_hexagon_device_create()
   // TODO(hexagon): options for initializing a device such as hardware
   // identifiers, implementation mode switches, and debugging control.
-  int reserved;
 } iree_hal_hexagon_device_options_t;
 
 // Initializes |out_options| to default values.
@@ -35,7 +43,7 @@ IREE_API_EXPORT void iree_hal_hexagon_device_options_initialize(
 //
 // |out_device| must be released by the caller (see iree_hal_device_release).
 IREE_API_EXPORT iree_status_t iree_hal_hexagon_device_create(
-    iree_string_view_t identifier,
+    iree_string_view_t identifier, iree_hal_hexagon_domain_id_t domain_id,
     const iree_hal_hexagon_device_options_t *options,
     iree_allocator_t host_allocator, iree_hal_device_t **out_device);
 

@@ -1,0 +1,7 @@
+#include "AEEStdDef.idl"
+#include "remote.idl"
+
+const string IDL_VERSION = "1.2.3";
+
+interface hexagon_dsp : remote_handle64 {
+};

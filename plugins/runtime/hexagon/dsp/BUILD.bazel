@@ -1,0 +1,32 @@
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@roof_mlir//:build_tools/bazel/hexagon_platform_alias.bzl", "hexagon_platform_alias")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cc_binary(
+    name = "hexagon_dsp_skel",
+    srcs = [
+        "device.c",
+        "//hexagon/interface:hexagon_dsp_skel_c",
+    ],
+    linkshared = True,
+    deps = [
+        "//hexagon/interface:hexagon_dsp_skel_hdr_lib",
+    ],
+)
+
+hexagon_platform_alias(
+    name = "hexagon_dsp_skel_cross",
+    actual = "hexagon_dsp_skel",
+)
+
+copy_file(
+    name = "hexagon_dsp_skel_out",
+    src = ":hexagon_dsp_skel_cross",
+    out = "lib/hexagon/libhexagon_dsp_skel.so",
+)

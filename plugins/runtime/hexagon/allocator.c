@@ -50,8 +50,8 @@ iree_hal_hexagon_allocator_create(iree_allocator_t host_allocator,
   // It's expected that most failures that occur after creation are allocation
   // request-specific so preparing here will help keep the errors more
   // localized.
-  iree_status_t status =
-      iree_make_status(IREE_STATUS_UNIMPLEMENTED, "allocator not implemented");
+  // For now, there are no pools to be set up, so nothing to be done here.
+  iree_status_t status = iree_ok_status();
 
   if (iree_status_is_ok(status)) {
     *out_allocator = (iree_hal_allocator_t *)allocator;

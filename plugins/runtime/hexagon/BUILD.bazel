@@ -37,13 +37,22 @@ iree_runtime_cc_library(
         "executable.h",
         "executable_cache.c",
         "executable_cache.h",
+        "rpc_types.h",
+        "rpc_types_impl.h",
         "semaphore.c",
         "semaphore.h",
+        "utils.c",
+        "utils.h",
     ],
     hdrs = [
         "api.h",
     ],
+    data = [
+        "//hexagon/dsp:hexagon_dsp_skel_out",
+    ],
     deps = [
+        "//hexagon/interface:hexagon_dsp_stub_lib",
+        "@hexagon_sdk//:cdsprpc_android_aarch64",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/base/internal",
         "@iree//runtime/src/iree/hal",

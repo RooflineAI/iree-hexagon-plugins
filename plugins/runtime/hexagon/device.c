@@ -1,5 +1,4 @@
 // Copyright 2025 RooflineAI GmbH
-
 #include "hexagon/device.h"
 
 #include "hexagon/allocator.h"
@@ -14,6 +13,14 @@
 #include "iree/hal/utils/file_transfer.h"
 #include "iree/hal/utils/queue_emulation.h"
 #include "iree/hal/utils/queue_host_call_emulation.h"
+
+// Hexagon SDK includes
+#include <AEEStdErr.h>
+#include <iree/base/string_view.h>
+#include <remote.h>
+
+#include "hexagon_dsp.h"
+#include "rpc_types_impl.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_device_options_t
@@ -42,9 +49,17 @@ static iree_status_t iree_hal_hexagon_device_options_verify(
 typedef struct iree_hal_hexagon_device_t {
   iree_hal_resource_t resource;
   iree_string_view_t identifier;
+  iree_hal_hexagon_domain_id_t domain_id;
+
+  /// parsed device options, copied here by value due to short lifetime of
+  /// options arg passed to init
+  iree_hal_hexagon_device_options_t options;
 
   iree_allocator_t host_allocator;
   iree_hal_allocator_t *device_allocator;
+
+  /// Connection to DSP / DSP RPC session.
+  iree_hal_hexagon_rpc_session_t rpc_session;
 
   // Optional provider used for creating/configuring collective channels.
   iree_hal_channel_provider_t *channel_provider;
@@ -60,11 +75,209 @@ iree_hal_hexagon_device_cast(iree_hal_device_t *base_value) {
   return (iree_hal_hexagon_device_t *)base_value;
 }
 
-iree_status_t
-iree_hal_hexagon_device_create(iree_string_view_t identifier,
-                               const iree_hal_hexagon_device_options_t *options,
-                               iree_allocator_t host_allocator,
-                               iree_hal_device_t **out_device) {
+#define LOOKUP_HEXAGON_DOMAINS                                                 \
+  LOOKUP_HEXAGON_DOMAIN(ADSP_DOMAIN_ID, "ADSP", ADSP_DOMAIN)                   \
+  LOOKUP_HEXAGON_DOMAIN(MDSP_DOMAIN_ID, "MDSP", MDSP_DOMAIN)                   \
+  LOOKUP_HEXAGON_DOMAIN(SDSP_DOMAIN_ID, "SDSP", SDSP_DOMAIN)                   \
+  LOOKUP_HEXAGON_DOMAIN(CDSP_DOMAIN_ID, "CDSP", CDSP_DOMAIN)                   \
+  LOOKUP_HEXAGON_DOMAIN(CDSP1_DOMAIN_ID, "CDSP1", CDSP1_DOMAIN)
+
+int iree_hal_hexagon_get_domain_name(iree_hal_hexagon_domain_id_t domain_id,
+                                     const char **name) {
+  switch (domain_id) {
+#define LOOKUP_HEXAGON_DOMAIN(id, dom_name, uri_suffix)                        \
+  case id:                                                                     \
+    *name = dom_name;                                                          \
+    return 1;
+    LOOKUP_HEXAGON_DOMAINS
+#undef LOOKUP_HEXAGON_DOMAIN
+  default:
+    return 0;
+  }
+}
+
+const char *iree_hal_hexagon_get_domain_name_or_unknown(
+    iree_hal_hexagon_domain_id_t domain_id) {
+  const char *name = NULL;
+  if (iree_hal_hexagon_get_domain_name(domain_id, &name)) {
+    return name;
+  }
+  return "unknown";
+}
+
+int iree_hal_hexagon_get_domain_id(iree_string_view_t name,
+                                   iree_hal_hexagon_domain_id_t *domain_id) {
+#define LOOKUP_HEXAGON_DOMAIN(id, check_name, uri_suffix)                      \
+  if (iree_string_view_equal(name, iree_make_cstring_view(check_name))) {      \
+    *domain_id = id;                                                           \
+    return 1;                                                                  \
+  }
+  LOOKUP_HEXAGON_DOMAINS
+#undef LOOKUP_HEXAGON_DOMAIN
+  return 0;
+}
+
+// Convert a domain ID to a domain URI suffix.
+//
+// Return domain URI suffix in *domain_uri_suffix as pointer to string literal
+//
+// Return 1 on success, 0 on failure
+static int domain_id_to_uri_suffix(iree_hal_hexagon_domain_id_t domain_id,
+                                   const char **domain_uri_suffix) {
+  switch (domain_id) {
+#define LOOKUP_HEXAGON_DOMAIN(id, name, uri_suffix)                            \
+  case id:                                                                     \
+    *domain_uri_suffix = uri_suffix;                                           \
+    return 1;
+    LOOKUP_HEXAGON_DOMAINS
+#undef LOOKUP_HEXAGON_DOMAIN
+  }
+  return 0;
+}
+
+void iree_hal_hexagon_fill_device_info(iree_string_view_t identifier,
+                                       iree_hal_hexagon_domain_id_t domain_id,
+                                       iree_hal_device_info_t *device_info) {
+  device_info->device_id = domain_id;
+  device_info->name = iree_make_cstring_view(
+      iree_hal_hexagon_get_domain_name_or_unknown(domain_id));
+  device_info->path = device_info->name;
+  device_info->identifier = identifier;
+  device_info->device_index = domain_id;
+}
+
+int iree_hal_hexagon_pd_status_callback(void *context, int domain, int session,
+                                        remote_rpc_status_flags_t status) {
+  iree_hal_hexagon_device_t *device = (iree_hal_hexagon_device_t *)context;
+  const char *dsp_status = "unknown";
+  int nErr = AEE_EBADITEM;
+  switch (status) {
+  case FASTRPC_USER_PD_UP:
+    dsp_status = "PD is up";
+    nErr = AEE_SUCCESS;
+    break;
+  case FASTRPC_USER_PD_EXIT:
+    dsp_status = "PD closed";
+    nErr = AEE_SUCCESS;
+    break;
+  case FASTRPC_USER_PD_FORCE_KILL:
+    dsp_status = "PD force kill";
+    nErr = AEE_SUCCESS;
+    break;
+  case FASTRPC_USER_PD_EXCEPTION:
+    dsp_status = "PD exception";
+    nErr = AEE_SUCCESS;
+    break;
+  case FASTRPC_DSP_SSR:
+    dsp_status = "DSP SSR";
+    nErr = AEE_SUCCESS;
+    break;
+  }
+  fprintf(stderr, "iree-run-module: hexagon: DSP status: %s\n", dsp_status);
+  return nErr;
+}
+
+static iree_status_t iree_hal_hexagon_request_status_notifications(
+    int domain_id, void *context,
+    int (*notify_callback)(void *context, int domain, int session,
+                           remote_rpc_status_flags_t status)) {
+  if (!remote_handle_control) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE, "DSP API not available");
+  }
+
+  // Query the DSP for status information support.
+  struct remote_dsp_capability dsp_capability_status_notification_support;
+  dsp_capability_status_notification_support.domain = (uint32_t)domain_id;
+  dsp_capability_status_notification_support.attribute_ID =
+      STATUS_NOTIFICATION_SUPPORT;
+  dsp_capability_status_notification_support.capability = (uint32_t)0;
+  int nErr = remote_handle_control(DSPRPC_GET_DSP_INFO,
+                                   &dsp_capability_status_notification_support,
+                                   sizeof(struct remote_dsp_capability));
+  if ((nErr & 0xFF) == (AEE_EUNSUPPORTEDAPI & 0xFF)) {
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "FastRPC Capability API is not supported on this device");
+  }
+  if (nErr != AEE_SUCCESS) {
+    return iree_make_status(
+        IREE_STATUS_UNKNOWN,
+        "querying for DSP status notification support failed");
+  }
+  if (dsp_capability_status_notification_support.capability != 1) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "no DSP status notification support available");
+  }
+
+  // Enable DSP status notifications.
+  struct remote_rpc_notif_register notif = {
+      .context = context, .domain = domain_id, .notifier_fn = notify_callback};
+  nErr = remote_session_control(FASTRPC_REGISTER_STATUS_NOTIFICATIONS,
+                                (void *)&notif, sizeof(notif));
+  if (nErr != AEE_SUCCESS) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "failed to enable DSP status notifications");
+  }
+
+  return iree_ok_status();
+}
+
+static iree_status_t
+iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
+                               iree_hal_hexagon_device_t *device) {
+  // TODO(hexagon): pass device handles and pool configuration to the allocator.
+  // Some implementations may share allocators across multiple devices created
+  // from the same driver.
+
+  if (device->options.dsp_status_notify) {
+    IREE_RETURN_IF_ERROR(iree_hal_hexagon_request_status_notifications(
+        device->domain_id, (void *)device,
+        iree_hal_hexagon_pd_status_callback));
+  }
+
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_allocator_create(
+      device->host_allocator, &device->device_allocator));
+
+  // Configure the DSP to accept unsigned modules
+  struct remote_rpc_control_unsigned_module control_unsigned_module;
+  control_unsigned_module.domain = device->domain_id;
+  control_unsigned_module.enable = 1;
+  if (remote_session_control(DSPRPC_CONTROL_UNSIGNED_MODULE,
+                             &control_unsigned_module,
+                             sizeof(control_unsigned_module)) != AEE_SUCCESS) {
+    return iree_make_status(IREE_STATUS_UNKNOWN,
+                            "cannot enable unsigned modules on DSP");
+  }
+
+  // Assemble the URI for the DSP session.
+  const char *suffix = NULL;
+  if (!domain_id_to_uri_suffix(device->domain_id, &suffix)) {
+    return iree_make_status(IREE_STATUS_UNKNOWN,
+                            "cannot convert DSP domain ID to URI suffix");
+  }
+  iree_host_size_t uri_sz = strlen(hexagon_dsp_URI) + strlen(suffix) + 1;
+  char *uri = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc(device->host_allocator, uri_sz, &uri));
+  strcpy(uri, hexagon_dsp_URI);
+  strcat(uri, suffix);
+
+  // Open the actual DSP RPC session.
+  int dsp_open_ret = hexagon_dsp_open(uri, &device->rpc_session.rpc_handle);
+  iree_allocator_free(device->host_allocator, uri);
+  if (dsp_open_ret != AEE_SUCCESS) {
+    return iree_make_status(IREE_STATUS_UNKNOWN,
+                            "opening RPC session with DSP failed");
+  }
+  device->rpc_session.rpc_is_open = 1;
+
+  return iree_ok_status();
+}
+
+iree_status_t iree_hal_hexagon_device_create(
+    iree_string_view_t identifier, iree_hal_hexagon_domain_id_t domain_id,
+    const iree_hal_hexagon_device_options_t *options,
+    iree_allocator_t host_allocator, iree_hal_device_t **out_device) {
   IREE_ASSERT_ARGUMENT(options);
   IREE_ASSERT_ARGUMENT(out_device);
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -83,13 +296,11 @@ iree_hal_hexagon_device_create(iree_string_view_t identifier,
   iree_string_view_append_to_buffer(identifier, &device->identifier,
                                     (char *)device + total_size -
                                         identifier.size);
+  device->domain_id = domain_id;
+  device->options = *options; /// copy by value due to lifetime of options arg
   device->host_allocator = host_allocator;
 
-  // TODO(hexagon): pass device handles and pool configuration to the allocator.
-  // Some implementations may share allocators across multiple devices created
-  // from the same driver.
-  iree_status_t status = iree_hal_hexagon_allocator_create(
-      host_allocator, &device->device_allocator);
+  iree_status_t status = iree_hal_hexagon_device_set_up(domain_id, device);
 
   if (iree_status_is_ok(status)) {
     *out_device = (iree_hal_device_t *)device;
@@ -111,6 +322,10 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
   // the implementation performs internal async operations those should be
   // shutdown and joined first.
 
+  if (device->rpc_session.rpc_is_open) {
+    hexagon_dsp_close(device->rpc_session.rpc_handle);
+  }
+
   iree_hal_allocator_release(device->device_allocator);
   iree_hal_channel_provider_release(device->channel_provider);
 
@@ -122,12 +337,17 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
 static iree_string_view_t
 iree_hal_hexagon_device_id(iree_hal_device_t *base_device) {
   iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
-  return device->identifier;
+  return iree_make_cstring_view(
+      iree_hal_hexagon_get_domain_name_or_unknown(device->domain_id));
 }
 
 static iree_hal_device_info_t
 iree_hal_hexagon_device_info(iree_hal_device_t *base_device) {
-  return (iree_hal_device_info_t){.device_id = 0, .device_index = 0};
+  iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
+  iree_hal_device_info_t device_info;
+  iree_hal_hexagon_fill_device_info(device->identifier, device->domain_id,
+                                    &device_info);
+  return device_info;
 }
 
 static iree_allocator_t
@@ -196,8 +416,10 @@ iree_hal_hexagon_device_query_i64(iree_hal_device_t *base_device,
   if (iree_string_view_equal(category, IREE_SV("hal.executable.format"))) {
     // NOTE: this is a fuzzy match and can allow multiple formats to be used
     // (this should return 1 for any format supported).
+    // For now, accept exactly the "Hexagon instructions, no OS" one.
     // TODO(hexagon): match a format and return true.
-    *out_value = 0;
+    *out_value = iree_string_view_equal(
+        key, iree_make_cstring_view("embedded-elf-hexagon"));
     return iree_ok_status();
   }
 

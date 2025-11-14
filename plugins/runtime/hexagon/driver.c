@@ -2,7 +2,13 @@
 
 #include "hexagon/driver.h"
 
+#include "device.h"
 #include "hexagon/api.h"
+#include "hexagon/utils.h"
+
+// Hexagon SDK includes
+#include <AEEStdErr.h>
+#include <remote.h>
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_driver_options_t
@@ -36,7 +42,8 @@ static iree_status_t iree_hal_hexagon_driver_options_verify(
 // TODO(hexagon): if it's possible to have more than one device use real IDs.
 // This is a placeholder for this skeleton that just indicates the first and
 // only device.
-#define IREE_HAL_HEXAGON_DEVICE_ID_DEFAULT 0
+#define IREE_HAL_HEXAGON_DEVICE_ID_DEFAULT                                     \
+  ((iree_hal_hexagon_domain_id_t)CDSP_DOMAIN_ID)
 
 typedef struct iree_hal_hexagon_driver_t {
   iree_hal_resource_t resource;
@@ -92,8 +99,7 @@ IREE_API_EXPORT iree_status_t iree_hal_hexagon_driver_create(
   // device enumeration until the user requests one. Underlying implementations
   // can sometimes do bonkers static init stuff as soon as they are touched and
   // this code may want to do that on-demand instead.
-  iree_status_t status =
-      iree_make_status(IREE_STATUS_UNIMPLEMENTED, "driver not implemented");
+  iree_status_t status = iree_ok_status();
 
   if (iree_status_is_ok(status)) {
     *out_driver = (iree_hal_driver_t *)driver;
@@ -121,22 +127,58 @@ static iree_status_t iree_hal_hexagon_driver_query_available_devices(
     iree_hal_driver_t *base_driver, iree_allocator_t host_allocator,
     iree_host_size_t *out_device_info_count,
     iree_hal_device_info_t **out_device_infos) {
-  // TODO(hexagon): query available devices and populate the output. Note that
-  // unlike most IREE functions this allocates if required in order to allow
-  // this to return uncached information. Uncached is preferred as it allows
-  // devices that may come and go (power toggles, user visibility toggles, etc)
-  // through a process lifetime to appear without needing a full restart.
-  static const iree_hal_device_info_t device_infos[1] = {
-      {
-          .device_id = IREE_HAL_HEXAGON_DEVICE_ID_DEFAULT,
-          .name = iree_string_view_literal("default"),
-      },
+  // Query available hexagon devices and populate the output. Note
+  // that unlike most IREE functions this allocates if required in order to
+  // allow this to return uncached information. Uncached is preferred as it
+  // allows devices that may come and go (power toggles, user visibility
+  // toggles, etc) through a process lifetime to appear without needing a
+  // full restart.
+
+  iree_hal_hexagon_driver_t *driver = iree_hal_hexagon_driver_cast(base_driver);
+
+  // Query all DSP domains if present or not.
+  // If the API for querying is not present, assume no domain is present.
+  static const iree_hal_hexagon_domain_id_t all_domain_ids[] = {
+      ADSP_DOMAIN_ID, MDSP_DOMAIN_ID,  SDSP_DOMAIN_ID,
+      CDSP_DOMAIN_ID, CDSP1_DOMAIN_ID,
   };
-  *out_device_info_count = IREE_ARRAYSIZE(device_infos);
-  return iree_allocator_clone(
-      host_allocator,
-      iree_make_const_byte_span(device_infos, sizeof(device_infos)),
-      (void **)out_device_infos);
+  static const unsigned int all_domain_ids_count =
+      sizeof(all_domain_ids) / sizeof(all_domain_ids[0]);
+  unsigned int detected_domain_ids_count = 0;
+  iree_hal_hexagon_domain_id_t detected_domain_ids[all_domain_ids_count] =
+      {}; // index is the same as in iree_hal_hexagon_domain_ids_names
+  if (remote_handle_control) {
+    for (unsigned int idx = 0; idx < all_domain_ids_count; ++idx) {
+      // The Hexagon SDK example code polls for DOMAIN_SUPPORT. However, we need
+      // to run unsigned modules, so we need to query for UNSIGNED_PD_SUPPORT,
+      // in order to list only the DSP domains that support unsigned modules.
+      struct remote_dsp_capability dsp_capability_domain = {
+          all_domain_ids[idx], UNSIGNED_PD_SUPPORT, 0};
+      int err =
+          remote_handle_control(DSPRPC_GET_DSP_INFO, &dsp_capability_domain,
+                                sizeof(struct remote_dsp_capability));
+      if (err == AEE_SUCCESS && dsp_capability_domain.capability != 0) {
+        detected_domain_ids[detected_domain_ids_count++] = all_domain_ids[idx];
+      }
+    }
+  }
+
+  // Report a device for each domain that is present.
+  // Allocate buffer for all device infos and fill with information.
+  // Use domain Id as device ID and also report names.
+  iree_host_size_t device_info_count = detected_domain_ids_count;
+  iree_hal_device_info_t *device_infos = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      host_allocator, device_info_count * sizeof(iree_hal_device_info_t),
+      &device_infos));
+  for (int idx = 0; idx < detected_domain_ids_count; ++idx) {
+    iree_hal_hexagon_fill_device_info(
+        driver->identifier, detected_domain_ids[idx], &device_infos[idx]);
+  }
+
+  *out_device_info_count = device_info_count;
+  *out_device_infos = device_infos;
+  return iree_ok_status();
 }
 
 static iree_status_t
@@ -153,6 +195,31 @@ iree_hal_hexagon_driver_dump_device_info(iree_hal_driver_t *base_driver,
   return iree_ok_status();
 }
 
+static iree_status_t iree_hal_hexagon_device_options_parse(
+    iree_host_size_t param_count, const iree_string_pair_t *params,
+    iree_hal_hexagon_device_options_t *options) {
+
+  for (int pi = 0; pi < (int)param_count; ++pi) {
+    const iree_string_pair_t *param = &params[pi];
+    // See README.md for a documentation of the options.
+    if (iree_string_view_equal_case(param->key,
+                                    iree_make_cstring_view("verbose"))) {
+      IREE_RETURN_IF_ERROR(iree_hal_hexagon_parse_bool_from_string(
+          param->value, &options->verbose));
+      continue;
+    }
+    if (iree_string_view_equal_case(
+            param->key, iree_make_cstring_view("dsp_status_notify"))) {
+      IREE_RETURN_IF_ERROR(iree_hal_hexagon_parse_bool_from_string(
+          param->value, &options->dsp_status_notify));
+      continue;
+    }
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "invalid option in URI");
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t iree_hal_hexagon_driver_create_device_by_id(
     iree_hal_driver_t *base_driver, iree_hal_device_id_t device_id,
     iree_host_size_t param_count, const iree_string_pair_t *params,
@@ -165,6 +232,8 @@ static iree_status_t iree_hal_hexagon_driver_create_device_by_id(
   // access them during the create call below.
   iree_hal_hexagon_device_options_t options =
       driver->options.default_device_options;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_hexagon_device_options_parse(param_count, params, &options));
 
   // TODO(hexagon): implement creation by device_id; this is mostly used as
   // query_available_devices->create_device_by_id to avoid needing to expose
@@ -172,7 +241,8 @@ static iree_status_t iree_hal_hexagon_driver_create_device_by_id(
   // device so the ID is ignored.
   (void)driver;
 
-  return iree_hal_hexagon_device_create(driver->identifier, &options,
+  // device ID is Hexagon domain ID
+  return iree_hal_hexagon_device_create(driver->identifier, device_id, &options,
                                         host_allocator, out_device);
 }
 
@@ -181,23 +251,29 @@ static iree_status_t iree_hal_hexagon_driver_create_device_by_path(
     iree_string_view_t device_path, iree_host_size_t param_count,
     const iree_string_pair_t *params, iree_allocator_t host_allocator,
     iree_hal_device_t **out_device) {
-  iree_hal_hexagon_driver_t *driver = iree_hal_hexagon_driver_cast(base_driver);
+  if (iree_string_view_is_empty(device_path)) {
+    return iree_hal_hexagon_driver_create_device_by_id(
+        base_driver, IREE_HAL_HEXAGON_DEVICE_ID_DEFAULT, param_count, params,
+        host_allocator, out_device);
+  }
 
-  // TODO(hexagon): use the provided params to overwrite the default options.
-  // The format of the params is implementation-defined. The params strings can
-  // be directly referenced if needed as the device creation is only allowed to
-  // access them during the create call below.
-  iree_hal_hexagon_device_options_t options =
-      driver->options.default_device_options;
+  // Try parsing path as device ID.
+  iree_hal_device_id_t device_id = 0;
+  if (iree_string_view_atoi_uint32(device_path, &device_id)) {
+    return iree_hal_hexagon_driver_create_device_by_id(
+        base_driver, device_id, param_count, params, host_allocator,
+        out_device);
+  }
 
-  // TODO(hexagon): support parsing of the device_path. Note that a single
-  // driver may respond to multiple driver_name queries. Paths are
-  // implementation-specific and there may be multiple formats; for example,
-  // device UUID, PCI bus ID, ordinal as used by underlying APIs, etc.
-  (void)driver;
+  // Try parsing path as device name. Use domain ID as device ID.
+  iree_hal_hexagon_domain_id_t domain_id = 99999;
+  if (iree_hal_hexagon_get_domain_id(device_path, &domain_id)) {
+    return iree_hal_hexagon_driver_create_device_by_id(
+        base_driver, domain_id, param_count, params, host_allocator,
+        out_device);
+  }
 
-  return iree_hal_hexagon_device_create(driver->identifier, &options,
-                                        host_allocator, out_device);
+  return iree_make_status(IREE_STATUS_UNIMPLEMENTED, "unsupported device path");
 }
 
 static const iree_hal_driver_vtable_t iree_hal_hexagon_driver_vtable = {

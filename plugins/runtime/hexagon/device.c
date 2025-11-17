@@ -9,6 +9,7 @@
 #include "hexagon/executable.h"
 #include "hexagon/executable_cache.h"
 #include "hexagon/semaphore.h"
+#include "hexagon/utils.h"
 #include "iree/hal/utils/file_registry.h"
 #include "iree/hal/utils/file_transfer.h"
 #include "iree/hal/utils/queue_emulation.h"
@@ -200,9 +201,8 @@ static iree_status_t iree_hal_hexagon_request_status_notifications(
         "FastRPC Capability API is not supported on this device");
   }
   if (nErr != AEE_SUCCESS) {
-    return iree_make_status(
-        IREE_STATUS_UNKNOWN,
-        "querying for DSP status notification support failed");
+    return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
+        nErr, "querying for DSP status notification support failed");
   }
   if (dsp_capability_status_notification_support.capability != 1) {
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
@@ -496,7 +496,7 @@ static iree_status_t iree_hal_hexagon_device_create_executable_cache(
 
   return iree_hal_hexagon_executable_cache_create(
       identifier, iree_hal_device_host_allocator(base_device),
-      out_executable_cache);
+      &device->rpc_session, out_executable_cache);
 }
 
 static iree_status_t iree_hal_hexagon_device_import_file(

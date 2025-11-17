@@ -21,6 +21,6 @@ struct iree_hal_hexagon_rpc_session_s {
   remote_handle64 rpc_handle;
 };
 
-typedef int64 executable_handle_t;
+typedef int64 rpc_executable_handle_t;
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_RPC_TYPES_IMPL_H_

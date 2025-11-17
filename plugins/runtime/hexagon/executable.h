@@ -6,6 +6,8 @@
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 
+#include "hexagon/rpc_types.h"
+
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_executable_t
 //===----------------------------------------------------------------------===//
@@ -17,6 +19,8 @@
 // resources referenced within.
 iree_status_t iree_hal_hexagon_executable_create(
     const iree_hal_executable_params_t *executable_params,
-    iree_allocator_t host_allocator, iree_hal_executable_t **out_executable);
+    iree_allocator_t host_allocator,
+    const iree_hal_hexagon_rpc_session_t *rpc_session,
+    iree_hal_executable_t **out_executable);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_EXECUTABLE_H_

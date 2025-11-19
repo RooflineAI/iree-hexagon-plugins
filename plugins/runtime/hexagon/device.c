@@ -150,6 +150,7 @@ void iree_hal_hexagon_fill_device_info(iree_string_view_t identifier,
 int iree_hal_hexagon_pd_status_callback(void *context, int domain, int session,
                                         remote_rpc_status_flags_t status) {
   iree_hal_hexagon_device_t *device = (iree_hal_hexagon_device_t *)context;
+  (void)device; // currently unused
   const char *dsp_status = "unknown";
   int nErr = AEE_EBADITEM;
   switch (status) {
@@ -173,6 +174,14 @@ int iree_hal_hexagon_pd_status_callback(void *context, int domain, int session,
     dsp_status = "DSP SSR";
     nErr = AEE_SUCCESS;
     break;
+  case FASTRPC_INTERNAL_STATUS_RESERVED_1:
+    dsp_status = "internal status reserved 1";
+    nErr = AEE_SUCCESS;
+    break;
+  case FASTRPC_USERPD_TIMEOUT:
+    dsp_status = "PD timeout";
+    nErr = AEE_SUCCESS;
+    break;
   }
   fprintf(stderr, "iree-run-module: hexagon: DSP status: %s\n", dsp_status);
   return nErr;
@@ -182,10 +191,6 @@ static iree_status_t iree_hal_hexagon_request_status_notifications(
     int domain_id, void *context,
     int (*notify_callback)(void *context, int domain, int session,
                            remote_rpc_status_flags_t status)) {
-  if (!remote_handle_control) {
-    return iree_make_status(IREE_STATUS_UNAVAILABLE, "DSP API not available");
-  }
-
   // Query the DSP for status information support.
   struct remote_dsp_capability dsp_capability_status_notification_support;
   dsp_capability_status_notification_support.domain = (uint32_t)domain_id;
@@ -258,7 +263,7 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   iree_host_size_t uri_sz = strlen(hexagon_dsp_URI) + strlen(suffix) + 1;
   char *uri = NULL;
   IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(device->host_allocator, uri_sz, &uri));
+      iree_allocator_malloc(device->host_allocator, uri_sz, (void **)&uri));
   strcpy(uri, hexagon_dsp_URI);
   strcat(uri, suffix);
 

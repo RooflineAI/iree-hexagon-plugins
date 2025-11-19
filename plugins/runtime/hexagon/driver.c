@@ -142,24 +142,22 @@ static iree_status_t iree_hal_hexagon_driver_query_available_devices(
       ADSP_DOMAIN_ID, MDSP_DOMAIN_ID,  SDSP_DOMAIN_ID,
       CDSP_DOMAIN_ID, CDSP1_DOMAIN_ID,
   };
-  static const unsigned int all_domain_ids_count =
-      sizeof(all_domain_ids) / sizeof(all_domain_ids[0]);
   unsigned int detected_domain_ids_count = 0;
-  iree_hal_hexagon_domain_id_t detected_domain_ids[all_domain_ids_count] =
-      {}; // index is the same as in iree_hal_hexagon_domain_ids_names
-  if (remote_handle_control) {
-    for (unsigned int idx = 0; idx < all_domain_ids_count; ++idx) {
-      // The Hexagon SDK example code polls for DOMAIN_SUPPORT. However, we need
-      // to run unsigned modules, so we need to query for UNSIGNED_PD_SUPPORT,
-      // in order to list only the DSP domains that support unsigned modules.
-      struct remote_dsp_capability dsp_capability_domain = {
-          all_domain_ids[idx], UNSIGNED_PD_SUPPORT, 0};
-      int err =
-          remote_handle_control(DSPRPC_GET_DSP_INFO, &dsp_capability_domain,
-                                sizeof(struct remote_dsp_capability));
-      if (err == AEE_SUCCESS && dsp_capability_domain.capability != 0) {
-        detected_domain_ids[detected_domain_ids_count++] = all_domain_ids[idx];
-      }
+  iree_hal_hexagon_domain_id_t
+      detected_domain_ids[sizeof(all_domain_ids) / sizeof(all_domain_ids[0])
+
+  ] = {}; // index is the same as in iree_hal_hexagon_domain_ids_names
+  for (unsigned int idx = 0;
+       idx < sizeof(all_domain_ids) / sizeof(all_domain_ids[0]); ++idx) {
+    // The Hexagon SDK example code polls for DOMAIN_SUPPORT. However, we need
+    // to run unsigned modules, so we need to query for UNSIGNED_PD_SUPPORT,
+    // in order to list only the DSP domains that support unsigned modules.
+    struct remote_dsp_capability dsp_capability_domain = {
+        all_domain_ids[idx], UNSIGNED_PD_SUPPORT, 0};
+    int err = remote_handle_control(DSPRPC_GET_DSP_INFO, &dsp_capability_domain,
+                                    sizeof(struct remote_dsp_capability));
+    if (err == AEE_SUCCESS && dsp_capability_domain.capability != 0) {
+      detected_domain_ids[detected_domain_ids_count++] = all_domain_ids[idx];
     }
   }
 
@@ -170,7 +168,7 @@ static iree_status_t iree_hal_hexagon_driver_query_available_devices(
   iree_hal_device_info_t *device_infos = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, device_info_count * sizeof(iree_hal_device_info_t),
-      &device_infos));
+      (void **)&device_infos));
   for (int idx = 0; idx < detected_domain_ids_count; ++idx) {
     iree_hal_hexagon_fill_device_info(
         driver->identifier, detected_domain_ids[idx], &device_infos[idx]);
@@ -198,7 +196,6 @@ iree_hal_hexagon_driver_dump_device_info(iree_hal_driver_t *base_driver,
 static iree_status_t iree_hal_hexagon_device_options_parse(
     iree_host_size_t param_count, const iree_string_pair_t *params,
     iree_hal_hexagon_device_options_t *options) {
-
   for (int pi = 0; pi < (int)param_count; ++pi) {
     const iree_string_pair_t *param = &params[pi];
     // See README.md for a documentation of the options.
@@ -258,7 +255,7 @@ static iree_status_t iree_hal_hexagon_driver_create_device_by_path(
   }
 
   // Try parsing path as device ID.
-  iree_hal_device_id_t device_id = 0;
+  uint32_t device_id = 0;
   if (iree_string_view_atoi_uint32(device_path, &device_id)) {
     return iree_hal_hexagon_driver_create_device_by_id(
         base_driver, device_id, param_count, params, host_allocator,

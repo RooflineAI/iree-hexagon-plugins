@@ -21,7 +21,7 @@ typedef struct iree_hal_hexagon_executable_t {
   iree_hal_resource_t resource;
   iree_allocator_t host_allocator;
   const iree_hal_hexagon_rpc_session_t *rpc_session; // not owned, owner: device
-  const char *so_file_path;
+  char *so_file_path;
   rpc_executable_handle_t executable_handle;
 } iree_hal_hexagon_executable_t;
 

@@ -23,7 +23,7 @@ There are two files resulting from the above build command:
 - `bazel-out/aarch64-*/bin/external/iree/tools/iree-run-module`:
   This is the main IREE runtime, which contains the ARM part of the Hexagon
   runtime.
-- `bazel-out/aarch64-dbg/bin/external/patio_runtime/hexagon/dsp/lib/hexagon/libhexagon_dsp_skel.so`:
+- `bazel-out/aarch64-*/bin/external/patio_runtime/hexagon/dsp/lib/hexagon/libhexagon_dsp_skel.so`:
   This is the DSP part of the Hexagon runtime.
 
 ## Deployment

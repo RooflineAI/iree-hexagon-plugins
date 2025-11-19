@@ -5,14 +5,58 @@
 #include "hexagon/buffer.h"
 #include "hexagon/channel.h"
 #include "hexagon/executable.h"
+#include "hexagon/rpc_types.h"
+#include "iree/base/api.h"
+#include "iree/hal/api.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_command_buffer_t
 //===----------------------------------------------------------------------===//
 
+typedef enum iree_hal_hexagon_command_type_e {
+  IREE_HAL_HEXAGON_COMMAND_DISPATCH,
+  IREE_HAL_HEXAGON_COMMAND_BARRIER,
+} iree_hal_hexagon_command_type_t;
+
+/// "base class" of commands
+typedef struct iree_hal_hexagon_command_base_s {
+  /// neighbors in doubly linked list
+  //@{
+  struct iree_hal_hexagon_command_base_s *prev;
+  struct iree_hal_hexagon_command_base_s *next;
+  //@}
+  /// type of "derived" command
+  iree_hal_hexagon_command_type_t cmd_type;
+  /// derived command data follows here
+} iree_hal_hexagon_command_base_t;
+
+/// dispatch command, "derived" from iree_hal_hexagon_command_base_t
+typedef struct iree_hal_hexagon_command_dispatch_s {
+  iree_hal_hexagon_command_base_t base; ///< keep this the first entry
+  /// executable that contains the function to call, not owned
+  iree_hal_executable_t *executable;
+  /// number of entry point to call from executable
+  int32_t entry_point;
+  /// bindings (i.e. fixed buffers or placeholders), pointer inside points to
+  /// this structure
+  iree_hal_buffer_ref_list_t bindings;
+  /// ... buffer for binding.values is appended after this struct
+} iree_hal_hexagon_command_dispatch_t;
+
+/// barrier command, "derived" from iree_hal_hexagon_command_base_t
+typedef struct iree_hal_hexagon_command_barrier_s {
+  iree_hal_hexagon_command_base_t base; ///< keep this the first entry
+} iree_hal_hexagon_command_barrier_t;
+
 typedef struct iree_hal_hexagon_command_buffer_t {
   iree_hal_command_buffer_t base;
   iree_allocator_t host_allocator;
+  rpc_session_handle_t rpc_session_handle; // not owned, owner: device
+  /// doubly linked list (non-circular) of entries
+  //@{
+  iree_hal_hexagon_command_base_t *first_entry;
+  iree_hal_hexagon_command_base_t *last_entry;
+  //@}
 } iree_hal_hexagon_command_buffer_t;
 
 static const iree_hal_command_buffer_vtable_t
@@ -28,7 +72,7 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
     iree_hal_allocator_t *device_allocator, iree_hal_command_buffer_mode_t mode,
     iree_hal_command_category_t command_categories,
     iree_hal_queue_affinity_t queue_affinity, iree_host_size_t binding_capacity,
-    iree_allocator_t host_allocator,
+    iree_allocator_t host_allocator, rpc_session_handle_t rpc_session_handle,
     iree_hal_command_buffer_t **out_command_buffer) {
   IREE_ASSERT_ARGUMENT(out_command_buffer);
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -47,6 +91,7 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
       binding_capacity, (uint8_t *)command_buffer + sizeof(*command_buffer),
       &iree_hal_hexagon_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
+  command_buffer->rpc_session_handle = rpc_session_handle;
 
   // TODO(hexagon): allocate any additional resources for managing command
   // buffer state. Some implementations may have their own command
@@ -54,8 +99,7 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
   // themselves using iree_arena_t/block pools. Implementations should also
   // retain any resources used during the recording and can use
   // iree_hal_resource_set_t* to make that easier.
-  iree_status_t status = iree_make_status(
-      IREE_STATUS_UNIMPLEMENTED, "command buffers not yet implemented");
+  iree_status_t status = iree_ok_status();
 
   if (iree_status_is_ok(status)) {
     *out_command_buffer = &command_buffer->base;
@@ -75,6 +119,12 @@ static void iree_hal_hexagon_command_buffer_destroy(
 
   // TODO(hexagon): release any implementation resources and
   // iree_hal_resource_set_t.
+  iree_hal_hexagon_command_base_t *cmd = command_buffer->first_entry;
+  while (cmd != NULL) {
+    iree_hal_hexagon_command_base_t *cmd_to_free = cmd;
+    cmd = cmd->next;
+    iree_allocator_free(command_buffer->host_allocator, cmd_to_free);
+  }
 
   iree_allocator_free(host_allocator, command_buffer);
 
@@ -97,9 +147,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_begin(
   // earlier than recording and any expensive work should be deferred until this
   // point to make profiling easier.
   (void)command_buffer;
-  iree_status_t status =
-      iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                       "command buffer recording start not implemented");
+  iree_status_t status = iree_ok_status();
 
   return status;
 }
@@ -145,6 +193,19 @@ static iree_status_t iree_hal_hexagon_command_buffer_end_debug_group(
   return iree_ok_status();
 }
 
+/// append command to command buffer
+static void iree_hal_hexagon_command_buffer_append(
+    iree_hal_hexagon_command_buffer_t *command_buffer,
+    iree_hal_hexagon_command_base_t *cmd) {
+  if (command_buffer->last_entry) {
+    command_buffer->last_entry->next = cmd;
+    cmd->prev = command_buffer->last_entry;
+  } else {
+    command_buffer->first_entry = cmd;
+  }
+  command_buffer->last_entry = cmd;
+}
+
 static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
     iree_hal_command_buffer_t *base_command_buffer,
     iree_hal_execution_stage_t source_stage_mask,
@@ -161,11 +222,28 @@ static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
   // that did happen before the barrier and all that will happen after. In
   // implementations that have no concurrency this can be a no-op. This is
   // effectively just a signal_event followed by a wait_event.
-  (void)command_buffer;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "execution barriers not implemented");
 
-  return status;
+  if (buffer_barrier_count != 0) {
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "Hexagon execution barriers do not support "
+                            "barriers on specific buffers");
+  }
+
+  // allocate buffer for barrier command
+  iree_hal_hexagon_command_barrier_t *barrier = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      command_buffer->host_allocator, sizeof(*barrier), (void **)&barrier));
+
+  // fill dispatch command
+  barrier->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
+  // TODO SCHUERMANS: fill other fields
+  // For now, there is only a single type of execution barrier with no options,
+  // so no other fields exist yet.
+
+  // append barrier command to command buffer
+  iree_hal_hexagon_command_buffer_append(command_buffer, &barrier->base);
+
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_command_buffer_signal_event(
@@ -335,11 +413,61 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   // CUSTOM_ARGUMENTS or INDIRECT_ARGUMENTS are specified, in which case they
   // are passed through directly either from the inlined constants provided to
   // this call or a device visible buffer.
-  (void)command_buffer;
-  iree_status_t status =
-      iree_make_status(IREE_STATUS_UNIMPLEMENTED, "dispatch not implemented");
 
-  return status;
+  if (iree_hal_dispatch_uses_custom_arguments(flags)) {
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "direct/indirect arguments are not supported on Hexagon");
+  }
+  if (iree_hal_dispatch_uses_indirect_parameters(flags)) {
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "indirect parameters are not supported on Hexagon");
+  }
+  if (config.workgroup_size[0] != 0 || config.workgroup_size[1] != 0 ||
+      config.workgroup_size[2] != 0 || config.workgroup_count[0] != 1 ||
+      config.workgroup_count[1] != 1 || config.workgroup_count[2] != 1) {
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "non-default workgroup sizes or workgroup counts "
+                            "different from one are not supported on Hexagon");
+  }
+  if (config.workgroup_count_ref.length != 0) {
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "indirect workgroup counts are not supported on Hexagon");
+  }
+  if (config.dynamic_workgroup_local_memory != 0) {
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "dynamic workgroup local memory is not supported on Hexagon");
+  }
+  if (constants.data_length != 0) {
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "constants are not supported on Hexagon");
+  }
+
+  // allocate buffer for dispatch command plus bindings in one block
+  iree_host_size_t bindings_sz = bindings.count * sizeof(iree_hal_buffer_ref_t);
+  iree_hal_hexagon_command_dispatch_t *dispatch = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(command_buffer->host_allocator,
+                                             sizeof(*dispatch) + bindings_sz,
+                                             (void **)&dispatch));
+
+  // fill dispatch command
+  dispatch->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
+  dispatch->executable = executable;
+  dispatch->entry_point = entry_point;
+  dispatch->bindings.count = bindings.count;
+  iree_hal_buffer_ref_t *bindings_values =
+      (iree_hal_buffer_ref_t *)((uint8_t *)dispatch + sizeof(*dispatch));
+  dispatch->bindings.values = bindings_values;
+
+  // copy content of bindings
+  memcpy(bindings_values, bindings.values, bindings_sz);
+
+  // append dispatch command to command buffer
+  iree_hal_hexagon_command_buffer_append(command_buffer, &dispatch->base);
+
+  return iree_ok_status();
 }
 
 static const iree_hal_command_buffer_vtable_t

@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "AEEStdErr.h"
-#include "hexagon/rpc_types_impl.h"
+#include "hexagon/rpc_types.h"
 #include "hexagon/utils.h"
 #include "hexagon_dsp.h"
 #include "iree/base/api.h"
@@ -20,7 +20,7 @@
 typedef struct iree_hal_hexagon_executable_t {
   iree_hal_resource_t resource;
   iree_allocator_t host_allocator;
-  const iree_hal_hexagon_rpc_session_t *rpc_session; // not owned, owner: device
+  rpc_session_handle_t rpc_session_handle; // not owned, owner: device
   char *so_file_path;
   rpc_executable_handle_t executable_handle;
 } iree_hal_hexagon_executable_t;
@@ -35,7 +35,7 @@ iree_hal_hexagon_executable_cast(iree_hal_executable_t *base_value) {
 
 static iree_status_t iree_hal_hexagon_executable_set_up(
     const iree_hal_executable_params_t *executable_params,
-    const iree_hal_hexagon_rpc_session_t *rpc_session,
+    rpc_session_handle_t rpc_session_handle,
     iree_hal_hexagon_executable_t *executable) {
   // To load the instructions to DSP memory and have it executable, it needs
   // to be written to an .so file which needs to be dlopen-ed on the DSP.
@@ -68,7 +68,7 @@ static iree_status_t iree_hal_hexagon_executable_set_up(
   }
 
   // Load executable on DSP side.
-  int dsp_err = hexagon_dsp_executable_load(executable->rpc_session->rpc_handle,
+  int dsp_err = hexagon_dsp_executable_load(executable->rpc_session_handle,
                                             executable->so_file_path,
                                             &executable->executable_handle);
   if (dsp_err != AEE_SUCCESS) {
@@ -81,8 +81,7 @@ static iree_status_t iree_hal_hexagon_executable_set_up(
 
 iree_status_t iree_hal_hexagon_executable_create(
     const iree_hal_executable_params_t *executable_params,
-    iree_allocator_t host_allocator,
-    const iree_hal_hexagon_rpc_session_t *rpc_session,
+    iree_allocator_t host_allocator, rpc_session_handle_t rpc_session_handle,
     iree_hal_executable_t **out_executable) {
   IREE_ASSERT_ARGUMENT(executable_params);
   IREE_ASSERT_ARGUMENT(out_executable);
@@ -97,7 +96,7 @@ iree_status_t iree_hal_hexagon_executable_create(
   iree_hal_resource_initialize(&iree_hal_hexagon_executable_vtable,
                                &executable->resource);
   executable->host_allocator = host_allocator;
-  executable->rpc_session = rpc_session;
+  executable->rpc_session_handle = rpc_session_handle;
 
   // TODO(hexagon): load executable module(s). Note that the input data should
   // be treated as untrusted and should be verified to the best ability the
@@ -120,7 +119,7 @@ iree_status_t iree_hal_hexagon_executable_create(
   // but you do you.
 
   iree_status_t status = iree_hal_hexagon_executable_set_up(
-      executable_params, rpc_session, executable);
+      executable_params, rpc_session_handle, executable);
 
   if (iree_status_is_ok(status)) {
     *out_executable = (iree_hal_executable_t *)executable;

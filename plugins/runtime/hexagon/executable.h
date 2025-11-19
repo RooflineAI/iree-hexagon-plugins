@@ -19,8 +19,7 @@
 // resources referenced within.
 iree_status_t iree_hal_hexagon_executable_create(
     const iree_hal_executable_params_t *executable_params,
-    iree_allocator_t host_allocator,
-    const iree_hal_hexagon_rpc_session_t *rpc_session,
+    iree_allocator_t host_allocator, rpc_session_handle_t rpc_session_handle,
     iree_hal_executable_t **out_executable);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_EXECUTABLE_H_

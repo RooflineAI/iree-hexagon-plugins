@@ -4,7 +4,6 @@
 
 #include "hexagon/executable.h"
 #include "hexagon/rpc_types.h"
-
 #include "hexagon_dsp.h"
 
 //===----------------------------------------------------------------------===//
@@ -14,7 +13,7 @@
 typedef struct iree_hal_hexagon_executable_cache_t {
   iree_hal_resource_t resource;
   iree_allocator_t host_allocator;
-  const iree_hal_hexagon_rpc_session_t *rpc_session;
+  rpc_session_handle_t rpc_session_handle; // not owned, owner: device
 } iree_hal_hexagon_executable_cache_t;
 
 static const iree_hal_executable_cache_vtable_t
@@ -29,7 +28,7 @@ iree_hal_hexagon_executable_cache_cast(
 
 iree_status_t iree_hal_hexagon_executable_cache_create(
     iree_string_view_t identifier, iree_allocator_t host_allocator,
-    const iree_hal_hexagon_rpc_session_t *rpc_session,
+    rpc_session_handle_t rpc_session_handle,
     iree_hal_executable_cache_t **out_executable_cache) {
   IREE_ASSERT_ARGUMENT(out_executable_cache);
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -42,7 +41,7 @@ iree_status_t iree_hal_hexagon_executable_cache_create(
   iree_hal_resource_initialize(&iree_hal_hexagon_executable_cache_vtable,
                                &executable_cache->resource);
   executable_cache->host_allocator = host_allocator;
-  executable_cache->rpc_session = rpc_session;
+  executable_cache->rpc_session_handle = rpc_session_handle;
 
   // TODO(hexagon): this default implementation is a no-op; if the
   // implementation supports caching or has prohibitively expensive executable
@@ -98,7 +97,7 @@ static iree_status_t iree_hal_hexagon_executable_cache_prepare_executable(
 
   return iree_hal_hexagon_executable_create(
       executable_params, executable_cache->host_allocator,
-      executable_cache->rpc_session, out_executable);
+      executable_cache->rpc_session_handle, out_executable);
 }
 
 static const iree_hal_executable_cache_vtable_t

@@ -21,7 +21,7 @@
 #include <remote.h>
 
 #include "hexagon_dsp.h"
-#include "rpc_types_impl.h"
+#include "rpc_types.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_device_options_t
@@ -60,7 +60,7 @@ typedef struct iree_hal_hexagon_device_t {
   iree_hal_allocator_t *device_allocator;
 
   /// Connection to DSP / DSP RPC session.
-  iree_hal_hexagon_rpc_session_t rpc_session;
+  rpc_session_handle_t rpc_session_handle;
 
   // Optional provider used for creating/configuring collective channels.
   iree_hal_channel_provider_t *channel_provider;
@@ -268,13 +268,12 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   strcat(uri, suffix);
 
   // Open the actual DSP RPC session.
-  int dsp_open_ret = hexagon_dsp_open(uri, &device->rpc_session.rpc_handle);
+  int dsp_open_ret = hexagon_dsp_open(uri, &device->rpc_session_handle);
   iree_allocator_free(device->host_allocator, uri);
   if (dsp_open_ret != AEE_SUCCESS) {
     return iree_make_status(IREE_STATUS_UNKNOWN,
                             "opening RPC session with DSP failed");
   }
-  device->rpc_session.rpc_is_open = 1;
 
   return iree_ok_status();
 }
@@ -327,8 +326,8 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
   // the implementation performs internal async operations those should be
   // shutdown and joined first.
 
-  if (device->rpc_session.rpc_is_open) {
-    hexagon_dsp_close(device->rpc_session.rpc_handle);
+  if (device->rpc_session_handle) {
+    hexagon_dsp_close(device->rpc_session_handle);
   }
 
   iree_hal_allocator_release(device->device_allocator);
@@ -473,7 +472,7 @@ static iree_status_t iree_hal_hexagon_device_create_command_buffer(
   return iree_hal_hexagon_command_buffer_create(
       iree_hal_device_allocator(base_device), mode, command_categories,
       queue_affinity, binding_capacity, device->host_allocator,
-      out_command_buffer);
+      device->rpc_session_handle, out_command_buffer);
 }
 
 static iree_status_t iree_hal_hexagon_device_create_event(
@@ -501,7 +500,7 @@ static iree_status_t iree_hal_hexagon_device_create_executable_cache(
 
   return iree_hal_hexagon_executable_cache_create(
       identifier, iree_hal_device_host_allocator(base_device),
-      &device->rpc_session, out_executable_cache);
+      device->rpc_session_handle, out_executable_cache);
 }
 
 static iree_status_t iree_hal_hexagon_device_import_file(

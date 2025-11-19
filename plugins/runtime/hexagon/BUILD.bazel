@@ -38,7 +38,6 @@ iree_runtime_cc_library(
         "executable_cache.c",
         "executable_cache.h",
         "rpc_types.h",
-        "rpc_types_impl.h",
         "semaphore.c",
         "semaphore.h",
         "utils.c",

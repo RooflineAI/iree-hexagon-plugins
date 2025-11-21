@@ -32,6 +32,11 @@ void iree_hal_hexagon_mem_alloc_retain(iree_hal_hexagon_mem_alloc_t *alloc);
 /// free it if counter reaches zero.
 void iree_hal_hexagon_mem_alloc_release(iree_hal_hexagon_mem_alloc_t *alloc);
 
+/// Return the host span to the memory allocation if possible.
+iree_status_t
+iree_hal_hexagon_mem_alloc_get_host_span(iree_hal_hexagon_mem_alloc_t *alloc,
+                                         iree_byte_span_t *out_host_span);
+
 /// Return the impl_ptr from inside the memory allocation for accounting
 /// purposes. It just needs to be stable (not change for the same alloc) and be
 /// different for each alloc (see comment in

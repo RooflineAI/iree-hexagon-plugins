@@ -2,7 +2,9 @@
 
 #include "hexagon/buffer.h"
 
+#include <iree/base/allocator.h>
 #include <iree/base/status.h>
+#include <iree/hal/buffer.h>
 
 #include "hexagon/api.h"
 #include "hexagon/mem_alloc.h"
@@ -125,11 +127,28 @@ static iree_status_t iree_hal_hexagon_buffer_map_range(
   // can be used by implementations that have no way of providing host pointers
   // at a large cost (alloc + device->host transfer on map and host->device
   // transfer + dealloc on umap). Try not to use that.
-  (void)buffer;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "buffer mapping not implemented");
 
-  return status;
+  // On Hexagon, there is currently no need to do an actual mapping - either the
+  // memory is mapped ot host already (host memory and RPC memory) or it is not
+  // possible to map the memory to host (device memory).
+
+  // Get host span - if available.
+  iree_byte_span_t host_span;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_hexagon_mem_alloc_get_host_span(buffer->alloc, &host_span));
+
+  // Check requested offset and size.
+  if (local_byte_offset > host_span.data_length ||
+      local_byte_offset + local_byte_length > host_span.data_length) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "access beyond end of buffer requested");
+  }
+
+  // Return a mapping to the request part of the buffer.
+  mapping->contents = iree_make_byte_span(host_span.data + local_byte_offset,
+                                          local_byte_length);
+  mapping->buffer = base_buffer;
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_buffer_unmap_range(
@@ -141,11 +160,12 @@ static iree_status_t iree_hal_hexagon_buffer_unmap_range(
   // explicit via invalidate_range and need not be performed here. If using
   // emulated mapping this must call iree_hal_buffer_emulated_unmap_range to
   // release the transient resources.
-  (void)buffer;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "buffer mapping not implemented");
 
-  return status;
+  // On Hexagon, there is currently no need to do an actual mapping - and thus
+  // no actual unmapping. See _map_range().
+  (void)buffer;
+
+  return iree_ok_status();
 }
 
 static iree_status_t

@@ -183,6 +183,33 @@ void iree_hal_hexagon_mem_alloc_release(iree_hal_hexagon_mem_alloc_t *alloc) {
   iree_allocator_free(alloc->host_allocator, alloc);
 }
 
+iree_status_t
+iree_hal_hexagon_mem_alloc_get_host_span(iree_hal_hexagon_mem_alloc_t *alloc,
+                                         iree_byte_span_t *out_host_span) {
+  IREE_ASSERT_ARGUMENT(alloc);
+  IREE_ASSERT_ARGUMENT(out_host_span);
+  out_host_span->data = NULL;
+  out_host_span->data_length = 0;
+
+  switch (alloc->kind) {
+  case IREE_HAL_HEXAGON_MEM_KIND_HOST:
+    out_host_span->data = alloc->ptr.host;
+    out_host_span->data_length = alloc->size;
+    return iree_ok_status();
+  case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
+    out_host_span->data = alloc->ptr.rpcmem.host;
+    out_host_span->data_length = alloc->size;
+    return iree_ok_status();
+  case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
+    // no host pointer available
+    break;
+  }
+
+  return iree_make_status(IREE_STATUS_INCOMPATIBLE,
+                          "Hexagon memory kind %d does not have a host pointer",
+                          alloc->kind);
+}
+
 void *iree_hal_hexagon_mem_alloc_impl_ptr(iree_hal_hexagon_mem_alloc_t *alloc) {
   return alloc->ptr.impl_ptr;
 }

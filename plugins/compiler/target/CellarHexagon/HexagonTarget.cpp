@@ -1,96 +1,167 @@
-// Copyright 2020 The IREE Authors
-//
 // Copyright 2025 RooflineAI GmbH
 //
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "CodeGen/HexagonCodeGenPipeline.h"
+#include <cstdio>
+#include <mutex>
+#include <optional>
+#include <vector>
 
+#include "CodeGen/HexagonCodeGenPipeline.h"
+#include "CodeGen/HexagonEncodingExternalModels.h"
+#include "CodeGen/HexagonLinkerTool.h"
+#include "CodeGen/IR/HexagonEncodingAttrs.h"
+#include "CodeGen/IR/HexagonEncodingDialect.h"
+
+#include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
+#include "compiler/plugins/target/LLVMCPU/LinkerTool.h"
+#include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
 #include "iree/compiler/Dialect/HAL/Target/TargetBackend.h"
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
 #include "iree/compiler/PluginAPI/Client.h"
 #include "iree/compiler/Utils/OptionUtils.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/Location.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Export.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Bitcode/BitcodeWriter.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/Module.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
 
+#define DEBUG(text, op)                                                        \
+  std::cerr << "DEBUG-LUIS: I reached up until: " << (text) << "\n"            \
+            << "For op: " << (op) << "\n";
+
+// TODO: After copy pasting so much code, I completely messed up the namespaces,
+// clean this up. You currently have namespaces for the same functionality
+// everywhere and incoherences in naming
+// Please do not add the llvm namespace or the code becomes illegible
 using namespace mlir;
 using namespace mlir::iree_compiler;
-using namespace mlir::iree_compiler::IREE;
 using namespace mlir::iree_compiler::IREE::HAL;
 
 namespace hexagon::HAL {
 
-namespace {
-
-// Debugging function
-static void dumpModuleToPath(StringRef path, StringRef baseName,
-                             StringRef suffix, StringRef extPrefix,
-                             mlir::ModuleOp module) {
-  // TODO: Another placeholder to help with debugging later on
-  if (path.empty() || !module)
-    module->emitError("Tried dumping a null module or to an empty path. How "
-                      "did you mess up the debugging code dude...");
-
+static void dumpMLIRModuleToPath(StringRef path, StringRef baseName,
+                                 StringRef suffix, StringRef extPrefix,
+                                 ModuleOp module) {
   std::string extension = (extPrefix + ".mlir").str();
   std::string textData;
   llvm::raw_string_ostream os(textData);
-  mlir::OpPrintingFlags printingFlags;
+  OpPrintingFlags printingFlags;
   printingFlags.enableDebugInfo(true);
+  // These two flags are meant to avoid heisenbugs related to MLIR's module
+  // printing.
+  // MLIR recommends printing only with multi-threading disabled, see
+  // https://mlir.llvm.org/docs/PassManagement/#ir-printing
+  //
+  // When multi-threading is enabled the class AsmPrinter.cpp walks through the
+  // the same data in parallel or may alternatively trigger multiple
+  // verifications at the same time. These flags avoid any traversal through
+  // shared state between threads. It is unclear to me where data is modified
+  // and not only read in the AsmPrinter.cpp, but this looks like it makes the
+  // bug disappear. If you find the line modifying the data, please ping for my
+  // curiosity.
+  printingFlags.assumeVerified(true);
+  printingFlags.useLocalScope(true);
   module.print(os, printingFlags);
 
   dumpDataToPath(path, baseName, suffix, extension, textData);
 }
 
+static void dumpLLVMModuleToPath(StringRef path, StringRef baseName,
+                                 StringRef suffix, llvm::Module &module) {
+  llvm::SmallVector<char, 0> textData;
+  llvm::raw_svector_ostream ostream(textData);
+  module.print(ostream, nullptr);
+  dumpDataToPath(path, baseName, suffix, ".ll",
+                 StringRef(textData.data(), textData.size()));
+
+  // Dump bitcode to path.
+  llvm::SmallVector<char> binaryData;
+  llvm::raw_svector_ostream binaryOstream(binaryData);
+  // Write the specified module to the specified output stream.
+  llvm::WriteBitcodeToFile(module, binaryOstream);
+  dumpDataToPath(path, baseName, suffix, ".bc",
+                 StringRef(binaryData.data(), binaryData.size()));
+}
+
+// Registers all LLVM components required for Hexagon code generation.
+static void initializeHexagonTarget() {
+  static std::once_flag init;
+  std::call_once(init, []() {
+    LLVMInitializeHexagonTargetInfo();
+    LLVMInitializeHexagonTarget();
+    LLVMInitializeHexagonTargetMC();
+    LLVMInitializeHexagonAsmPrinter();
+    LLVMInitializeHexagonAsmParser();
+    LLVMInitializeHexagonDisassembler();
+  });
+}
+
 // These options describe the available fields that are reused in the Hexagon
 // TargetDevice and TargetBackend. They are available as CLI arguments obviously
 struct HexagonOptions {
-  std::string architecture = "79";
+  std::string version = "79";
+  std::string features = "";
+  std::string linker = "";
 
   void bindOptions(OptionsBinder &binder) {
-    // TODO: Placeholder option for now.
+    // TODO: Placeholder options for now.
     // I think we still do not know what architecture we are going to be working
     // with, placeholder option to determine it
     static llvm::cl::OptionCategory category("Hexagon HAL Target");
     binder.opt<std::string>(
-        "iree-hexagon-v", architecture, llvm::cl::cat(category),
+        "iree-hexagon-v", version, llvm::cl::cat(category),
         llvm::cl::desc("Hexagon ISA version to target (e.g. 68, 69, 73, 79)."));
+    // TODO: This might need to be passed to the llvm backend. I have not
+    // verified that it modifies the generated code yet, but I am leaving it
+    // here to remember to check this further down the line.
+    binder.opt<std::string>(
+        "iree-hexagon-features", features, llvm::cl::cat(category),
+        llvm::cl::desc(
+            "Hexagon features supported to be passed to the llvm backend (e.g. "
+            "+hvxv79,+hvx-length128b). Use llc to determine other options."));
+
+    binder.opt<std::string>(
+        "iree-hexagon-linker-path", linker, llvm::cl::cat(category),
+        llvm::cl::desc("Hexagon linker tool path to use during serialization. "
+                       "Currently supported linkers are lld and hexagon-clang "
+                       "(available in Hexagon's SDK)"));
   }
 };
 
 // This is a custom TargetDevice for Hexagon.
-// If I understand correctly, this should embed an attribute into the IR to be
-// consumed by the runtime. This code is copied from the CUDATarget.cpp plugin.
-// TODO: This means that I should synchronize with Stefan on what would be
-// needed here, what information should I pass the runtime from the codegen side
+// This embeds an attribute into the IR containing information for the runtime.
+// Right now, this is modeled after LLVMCPUTarget and only contains a reference
+// to the TargetBackend attribute and the name of the target device.
 class HexagonTargetDevice final : public TargetDevice {
 public:
   explicit HexagonTargetDevice(const HexagonOptions &options)
       : options(options) {}
 
-  IREE::HAL::DeviceTargetAttr
+  DeviceTargetAttr
   getDefaultDeviceTarget(MLIRContext *context,
                          const TargetRegistry &targetRegistry) const override {
     Builder builder(context);
-    // Example of how to pass an additional config attr
-    SmallVector<NamedAttribute> deviceConfigItems = {
-        builder.getNamedAttr("hexagon.arch",
-                             builder.getStringAttr(options.architecture)),
-    };
-    // The deviceTargetAttr requires deviceConfigAttr and executableTargetAttrs,
-    // I am not asking questions about it right now.
-    auto deviceConfigAttr = builder.getDictionaryAttr(deviceConfigItems);
     auto executableConfigAttr = builder.getDictionaryAttr({});
+    SmallVector<ExecutableTargetAttr> executableTargetAttrs;
 
-    // TODO: This is just querying the TargetBackend below. I am unsure why this
-    // has to be managed here instead of querying it directly (since it is
-    // embedded in the IR right?), but I am copy pasting right now. Answer this
-    // question later.
-    SmallVector<IREE::HAL::ExecutableTargetAttr> executableTargetAttrs;
     if (auto targetBackend = targetRegistry.getTargetBackend("hexagon")) {
       targetBackend->getDefaultExecutableTargets(
           context, "hexagon", executableConfigAttr, executableTargetAttrs);
@@ -100,20 +171,20 @@ public:
       return {};
     }
 
-    return IREE::HAL::DeviceTargetAttr::get(
-        context, builder.getStringAttr("hexagon"), deviceConfigAttr,
-        executableTargetAttrs);
+    // Note that we currently have no additional configuration information.
+    return DeviceTargetAttr::get(context, builder.getStringAttr("hexagon"), {},
+                                 executableTargetAttrs);
   }
 
   // TODO: This is also a placeholder and is currently incomplete.
   // This is just meant for verification so I should be able to ignore it for
   // now...
-  // Should: "Builds an expression that returns an i1 indicating whether
+  // Should: "Build an expression that returns an i1 indicating whether
   // the given |device| matches the |targetAttr| requirements."
   Value buildDeviceTargetMatch(Location loc, Value device,
-                               IREE::HAL::DeviceTargetAttr targetAttr,
+                               DeviceTargetAttr targetAttr,
                                OpBuilder &builder) const override {
-    return IREE::HAL::DeviceTargetAttr::buildDeviceIDAndExecutableFormatsMatch(
+    return DeviceTargetAttr::buildDeviceIDAndExecutableFormatsMatch(
         loc, device, "hexagon*", targetAttr.getExecutableTargets(), builder);
   }
 
@@ -121,57 +192,112 @@ private:
   const HexagonOptions &options;
 };
 
+// This function creates a LLVM target for Hexagon. This is different
+// from LLVMCPU since this logic is usually managed by multiple
+// classes that do necessary adjustments depending on host machine or
+// cross-compilation options. The cleanest way of implementing this would be to
+// extend the LLVMCPUTarget functions managing this to support Hexagon, but this
+// wraps around some of those calls instead to avoid modifying code outside this
+// plugin
+static LLVMTarget createLLVMTargetForHexagon(const HexagonOptions &options) {
+  constexpr StringRef triple = "hexagon-unknown-unknown-elf";
+  std::string cpuName = std::string("hexagonv") + options.version;
+  ResolveCPUAndCPUFeaturesStatus status;
+
+  // FIXME: This calls resolveCPUAndCPUFeatures that will fail because hexagon
+  // is not registered as an LLVMTarget in IREE. Since I am just prototyping, I
+  // will ignore the failed status and manually input the necessary info
+  // (hardcoded) in the target (dataLayout and vectorWidth). The correct way
+  // of doing this would be to update IREE I guess.
+  auto targetOption =
+      LLVMTarget::create(triple, cpuName, options.features, false, status);
+  if (!targetOption)
+    llvm::errs() << "Failed to define default LLVMTarget for Hexagon";
+  auto target = targetOption.value();
+
+  target.dataLayout =
+      "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:"
+      "32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-"
+      "v2048:2048:2048";
+
+  // TODO: This something expected by CPU passes, but does not really make
+  // that much sense in the context of Hexagon. Passes dependent on it should
+  // be later revisited.
+  target.vectorWidthInBytes = 32;
+
+  return target;
+}
+
 class HexagonTargetBackend final : public TargetBackend {
 public:
   HexagonTargetBackend(const HexagonOptions &options) : options(options) {}
 
-  // TODO: Ask Stefan about this
-  // from his draft pr, I think this is the expected name
-  // https://app.graphite.dev/github/pr/RooflineAI/roof-mlir/847/feat(hexagon)-runtime-skeleton-for-Hexagon#file-plugins/runtime/hexagon/registration/driver_module.c
-  // Can currently be tested with :
-  // iree-compile --iree-plugin=hal_target_hexagon --iree-hexagon-v=79
-  // --iree-hal-target-backends=hexagon --iree-hal-target-device=hexagon
-  // ./check_correct_registration.mlir -o erase.vmfb
   std::string getLegacyDefaultDeviceID() const override { return "hexagon"; }
 
-  // TODO: Decide what is the necessary information that should be embedded in
-  // the IR
-  void getDefaultExecutableTargets(
-      MLIRContext *context, StringRef deviceID, DictionaryAttr deviceConfigAttr,
-      SmallVectorImpl<IREE::HAL::ExecutableTargetAttr> &executableTargetAttrs)
-      const override {
+  void getDefaultExecutableTargets(MLIRContext *context, StringRef deviceID,
+                                   DictionaryAttr deviceConfigAttr,
+                                   SmallVectorImpl<ExecutableTargetAttr>
+                                       &executableTargetAttrs) const override {
     executableTargetAttrs.push_back(getExecutableTarget(context));
   }
 
-  // TODO: Check claim:
-  // This is supposed to be extracting information embedded in the IR under
-  // hexagon.arch and is meant to provide information for the HAL
-  IREE::HAL::ExecutableTargetAttr
-  getExecutableTarget(MLIRContext *context) const {
+  // This generates an attr that will be embedded in the IR and that
+  // is used by some of the passes
+  //
+  // One of the informations we have to embed into the IR is the encoding.
+  // It consists of metadata describing layout and tiling information.
+  //
+  // This works in tandem with the resolver, who is in charge of using this
+  // additional information to generate the tiling.
+  //
+  // This is needed, even for prototyping simple scalar backends, because
+  // otherwise linalg operations do not get lowered in passes such as
+  // materializeEncodings.
+  ExecutableTargetAttr getExecutableTarget(MLIRContext *context) const {
     Builder builder(context);
-    SmallVector<NamedAttribute> configItems = {
-        builder.getNamedAttr("hexagon.arch",
-                             builder.getStringAttr(options.architecture)),
-    };
 
-    return builder.getAttr<IREE::HAL::ExecutableTargetAttr>(
-        builder.getStringAttr("hexagon"), builder.getStringAttr("hexagon-llvm"),
+    auto target = createLLVMTargetForHexagon(options);
+
+    SmallVector<NamedAttribute> configItems;
+    target.storeToConfigAttrs(context, configItems);
+
+    // New config, unused for now, this is just a placeholder
+    configItems.emplace_back(builder.getNamedAttr(
+        "hexagon.version", builder.getStringAttr(options.version)));
+
+    // I tried using the already existing CPUEncodingResolverAttr. This does not
+    // play properly with the custom target backend, so creating a custom one is
+    // needed, even for prototyping
+    // This is what is being used for data tiling in the CPU pipeline
+    configItems.emplace_back(
+        builder.getStringAttr(IREE::Encoding::kEncodingResolverAttrName),
+        IREE::Hexagon::HexagonEncodingResolverAttr::get(context, {}));
+
+    // The first two attributes are only identifiers if I am not wrong.
+    // The second one interacts with the HAL. It follows the pattern
+    // [loader]-[format]-[arch]. Check LLVMCPUTarget:188 for the example this is
+    // based on.
+    // Might be changed in the future to qurt-elf-hexagon
+    return builder.getAttr<ExecutableTargetAttr>(
+        builder.getStringAttr("hexagon"),
+        builder.getStringAttr("embedded-elf-hexagon"),
         builder.getDictionaryAttr(configItems));
   }
 
   void getDependentDialects(DialectRegistry &registry) const override {
-    // TODO: Decide on the needed dialects for hexagon
-    // This can be entirely removed though
+    registry.insert<LLVM::LLVMDialect>();
+    registerBuiltinDialectTranslation(registry);
+    registerLLVMDialectTranslation(registry);
   }
 
-  void
-  buildConfigurationPassPipeline(IREE::HAL::ExecutableTargetAttr targetAttr,
-                                 OpPassManager &passManager) override {
+  // These are hooks into the HAL managed pipelines.
+  void buildConfigurationPassPipeline(ExecutableTargetAttr targetAttr,
+                                      OpPassManager &passManager) override {
     (void)targetAttr;
     cellar::target::hexagon::buildHexagonConfigurationPassPipeline(passManager);
   }
 
-  void buildTranslationPassPipeline(IREE::HAL::ExecutableTargetAttr targetAttr,
+  void buildTranslationPassPipeline(ExecutableTargetAttr targetAttr,
                                     OpPassManager &passManager) override {
     (void)targetAttr;
     cellar::target::hexagon::buildHexagonTranslationPassPipeline(passManager);
@@ -181,33 +307,137 @@ public:
     cellar::target::hexagon::buildHexagonLinkingPassPipeline(passManager);
   }
 
+  // Here we are creating our output .vmfb that should contain:
+  // .so, constants.bin and .fb
+  // For more info, check here:
+  // https://linear.app/roofline/document/luis-meeting-notes-fec2bd974e4a
+  //
+  // Takes charge of translating to LLVMIR, calling the LLVM hexagon
+  // target, linking the files and calling the emitFile passes to finally
+  // create the executable.
   LogicalResult serializeExecutable(const SerializationOptions &options,
-                                    IREE::HAL::ExecutableVariantOp variantOp,
+                                    ExecutableVariantOp variantOp,
                                     OpBuilder &executableBuilder) override {
-    // TODO: Here is the main function from TargetBackend
-    // Here is where we are supposed to create our output
-    // We are supposed to create a .vmfb that should contain:
-    // .so, constants.bin and .fb
-    // For more info, check here:
-    // https://linear.app/roofline/document/luis-meeting-notes-fec2bd974e4a
 
-    // Discussion on how to finish the plumbing with the SDK should also be
-    // managed here
-
-    // TODO: Placeholder for debugging later on
     if (!options.dumpIntermediatesPath.empty()) {
-      dumpModuleToPath(options.dumpIntermediatesPath, options.dumpBaseName,
-                       variantOp.getName(), ".codegen",
-                       variantOp.getInnerModule());
+      dumpMLIRModuleToPath(options.dumpIntermediatesPath, options.dumpBaseName,
+                           variantOp.getName(), ".codegen",
+                           variantOp.getInnerModule());
     }
 
-    // Right now, trying to execute this function and returning a success
-    // results in some incomprehensible error. I tried passing dummy binaries
-    // (handwritten) or linalg operations, but both yielded different errors.
-    // Maybe I will not be able to test this until I have an actual working
-    // lowering pipeline.
+    initializeHexagonTarget();
 
-    return variantOp.emitOpError("Hexagon serialization not implemented yet");
+    // Conversions between IREE and LLVM types
+    // Note that the LLVM Target type and its related functions are reusing part
+    // of IREE's LLVMCPUTarget plugin
+    // Retrieve IREE's LLVM target and create the LLVM's TargetMachine from it.
+    auto targetAttr = variantOp.getTarget();
+    DictionaryAttr configAttr = targetAttr.getConfiguration();
+    if (!configAttr)
+      variantOp->emitError("Failed to retrieve target attribute configuration");
+
+    auto llvmTargetOption = LLVMTarget::loadFromConfigAttr(
+        variantOp->getLoc(), configAttr,
+        createLLVMTargetForHexagon(this->options));
+    if (!llvmTargetOption)
+      llvm::errs() << "Failed to load LLVMTarget from configuration attributes";
+    const auto &llvmIreeTarget = llvmTargetOption.value();
+
+    auto targetMachine = createTargetMachine(llvmIreeTarget);
+    if (!targetMachine) {
+      return mlir::emitError(variantOp.getLoc())
+             << "failed to create target machine for target triple '"
+             << llvmIreeTarget.getTriple() << "'";
+    }
+
+    llvm::LLVMContext context;
+    auto libraryName =
+        variantOp->getParentOfType<ExecutableOp>().getName().str();
+
+    // Convert the MLIR LLVM dialect module to an llvm::Module for codegen.
+    auto llvmModule = translateModuleToLLVMIR(variantOp.getInnerModule(),
+                                              context, libraryName);
+    if (!llvmModule)
+      return variantOp.emitOpError()
+             << "failed to translate module to LLVM IR for Hexagon";
+
+    if (!options.dumpIntermediatesPath.empty()) {
+      dumpLLVMModuleToPath(options.dumpIntermediatesPath, options.dumpBaseName,
+                           variantOp.getName(), *llvmModule);
+    }
+
+    // Run the target backend codegen pipeline to produce an ELF object.
+    llvm::SmallVector<char, 0> objectDataStorage;
+    llvm::raw_svector_ostream objectStream(objectDataStorage);
+    llvm::legacy::PassManager passManager;
+    if (targetMachine->addPassesToEmitFile(passManager, objectStream, nullptr,
+                                           llvm::CodeGenFileType::ObjectFile)) {
+      return variantOp.emitOpError()
+             << "Hexagon target machine cannot emit object files";
+    }
+    passManager.run(*llvmModule);
+    std::vector<int8_t> objectData(objectDataStorage.begin(),
+                                   objectDataStorage.end());
+
+    if (!options.dumpBinariesPath.empty()) {
+      dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
+                             variantOp.getName(), ".o", objectData);
+    }
+
+    // Persist the temporary object to disk so the linker can turn it into an
+    // ET_DYN shared object
+    SmallVector<Artifact> objectFiles;
+    {
+      Artifact objectFile = Artifact::createTemporary(libraryName, "o");
+      auto &os = objectFile.outputFile->os();
+      os.write(reinterpret_cast<const char *>(objectData.data()),
+               objectData.size());
+      os.flush();
+      os.close();
+      objectFiles.push_back(std::move(objectFile));
+    }
+
+    // I can optionally pass more arguments here, but any other options would
+    // not be useful given my current custom implementation of the linker. This
+    // type is yet another example of reused code from LLVMCPUTarget that is
+    // meant for more complex logic
+    LLVMTargetOptions linkerOptions;
+    linkerOptions.target.copy(llvmIreeTarget);
+    linkerOptions.embeddedLinkerPath = this->options.linker;
+
+    auto linkerTool = createHexagonLinkerTool(targetMachine->getTargetTriple(),
+                                              linkerOptions);
+
+    auto linkedArtifactsOption =
+        linkerTool->linkDynamicLibrary(libraryName, objectFiles);
+    if (!linkedArtifactsOption) {
+      return variantOp.emitOpError() << "failed to link Hexagon shared object "
+                                        "(see linker output above)";
+    }
+
+    auto &linkedArtifacts = linkedArtifactsOption.value();
+    auto libraryFileOption = linkedArtifacts.libraryFile.read();
+    if (!libraryFileOption) {
+      return variantOp.emitOpError()
+             << "failed to read back linked Hexagon library from "
+             << linkedArtifacts.libraryFile.path;
+    }
+    if (!options.dumpBinariesPath.empty()) {
+      dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
+                             variantOp.getName(), ".so",
+                             libraryFileOption.value());
+    }
+    auto bufferAttr = DenseIntElementsAttr::get(
+        VectorType::get({static_cast<int64_t>(libraryFileOption->size())},
+                        IntegerType::get(executableBuilder.getContext(), 8)),
+        std::move(libraryFileOption.value()));
+    auto binaryOp = ExecutableBinaryOp::create(
+        executableBuilder, variantOp.getLoc(), variantOp.getSymName(),
+        variantOp.getTarget().getFormat(), bufferAttr);
+    binaryOp.setMimeTypeAttr(
+        executableBuilder.getStringAttr("application/x-elf"));
+
+    return success();
   }
 
 private:
@@ -223,28 +453,33 @@ struct HexagonSession
     cellar::target::hexagon::registerHexagonCodeGenPasses();
   };
 
-  void populateHALTargetDevices(IREE::HAL::TargetDeviceList &targets) override {
+  // For some reason, trying to override registerGlobalDialects through the CRTP
+  // does not work, so this is an alternative. Not sure about the difference.
+  void onRegisterDialects(DialectRegistry &registry) override {
+    registry.insert<IREE::Hexagon::IREEHexagonEncodingDialect>();
+    iree_compiler::hexagon::registerHexagonEncodingExternalModels(registry);
+  }
+
+  void populateHALTargetDevices(TargetDeviceList &targets) override {
     targets.add("hexagon", [=, this]() {
       return std::make_shared<HexagonTargetDevice>(options);
     });
   }
 
-  void
-  populateHALTargetBackends(IREE::HAL::TargetBackendList &targets) override {
+  void populateHALTargetBackends(TargetBackendList &targets) override {
     targets.add("hexagon", [=, this]() {
       return std::make_shared<HexagonTargetBackend>(options);
     });
   }
 };
 
-} // namespace
-
 } // namespace hexagon::HAL
 
-IREE_DEFINE_COMPILER_OPTION_FLAGS(hexagon::HAL::HexagonOptions);
+IREE_DEFINE_COMPILER_OPTION_FLAGS(::hexagon::HAL::HexagonOptions);
 
 extern "C" bool iree_register_compiler_plugin_hal_target_hexagon(
-    mlir::iree_compiler::PluginRegistrar *registrar) {
-  registrar->registerPlugin<hexagon::HAL::HexagonSession>("hal_target_hexagon");
+    iree_compiler::PluginRegistrar *registrar) {
+  registrar->registerPlugin<::hexagon::HAL::HexagonSession>(
+      "hal_target_hexagon");
   return true;
 }

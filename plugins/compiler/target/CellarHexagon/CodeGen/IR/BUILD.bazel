@@ -1,0 +1,89 @@
+# Copyright 2025 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load(
+    "@iree//build_tools/bazel:build_defs.oss.bzl",
+    "iree_compiler_cc_library",
+    "iree_gentbl_cc_library",
+    "iree_td_library",
+)
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+iree_td_library(
+    name = "hexagon_encoding_td_files",
+    srcs = [
+        "HexagonEncodingAttrs.td",
+        "HexagonEncodingDialect.td",
+    ],
+    deps = [
+        "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:td_files",
+        "@llvm-project//mlir:DialectUtilsTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+    ],
+)
+
+iree_gentbl_cc_library(
+    name = "HexagonEncodingDialectGen",
+    tbl_outs = [
+        (
+            ["--gen-dialect-decls"],
+            "HexagonEncodingDialect.h.inc",
+        ),
+        (
+            ["--gen-dialect-defs"],
+            "HexagonEncodingDialect.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "HexagonEncodingDialect.td",
+    deps = [":hexagon_encoding_td_files"],
+)
+
+iree_gentbl_cc_library(
+    name = "HexagonEncodingAttrsGen",
+    tbl_outs = [
+        (
+            ["--gen-attrdef-decls"],
+            "HexagonEncodingAttrs.h.inc",
+        ),
+        (
+            ["--gen-attrdef-defs"],
+            "HexagonEncodingAttrs.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "HexagonEncodingAttrs.td",
+    deps = [":hexagon_encoding_td_files"],
+)
+
+iree_compiler_cc_library(
+    name = "HexagonEncodingIR",
+    srcs = [
+        "HexagonEncodingAttrs.cpp",
+        "HexagonEncodingAttrs.cpp.inc",
+        "HexagonEncodingDialect.cpp",
+        "HexagonEncodingDialect.cpp.inc",
+    ],
+    hdrs = [
+        "HexagonEncodingAttrs.h",
+        "HexagonEncodingAttrs.h.inc",
+        "HexagonEncodingDialect.h",
+        "HexagonEncodingDialect.h.inc",
+    ],
+    deps = [
+        ":HexagonEncodingAttrsGen",
+        ":HexagonEncodingDialectGen",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Dialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
+)

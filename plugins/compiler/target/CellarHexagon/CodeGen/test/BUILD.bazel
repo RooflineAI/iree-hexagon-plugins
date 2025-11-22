@@ -1,5 +1,3 @@
-# Copyright 2020 The IREE Authors
-#
 # Copyright 2025 RooflineAI GmbH
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
@@ -17,8 +15,11 @@ iree_lit_test_suite(
     name = "lit",
     srcs = enforce_glob(
         [
-            "check_correct_registration.mlir",
-            "check_executable_dump.mlir",
+            "check_correct_plugin_registration.mlir",
+            "check_encoder_and_materializer_registration.mlir",
+            "check_executable_generation_and_ll_dumping.mlir",
+            "check_target_attribute_embedding.mlir",
+            "check_shared_objects_have_correct_type.mlir",
         ],
         include = ["*.mlir"],
     ),
@@ -26,6 +27,7 @@ iree_lit_test_suite(
     tools = [
         "@iree//tools:iree-compile",
         "@iree//tools:iree-opt",
+        "@llvm-project//lld:ld.lld",
         "@llvm-project//llvm:FileCheck",
         "@llvm-project//llvm:not",
     ],

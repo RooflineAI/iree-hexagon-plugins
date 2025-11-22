@@ -1,5 +1,3 @@
-// Copyright 2020 The IREE Authors
-//
 // Copyright 2025 RooflineAI GmbH
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https: // llvm.org/LICENSE.txt for license information.
@@ -7,18 +5,21 @@
 
 #include "HexagonCodeGenPipeline.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
 
 using namespace mlir;
+using namespace mlir::iree_compiler;
 
+// TODO: I do not understand the convention for this namespace, everyone does
+// something different...
 namespace cellar::target::hexagon {
 
 namespace {
 
 void registerPassPipelines() {
-  // TODO: Placeholder pipelines, remove or add passes as needed.
+  // Pipelines called in this order by the HAL
   static PassPipelineRegistration<> configurationPipeline(
       "iree-hexagon-configuration-pipeline",
       "Runs the Hexagon HAL configuration pipeline.",
@@ -44,17 +45,18 @@ void registerPassPipelines() {
 
 void registerHexagonCodeGenPasses() { registerPassPipelines(); }
 
+// TODO: The final goal is to extract the minimal subset of necessary passes,
+// but I will reuse the same ones that are used in the LLVMCPUTarget for now
 void buildHexagonConfigurationPassPipeline(OpPassManager &passManager) {
-  passManager.addPass(createCanonicalizerPass());
-  passManager.addPass(createCSEPass());
+  buildLLVMCPUCodegenConfigurationPassPipeline(passManager);
 }
 
 void buildHexagonTranslationPassPipeline(OpPassManager &passManager) {
-  passManager.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+  buildLLVMCPUCodegenPassPipeline(passManager);
 }
 
 void buildHexagonLinkingPassPipeline(OpPassManager &passManager) {
-  passManager.addPass(createCanonicalizerPass());
+  buildLLVMCPULinkingPassPipeline(passManager);
 }
 
 } // namespace cellar::target::hexagon

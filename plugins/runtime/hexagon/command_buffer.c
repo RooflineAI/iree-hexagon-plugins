@@ -2,62 +2,50 @@
 
 #include "hexagon/command_buffer.h"
 
+#include <iree/base/allocator.h>
+#include <iree/base/config.h>
+#include <iree/base/status.h>
+
+#include "AEEStdErr.h"
 #include "hexagon/buffer.h"
 #include "hexagon/channel.h"
 #include "hexagon/executable.h"
-#include "hexagon/rpc_types.h"
+#include "hexagon/units/command_buffer_serialize.h"
+#include "hexagon/units/command_buffer_types.h"
+#include "hexagon/units/rpc_types.h"
+#include "hexagon/utils.h"
+#include "hexagon_dsp.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
+#include "rpcmem.h"
+
+#if defined(SLPI) || defined(MDSP)
+#define RPCMEM_HEAP_ID_USE_THIS RPCMEM_HEAP_ID_CONTIG
+#else
+#define RPCMEM_HEAP_ID_USE_THIS RPCMEM_HEAP_ID_SYSTEM
+#endif
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_command_buffer_t
+//
+// Command buffer entries (like dispatches and execution barriers) get added
+// one by one. This happens between "begin" and "end" calls. When "end" has
+// returned, the command buffer needs to be ready on the device for execution.
+// There are two approaches to implement this:
+// (1) Keep the device side in sync all the time during recording. This is done
+//     by CUDA and Vulkan.
+// (2) Record the contents on the host side. Update the device side on "end".
+//     This is done by Metal and here for Hexagon.
+// The approach (2) is chosen, because moving the data to the DSP is rather
+// complicated/expensive:
+//  - ARM and DSP data layouts don't match. Pointers on one side don't have a
+//    meaning on the other side. This means data has to be serialized.
+//    See arm_dsp subdir for data structures used in serialization.
+//    See command_buffer_serialize.c for implementation of the serialization.
+//  - The RPC call to get a chunk of data from the ARM to the DSP is rather
+//    expensive and causes a latency. So the number of RPC calls shall be
+//    kept low.
 //===----------------------------------------------------------------------===//
-
-typedef enum iree_hal_hexagon_command_type_e {
-  IREE_HAL_HEXAGON_COMMAND_DISPATCH,
-  IREE_HAL_HEXAGON_COMMAND_BARRIER,
-} iree_hal_hexagon_command_type_t;
-
-/// "base class" of commands
-typedef struct iree_hal_hexagon_command_base_s {
-  /// neighbors in doubly linked list
-  //@{
-  struct iree_hal_hexagon_command_base_s *prev;
-  struct iree_hal_hexagon_command_base_s *next;
-  //@}
-  /// type of "derived" command
-  iree_hal_hexagon_command_type_t cmd_type;
-  /// derived command data follows here
-} iree_hal_hexagon_command_base_t;
-
-/// dispatch command, "derived" from iree_hal_hexagon_command_base_t
-typedef struct iree_hal_hexagon_command_dispatch_s {
-  iree_hal_hexagon_command_base_t base; ///< keep this the first entry
-  /// executable that contains the function to call, not owned
-  iree_hal_executable_t *executable;
-  /// number of entry point to call from executable
-  int32_t entry_point;
-  /// bindings (i.e. fixed buffers or placeholders), pointer inside points to
-  /// this structure
-  iree_hal_buffer_ref_list_t bindings;
-  /// ... buffer for binding.values is appended after this struct
-} iree_hal_hexagon_command_dispatch_t;
-
-/// barrier command, "derived" from iree_hal_hexagon_command_base_t
-typedef struct iree_hal_hexagon_command_barrier_s {
-  iree_hal_hexagon_command_base_t base; ///< keep this the first entry
-} iree_hal_hexagon_command_barrier_t;
-
-typedef struct iree_hal_hexagon_command_buffer_t {
-  iree_hal_command_buffer_t base;
-  iree_allocator_t host_allocator;
-  rpc_session_handle_t rpc_session_handle; // not owned, owner: device
-  /// doubly linked list (non-circular) of entries
-  //@{
-  iree_hal_hexagon_command_base_t *first_entry;
-  iree_hal_hexagon_command_base_t *last_entry;
-  //@}
-} iree_hal_hexagon_command_buffer_t;
 
 static const iree_hal_command_buffer_vtable_t
     iree_hal_hexagon_command_buffer_vtable;
@@ -66,6 +54,31 @@ static iree_hal_hexagon_command_buffer_t *
 iree_hal_hexagon_command_buffer_cast(iree_hal_command_buffer_t *base_value) {
   IREE_HAL_ASSERT_TYPE(base_value, &iree_hal_hexagon_command_buffer_vtable);
   return (iree_hal_hexagon_command_buffer_t *)base_value;
+}
+
+static void iree_hal_hexagon_command_buffer_clear_recorded(
+    iree_hal_hexagon_command_buffer_t *command_buffer) {
+  iree_hal_hexagon_command_base_t *cmd = command_buffer->first_entry;
+  while (cmd != NULL) {
+    iree_hal_hexagon_command_base_t *cmd_to_free = cmd;
+    cmd = cmd->next;
+    iree_allocator_free(command_buffer->host_allocator, cmd_to_free);
+  }
+  command_buffer->first_entry = NULL;
+  command_buffer->last_entry = NULL;
+}
+
+static void iree_hal_hexagon_command_buffer_clear(
+    iree_hal_hexagon_command_buffer_t *command_buffer) {
+  // destroy command buffer on DSP side
+  if (command_buffer->rpc_command_buffer_handle) {
+    hexagon_dsp_command_buffer_destroy(
+        command_buffer->rpc_session_handle,
+        command_buffer->rpc_command_buffer_handle);
+    command_buffer->rpc_command_buffer_handle = 0;
+  }
+  // clear list of recorded entries
+  iree_hal_hexagon_command_buffer_clear_recorded(command_buffer);
 }
 
 iree_status_t iree_hal_hexagon_command_buffer_create(
@@ -119,12 +132,7 @@ static void iree_hal_hexagon_command_buffer_destroy(
 
   // TODO(hexagon): release any implementation resources and
   // iree_hal_resource_set_t.
-  iree_hal_hexagon_command_base_t *cmd = command_buffer->first_entry;
-  while (cmd != NULL) {
-    iree_hal_hexagon_command_base_t *cmd_to_free = cmd;
-    cmd = cmd->next;
-    iree_allocator_free(command_buffer->host_allocator, cmd_to_free);
-  }
+  iree_hal_hexagon_command_buffer_clear(command_buffer);
 
   iree_allocator_free(host_allocator, command_buffer);
 
@@ -146,7 +154,10 @@ static iree_status_t iree_hal_hexagon_command_buffer_begin(
   // implementation it can be done here. Note that creation may happen much
   // earlier than recording and any expensive work should be deferred until this
   // point to make profiling easier.
+
+  // Nothing needs to be done here for Hexagon.
   (void)command_buffer;
+
   iree_status_t status = iree_ok_status();
 
   return status;
@@ -160,11 +171,53 @@ static iree_status_t iree_hal_hexagon_command_buffer_end(
   // TODO(hexagon): if recording requires multiple passes any fixup/linking can
   // happen here. Recording-only resources are no longer needed after this point
   // and can be disposed.
-  (void)command_buffer;
-  iree_status_t status = iree_make_status(
-      IREE_STATUS_UNIMPLEMENTED, "command buffer finalization not implemented");
 
-  return status;
+  // serialize the command buffer entries to a buffer with the ARM/DSP layout
+  // data structure and create a DSP side command buffer
+
+  // get size of serialized data, also check and count entries
+  iree_host_size_t cmd_buf_size = 0;
+  uint32_t num_entries = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_command_buffer_serialize_prep(
+      command_buffer, &cmd_buf_size, &num_entries));
+
+  // allocate RPC memory buffer for ARM/DSP data structures
+  if (cmd_buf_size > INT_MAX /* max size supported by rpcmem_alloc() */) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "serialized command buffer too big");
+  }
+  uint8_t *cmd_buf_data = rpcmem_alloc(RPCMEM_HEAP_ID_USE_THIS,
+                                       RPCMEM_DEFAULT_FLAGS, (int)cmd_buf_size);
+  if (!cmd_buf_data) {
+    return iree_make_status(IREE_STATUS_UNKNOWN, "rpcmem_alloc returned NULL");
+  }
+
+  // serialize to ARM/DSP data
+  iree_status_t status_serialize_exec =
+      iree_hal_hexagon_command_buffer_serialize_exec(
+          command_buffer, num_entries, cmd_buf_data, cmd_buf_size);
+  if (!iree_status_is_ok(status_serialize_exec)) {
+    rpcmem_free(cmd_buf_data);
+    return status_serialize_exec;
+  }
+
+  // Create DSP side command buffer.
+  // The RPC memory cmd_buf_data gets made visible to the DSP during the
+  // duration of the PRC call. The data needs to be copied on DSP side in order
+  // to retain it.
+  int dsp_err = hexagon_dsp_command_buffer_create(
+      command_buffer->rpc_session_handle, cmd_buf_data, cmd_buf_size,
+      &command_buffer->rpc_command_buffer_handle);
+  rpcmem_free(cmd_buf_data);
+  if (dsp_err != AEE_SUCCESS) {
+    return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
+        dsp_err, "could not create command buffer on DSP");
+  }
+
+  // clear recorded entries (no more needed from here)
+  iree_hal_hexagon_command_buffer_clear_recorded(command_buffer);
+
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_command_buffer_begin_debug_group(
@@ -174,8 +227,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_begin_debug_group(
   iree_hal_hexagon_command_buffer_t *command_buffer =
       iree_hal_hexagon_command_buffer_cast(base_command_buffer);
 
-  // TODO(hexagon): begin a nested debug group (push) if the implementation has
-  // a way to insert markers. This is informational and can be ignored.
+  // TODO(hexagon): begin a nested debug group (push) if the implementation
+  // has a way to insert markers. This is informational and can be ignored.
   (void)command_buffer;
 
   return iree_ok_status();
@@ -237,8 +290,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
   // fill dispatch command
   barrier->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
   // TODO SCHUERMANS: fill other fields
-  // For now, there is only a single type of execution barrier with no options,
-  // so no other fields exist yet.
+  // For now, there is only a single type of execution barrier with no
+  // options, so no other fields exist yet.
 
   // append barrier command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, &barrier->base);
@@ -289,9 +342,9 @@ static iree_status_t iree_hal_hexagon_command_buffer_wait_events(
       iree_hal_hexagon_command_buffer_cast(base_command_buffer);
 
   // TODO(hexagon): WIP API and may change; waits on the list of events and
-  // enacts the specified set of barriers. Implementations without fine-grained
-  // tracking can treat this as an execution_barrier and ignore the
-  // memory/buffer barriers provided.
+  // enacts the specified set of barriers. Implementations without
+  // fine-grained tracking can treat this as an execution_barrier and ignore
+  // the memory/buffer barriers provided.
   (void)command_buffer;
   iree_status_t status =
       iree_make_status(IREE_STATUS_UNIMPLEMENTED, "events not implemented");
@@ -309,8 +362,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_advise_buffer(
   // TODO(hexagon): WIP API and may change; this is likely to become an
   // madvise-like command that can be used to control prefetching and other
   // cache behavior. The current discard behavior is a hint that the buffer
-  // contents will never be used again and that if they are in a cache they need
-  // not be written back to global memory.
+  // contents will never be used again and that if they are in a cache they
+  // need not be written back to global memory.
   (void)command_buffer;
   iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                                           "discard buffer not implemented");
@@ -381,8 +434,9 @@ static iree_status_t iree_hal_hexagon_command_buffer_collective(
 
   // TODO(hexagon): perform the collective operation defined by op. See the
   // headers for more information. The channel is fixed for a particular
-  // recording but note that either buffer may be a reference to a binding table
-  // slot in which case it will be provided during submission to a queue.
+  // recording but note that either buffer may be a reference to a binding
+  // table slot in which case it will be provided during submission to a
+  // queue.
   (void)command_buffer;
   iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                                           "collectives not implemented");
@@ -398,16 +452,16 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   iree_hal_hexagon_command_buffer_t *command_buffer =
       iree_hal_hexagon_command_buffer_cast(base_command_buffer);
 
-  // TODO(hexagon): dispatch the specified executable entry point with the given
-  // workgroup count directly or indirectly based on flags. The constants must
-  // be copied into the command buffer as they may be mutated or freed after
-  // this call returns. Note that any of the bindings may be references to
-  // binding table slots in which case they will be provided during submission
-  // to a queue.
+  // TODO(hexagon): dispatch the specified executable entry point with the
+  // given workgroup count directly or indirectly based on flags. The
+  // constants must be copied into the command buffer as they may be mutated
+  // or freed after this call returns. Note that any of the bindings may be
+  // references to binding table slots in which case they will be provided
+  // during submission to a queue.
   //
-  // If an INDIRECT_PARAMETERS flag is set then the workgroup count is stored in
-  // the given workgroup count buffer as a uint32_t[3]. The workgroup count may
-  // change up until the barrier immediately prior to the dispatch.
+  // If an INDIRECT_PARAMETERS flag is set then the workgroup count is stored
+  // in the given workgroup count buffer as a uint32_t[3]. The workgroup count
+  // may change up until the barrier immediately prior to the dispatch.
   //
   // Arguments are are in the HAL ABI form with constants and bindings unless
   // CUSTOM_ARGUMENTS or INDIRECT_ARGUMENTS are specified, in which case they
@@ -445,6 +499,14 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
                             "constants are not supported on Hexagon");
   }
 
+  rpc_executable_handle_t rpc_executable_handle =
+      iree_hal_hexagon_executable_get_rpc_executable(executable);
+  if (!rpc_executable_handle) {
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "non-Hexagon executables are not supported on Hexagon");
+  }
+
   // allocate buffer for dispatch command plus bindings in one block
   iree_host_size_t bindings_sz = bindings.count * sizeof(iree_hal_buffer_ref_t);
   iree_hal_hexagon_command_dispatch_t *dispatch = NULL;
@@ -455,6 +517,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   // fill dispatch command
   dispatch->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   dispatch->executable = executable;
+  dispatch->rpc_executable_handle = rpc_executable_handle;
   dispatch->entry_point = entry_point;
   dispatch->bindings.count = bindings.count;
   iree_hal_buffer_ref_t *bindings_values =

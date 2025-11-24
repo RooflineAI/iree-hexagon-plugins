@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "AEEStdErr.h"
-#include "hexagon/rpc_types.h"
+#include "hexagon/units/rpc_types.h"
 #include "hexagon/utils.h"
 #include "hexagon_dsp.h"
 #include "iree/base/api.h"
@@ -22,7 +22,7 @@ typedef struct iree_hal_hexagon_executable_t {
   iree_allocator_t host_allocator;
   rpc_session_handle_t rpc_session_handle; // not owned, owner: device
   char *so_file_path;
-  rpc_executable_handle_t executable_handle;
+  rpc_executable_handle_t rpc_executable_handle;
 } iree_hal_hexagon_executable_t;
 
 static const iree_hal_executable_vtable_t iree_hal_hexagon_executable_vtable;
@@ -70,7 +70,7 @@ static iree_status_t iree_hal_hexagon_executable_set_up(
   // Load executable on DSP side.
   int dsp_err = hexagon_dsp_executable_load(executable->rpc_session_handle,
                                             executable->so_file_path,
-                                            &executable->executable_handle);
+                                            &executable->rpc_executable_handle);
   if (dsp_err != AEE_SUCCESS) {
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
         dsp_err, "could not load .so file on DSP");
@@ -128,6 +128,17 @@ iree_status_t iree_hal_hexagon_executable_create(
   }
   IREE_TRACE_ZONE_END(z0);
   return status;
+}
+
+rpc_executable_handle_t iree_hal_hexagon_executable_get_rpc_executable(
+    iree_hal_executable_t *base_executable) {
+  iree_hal_hexagon_executable_t *executable =
+      iree_hal_hexagon_executable_cast(base_executable);
+  if (!iree_hal_resource_is(&executable->resource,
+                            &iree_hal_hexagon_executable_vtable)) {
+    return 0;
+  }
+  return executable->rpc_executable_handle;
 }
 
 static void

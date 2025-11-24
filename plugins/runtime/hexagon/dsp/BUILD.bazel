@@ -11,6 +11,7 @@ package(
 cc_binary(
     name = "hexagon_dsp_skel",
     srcs = [
+        "command_buffer.c",
         "device.c",
         "executable.c",
         "//hexagon/interface:hexagon_dsp_skel_c",

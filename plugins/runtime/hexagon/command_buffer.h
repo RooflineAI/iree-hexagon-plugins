@@ -3,7 +3,7 @@
 #ifndef IREE_HAL_DRIVERS_HEXAGON_COMMAND_BUFFER_H_
 #define IREE_HAL_DRIVERS_HEXAGON_COMMAND_BUFFER_H_
 
-#include "hexagon/rpc_types.h"
+#include "hexagon/units/rpc_types.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 

@@ -1,0 +1,15 @@
+# Copyright 2025 RooflineAI GmbH
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cc_library(
+    name = "hexagon_arm_dsp",
+    srcs = [],
+    hdrs = ["cmd_buf.h"],
+)

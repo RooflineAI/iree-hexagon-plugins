@@ -3,7 +3,7 @@
 #include "hexagon/executable_cache.h"
 
 #include "hexagon/executable.h"
-#include "hexagon/rpc_types.h"
+#include "hexagon/units/rpc_types.h"
 #include "hexagon_dsp.h"
 
 //===----------------------------------------------------------------------===//

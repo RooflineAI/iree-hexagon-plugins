@@ -6,7 +6,7 @@
 #include "AEEStdErr.h"
 #include "hexagon_dsp.h"
 
-/// Data about an loaded executable
+/// data about a loaded executable
 typedef struct hexagon_dsp_executable_s {
   /// handle of owning RPC session
   remote_handle64 rpc_handle;

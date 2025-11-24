@@ -1,0 +1,20 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cc_test(
+    name = "command_buffer_serialize_test",
+    srcs = [
+        "command_buffer_serialize_test.cc",
+    ],
+    deps = [
+        "//hexagon/arm_dsp:hexagon_arm_dsp",
+        "//hexagon/units:hexagon_units",
+        "@iree//runtime/src/iree/testing:gtest",
+        "@iree//runtime/src/iree/testing:gtest_main",
+    ],
+)

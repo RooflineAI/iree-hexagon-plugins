@@ -3,6 +3,19 @@
 This is a skeleton of the HAL driver for Qualcomm Hexagon. For now, it
 implements most interfaces needed by a HAL driver.
 
+## Directory Structure
+
+- `.`: HAL driver implementation on the ARM side, all sources compiled for ARM
+- `registration`: implementation of HAL driver registation, compiled for ARM
+- `units` parts of the Hexagon HAL driver that can be unit-tested in isolation
+- `unittests`: unit tests for the parts in `units`
+- `interface`: RPC interface definition, ARM call the functions, DSP provides
+               the functions, some ARM and some DSP sources are generated from
+               this
+- `dsp`: implementation on the DSP side, all sources compiled for DSP
+- `arm_dsp`: headers for data structures shared between ARM and DSP, see also
+             README.md in this dir
+
 ## Building
 
 The Hexagon SDK contains x86_64 binaries. The target device is an Android phone

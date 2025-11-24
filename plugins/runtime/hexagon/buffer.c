@@ -2,6 +2,11 @@
 
 #include "hexagon/buffer.h"
 
+#include <iree/base/status.h>
+
+#include "hexagon/api.h"
+#include "hexagon/mem_alloc.h"
+
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_buffer_t
 //===----------------------------------------------------------------------===//
@@ -10,6 +15,7 @@ typedef struct iree_hal_hexagon_buffer_t {
   iree_hal_buffer_t base;
   iree_allocator_t host_allocator;
   iree_hal_buffer_release_callback_t release_callback;
+  iree_hal_hexagon_mem_alloc_t *alloc;
 } iree_hal_hexagon_buffer_t;
 
 static const iree_hal_buffer_vtable_t iree_hal_hexagon_buffer_vtable;
@@ -27,12 +33,13 @@ iree_hal_hexagon_buffer_const_cast(const iree_hal_buffer_t *base_value) {
 }
 
 iree_status_t iree_hal_hexagon_buffer_wrap(
-    iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
-    iree_hal_memory_access_t allowed_access,
+    iree_hal_hexagon_mem_alloc_t *alloc, iree_hal_buffer_placement_t placement,
+    iree_hal_memory_type_t memory_type, iree_hal_memory_access_t allowed_access,
     iree_hal_buffer_usage_t allowed_usage, iree_device_size_t allocation_size,
     iree_device_size_t byte_offset, iree_device_size_t byte_length,
     iree_hal_buffer_release_callback_t release_callback,
-    iree_allocator_t host_allocator, iree_hal_buffer_t **out_buffer) {
+    iree_allocator_t host_allocator, iree_hal_hexagon_device_t *device,
+    iree_hal_buffer_t **out_buffer) {
   IREE_ASSERT_ARGUMENT(out_buffer);
   IREE_TRACE_ZONE_BEGIN(z0);
   *out_buffer = NULL;
@@ -47,13 +54,17 @@ iree_status_t iree_hal_hexagon_buffer_wrap(
                              &iree_hal_hexagon_buffer_vtable, &buffer->base);
   buffer->host_allocator = host_allocator;
   buffer->release_callback = release_callback;
+  buffer->alloc = NULL;
 
   // TODO(hexagon): retain or take ownership of provided handles/pointers/etc.
   // Implementations may want to pass in an internal buffer type discriminator
   // if there are multiple or use different top-level iree_hal_buffer_t
   // implementations.
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "buffer wrapping not implemented");
+  if (alloc) {
+    buffer->alloc = alloc;
+    iree_hal_hexagon_mem_alloc_retain(alloc);
+  }
+  iree_status_t status = iree_ok_status();
 
   if (iree_status_is_ok(status)) {
     *out_buffer = &buffer->base;
@@ -62,6 +73,11 @@ iree_status_t iree_hal_hexagon_buffer_wrap(
   }
   IREE_TRACE_ZONE_END(z0);
   return status;
+}
+
+void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer) {
+  iree_hal_hexagon_buffer_t *buffer = iree_hal_hexagon_buffer_cast(base_buffer);
+  return iree_hal_hexagon_mem_alloc_impl_ptr(buffer->alloc);
 }
 
 static void iree_hal_hexagon_buffer_destroy(iree_hal_buffer_t *base_buffer) {
@@ -76,6 +92,9 @@ static void iree_hal_hexagon_buffer_destroy(iree_hal_buffer_t *base_buffer) {
     buffer->release_callback.fn(buffer->release_callback.user_data,
                                 base_buffer);
   }
+
+  iree_hal_hexagon_mem_alloc_release(buffer->alloc);
+  buffer->alloc = NULL;
 
   iree_allocator_free(host_allocator, buffer);
 

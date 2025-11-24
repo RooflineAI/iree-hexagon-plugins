@@ -47,7 +47,7 @@ static iree_status_t iree_hal_hexagon_device_options_verify(
 // iree_hal_hexagon_device_t
 //===----------------------------------------------------------------------===//
 
-typedef struct iree_hal_hexagon_device_t {
+struct iree_hal_hexagon_device_t {
   iree_hal_resource_t resource;
   iree_string_view_t identifier;
   iree_hal_hexagon_domain_id_t domain_id;
@@ -66,7 +66,7 @@ typedef struct iree_hal_hexagon_device_t {
   iree_hal_channel_provider_t *channel_provider;
 
   // + trailing identifier string storage
-} iree_hal_hexagon_device_t;
+};
 
 static const iree_hal_device_vtable_t iree_hal_hexagon_device_vtable;
 
@@ -145,6 +145,16 @@ void iree_hal_hexagon_fill_device_info(iree_string_view_t identifier,
   device_info->path = device_info->name;
   device_info->identifier = identifier;
   device_info->device_index = domain_id;
+}
+
+iree_hal_hexagon_domain_id_t
+iree_hal_hexagon_device_get_domain_id(iree_hal_hexagon_device_t *device) {
+  return device->domain_id;
+}
+
+rpc_session_handle_t iree_hal_hexagon_device_get_rpc_session_handle(
+    iree_hal_hexagon_device_t *device) {
+  return device->rpc_session_handle;
 }
 
 int iree_hal_hexagon_pd_status_callback(void *context, int domain, int session,
@@ -241,7 +251,7 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   }
 
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_allocator_create(
-      device->host_allocator, &device->device_allocator));
+      device->host_allocator, device, &device->device_allocator));
 
   // Configure the DSP to accept unsigned modules
   struct remote_rpc_control_unsigned_module control_unsigned_module;

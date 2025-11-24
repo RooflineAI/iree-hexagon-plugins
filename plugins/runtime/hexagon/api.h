@@ -47,6 +47,8 @@ IREE_API_EXPORT iree_status_t iree_hal_hexagon_device_create(
     const iree_hal_hexagon_device_options_t *options,
     iree_allocator_t host_allocator, iree_hal_device_t **out_device);
 
+typedef struct iree_hal_hexagon_device_t iree_hal_hexagon_device_t;
+
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_driver_t
 //===----------------------------------------------------------------------===//

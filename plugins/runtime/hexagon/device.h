@@ -6,6 +6,7 @@
 #include "hexagon/api.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
+#include "rpc_types.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_device_t
@@ -45,5 +46,11 @@ void iree_hal_hexagon_fill_device_info(iree_string_view_t identifier,
 // NOTE: nothing in the skeleton implementation. Device creation and adoption is
 // part of the public API header. This header can contain internal types and
 // functions.
+
+iree_hal_hexagon_domain_id_t
+iree_hal_hexagon_device_get_domain_id(iree_hal_hexagon_device_t *device);
+
+rpc_session_handle_t iree_hal_hexagon_device_get_rpc_session_handle(
+    iree_hal_hexagon_device_t *device);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_DEVICE_H_

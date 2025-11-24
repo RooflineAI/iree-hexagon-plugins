@@ -2,7 +2,16 @@
 
 #include "hexagon/allocator.h"
 
+#include <iree/base/bitfield.h>
+#include <iree/base/status.h>
+#include <iree/hal/allocator.h>
+#include <iree/hal/buffer.h>
+#include <iree/hal/queue.h>
+
+#include "hexagon/api.h"
 #include "hexagon/buffer.h"
+#include "hexagon/device.h"
+#include "hexagon/mem_alloc.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_allocator_t
@@ -18,6 +27,7 @@ static const char *IREE_HAL_HEXAGON_ALLOCATOR_ID =
 typedef struct iree_hal_hexagon_allocator_t {
   iree_hal_resource_t resource;
   iree_allocator_t host_allocator;
+  iree_hal_hexagon_device_t *device; ///< unowned
 
   IREE_STATISTICS(iree_hal_allocator_statistics_t statistics;)
 } iree_hal_hexagon_allocator_t;
@@ -32,6 +42,7 @@ iree_hal_hexagon_allocator_cast(iree_hal_allocator_t *base_value) {
 
 iree_status_t
 iree_hal_hexagon_allocator_create(iree_allocator_t host_allocator,
+                                  iree_hal_hexagon_device_t *device,
                                   iree_hal_allocator_t **out_allocator) {
   IREE_ASSERT_ARGUMENT(out_allocator);
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -44,6 +55,7 @@ iree_hal_hexagon_allocator_create(iree_allocator_t host_allocator,
   iree_hal_resource_initialize(&iree_hal_hexagon_allocator_vtable,
                                &allocator->resource);
   allocator->host_allocator = host_allocator;
+  allocator->device = device;
 
   // TODO(hexagon): query device heaps, supported features (concurrent
   // access/etc), and prepare any pools that will be used during allocation.
@@ -107,6 +119,40 @@ static void iree_hal_hexagon_allocator_query_statistics(
   });
 }
 
+static iree_status_t iree_hal_hexagon_allocator_select_mem_kind(
+    iree_hal_memory_type_t memory_type,
+    iree_hal_hexagon_mem_kind_t *out_mem_kind) {
+  // Memory does not need to be device-visible.
+  // -> Use host allocator memory. It is automatically cached and coherent, so
+  // no need to check for those flags.
+  if (!iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE)) {
+    *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_HOST;
+    return iree_ok_status();
+  }
+
+  // Memory does not need to be host-visble.
+  // -> Use device HAP_malloc memory.
+  if (!iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)) {
+    *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP;
+    return iree_ok_status();
+  }
+
+  // Memory needs to be host-visible and device-visible.
+  // -> Use RPC memory. No support for coherent/cached on host.
+  if (!iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
+                                         IREE_HAL_MEMORY_TYPE_HOST_CACHED)) {
+    *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_RPCMEM;
+    return iree_ok_status();
+  }
+
+  // no memory type available that meets all the requirements
+  iree_bitfield_string_temp_t temp;
+  iree_string_view_t type_str = iree_hal_memory_type_format(memory_type, &temp);
+  return iree_make_status(IREE_STATUS_INCOMPATIBLE,
+                          "no memory on Hexagon supports type %.*s",
+                          (int)type_str.size, type_str.data);
+}
+
 static iree_status_t iree_hal_hexagon_allocator_query_memory_heaps(
     iree_hal_allocator_t *IREE_RESTRICT base_allocator,
     iree_host_size_t capacity,
@@ -147,6 +193,28 @@ iree_hal_hexagon_allocator_query_buffer_compatibility(
 
   // We are now optimal.
   params->type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
+
+  // Compatibility depends on selected memory kind, so find memory kind first
+  // and fill compatibility based on selected kind. If there is no kind of
+  // memory for the requested type, there is no compatibility with anything.
+  iree_hal_hexagon_mem_kind_t mem_kind = 0;
+  if (iree_status_is_ok(iree_hal_hexagon_allocator_select_mem_kind(
+          params->type, &mem_kind))) {
+    switch (mem_kind) {
+    case IREE_HAL_HEXAGON_MEM_KIND_HOST:
+      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE;
+      // TODO: Add other things possible with host allocator memory.
+      break;
+    case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
+      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE;
+      // TODO: Add other things possible with RPC memory.
+      break;
+    case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
+      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE;
+      // TODO: Add other things possible with device HAP_malloc memory.
+      break;
+    }
+  }
 
   // Guard against the corner case where the requested buffer size is 0. The
   // application is unlikely to do anything when requesting a 0-byte buffer; but
@@ -202,23 +270,52 @@ static iree_status_t iree_hal_hexagon_allocator_allocate_buffer(
   // allocators and just wrapping those device pointers in the HAL buffer type.
   // Other implementations that require more tracking can provide their own
   // buffer types that do such tracking for them.
-  (void)allocator;
-  void *impl_ptr = NULL;
-  (void)impl_ptr;
+  iree_hal_buffer_placement_t placement = {
+      .device = (iree_hal_device_t *)allocator->device,
+      .queue_affinity = compat_params.queue_affinity
+                            ? compat_params.queue_affinity
+                            : IREE_HAL_QUEUE_AFFINITY_ANY,
+      .flags = IREE_HAL_BUFFER_PLACEMENT_FLAG_NONE};
+  iree_hal_memory_type_t memory_type = compat_params.type;
+  iree_hal_memory_access_t allowed_access = compat_params.access;
+  iree_hal_buffer_usage_t allowed_usage = compat_params.usage;
+
+  // Select kind of Hexagon memory based on memory type.
+  iree_hal_hexagon_mem_kind_t mem_kind = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_allocator_select_mem_kind(
+      compat_params.type, &mem_kind));
+
+  iree_hal_hexagon_domain_id_t domain_id =
+      iree_hal_hexagon_device_get_domain_id(allocator->device);
+  rpc_session_handle_t rpc_session_handle =
+      iree_hal_hexagon_device_get_rpc_session_handle(allocator->device);
+  iree_hal_hexagon_mem_alloc_t *alloc = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_mem_alloc_create(
+      allocator->host_allocator, domain_id, rpc_session_handle, mem_kind,
+      allocation_size, &alloc));
+
+  // Allocate an IREE buffer data structure and put the allocated memory into
+  // it.
   iree_hal_buffer_t *buffer = NULL;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "buffer allocation not implemented");
+  iree_status_t status = iree_hal_hexagon_buffer_wrap(
+      alloc, placement, memory_type, allowed_access, allowed_usage,
+      allocation_size,
+      /* byte_offset */ 0, /* byte_length */ allocation_size,
+      iree_hal_buffer_release_callback_null(), allocator->host_allocator,
+      allocator->device, &buffer);
 
   if (iree_status_is_ok(status)) {
     // TODO(hexagon): ensure this accounting is balanced in deallocate_buffer.
-    IREE_TRACE_ALLOC_NAMED(IREE_HAL_HEXAGON_ALLOCATOR_ID, impl_ptr,
+    IREE_TRACE_ALLOC_NAMED(IREE_HAL_HEXAGON_ALLOCATOR_ID, alloc->ptr.impl_ptr,
                            allocation_size);
     IREE_STATISTICS(iree_hal_allocator_statistics_record_alloc(
         &allocator->statistics, compat_params.type, allocation_size));
     *out_buffer = buffer;
   } else {
-    iree_hal_buffer_release(buffer);
+    if (buffer)
+      iree_hal_buffer_release(buffer);
   }
+  iree_hal_hexagon_mem_alloc_release(alloc);
   return status;
 }
 
@@ -234,7 +331,7 @@ static void iree_hal_hexagon_allocator_deallocate_buffer(
   // iree_hal_buffer_destroy and the caller assumes the memory has been freed an
   // implementation could pool the buffer handle and return it in the future.
   (void)allocator;
-  void *impl_ptr = NULL;
+  void *impl_ptr = iree_hal_hexagon_buffer_impl_ptr(base_buffer);
   (void)impl_ptr;
 
   // TODO(hexagon): if the buffer was imported then this accounting may need to

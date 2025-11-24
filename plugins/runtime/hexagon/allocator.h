@@ -3,6 +3,7 @@
 #ifndef IREE_HAL_DRIVERS_HEXAGON_ALLOCATOR_H_
 #define IREE_HAL_DRIVERS_HEXAGON_ALLOCATOR_H_
 
+#include "hexagon/api.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 
@@ -14,6 +15,7 @@
 // allocations.
 iree_status_t
 iree_hal_hexagon_allocator_create(iree_allocator_t host_allocator,
+                                  iree_hal_hexagon_device_t *device,
                                   iree_hal_allocator_t **out_allocator);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_ALLOCATOR_H_

@@ -1,6 +1,7 @@
 # Copyright 2025 RooflineAI GmbH
 
 load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_runtime_cc_library")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -65,4 +66,19 @@ iree_runtime_cc_library(
         "@iree//runtime/src/iree/hal/utils:queue_host_call_emulation",
         "@iree//runtime/src/iree/hal/utils:semaphore_base",
     ],
+)
+
+filegroup(
+    name = "hexagon_runtime_files",
+    srcs = [
+        "//hexagon/dsp:hexagon_dsp_skel_out",
+        "@iree//tools:iree-run-module",
+    ],
+)
+
+pkg_zip(
+    name = "hexagon_runtime",
+    srcs = [":hexagon_runtime_files"],
+    package_dir = ".",
+    visibility = ["//visibility:public"],
 )

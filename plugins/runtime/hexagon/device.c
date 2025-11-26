@@ -10,6 +10,8 @@
 #include "hexagon/executable_cache.h"
 #include "hexagon/semaphore.h"
 #include "hexagon/utils.h"
+#include "iree/base/internal/event_pool.h"
+#include "iree/base/string_view.h"
 #include "iree/hal/utils/file_registry.h"
 #include "iree/hal/utils/file_transfer.h"
 #include "iree/hal/utils/queue_emulation.h"
@@ -17,7 +19,6 @@
 
 // Hexagon SDK includes
 #include <AEEStdErr.h>
-#include <iree/base/string_view.h>
 #include <remote.h>
 
 #include "hexagon_dsp.h"
@@ -47,6 +48,10 @@ static iree_status_t iree_hal_hexagon_device_options_verify(
 // iree_hal_hexagon_device_t
 //===----------------------------------------------------------------------===//
 
+/// Number of entries in the event pool to keep allocated. Value inspired by CPU
+/// task for now.
+#define IREE_HAL_HEXAGON_EVENT_POOL_CAPACITY 64
+
 struct iree_hal_hexagon_device_t {
   iree_hal_resource_t resource;
   iree_string_view_t identifier;
@@ -58,6 +63,9 @@ struct iree_hal_hexagon_device_t {
 
   iree_allocator_t host_allocator;
   iree_hal_allocator_t *device_allocator;
+
+  // For now, the entire Hexagon device uses a single event pool.
+  iree_event_pool_t *event_pool;
 
   /// Connection to DSP / DSP RPC session.
   rpc_session_handle_t rpc_session_handle;
@@ -253,6 +261,11 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_allocator_create(
       device->host_allocator, device, &device->device_allocator));
 
+  // Allocate the one-and-only event pool for the Hexagon device.
+  IREE_RETURN_IF_ERROR(
+      iree_event_pool_allocate(IREE_HAL_HEXAGON_EVENT_POOL_CAPACITY,
+                               device->host_allocator, &device->event_pool));
+
   // Configure the DSP to accept unsigned modules
   struct remote_rpc_control_unsigned_module control_unsigned_module;
   control_unsigned_module.domain = device->domain_id;
@@ -336,12 +349,14 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
   // the implementation performs internal async operations those should be
   // shutdown and joined first.
 
+  iree_hal_channel_provider_release(device->channel_provider);
+
   if (device->rpc_session_handle) {
     hexagon_dsp_close(device->rpc_session_handle);
   }
 
+  iree_event_pool_free(device->event_pool);
   iree_hal_allocator_release(device->device_allocator);
-  iree_hal_channel_provider_release(device->channel_provider);
 
   iree_allocator_free(host_allocator, device);
 
@@ -534,11 +549,10 @@ static iree_status_t iree_hal_hexagon_device_create_semaphore(
 
   // TODO(hexagon): pass any additional resources required to create or track
   // the semaphore. The implementation could pool semaphores here.
-  (void)device;
 
   return iree_hal_hexagon_semaphore_create(queue_affinity, initial_value, flags,
                                            device->host_allocator,
-                                           out_semaphore);
+                                           device->event_pool, out_semaphore);
 }
 
 static iree_hal_semaphore_compatibility_t

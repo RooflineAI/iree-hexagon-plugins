@@ -59,6 +59,7 @@ iree_runtime_cc_library(
         "@hexagon_sdk//:cdsprpc_android_aarch64",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/base/internal",
+        "@iree//runtime/src/iree/base/internal:event_pool",
         "@iree//runtime/src/iree/hal",
         "@iree//runtime/src/iree/hal/utils:file_transfer",
         "@iree//runtime/src/iree/hal/utils:files",

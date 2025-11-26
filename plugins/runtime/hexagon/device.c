@@ -11,7 +11,9 @@
 #include "hexagon/semaphore.h"
 #include "hexagon/utils.h"
 #include "iree/base/internal/event_pool.h"
+#include "iree/base/status.h"
 #include "iree/base/string_view.h"
+#include "iree/hal/semaphore.h"
 #include "iree/hal/utils/file_registry.h"
 #include "iree/hal/utils/file_transfer.h"
 #include "iree/hal/utils/queue_emulation.h"
@@ -587,11 +589,19 @@ static iree_status_t iree_hal_hexagon_device_queue_alloca(
   // Deallocation via queue_dealloca is preferred but users are allowed to
   // deallocate the buffer on the host via iree_hal_buffer_release even if they
   // allocated it with queue_alloca.
-  (void)device;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "queue alloca not implemented");
 
-  return status;
+  (void)device; // not yet used
+
+  // To get started, implement the functionality sequentially, outside of any
+  // queue.
+  IREE_RETURN_IF_ERROR(
+      iree_hal_semaphore_list_wait(wait_semaphore_list, iree_infinite_timeout(),
+                                   IREE_HAL_WAIT_FLAG_DEFAULT));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_allocator_allocate_buffer(iree_hal_device_allocator(base_device),
+                                         params, allocation_size, out_buffer));
+  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_signal(signal_semaphore_list));
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_device_queue_dealloca(
@@ -608,11 +618,18 @@ static iree_status_t iree_hal_hexagon_device_queue_dealloca(
   // need to track that on the buffer. The user is allowed to deallocate the
   // buffer on the host via iree_hal_buffer_release even if they allocated it
   // with queue_alloca.
-  (void)device;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "queue dealloca not implemented");
 
-  return status;
+  (void)device; // not yet used
+
+  // To get started, implement the functionality sequentially, outside of any
+  // queue.
+  IREE_RETURN_IF_ERROR(
+      iree_hal_semaphore_list_wait(wait_semaphore_list, iree_infinite_timeout(),
+                                   IREE_HAL_WAIT_FLAG_DEFAULT));
+  iree_hal_allocator_deallocate_buffer(iree_hal_device_allocator(base_device),
+                                       buffer);
+  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_signal(signal_semaphore_list));
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_device_queue_fill(

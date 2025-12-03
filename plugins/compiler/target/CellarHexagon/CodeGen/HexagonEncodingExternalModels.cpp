@@ -66,6 +66,22 @@ constexpr IREE::Codegen::TileMxNxK kHexagonPrototypeTile{4, 4, 4};
 
 // TODO: Copy pasted function, come back to it later. It might not even be
 // useful for Hexagon, this probably needs a lot of rethinking
+static void transposeInPlace(IREE::Codegen::MaterializeEncodingInfo &info) {
+  // Vector cases: nothing to do.
+  if (info.innerTileSizes.size() < 2) {
+    return;
+  }
+  // In non-vector cases, the last two entries of each array are M and N.
+  auto transpose = [](SmallVector<int64_t> &a) {
+    std::swap(a[a.size() - 2], a[a.size() - 1]);
+  };
+  transpose(info.innerDimsPos);
+  transpose(info.innerTileSizes);
+  transpose(info.outerDimsPerm);
+}
+
+// TODO: Copy pasted function, come back to it later. It might not even be
+// useful for Hexagon, this probably needs a lot of rethinking
 static RankedTensorType
 getExpandedType(RankedTensorType type, bool isBatched, bool isTransposed,
                 SmallVectorImpl<ReassociationIndices> &ri) {
@@ -248,12 +264,11 @@ struct HexagonPackedLayoutMaterializerAttr
     // Mirror the CPU/GPU flow: look at the tensor's encoding and request a
     // materialization recipe. This prototype always selects the 4x4x4 tile.
     (void)attr;
-    IREE::Codegen::MaterializeEncodingInfo info;
     auto encoding =
         dyn_cast_or_null<IREE::Encoding::EncodingAttr>(type.getEncoding());
-    if (!encoding) {
+    IREE::Codegen::MaterializeEncodingInfo info;
+    if (!encoding)
       return info;
-    }
 
     FailureOr<IREE::Codegen::MaterializeEncodingInfo> maybeInfo =
         IREE::Codegen::getEncodingInfoForMatmul(encoding,
@@ -262,7 +277,15 @@ struct HexagonPackedLayoutMaterializerAttr
       llvm::errs() << "Unexpected miss when retrieving tiling information\n";
       return info;
     }
-    return std::move(maybeInfo.value());
+
+    info = std::move(maybeInfo.value());
+
+    // Narrow-N cases are handled by transposing the materialized layout so that
+    // the narrow dimension maps to M. Copy pasted from LLVMCPU materializer
+    if (IREE::Encoding::isNarrowNResult(encoding)) {
+      transposeInPlace(info);
+    }
+    return info;
   }
 };
 

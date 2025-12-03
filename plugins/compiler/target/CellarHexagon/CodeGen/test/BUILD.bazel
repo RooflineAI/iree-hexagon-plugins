@@ -15,13 +15,19 @@ iree_lit_test_suite(
     name = "lit",
     srcs = enforce_glob(
         [
-            "check_correct_plugin_registration.mlir",
-            "check_encoder_and_materializer_registration.mlir",
-            "check_executable_generation_and_ll_dumping.mlir",
-            "check_target_attribute_embedding.mlir",
-            "check_shared_objects_have_correct_type.mlir",
+            "integration/32x32_matmul.mlir",
+            "integration/4x4_matmul.mlir",
+            "integration/attention_layer.mlir",
+            "unit/encoder_and_materializer_registration.mlir",
+            "unit/executable_generation_and_dumping.mlir",
+            "unit/plugin_registration.mlir",
+            "unit/shared_objects_have_correct_type.mlir",
+            "unit/target_attribute_embedding.mlir",
         ],
-        include = ["*.mlir"],
+        include = [
+            "integration/*.mlir",
+            "unit/*.mlir",
+        ],
     ),
     cfg = "//:lit.cfg.py",
     tools = [

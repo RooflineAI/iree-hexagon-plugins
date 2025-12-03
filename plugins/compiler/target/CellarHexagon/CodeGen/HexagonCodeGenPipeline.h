@@ -20,7 +20,9 @@ void buildHexagonConfigurationPassPipeline(mlir::OpPassManager &passManager);
 void buildHexagonTranslationPassPipeline(mlir::OpPassManager &passManager);
 
 // Builder for the linker pass pipeline
-void buildHexagonLinkingPassPipeline(mlir::OpPassManager &passManager);
+void buildHexagonLinkingPassPipeline(
+    mlir::OpPassManager &passManager,
+    std::optional<std::string> target = std::nullopt);
 
 } // namespace cellar::target::hexagon
 

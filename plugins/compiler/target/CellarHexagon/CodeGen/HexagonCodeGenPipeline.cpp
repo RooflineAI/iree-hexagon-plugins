@@ -55,8 +55,9 @@ void buildHexagonTranslationPassPipeline(OpPassManager &passManager) {
   buildLLVMCPUCodegenPassPipeline(passManager);
 }
 
-void buildHexagonLinkingPassPipeline(OpPassManager &passManager) {
-  buildLLVMCPULinkingPassPipeline(passManager);
+void buildHexagonLinkingPassPipeline(OpPassManager &passManager,
+                                     std::optional<std::string> target) {
+  buildLLVMCPULinkingPassPipeline(passManager, std::move(target));
 }
 
 } // namespace cellar::target::hexagon

@@ -42,10 +42,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
-
-#define DEBUG(text, op)                                                        \
-  std::cerr << "DEBUG-LUIS: I reached up until: " << (text) << "\n"            \
-            << "For op: " << (op) << "\n";
+#include "llvm/Transforms/Utils/Cloning.h"
 
 // TODO: After copy pasting so much code, I completely messed up the namespaces,
 // clean this up. You currently have namespaces for the same functionality
@@ -304,7 +301,10 @@ public:
   }
 
   void buildLinkingPassPipeline(OpPassManager &passManager) override {
-    cellar::target::hexagon::buildHexagonLinkingPassPipeline(passManager);
+    // Passing the backend name ensures the link pass actually gathers
+    // Hexagon executables instead of skipping with an empty target filter.
+    cellar::target::hexagon::buildHexagonLinkingPassPipeline(
+        passManager, std::make_optional<std::string>("hexagon"));
   }
 
   // Here we are creating our output .vmfb that should contain:
@@ -361,9 +361,35 @@ public:
       return variantOp.emitOpError()
              << "failed to translate module to LLVM IR for Hexagon";
 
+    // This information is embedded into each one of the dispatches. When
+    // linking all dispatches together through the linking pipeline, a new
+    // module is created that does not copy this information, so let's add it
+    // again in case it is needed at some other point. Might be a bug in the
+    // linking pipeline? LLVMCPUTarget also needs this dirty fix
+    llvmModule->setTargetTriple(targetMachine->getTargetTriple());
+    llvmModule->setDataLayout(targetMachine->createDataLayout());
+
     if (!options.dumpIntermediatesPath.empty()) {
       dumpLLVMModuleToPath(options.dumpIntermediatesPath, options.dumpBaseName,
                            variantOp.getName(), *llvmModule);
+    }
+
+    // Dump assembly
+    if (!options.dumpBinariesPath.empty()) {
+      llvm::SmallVector<char, 0> asmDataStorage;
+      llvm::raw_svector_ostream asmStream(asmDataStorage);
+      llvm::legacy::PassManager asmPassManager;
+      auto asmModule = llvm::CloneModule(*llvmModule);
+      if (targetMachine->addPassesToEmitFile(
+              asmPassManager, asmStream, nullptr,
+              llvm::CodeGenFileType::AssemblyFile)) {
+        return variantOp.emitOpError()
+               << "Hexagon target machine cannot emit assembly files";
+      }
+      asmPassManager.run(*asmModule);
+      std::vector<int8_t> asmData(asmDataStorage.begin(), asmDataStorage.end());
+      dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
+                             variantOp.getName(), ".s", asmData);
     }
 
     // Run the target backend codegen pipeline to produce an ELF object.

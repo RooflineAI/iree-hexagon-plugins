@@ -37,7 +37,7 @@ TEST(CommandBufferSerializeTest, SingleDispatch) {
   iree_hal_hexagon_command_dispatch_t dispatch = {};
   dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   dispatch.rpc_executable_handle = 0x123456;
-  dispatch.entry_point = 7;
+  dispatch.export_ordinal = 7;
 
   iree_hal_buffer_t direct_buffer = {};
 
@@ -82,7 +82,7 @@ TEST(CommandBufferSerializeTest, SingleDispatch) {
 
   EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
   EXPECT_EQ(dispatch.rpc_executable_handle, cmd_dispatch->executable_handle);
-  EXPECT_EQ(dispatch.entry_point, cmd_dispatch->entry_point);
+  EXPECT_EQ(dispatch.export_ordinal, cmd_dispatch->export_ordinal);
   EXPECT_EQ(binding_values.size(), cmd_dispatch->num_bindings);
 
   for (size_t i = 0; i < binding_values.size(); ++i) {
@@ -140,7 +140,7 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   iree_hal_hexagon_command_dispatch_t first_dispatch = {};
   first_dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   first_dispatch.rpc_executable_handle = first_rpc_executable_handle;
-  first_dispatch.entry_point = 2;
+  first_dispatch.export_ordinal = 2;
 
   iree_hal_hexagon_command_barrier_t barrier = {};
   barrier.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
@@ -148,7 +148,7 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   iree_hal_hexagon_command_dispatch_t second_dispatch = {};
   second_dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   second_dispatch.rpc_executable_handle = second_rpc_executable_handle;
-  second_dispatch.entry_point = 5;
+  second_dispatch.export_ordinal = 5;
 
   std::array<iree_hal_buffer_ref_t, 1> first_bindings = {
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/3, /*offset=*/0,
@@ -207,15 +207,15 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   const uint8_t *cursor = buffer.data() + sizeof(*header);
   auto verify_dispatch =
       [&](const rpc_executable_handle_t &rpc_executable_handle,
-          int32_t entry_point, const iree_hal_buffer_ref_t *refs,
-          size_t count) {
+          iree_hal_executable_export_ordinal_t export_ordinal,
+          const iree_hal_buffer_ref_t *refs, size_t count) {
         const auto *cmd_dispatch =
             reinterpret_cast<const hexagon_rt_arm_dsp_cmd_dispatch_t *>(cursor);
         cursor += sizeof(*cmd_dispatch);
 
         EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
         EXPECT_EQ(rpc_executable_handle, cmd_dispatch->executable_handle);
-        EXPECT_EQ(entry_point, cmd_dispatch->entry_point);
+        EXPECT_EQ(export_ordinal, cmd_dispatch->export_ordinal);
         EXPECT_EQ(count, cmd_dispatch->num_bindings);
 
         for (size_t i = 0; i < count; ++i) {
@@ -229,7 +229,7 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
         }
       };
 
-  verify_dispatch(first_rpc_executable_handle, first_dispatch.entry_point,
+  verify_dispatch(first_rpc_executable_handle, first_dispatch.export_ordinal,
                   first_bindings.data(), first_bindings.size());
 
   const auto *cmd_barrier =
@@ -237,7 +237,7 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   cursor += sizeof(*cmd_barrier);
   EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_BARRIER, cmd_barrier->base.cmd_type);
 
-  verify_dispatch(second_rpc_executable_handle, second_dispatch.entry_point,
+  verify_dispatch(second_rpc_executable_handle, second_dispatch.export_ordinal,
                   second_bindings.data(), second_bindings.size());
 
   EXPECT_EQ(buffer.data() + buffer.size(), cursor);

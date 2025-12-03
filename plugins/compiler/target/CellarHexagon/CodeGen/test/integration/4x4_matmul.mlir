@@ -4,14 +4,15 @@
 
 // RUN: rm -f %t.vmfb
 // RUN: iree-compile %s --iree-hal-target-backends=hexagon \
+// RUN: --iree-opt-data-tiling=true \
 // RUN: --iree-hal-target-backends=hexagon \
 // RUN: --iree-hexagon-v=79 \
 // RUN: --iree-hexagon-features=+hvxv79,+hvx-length128b \
-// RUN: --mlir-print-ir-after=iree-global-opt-materialize-homogeneous-encodings \
+// RUN: --mlir-print-ir-after=iree-codegen-materialize-device-encoding \
 // RUN: -o %t.vmfb 2>&1 | FileCheck %s
-// RUN: test -s
+// RUN: test -s %t.vmfb
 
-// CHECK: // -----// IR Dump After MaterializeHomogeneousEncodingsPass
+// CHECK: // -----// IR Dump After MaterializeDeviceEncodingPass
 // CHECK: linalg.pack
 // CHECK: linalg.mmt4d
 // CHECK: linalg.unpack

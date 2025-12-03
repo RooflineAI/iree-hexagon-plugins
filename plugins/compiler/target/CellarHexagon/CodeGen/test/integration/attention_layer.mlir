@@ -2,17 +2,19 @@
 // Since we are running with iree-compile, verifiers are being called and compilation is generating valid code throughout the pipeline.
 // Also note that this test is triggering the narrow matrices path in the custom encoder and materializer for hexagon.
 // The objective of the test is to check correct lowering of these operations and generation of vector instructions.
-// Currently, some vector instructions are generated (vadd, vsplat), but they are not related to the tiling.
+// Currently, some vector instructions are generated (vadd, vsplat, even a few vmem), but they are not related to the tiling.
 // TODO: Update this test once vector instructions are working to check for their generation
 
 // RUN: iree-compile %s \
 // RUN:   --iree-hal-target-backends=hexagon \
 // RUN:   --iree-hexagon-v=79 \
 // RUN:   --iree-hexagon-features=+hvxv79,+hvx-length128b \
-// RUN:   --iree-hal-dump-executable-binaries-to=%t > /dev/null
-// RUN: cat %t/module_module_linked_embedded_elf_hexagon.s | FileCheck %s
+// RUN:   --iree-hal-dump-executable-binaries-to=%t \
+// RUN:   -o %t.vmfb
+// RUN: test -s %t.vmfb
 
-// CHECK-NOT: vmem
+// // run: cat %t/module_module_linked_embedded_elf_hexagon.s | FileCheck %s
+// // check: vmem/vscatter/vgather, etc...
 
 #map = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map1 = affine_map<(d0, d1, d2) -> (d0, d1)>

@@ -35,8 +35,8 @@ typedef struct iree_hal_hexagon_command_dispatch_s {
   iree_hal_executable_t *executable;
   /// RPC executable that contains the function to call, not owned
   rpc_executable_handle_t rpc_executable_handle;
-  /// number of entry point to call from executable
-  int32_t entry_point;
+  /// number of exported function to call from executable
+  iree_hal_executable_export_ordinal_t export_ordinal;
   /// bindings (i.e. fixed buffers or placeholders), pointers inside points to
   /// memory in the same block as this structure
   iree_hal_buffer_ref_list_t bindings;

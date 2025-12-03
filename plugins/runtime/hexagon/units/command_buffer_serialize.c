@@ -97,7 +97,7 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
       SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_cmd_dispatch_t, cmd_dispatch)
       cmd_dispatch->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_DISPATCH;
       cmd_dispatch->executable_handle = command_dispatch->rpc_executable_handle;
-      cmd_dispatch->entry_point = command_dispatch->entry_point;
+      cmd_dispatch->export_ordinal = command_dispatch->export_ordinal;
       cmd_dispatch->num_bindings = command_dispatch->bindings.count;
       for (uint32_t b = 0; b < cmd_dispatch->num_bindings; ++b) {
         const iree_hal_buffer_ref_t *binding =

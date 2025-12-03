@@ -446,7 +446,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_collective(
 
 static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
     iree_hal_command_buffer_t *base_command_buffer,
-    iree_hal_executable_t *executable, int32_t entry_point,
+    iree_hal_executable_t *executable,
+    iree_hal_executable_export_ordinal_t export_ordinal,
     const iree_hal_dispatch_config_t config, iree_const_byte_span_t constants,
     iree_hal_buffer_ref_list_t bindings, iree_hal_dispatch_flags_t flags) {
   iree_hal_hexagon_command_buffer_t *command_buffer =
@@ -518,7 +519,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   dispatch->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   dispatch->executable = executable;
   dispatch->rpc_executable_handle = rpc_executable_handle;
-  dispatch->entry_point = entry_point;
+  dispatch->export_ordinal = export_ordinal;
   dispatch->bindings.count = bindings.count;
   iree_hal_buffer_ref_t *bindings_values =
       (iree_hal_buffer_ref_t *)((uint8_t *)dispatch + sizeof(*dispatch));

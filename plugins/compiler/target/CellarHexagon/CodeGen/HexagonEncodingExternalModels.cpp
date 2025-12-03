@@ -57,12 +57,14 @@
 namespace mlir::iree_compiler::hexagon {
 
 using namespace IREE::Hexagon;
+namespace Codegen = IREE::Codegen;
+namespace Encoding = IREE::Encoding;
 
 namespace {
 
 // Fixed 4x4x4 tiling keeps the prototype simple while still exercising the
 // encoding plumbing in the same way as CPU/GPU backends.
-constexpr IREE::Codegen::TileMxNxK kHexagonPrototypeTile{4, 4, 4};
+constexpr Codegen::TileMxNxK kHexagonPrototypeTile{4, 4, 4};
 
 // TODO: Copy pasted function, come back to it later. It might not even be
 // useful for Hexagon, this probably needs a lot of rethinking
@@ -124,16 +126,15 @@ static Value createElementWiseExtUIOp(OpBuilder &builder, Value input,
       tensor::getMixedSizes(builder, loc, input);
   Value init =
       tensor::EmptyOp::create(builder, loc, inputMixedSizes, outElemType);
-  return builder
-      .create<linalg::GenericOp>(
-          loc, castedType, input, init, maps, iteratorTypes,
-          [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
-            Value castRes =
-                arith::ExtUIOp::create(b, nestedLoc, outElemType, args[0])
-                    ->getResult(0);
-            linalg::YieldOp::create(b, nestedLoc, castRes);
-          })
-      .getResult(0);
+  return linalg::GenericOp::create(
+             builder, loc, castedType, input, init, maps, iteratorTypes,
+             [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
+               Value castRes =
+                   arith::ExtUIOp::create(b, nestedLoc, outElemType, args[0])
+                       ->getResult(0);
+               linalg::YieldOp::create(b, nestedLoc, castRes);
+             })
+      ->getResult(0);
 }
 
 // TODO: Copy pasted function, come back to it later. It might not even be
@@ -167,13 +168,14 @@ static Value getMmt4dOperand(Value value, linalg::LinalgOp linalgOp,
 
 // TODO: Copy pasted function, come back to it later. It might not even be
 // useful for Hexagon, this probably needs a lot of rethinking
-FailureOr<Operation *> lowerContractionOpWithEncoding(
-    OpBuilder &builder, linalg::LinalgOp linalgOp, ValueRange operands,
-    IREE::Encoding::LayoutMaterializerAttr layoutAttr) {
+Operation *
+lowerContractionOpWithEncoding(OpBuilder &builder, linalg::LinalgOp linalgOp,
+                               ValueRange operands,
+                               Encoding::LayoutMaterializerAttr layoutAttr) {
 
   // Verification that this is one of the operations we actually want to lower.
   if (!linalgOp.hasPureTensorSemantics()) {
-    return failure();
+    return nullptr;
   }
 
   auto inputs = linalgOp.getDpsInputOperands();
@@ -182,24 +184,23 @@ FailureOr<Operation *> lowerContractionOpWithEncoding(
   auto lhsType = cast<RankedTensorType>(inputs[0]->get().getType());
   auto rhsType = cast<RankedTensorType>(inputs[1]->get().getType());
   auto resultType = cast<RankedTensorType>(outputs[0].getType());
-  auto lhsEncoding = IREE::Encoding::getEncodingAttr(lhsType);
-  auto rhsEncoding = IREE::Encoding::getEncodingAttr(rhsType);
-  auto resultEncoding = IREE::Encoding::getEncodingAttr(resultType);
+  auto lhsEncoding = Encoding::getEncodingAttr(lhsType);
+  auto rhsEncoding = Encoding::getEncodingAttr(rhsType);
+  auto resultEncoding = Encoding::getEncodingAttr(resultType);
   if (!lhsEncoding || !rhsEncoding || !resultEncoding) {
-    return failure();
+    return nullptr;
   }
 
-  if (lhsEncoding.getOperandIndex().getValue() != IREE::Encoding::MATMUL_LHS ||
-      rhsEncoding.getOperandIndex().getValue() != IREE::Encoding::MATMUL_RHS ||
-      resultEncoding.getOperandIndex().getValue() !=
-          IREE::Encoding::MATMUL_RESULT) {
-    return failure();
+  if (lhsEncoding.getOperandIndex().getValue() != Encoding::MATMUL_LHS ||
+      rhsEncoding.getOperandIndex().getValue() != Encoding::MATMUL_RHS ||
+      resultEncoding.getOperandIndex().getValue() != Encoding::MATMUL_RESULT) {
+    return nullptr;
   }
 
   // It is one of the operations we want to lower, let's try to do so.
-  IREE::Codegen::MaterializeEncodingInfo encodingInfo = {};
+  Codegen::MaterializeEncodingInfo encodingInfo = {};
   if (auto packedLayoutAttr =
-          dyn_cast<IREE::Codegen::PackedLayoutMaterializerAttr>(layoutAttr)) {
+          dyn_cast<Codegen::PackedLayoutMaterializerAttr>(layoutAttr)) {
     encodingInfo = packedLayoutAttr.getEncodingInfo(
         cast<RankedTensorType>(linalgOp->getResultTypes()[0]));
   }
@@ -225,7 +226,7 @@ FailureOr<Operation *> lowerContractionOpWithEncoding(
     std::swap(newLhs, newRhs);
   }
   Type newResultType = newResult.getType();
-  auto cDims = IREE::Encoding::getEncodingContractionDims(lhsEncoding);
+  auto cDims = Encoding::getEncodingContractionDims(lhsEncoding);
   Operation *result;
   if (cDims->batch.empty()) {
     result = linalg::Mmt4DOp::create(builder, linalgOp.getLoc(), newResultType,
@@ -259,22 +260,19 @@ struct HexagonPackedLayoutMaterializerAttr
     return resolver.getConfiguration();
   }
 
-  IREE::Codegen::MaterializeEncodingInfo
+  Codegen::MaterializeEncodingInfo
   getEncodingInfoImpl(Attribute attr, RankedTensorType type) const {
     // Mirror the CPU/GPU flow: look at the tensor's encoding and request a
     // materialization recipe. This prototype always selects the 4x4x4 tile.
-    (void)attr;
+    Codegen::MaterializeEncodingInfo info;
     auto encoding =
-        dyn_cast_or_null<IREE::Encoding::EncodingAttr>(type.getEncoding());
-    IREE::Codegen::MaterializeEncodingInfo info;
+        dyn_cast_or_null<Encoding::EncodingAttr>(type.getEncoding());
     if (!encoding)
       return info;
 
-    FailureOr<IREE::Codegen::MaterializeEncodingInfo> maybeInfo =
-        IREE::Codegen::getEncodingInfoForMatmul(encoding,
-                                                kHexagonPrototypeTile);
+    FailureOr<Codegen::MaterializeEncodingInfo> maybeInfo =
+        Codegen::getEncodingInfoForMatmul(encoding, kHexagonPrototypeTile);
     if (failed(maybeInfo)) {
-      llvm::errs() << "Unexpected miss when retrieving tiling information\n";
       return info;
     }
 
@@ -296,43 +294,75 @@ struct HexagonLayoutMaterializerAttr
           EncodingLayoutMaterializerAttrExternalModelBase<
               HexagonLayoutMaterializerAttr, HexagonEncodingResolverAttr> {
   Operation *lowerOp(Attribute attr, OpBuilder &builder, Operation *op,
-                     TypeRange convertedResults,
+                     TypeRange convertedResTypes,
                      ValueRange convertedOperands) const {
-    (void)convertedResults;
+    auto layoutAttr = cast<HexagonEncodingResolverAttr>(attr);
     auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
     if (!linalgOp) {
       return nullptr;
     }
 
-    auto layoutAttr = cast<IREE::Encoding::LayoutMaterializerAttr>(attr);
-    FailureOr<Operation *> lowered = lowerContractionOpWithEncoding(
-        builder, linalgOp, convertedOperands, layoutAttr);
-    return succeeded(lowered) ? *lowered : nullptr;
+    if (auto fillOp = dyn_cast<linalg::FillOp>(op)) {
+      return IREE::lowerFillOpWithResolvedLayouts(
+          builder, fillOp, convertedResTypes, convertedOperands);
+    }
+    if (linalg::isaContractionOpInterface(linalgOp)) {
+      return lowerContractionOpWithEncoding(
+          builder, linalgOp, convertedOperands,
+          cast<Encoding::LayoutMaterializerAttr>(layoutAttr));
+    }
+
+    // TODO: I have not tested this code path, copy pasted from LLVMCPU's
+    // upstream bump
+    if (auto genericOp = dyn_cast<linalg::GenericOp>(op)) {
+      return IREE::lowerGenericOpWithResolvedLayouts(
+          builder, genericOp, convertedResTypes, convertedOperands,
+          cast<Encoding::LayoutMaterializerAttr>(attr));
+    }
+    return nullptr;
   }
 };
 
 struct HexagonLayoutResolverAttr
-    : public IREE::Encoding::LayoutResolverAttr::ExternalModel<
+    : public Encoding::LayoutResolverAttr::ExternalModel<
           HexagonLayoutResolverAttr, HexagonEncodingResolverAttr> {
   Attribute cloneWithSimplifiedConfig(Attribute attr,
                                       DictionaryAttr config) const {
-    (void)config;
-    // TODO: filter configuration entries that Hexagon needs once defined.
-    // I do not understand this function yet
-    return attr;
+    MLIRContext *ctx = attr.getContext();
+    SmallVector<NamedAttribute> configItems;
+
+    // We could add more information to this config. As an example,
+    // LLVMCPUTarget adds information about ukernels, cpu features and target
+    // triple.
+    // TODO: There is some weird behavior with this.The idea is to simplify the
+    // verbosity of the IR according to the doc. Nevertheless, even in the CPU
+    // pipeline the information is not added to the attribute, nor used
+    // apparently. Can investigate later, maybe I am misunderstanding something.
+
+    return HexagonEncodingResolverAttr::get(
+        ctx, DictionaryAttr::get(ctx, configItems));
   }
 
   Attribute getLayout(Attribute attr, RankedTensorType type) const {
-    (void)type;
-    // TODO: synthesize layout attributes once tiling strategy is available.
-    // I do not understand this function yet
-    return attr;
+    MLIRContext *ctx = attr.getContext();
+
+    DictionaryAttr config = IREE::getPackedLayoutImpl(attr, type);
+    return HexagonEncodingResolverAttr::get(ctx, config);
   }
 };
 
 struct HexagonSerializableAttr
-    : public IREE::Encoding::SerializableAttr::ExternalModel<
+    : public Encoding::SerializableAttr::ExternalModel<
           HexagonSerializableAttr, HexagonEncodingResolverAttr> {
+
+  // This get called from the encodeHostTensorPass, and that pass will fail if
+  // this function returns false, since it requires the information we are
+  // providing here
+  bool isSerialized(Attribute attr) const {
+    auto configuration =
+        cast<HexagonEncodingResolverAttr>(attr).getConfiguration();
+    return configuration && configuration.contains(IREE::kEncodingInfoAttrName);
+  }
 
   Value calculateStorageSizeInBytes(Attribute attr, Location loc,
                                     OpBuilder &builder, RankedTensorType type,

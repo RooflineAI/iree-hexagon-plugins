@@ -18,6 +18,7 @@ iree_lit_test_suite(
             "integration/32x32_matmul.mlir",
             "integration/4x4_matmul.mlir",
             "integration/attention_layer.mlir",
+            "integration/encoding_resolver_generated_attribute.mlir",
             "unit/encoder_and_materializer_registration.mlir",
             "unit/executable_generation_and_dumping.mlir",
             "unit/plugin_registration.mlir",

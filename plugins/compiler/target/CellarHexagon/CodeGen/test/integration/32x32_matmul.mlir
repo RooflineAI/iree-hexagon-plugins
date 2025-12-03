@@ -7,7 +7,7 @@
 // RUN: --iree-hexagon-v=79 \
 // RUN: --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN: -o %t.vmfb
-// RUN: test -s
+// RUN: test -s %t.vmfb
 
 module {
   func.func @matmul(%lhs: tensor<64x64xf32>, %rhs: tensor<64x64xf32>)

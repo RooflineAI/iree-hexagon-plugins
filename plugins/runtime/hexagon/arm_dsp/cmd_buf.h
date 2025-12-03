@@ -34,7 +34,7 @@ typedef struct hexagon_rt_arm_dsp_cmd_base_s {
 typedef struct hexagon_rt_arm_dsp_cmd_dispatch_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
   int64_t executable_handle;
-  int32_t entry_point;
+  int32_t export_ordinal;
   uint32_t num_bindings;
   // followed by num_bindings hexagon_rt_arm_dsp_binding_t
   // TODO: add fields

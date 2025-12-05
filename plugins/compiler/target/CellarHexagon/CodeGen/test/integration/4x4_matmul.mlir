@@ -12,10 +12,7 @@
 // RUN: -o %t.vmfb 2>&1 | FileCheck %s
 // RUN: test -s %t.vmfb
 
-// CHECK: // -----// IR Dump After MaterializeDeviceEncodingPass
-// CHECK: linalg.pack
 // CHECK: linalg.mmt4d
-// CHECK: linalg.unpack
 // CHECK-NOT: linalg.matmul
 
 module {

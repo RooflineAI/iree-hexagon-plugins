@@ -507,18 +507,18 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   if (iree_hal_dispatch_uses_custom_arguments(flags)) {
     return iree_make_status(
         IREE_STATUS_UNIMPLEMENTED,
-        "direct/indirect arguments are not supported on Hexagon");
+        "custom arguments (direct/indirect) are not supported on Hexagon");
   }
   if (iree_hal_dispatch_uses_indirect_parameters(flags)) {
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                             "indirect parameters are not supported on Hexagon");
   }
-  if (config.workgroup_size[0] != 0 || config.workgroup_size[1] != 0 ||
-      config.workgroup_size[2] != 0 || config.workgroup_count[0] != 1 ||
-      config.workgroup_count[1] != 1 || config.workgroup_count[2] != 1) {
-    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "non-default workgroup sizes or workgroup counts "
-                            "different from one are not supported on Hexagon");
+  // workgroup size Z uses a short type in IREE dispatches, check for overflow
+  if (config.workgroup_size[2] > UINT16_MAX) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "workgroup_size[2] (z) of %" PRIu32
+                            "d is too large",
+                            config.workgroup_size[2]);
   }
   if (config.workgroup_count_ref.length != 0) {
     return iree_make_status(
@@ -560,6 +560,16 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   dispatch->executable = executable;
   dispatch->rpc_executable_handle = rpc_executable_handle;
   dispatch->export_ordinal = export_ordinal;
+  // workgroup size 0 means default workgroup size, it is 1 here
+  dispatch->workgroup_size_x =
+      config.workgroup_size[0] ? config.workgroup_size[0] : 1;
+  dispatch->workgroup_size_y =
+      config.workgroup_size[1] ? config.workgroup_size[1] : 1;
+  dispatch->workgroup_size_z =
+      config.workgroup_size[2] ? config.workgroup_size[2] : 1;
+  dispatch->workgroup_count_x = config.workgroup_count[0];
+  dispatch->workgroup_count_y = config.workgroup_count[1];
+  dispatch->workgroup_count_z = config.workgroup_count[2];
   dispatch->bindings.count = bindings.count;
   iree_hal_buffer_ref_t *bindings_values =
       (iree_hal_buffer_ref_t *)((uint8_t *)dispatch + sizeof(*dispatch));

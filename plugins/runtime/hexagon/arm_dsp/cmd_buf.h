@@ -36,6 +36,12 @@ typedef struct hexagon_rt_arm_dsp_cmd_dispatch_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
   int64_t executable_handle;
   uint32_t export_ordinal;
+  uint32_t workgroup_size_x;
+  uint32_t workgroup_size_y;
+  uint16_t workgroup_size_z;
+  uint32_t workgroup_count_x;
+  uint32_t workgroup_count_y;
+  uint16_t workgroup_count_z;
   uint32_t num_bindings;
   // followed by num_bindings hexagon_rt_arm_dsp_buf_ref_t
   // TODO: add fields

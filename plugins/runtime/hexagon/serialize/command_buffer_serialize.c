@@ -93,6 +93,12 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
       cmd_dispatch->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_DISPATCH;
       cmd_dispatch->executable_handle = command_dispatch->rpc_executable_handle;
       cmd_dispatch->export_ordinal = command_dispatch->export_ordinal;
+      cmd_dispatch->workgroup_size_x = command_dispatch->workgroup_size_x;
+      cmd_dispatch->workgroup_size_y = command_dispatch->workgroup_size_y;
+      cmd_dispatch->workgroup_size_z = command_dispatch->workgroup_size_z;
+      cmd_dispatch->workgroup_count_x = command_dispatch->workgroup_count_x;
+      cmd_dispatch->workgroup_count_y = command_dispatch->workgroup_count_y;
+      cmd_dispatch->workgroup_count_z = command_dispatch->workgroup_count_z;
       cmd_dispatch->num_bindings = command_dispatch->bindings.count;
       for (uint32_t b = 0; b < cmd_dispatch->num_bindings; ++b) {
         const iree_hal_buffer_ref_t *binding =

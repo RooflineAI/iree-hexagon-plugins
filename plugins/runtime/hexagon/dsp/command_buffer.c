@@ -237,13 +237,13 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // FIXME: many values hard coded to 1 / 0 for now, need to be implemented
   // properly
   iree_hal_executable_dispatch_state_v0_t dispatch_state = {
-      .workgroup_size_x = 1,
-      .workgroup_size_y = 1,
-      .workgroup_size_z = 1,
+      .workgroup_size_x = cmd_dispatch->workgroup_size_x,
+      .workgroup_size_y = cmd_dispatch->workgroup_size_y,
+      .workgroup_size_z = cmd_dispatch->workgroup_size_z,
       .constant_count = 0,
-      .workgroup_count_x = 1,
-      .workgroup_count_y = 1,
-      .workgroup_count_z = 1,
+      .workgroup_count_x = cmd_dispatch->workgroup_count_x,
+      .workgroup_count_y = cmd_dispatch->workgroup_count_y,
+      .workgroup_count_z = cmd_dispatch->workgroup_count_z,
       .max_concurrency = 1,
       .binding_count = num_buf_refs,
       .constants = NULL,
@@ -279,8 +279,29 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
     }
   }
 
-  // call dispatch function
-  dispatch_func(NULL, &dispatch_state, NULL);
+  // for now, run all workgroups sequentially
+  for (uint16_t wg_id_z = 0; wg_id_z < dispatch_state.workgroup_count_z;
+       ++wg_id_z) {
+    for (uint32_t wg_id_y = 0; wg_id_y < dispatch_state.workgroup_count_y;
+         ++wg_id_y) {
+      for (uint32_t wg_id_x = 0; wg_id_x < dispatch_state.workgroup_count_x;
+           ++wg_id_x) {
+
+        // build workgroup state
+        iree_hal_executable_workgroup_state_v0_t workgroup_state = {
+            .workgroup_id_x = wg_id_x,
+            .workgroup_id_y = wg_id_y,
+            .workgroup_id_z = wg_id_z,
+            .processor_id = 0,
+            .local_memory = NULL,
+            .local_memory_size = 0,
+        };
+
+        // call dispatch function
+        dispatch_func(NULL, &dispatch_state, &workgroup_state);
+      }
+    }
+  }
 
   // flush cache of buffers
   for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {

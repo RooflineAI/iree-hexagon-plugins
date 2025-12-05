@@ -39,6 +39,18 @@ typedef struct iree_hal_hexagon_command_dispatch_s {
   rpc_executable_handle_t rpc_executable_handle;
   /// number of exported function to call from executable
   iree_hal_executable_export_ordinal_t export_ordinal;
+  /// workgroup size - divided into x * y * z (z uses smaller type in IREE)
+  //@{
+  uint32_t workgroup_size_x;
+  uint32_t workgroup_size_y;
+  uint16_t workgroup_size_z;
+  //@}
+  /// workgroup count - divided into x * y * z (z uses smaller type in IREE)
+  //@{
+  uint32_t workgroup_count_x;
+  uint32_t workgroup_count_y;
+  uint16_t workgroup_count_z;
+  //@}
   /// bindings (i.e. fixed buffers or placeholders), pointers inside points to
   /// memory in the same block as this structure
   iree_hal_buffer_ref_list_t bindings;

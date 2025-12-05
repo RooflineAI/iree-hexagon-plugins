@@ -66,6 +66,12 @@ TEST(CommandBufferSerializeTest, SingleDispatch) {
   dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   dispatch.rpc_executable_handle = 0x123456;
   dispatch.export_ordinal = 7;
+  dispatch.workgroup_size_x = 8;
+  dispatch.workgroup_size_y = 4;
+  dispatch.workgroup_size_z = 2;
+  dispatch.workgroup_count_x = 3;
+  dispatch.workgroup_count_y = 2;
+  dispatch.workgroup_count_z = 1;
 
   std::array<iree_hal_buffer_ref_t, 3> binding_values = {
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/1, /*offset=*/32,
@@ -115,6 +121,12 @@ TEST(CommandBufferSerializeTest, SingleDispatch) {
   EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
   EXPECT_EQ(dispatch.rpc_executable_handle, cmd_dispatch->executable_handle);
   EXPECT_EQ(dispatch.export_ordinal, cmd_dispatch->export_ordinal);
+  EXPECT_EQ(dispatch.workgroup_size_x, cmd_dispatch->workgroup_size_x);
+  EXPECT_EQ(dispatch.workgroup_size_y, cmd_dispatch->workgroup_size_y);
+  EXPECT_EQ(dispatch.workgroup_size_z, cmd_dispatch->workgroup_size_z);
+  EXPECT_EQ(dispatch.workgroup_count_x, cmd_dispatch->workgroup_count_x);
+  EXPECT_EQ(dispatch.workgroup_count_y, cmd_dispatch->workgroup_count_y);
+  EXPECT_EQ(dispatch.workgroup_count_z, cmd_dispatch->workgroup_count_z);
   EXPECT_EQ(binding_values.size(), cmd_dispatch->num_bindings);
 
   for (size_t i = 0; i < binding_values.size(); ++i) {
@@ -255,6 +267,12 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   first_dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   first_dispatch.rpc_executable_handle = first_rpc_executable_handle;
   first_dispatch.export_ordinal = 2;
+  first_dispatch.workgroup_size_x = 1;
+  first_dispatch.workgroup_size_y = 2;
+  first_dispatch.workgroup_size_z = 3;
+  first_dispatch.workgroup_count_x = 4;
+  first_dispatch.workgroup_count_y = 5;
+  first_dispatch.workgroup_count_z = 6;
 
   iree_hal_hexagon_command_barrier_t barrier = {};
   barrier.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
@@ -263,6 +281,12 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   second_dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   second_dispatch.rpc_executable_handle = second_rpc_executable_handle;
   second_dispatch.export_ordinal = 5;
+  second_dispatch.workgroup_size_x = 7;
+  second_dispatch.workgroup_size_y = 8;
+  second_dispatch.workgroup_size_z = 9;
+  second_dispatch.workgroup_count_x = 10;
+  second_dispatch.workgroup_count_y = 11;
+  second_dispatch.workgroup_count_z = 12;
 
   std::array<iree_hal_buffer_ref_t, 1> first_bindings = {
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/3, /*offset=*/0,
@@ -323,8 +347,7 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
 
   const uint8_t *cursor = buffer.data() + sizeof(*header);
   auto verify_dispatch =
-      [&](const rpc_executable_handle_t &rpc_executable_handle,
-          iree_hal_executable_export_ordinal_t export_ordinal,
+      [&](const iree_hal_hexagon_command_dispatch_t &dispatch,
           const iree_hal_buffer_ref_t *refs, size_t count,
           size_t direct_buffer_at_idx, int64_t dsp_virt_addr) {
         const auto *cmd_dispatch =
@@ -332,8 +355,15 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
         cursor += sizeof(*cmd_dispatch);
 
         EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
-        EXPECT_EQ(rpc_executable_handle, cmd_dispatch->executable_handle);
-        EXPECT_EQ(export_ordinal, cmd_dispatch->export_ordinal);
+        EXPECT_EQ(dispatch.rpc_executable_handle,
+                  cmd_dispatch->executable_handle);
+        EXPECT_EQ(dispatch.export_ordinal, cmd_dispatch->export_ordinal);
+        EXPECT_EQ(dispatch.workgroup_size_x, cmd_dispatch->workgroup_size_x);
+        EXPECT_EQ(dispatch.workgroup_size_y, cmd_dispatch->workgroup_size_y);
+        EXPECT_EQ(dispatch.workgroup_size_z, cmd_dispatch->workgroup_size_z);
+        EXPECT_EQ(dispatch.workgroup_count_x, cmd_dispatch->workgroup_count_x);
+        EXPECT_EQ(dispatch.workgroup_count_y, cmd_dispatch->workgroup_count_y);
+        EXPECT_EQ(dispatch.workgroup_count_z, cmd_dispatch->workgroup_count_z);
         EXPECT_EQ(count, cmd_dispatch->num_bindings);
 
         for (size_t i = 0; i < count; ++i) {
@@ -349,8 +379,7 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
         }
       };
 
-  verify_dispatch(first_rpc_executable_handle, first_dispatch.export_ordinal,
-                  first_bindings.data(), first_bindings.size(),
+  verify_dispatch(first_dispatch, first_bindings.data(), first_bindings.size(),
                   first_bindings.size() /* no direct buffer ref*/,
                   -1 /* unused */);
 
@@ -359,8 +388,8 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   cursor += sizeof(*cmd_barrier);
   EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_BARRIER, cmd_barrier->base.cmd_type);
 
-  verify_dispatch(second_rpc_executable_handle, second_dispatch.export_ordinal,
-                  second_bindings.data(), second_bindings.size(), 3, 0x420001);
+  verify_dispatch(second_dispatch, second_bindings.data(),
+                  second_bindings.size(), 3, 0x420001);
 
   // Test the test: Generated data needs to end at end of buffer.
 
@@ -379,6 +408,12 @@ TEST(CommandBufferSerializeTest, DispatchBarrierCopy) {
   dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
   dispatch.rpc_executable_handle = rpc_executable_handle;
   dispatch.export_ordinal = 4;
+  dispatch.workgroup_size_x = 8;
+  dispatch.workgroup_size_y = 6;
+  dispatch.workgroup_size_z = 4;
+  dispatch.workgroup_count_x = 2;
+  dispatch.workgroup_count_y = 3;
+  dispatch.workgroup_count_z = 5;
 
   std::array<iree_hal_buffer_ref_t, 2> binding_values = {
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/6, /*offset=*/0,
@@ -443,6 +478,12 @@ TEST(CommandBufferSerializeTest, DispatchBarrierCopy) {
   EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
   EXPECT_EQ(dispatch.rpc_executable_handle, cmd_dispatch->executable_handle);
   EXPECT_EQ(dispatch.export_ordinal, cmd_dispatch->export_ordinal);
+  EXPECT_EQ(dispatch.workgroup_size_x, cmd_dispatch->workgroup_size_x);
+  EXPECT_EQ(dispatch.workgroup_size_y, cmd_dispatch->workgroup_size_y);
+  EXPECT_EQ(dispatch.workgroup_size_z, cmd_dispatch->workgroup_size_z);
+  EXPECT_EQ(dispatch.workgroup_count_x, cmd_dispatch->workgroup_count_x);
+  EXPECT_EQ(dispatch.workgroup_count_y, cmd_dispatch->workgroup_count_y);
+  EXPECT_EQ(dispatch.workgroup_count_z, cmd_dispatch->workgroup_count_z);
   EXPECT_EQ(binding_values.size(), cmd_dispatch->num_bindings);
 
   for (size_t i = 0; i < binding_values.size(); ++i) {

@@ -33,9 +33,11 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_prep(
             IREE_STATUS_RESOURCE_EXHAUSTED,
             "too many bindings in command in command buffer");
       }
-      cmd_buf_size += sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
-                      command_dispatch->bindings.count *
-                          sizeof(hexagon_rt_arm_dsp_buf_ref_t);
+      cmd_buf_size +=
+          sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
+          command_dispatch->constant_count * sizeof(hexagon_rt_arm_dsp_con_t) +
+          command_dispatch->bindings.count *
+              sizeof(hexagon_rt_arm_dsp_buf_ref_t);
       break;
     }
 
@@ -99,7 +101,12 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
       cmd_dispatch->workgroup_count_x = command_dispatch->workgroup_count_x;
       cmd_dispatch->workgroup_count_y = command_dispatch->workgroup_count_y;
       cmd_dispatch->workgroup_count_z = command_dispatch->workgroup_count_z;
+      cmd_dispatch->constant_count = command_dispatch->constant_count;
       cmd_dispatch->num_bindings = command_dispatch->bindings.count;
+      for (uint32_t c = 0; c < cmd_dispatch->constant_count; ++c) {
+        SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_con_t, con)
+        con->value = command_dispatch->constants[c];
+      }
       for (uint32_t b = 0; b < cmd_dispatch->num_bindings; ++b) {
         const iree_hal_buffer_ref_t *binding =
             &command_dispatch->bindings.values[b];

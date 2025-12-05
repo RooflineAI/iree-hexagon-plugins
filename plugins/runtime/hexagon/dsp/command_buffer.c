@@ -85,6 +85,18 @@ int hexagon_dsp_command_buffer_destroy(remote_handle64 rpc_handle,
 }
 
 /**
+ * Type alignment wrapper, to ensure a minimum alignment.
+ */
+#define ALIGN_OF_TYPE(T) (__alignof__(T) > 8 ? __alignof__(T) : 8)
+
+/**
+ * Align a size S for a certain type T, i.e., find the next non-smaller multiple
+ * of the size of the type.
+ */
+#define ALIGN_SIZE_FOR_TYPE(S, T)                                              \
+  (((S) + (ALIGN_OF_TYPE(T) - 1)) & ~(ALIGN_OF_TYPE(T) - 1))
+
+/**
  * Macro to read type T from a buffer with serialized data (pointer P, size S).
  * Provides pointer to deserialized value as V.
  * Returns with error from calling function if size is too small.
@@ -219,10 +231,13 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // same buffer and the start addresses are computed based on their size.
   // The data is written to the arrays below the definition of the dispatch
   // data structre.
-  size_t binding_ptrs_size = num_buf_refs * sizeof(void *);
+  size_t constants_size = ALIGN_SIZE_FOR_TYPE(
+      cmd_dispatch->constant_count * sizeof(uint32_t), void *);
+  size_t binding_ptrs_size =
+      ALIGN_SIZE_FOR_TYPE(num_buf_refs * sizeof(void *), size_t);
   size_t binding_lengths_size = num_buf_refs * sizeof(size_t);
   uint8_t *dispatch_arrays = NULL;
-  err = HAP_malloc(binding_ptrs_size + binding_lengths_size,
+  err = HAP_malloc(constants_size + binding_ptrs_size + binding_lengths_size,
                    (void **)&dispatch_arrays);
   if (err != AEE_SUCCESS) {
     return err;
@@ -230,8 +245,10 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   if (!dispatch_arrays) {
     return AEE_ENOMEMORY;
   }
-  void **binding_ptrs = (void **)dispatch_arrays;
-  size_t *binding_lengths = (size_t *)(dispatch_arrays + binding_ptrs_size);
+  uint32_t *constants = (uint32_t *)dispatch_arrays;
+  void **binding_ptrs = (void **)((uint8_t *)constants + constants_size);
+  size_t *binding_lengths =
+      (size_t *)((uint8_t *)binding_ptrs + binding_ptrs_size);
 
   // Build dispatch state
   // FIXME: many values hard coded to 1 / 0 for now, need to be implemented
@@ -240,19 +257,25 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
       .workgroup_size_x = cmd_dispatch->workgroup_size_x,
       .workgroup_size_y = cmd_dispatch->workgroup_size_y,
       .workgroup_size_z = cmd_dispatch->workgroup_size_z,
-      .constant_count = 0,
+      .constant_count = cmd_dispatch->constant_count,
       .workgroup_count_x = cmd_dispatch->workgroup_count_x,
       .workgroup_count_y = cmd_dispatch->workgroup_count_y,
       .workgroup_count_z = cmd_dispatch->workgroup_count_z,
       .max_concurrency = 1,
       .binding_count = num_buf_refs,
-      .constants = NULL,
+      .constants = constants,
       .binding_ptrs = binding_ptrs,
       .binding_lengths = binding_lengths,
   };
 
-  // Resolve buffer references and fill buffer pointers and lengths in dispatch
-  // state.
+  // Obtain constants from serialized data
+  for (uint16_t c = 0; c < cmd_dispatch->constant_count; ++c) {
+    READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_con_t, con)
+    constants[c] = con->value;
+  }
+
+  // Resolve buffer references and fill buffer pointers and lengths in
+  // dispatch state.
   for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
     hexa_cmd_buf_res_buf_t res_buf = {};
     READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_buf_ref_t,

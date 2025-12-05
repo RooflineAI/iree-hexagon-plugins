@@ -51,10 +51,26 @@ typedef struct iree_hal_hexagon_command_dispatch_s {
   uint32_t workgroup_count_y;
   uint16_t workgroup_count_z;
   //@}
+  /// constant values to pass to the kernel
+  /// Note: Constants are passed to _command_buffer_dispatch() as byte span
+  /// (see dispatch function in iree_hal_command_buffer_vtable_t in
+  /// third-party/iree/runtime/src/iree/hal/command_buffer.h:1100), but
+  /// to the kernel code inside an executable library as an array of uint32_t
+  /// values (see constants pointer in iree_hal_executable_dispatch_state_v0_t
+  //  in third-party/iree/runtime/src/iree/hal/local/executable_library.h:303).
+  /// The conversion includes checks (size multiple of 4, number of constants
+  /// not larger than UINT16_MAX) that can fail. It is therefore beneficial to
+  /// do the conversion as early as possible, which means the data type is
+  /// already uint32_t when stored in the command buffer (i.e. here).
+  //@{
+  uint16_t constant_count;
+  uint32_t *constants;
+  //@}
   /// bindings (i.e. fixed buffers or placeholders), pointers inside points to
   /// memory in the same block as this structure
   iree_hal_buffer_ref_list_t bindings;
-  /// ... buffer for binding.values is appended after this struct
+  /// ... buffer for constant_count uint32_t is appended after this struct
+  /// ... buffer for binding.values is appended after the constant buffer
 } iree_hal_hexagon_command_dispatch_t;
 
 /// barrier command, "derived" from iree_hal_hexagon_command_base_t

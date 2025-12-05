@@ -530,9 +530,17 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
         IREE_STATUS_UNIMPLEMENTED,
         "dynamic workgroup local memory is not supported on Hexagon");
   }
-  if (constants.data_length != 0) {
+  if ((constants.data_length & (sizeof(uint32_t) - 1)) != 0) {
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "constants are not supported on Hexagon");
+                            "constant data that is not a multiple of %u bytes "
+                            "is not supported on Hexagon",
+                            (unsigned int)sizeof(uint32_t));
+  }
+  iree_host_size_t constant_count = constants.data_length / sizeof(uint32_t);
+  if (constant_count > UINT16_MAX) {
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "too many constants %" PRIu64 "u for Hexagon",
+                            constant_count);
   }
 
   rpc_executable_handle_t rpc_executable_handle =
@@ -548,12 +556,20 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
       command_buffer->resource_set, bindings.count, bindings.values,
       offsetof(iree_hal_buffer_ref_t, buffer), sizeof(iree_hal_buffer_ref_t)));
 
-  // allocate buffer for dispatch command plus bindings in one block
+  // allocate buffer for dispatch command plus constants and bindings in one
+  // block, make sure to pad the constants array at the end to properly align
+  // the array for buffer references that follows the constants
+  iree_host_size_t constants_size = iree_host_align(
+      constant_count * sizeof(uint32_t), iree_alignof(iree_hal_buffer_ref_t));
   iree_host_size_t bindings_sz = bindings.count * sizeof(iree_hal_buffer_ref_t);
   iree_hal_hexagon_command_dispatch_t *dispatch = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(command_buffer->host_allocator,
-                                             sizeof(*dispatch) + bindings_sz,
-                                             (void **)&dispatch));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      command_buffer->host_allocator,
+      sizeof(*dispatch) + constants_size + bindings_sz, (void **)&dispatch));
+  uint32_t *constants_array =
+      (uint32_t *)((uint8_t *)dispatch + sizeof(*dispatch));
+  iree_hal_buffer_ref_t *bindings_values =
+      (iree_hal_buffer_ref_t *)((uint8_t *)constants_array + constants_size);
 
   // fill dispatch command
   dispatch->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
@@ -570,12 +586,13 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   dispatch->workgroup_count_x = config.workgroup_count[0];
   dispatch->workgroup_count_y = config.workgroup_count[1];
   dispatch->workgroup_count_z = config.workgroup_count[2];
+  dispatch->constant_count = constant_count;
+  dispatch->constants = constants_array;
   dispatch->bindings.count = bindings.count;
-  iree_hal_buffer_ref_t *bindings_values =
-      (iree_hal_buffer_ref_t *)((uint8_t *)dispatch + sizeof(*dispatch));
   dispatch->bindings.values = bindings_values;
 
-  // copy content of bindings
+  // copy content of constants and bindings
+  memcpy(constants_array, constants.data, constant_count * sizeof(uint32_t));
   memcpy(bindings_values, bindings.values, bindings_sz);
 
   // append dispatch command to command buffer

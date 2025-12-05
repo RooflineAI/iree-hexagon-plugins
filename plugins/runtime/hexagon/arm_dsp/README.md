@@ -51,7 +51,7 @@ typedef struct some_s {
 In `switch` statements on the `enum`, the value is supposed to be casted to the
 `..._enum_t` type, so the compiler warnings for left-out enum values trigger:
 ```
-switch((myvals_enum_t)some.myval) {
+switch ((myvals_enum_t)some.myval) {
 case ...:
     ...
 }

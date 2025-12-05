@@ -818,10 +818,14 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
   }
 
   // Call RPC on DSP to execute the kernel.
-  // TODO SCHUERMANS
-  (void)device;
-
+  int dsp_err = hexagon_dsp_command_buffer_execute(
+      device->rpc_session_handle, rpc_command_buffer_handle, bind_tab_data,
+      bind_tab_size);
   rpcmem_free(bind_tab_data);
+  if (dsp_err != AEE_SUCCESS) {
+    return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
+        dsp_err, "could not execute command buffer on DSP");
+  }
 
   return iree_ok_status();
 }

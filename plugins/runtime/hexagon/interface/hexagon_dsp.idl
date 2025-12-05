@@ -8,6 +8,7 @@ interface hexagon_dsp : remote_handle64 {
    long executable_close(in long long executable_handle);
    long command_buffer_create(in sequence<uint8> cmd_buf, rout long long command_buffer_handle);
    long command_buffer_destroy(in long long command_buffer_handle);
+   long command_buffer_execute(in long long command_buffer_handle, in sequence<uint8> binding_table);
    long buffer_rpcmem_mmap(in long fd, rout long long vaddr);
    long buffer_rpcmem_munmap(in long fd);
    long buffer_hap_malloc(in unsigned long size, rout long long vaddr);

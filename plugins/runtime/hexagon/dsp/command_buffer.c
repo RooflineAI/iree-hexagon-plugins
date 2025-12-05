@@ -1,12 +1,16 @@
 // Copyright 2025 RooflineAI GmbH
 
-#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "AEEStdErr.h"
+#include "HAP_farf.h"
 #include "HAP_mem.h"
+#include "hexagon/arm_dsp/bindings.h"
+#include "hexagon/arm_dsp/cmd_buf.h"
+#include "hexagon/dsp/executable.h"
 #include "hexagon_dsp.h"
+#include "qurt.h"
 
 /// data about a command buffer
 typedef struct hexagon_dsp_command_buffer_s {
@@ -21,7 +25,7 @@ typedef struct hexagon_dsp_command_buffer_s {
  * buffer)
  * @param[in] rpc_handle handle of DSP RPC session
  * @param[in] cmd_buf_data command buffer data of type
- * hexagon_rt_arm_dsp_cmd_buf_t
+ *                         hexagon_rt_arm_dsp_cmd_buf_t
  * @param[in] cmd_buf_size size of command buffer data
  * @param[out] command_buffer_handle handle of the loaded executable
  * @retval AEE_SUCCESS for success
@@ -78,4 +82,373 @@ int hexagon_dsp_command_buffer_destroy(remote_handle64 rpc_handle,
   // free management data structure
   HAP_free(command_buffer);
   return AEE_SUCCESS;
+}
+
+/**
+ * Macro to read type T from a buffer with serialized data (pointer P, size S).
+ * Provides pointer to deserialized value as V.
+ * Returns with error from calling function if size is too small.
+ */
+#define PEEK_SERIALIZED(P, S, T, V)                                            \
+  if (S < sizeof(T)) {                                                         \
+    return AEE_EINCOMPLETEITEM;                                                \
+  }                                                                            \
+  const T *V = (const T *)P;
+
+/**
+ * Macro to read type T from a buffer with serialized data (pointer P, size S).
+ * Provides pointer to deserialized value as V.
+ * Advances pointer P, reduces size S.
+ * Returns with error from calling function if size is too small.
+ */
+#define READ_SERIALIZED(P, S, T, V)                                            \
+  PEEK_SERIALIZED(P, S, T, V)                                                  \
+  P += sizeof(T);                                                              \
+  S -= sizeof(T);
+
+/// resolved buffer reference
+typedef struct hexa_cmd_buf_res_buf_s {
+  uint8_t *dsp_vaddr;
+  uint64_t offset;
+  uint64_t length;
+} hexa_cmd_buf_res_buf_t;
+
+/**
+ * @brief Resolve a buffer reference to an actual DSP vaddr, offset and length.
+ * @param[in] buf_ref buffer reference to resolve, might use "slot" to point to
+ *                    buffer in binding table
+ * @param[in] bind_tab binding_table
+ * @param[in] bind_tab_num_ent number of entries in binding table
+ * @param[out] out_res_buf resolved buffer reference
+ * @retval AEE_SUCCESS for success
+ *
+ * Dispatches and transfers in a command buffer use "buffer references" to
+ * refer to the buffers to be used as inputs/outputs. A buffer reference can
+ * be either "direct" or "indirect".
+ * A direct buffer reference refers to a fixed buffer that is known already
+ * at command buffer recording time and is the same for each execution of the
+ * command buffer.
+ * An indirect buffer reference refers to a buffer that will be supplied via a
+ * "binding table" when the command buffer is executed. At command buffer
+ * recording time, the indirect buffers references point to a "slot" of the
+ * binding table (i.e. refer to an entry of it by index). A (potentially
+ * different) binding table is passed to each execution of a command buffer.
+ * Each entry refers to an actual buffer - or more precisely - to a part of an
+ * actual buffer (using additional offset and length).
+ * This function takes a buffer reference (direct or indirect) and the binding
+ * table and converts it to a DSP vaddr of a buffer, the overall offset into it
+ * and the length of the memory range to use.
+ */
+static int
+hexa_cmd_buf_resolve_buf(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
+                         const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                         uint32_t bind_tab_num_ent,
+                         hexa_cmd_buf_res_buf_t *out_res_buf) {
+  // direct buffer reference -> use this buffer
+  if (buf_ref->buffer_dsp_vaddr != 0) {
+    out_res_buf->dsp_vaddr = (uint8_t *)buf_ref->buffer_dsp_vaddr;
+    out_res_buf->offset = buf_ref->offset;
+    out_res_buf->length = buf_ref->length;
+  }
+  // indirect buffer reference -> use entry from binding table
+  else {
+    if (buf_ref->slot > bind_tab_num_ent) {
+      return AEE_EBADITEM; // access behind end of binding table
+    }
+    const hexagon_rt_arm_dsp_binding_t *bind_entry = &bind_tab[buf_ref->slot];
+    /* The structure of the binding table entry and the buffer ref in memory
+     * is as follows:
+     *
+     * mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmDDDDDDDDDDDDDDmmmmmm
+     *                          ||<- offset ->||<- length ->|
+     * |<- bind_entry->offset ->||<- bind_entry->length --------->|
+     * |<- new offset computed here --------->|
+     * ^
+     * |
+     * \--- bind_entry->buffer_dsp_vaddr
+     *
+     * m: memory provided by buffer in binding table entry
+     * D: part of memory used by buffer reference of dispatch
+     */
+    out_res_buf->dsp_vaddr = (uint8_t *)bind_entry->buffer_dsp_vaddr;
+    if (buf_ref->offset > bind_entry->length) {
+      return AEE_EBADITEM; // offset to behind binding table entry's buffer
+    }
+    if (buf_ref->offset + buf_ref->length > bind_entry->length) {
+      return AEE_EBADITEM; // buffer ref extends to behind bind tabs's buffer
+    }
+    out_res_buf->offset = bind_entry->offset +
+                          buf_ref->offset; // overall offset into bind tab's buf
+    out_res_buf->length = buf_ref->length;
+  }
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute dispatch command buffer entry.
+ * @param[in,out] cmd_buf_data pointer to pointer to serialized barrier command
+ *                data, updated by amount of processed data
+ * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
+ *                data, updated by amount of processes data
+ * @param[in] bind_tab binding_table
+ * @param[in] bind_tab_num_ent number of entries in binding table
+ * @retval AEE_SUCCESS for success
+ */
+static int
+hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
+                           const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                           uint32_t bind_tab_num_ent) {
+  READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
+                  hexagon_rt_arm_dsp_cmd_dispatch_t, cmd_dispatch)
+  int64_t executable_handle = cmd_dispatch->executable_handle;
+  uint32_t export_ordinal = cmd_dispatch->export_ordinal;
+  uint32_t num_buf_refs = cmd_dispatch->num_bindings;
+
+  // Obtain dispatch function pointer.
+  iree_hal_executable_dispatch_v0_t dispatch_func = NULL;
+  int err = hexagon_dsp_executable_get_dispatch_func(
+      executable_handle, export_ordinal, &dispatch_func);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+
+  // Allocate buffer for nested arrays in dispatch state.
+  // The dispatch state contains some pointers, which are arrays semantically.
+  // These pointers need to point to actual arrays, which are allocated here.
+  // To reduce the number of HAL_malloc calls, the arrays are allocated in the
+  // same buffer and the start addresses are computed based on their size.
+  // The data is written to the arrays below the definition of the dispatch
+  // data structre.
+  size_t binding_ptrs_size = num_buf_refs * sizeof(void *);
+  size_t binding_lengths_size = num_buf_refs * sizeof(size_t);
+  uint8_t *dispatch_arrays = NULL;
+  err = HAP_malloc(binding_ptrs_size + binding_lengths_size,
+                   (void **)&dispatch_arrays);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+  if (!dispatch_arrays) {
+    return AEE_ENOMEMORY;
+  }
+  void **binding_ptrs = (void **)dispatch_arrays;
+  size_t *binding_lengths = (size_t *)(dispatch_arrays + binding_ptrs_size);
+
+  // Build dispatch state
+  // FIXME: many values hard coded to 1 / 0 for now, need to be implemented
+  // properly
+  iree_hal_executable_dispatch_state_v0_t dispatch_state = {
+      .workgroup_size_x = 1,
+      .workgroup_size_y = 1,
+      .workgroup_size_z = 1,
+      .constant_count = 0,
+      .workgroup_count_x = 1,
+      .workgroup_count_y = 1,
+      .workgroup_count_z = 1,
+      .max_concurrency = 1,
+      .binding_count = num_buf_refs,
+      .constants = NULL,
+      .binding_ptrs = binding_ptrs,
+      .binding_lengths = binding_lengths,
+  };
+
+  // Resolve buffer references and fill buffer pointers and lengths in dispatch
+  // state.
+  for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
+    hexa_cmd_buf_res_buf_t res_buf = {};
+    READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_buf_ref_t,
+                    buf_ref)
+    err =
+        hexa_cmd_buf_resolve_buf(buf_ref, bind_tab, bind_tab_num_ent, &res_buf);
+    if (err != AEE_SUCCESS) {
+      HAP_free(dispatch_arrays);
+      return err;
+    }
+    binding_ptrs[idx_buf_ref] = (void *)(res_buf.dsp_vaddr + res_buf.offset);
+    binding_lengths[idx_buf_ref] = res_buf.length;
+  }
+
+  // invalidate cache of buffers
+  for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
+    err = qurt_mem_cache_clean((qurt_addr_t)binding_ptrs[idx_buf_ref],
+                               binding_lengths[idx_buf_ref],
+                               QURT_MEM_CACHE_INVALIDATE, QURT_MEM_DCACHE);
+    if (err != QURT_EOK) {
+      // according to doc, the only error is QURT_EVAL - invalid cache type
+      HAP_free(dispatch_arrays);
+      return AEE_EFAILED;
+    }
+  }
+
+  // call dispatch function
+  dispatch_func(NULL, &dispatch_state, NULL);
+
+  // flush cache of buffers
+  for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
+    err = qurt_mem_cache_clean((qurt_addr_t)binding_ptrs[idx_buf_ref],
+                               binding_lengths[idx_buf_ref],
+                               QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
+    if (err != QURT_EOK) {
+      // according to doc, the only error is QURT_EVAL - invalid cache type
+      HAP_free(dispatch_arrays);
+      return AEE_EFAILED;
+    }
+  }
+
+  HAP_free(dispatch_arrays);
+
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute barrier command buffer entry.
+ * @param[in,out] cmd_buf_data pointer to pointer to serialized barrier command
+ *                data, updated by amount of processed data
+ * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
+ data, updated by amount of processes data
+ * @retval AEE_SUCCESS for success
+ */
+static int hexa_cmd_buf_exec_barrier(const uint8_t **cmd_buf_data,
+                                     int *cmd_buf_size) {
+  READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
+                  hexagon_rt_arm_dsp_cmd_barrier_t, cmd_barrier)
+  // nothing do do here for now
+  (void)cmd_barrier;
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute copy command buffer entry.
+ * @param[in,out] cmd_buf_data pointer to pointer to serialized copy command
+ *                data, updated by amount of processed data
+ * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
+ *                data, updated by amount of processes data
+ * @param[in] bind_tab binding_table
+ * @param[in] bind_tab_num_ent number of entries in binding table
+ * @retval AEE_SUCCESS for success
+ */
+static int hexa_cmd_buf_exec_copy(const uint8_t **cmd_buf_data,
+                                  int *cmd_buf_size,
+                                  const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                                  uint32_t bind_tab_num_ent) {
+  READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_cmd_copy_t,
+                  cmd_copy)
+  hexa_cmd_buf_res_buf_t src = {};
+  int err = hexa_cmd_buf_resolve_buf(&cmd_copy->src, bind_tab, bind_tab_num_ent,
+                                     &src);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+  hexa_cmd_buf_res_buf_t dest = {};
+  err = hexa_cmd_buf_resolve_buf(&cmd_copy->dest, bind_tab, bind_tab_num_ent,
+                                 &dest);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+
+  // invalidate cache of input buffer
+  err =
+      qurt_mem_cache_clean((qurt_addr_t)src.dsp_vaddr + src.offset, src.length,
+                           QURT_MEM_CACHE_INVALIDATE, QURT_MEM_DCACHE);
+  if (err != QURT_EOK) {
+    // according to doc, the only error is QURT_EVAL - invalid cache type
+    return AEE_EFAILED;
+  }
+
+  // copy data
+  memcpy(dest.dsp_vaddr + dest.offset, src.dsp_vaddr + src.offset,
+         dest.length < src.length ? dest.length : src.length);
+
+  // flush cache of output buffer
+  err =
+      qurt_mem_cache_clean((qurt_addr_t)dest.dsp_vaddr + dest.offset,
+                           dest.length, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
+  if (err != QURT_EOK) {
+    // according to doc, the only error is QURT_EVAL - invalid cache type
+    return AEE_EFAILED;
+  }
+
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute command buffer.
+ * @param[in] cmd_buf_data pointer to serialized command buffer data
+ * @param[in] cmd_buf_size size of serialized command buffer data
+ * @param[in] bind_tab_data pointer to serialized binding table data
+ * @param[in] bind_tab_size size of serialized binding table data
+ * @retval AEE_SUCCESS for success
+ */
+static int hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
+                                 const uint8_t *bind_tab_data,
+                                 int bind_tab_size) {
+  // Set up binding table for access by index.
+  // This is possible because serialized data is just header followed by array.
+  READ_SERIALIZED(bind_tab_data, bind_tab_size,
+                  hexagon_rt_arm_dsp_binding_tab_t, bind_tab_header);
+  uint32_t bind_tab_num_ent = bind_tab_header->num_entries;
+  if (bind_tab_size < bind_tab_num_ent * sizeof(hexagon_rt_arm_dsp_binding_t)) {
+    return AEE_EINCOMPLETEITEM;
+  }
+  const hexagon_rt_arm_dsp_binding_t *bind_tab =
+      (const hexagon_rt_arm_dsp_binding_t *)bind_tab_data;
+
+  // Process command buffer from serialized representation, entry by entry.
+  READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_buf_t,
+                  cmd_buf)
+  for (uint32_t idx_entry = 0; idx_entry < cmd_buf->num_entries; ++idx_entry) {
+    PEEK_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_base_t,
+                    cmd_base)
+    switch ((hexagon_rt_arm_dsp_cmd_type_enum_t)cmd_base->cmd_type) {
+
+    case HEXAGON_RT_ARM_DSP_CMD_DISPATCH: {
+      int err = hexa_cmd_buf_exec_dispatch(&cmd_buf_data, &cmd_buf_size,
+                                           bind_tab, bind_tab_num_ent);
+      if (err != AEE_SUCCESS) {
+        return err;
+      }
+      break;
+    }
+
+    case HEXAGON_RT_ARM_DSP_CMD_BARRIER: {
+      int err = hexa_cmd_buf_exec_barrier(&cmd_buf_data, &cmd_buf_size);
+      if (err != AEE_SUCCESS) {
+        return err;
+      }
+      break;
+    }
+
+    case HEXAGON_RT_ARM_DSP_CMD_COPY: {
+      int err = hexa_cmd_buf_exec_copy(&cmd_buf_data, &cmd_buf_size, bind_tab,
+                                       bind_tab_num_ent);
+      if (err != AEE_SUCCESS) {
+        return err;
+      }
+      break;
+    }
+
+    default:
+      FARF(RUNTIME_HIGH, "unknown/invalid command in command buffer\n");
+      return AEE_EBADITEM;
+    }
+  }
+
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute a command buffer.
+ * @param[in] rpc_handle handle of DSP RPC session
+ * @param[in] command_buffer_handle handle of the command buffer
+ * @retval AEE_SUCCESS for success
+ */
+int hexagon_dsp_command_buffer_execute(remote_handle64 rpc_handle,
+                                       int64 command_buffer_handle,
+                                       const uint8 *binding_table_data,
+                                       int binding_table_size) {
+  hexagon_dsp_command_buffer_t *command_buffer =
+      (hexagon_dsp_command_buffer_t *)command_buffer_handle;
+  int err = hexa_cmd_buf_exec_buf(command_buffer->cmd_buf_data,
+                                  command_buffer->cmd_buf_size,
+                                  binding_table_data, binding_table_size);
+  return err;
 }

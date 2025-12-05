@@ -18,6 +18,9 @@ cc_binary(
         "executable.h",
         "//hexagon/interface:hexagon_dsp_skel_c",
     ],
+    copts = [
+        "-Wswitch-enum",
+    ],
     linkshared = True,
     target_compatible_with = [
         "@//constraints:os_qurt",

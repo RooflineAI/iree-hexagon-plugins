@@ -11,6 +11,7 @@
 #include "iree/hal/local/executable_library.h"
 
 #include "AEEStdErr.h"
+#include "HAP_farf.h"
 #include "hexagon_dsp.h"
 
 /// data about a loaded executable

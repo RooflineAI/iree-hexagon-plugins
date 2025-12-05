@@ -21,6 +21,9 @@ cc_library(
         "rpc_types.h",
         "serialize.h",
     ],
+    copts = [
+        "-Wswitch-enum",
+    ],
     includes = [
         ".",
     ],

@@ -196,8 +196,8 @@
 
 // For some unknown reason, the error codes on the Hexagon side have an offset
 // added to them. This offset is not effective when including the header with
-// the error definitions on the ARM side, fix this by accepting also the offset
-// error code...
+// the error definitions on the ARM host side, fix this by accepting also the
+// offset error code...
 #define DSP_ERR_ENTRY(dsp_err_, status_code_)                                  \
   case dsp_err_:                                                               \
   case dsp_err_ + 0x80000400:                                                  \

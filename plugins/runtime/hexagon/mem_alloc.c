@@ -66,7 +66,7 @@ iree_status_t iree_hal_hexagon_mem_alloc_create(
 
   case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM: {
     // According to the Hexagon SDK examples, allocating memory shared among ARM
-    // and DSP needs to execute those steps:
+    // host and DSP needs to execute those steps:
     // 1) host_ptr = rpcmem_alloc()
     // 2) fd = rpcmem_to_fd(host_ptr)
     // 3) fastrpc_mmap(host_ptr)

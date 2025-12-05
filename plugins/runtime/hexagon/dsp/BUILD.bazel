@@ -15,6 +15,7 @@ cc_binary(
         "command_buffer.c",
         "device.c",
         "executable.c",
+        "executable.h",
         "//hexagon/interface:hexagon_dsp_skel_c",
     ],
     linkshared = True,
@@ -23,7 +24,9 @@ cc_binary(
         "@//constraints:cpu_hexagon",
     ],
     deps = [
+        "//hexagon/arm_dsp:hexagon_arm_dsp",
         "//hexagon/interface:hexagon_dsp_skel_hdr_lib",
+        "@iree//runtime/src/iree/hal/local:executable_library",
     ],
 )
 

@@ -17,7 +17,7 @@ typedef struct hexagon_dsp_command_buffer_s {
 } hexagon_dsp_command_buffer_t;
 
 /**
- * @brief Create a command buffer (called when ARM side finalizes command
+ * @brief Create a command buffer (called when ARM host side finalizes command
  * buffer)
  * @param[in] rpc_handle handle of DSP RPC session
  * @param[in] cmd_buf_data command buffer data of type

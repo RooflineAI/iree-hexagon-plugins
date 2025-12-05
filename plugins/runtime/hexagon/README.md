@@ -5,18 +5,19 @@ implements most interfaces needed by a HAL driver.
 
 ## Directory Structure
 
-- `.`: HAL driver implementation on the ARM side, all sources compiled for ARM
+- `.`: HAL driver implementation on the ARM host side, all sources compiled for
+       ARM
 - `registration`: implementation of HAL driver registation, compiled for ARM
-- `serialize` serialization of data for transmission from ARM to DSP, can be
-              unit-tested in isolation, can be compiled for any architecture,
-              runs on ARM side
+- `serialize` serialization of data for transmission from ARM host to DSP, can
+              be unit-tested in isolation, can be compiled for any architecture,
+              runs on ARM host side
 - `test`: unit tests for the parts that can be unit-tested
-- `interface`: RPC interface definition, ARM call the functions, DSP provides
-               the functions, some ARM and some DSP sources are generated from
-               this
+- `interface`: RPC interface definition, ARM host calls the functions, DSP
+               provides the functions, some ARM and some DSP sources are
+               generated from this
 - `dsp`: implementation on the DSP side, all sources compiled for DSP
-- `arm_dsp`: headers for data structures shared between ARM and DSP, see also
-             README.md in this dir
+- `arm_dsp`: headers for data structures shared between ARM host and DSP, see
+             also README.md in this dir
 
 ## Building
 

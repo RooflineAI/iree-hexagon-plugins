@@ -31,11 +31,11 @@
 //     This is done by Metal and here for Hexagon.
 // The approach (2) is chosen, because moving the data to the DSP is rather
 // complicated/expensive:
-//  - ARM and DSP data layouts don't match. Pointers on one side don't have a
-//    meaning on the other side. This means data has to be serialized.
+//  - ARM host and DSP data layouts don't match. Pointers on one side don't have
+//    a meaning on the other side. This means data has to be serialized.
 //    See arm_dsp subdir for data structures used in serialization.
 //    See command_buffer_serialize.c for implementation of the serialization.
-//  - The RPC call to get a chunk of data from the ARM to the DSP is rather
+//  - The RPC call to get a chunk of data from the ARM host to the DSP is rather
 //    expensive and causes a latency. So the number of RPC calls shall be
 //    kept low.
 //===----------------------------------------------------------------------===//

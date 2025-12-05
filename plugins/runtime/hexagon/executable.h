@@ -6,7 +6,7 @@
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 
-#include "hexagon/units/rpc_types.h"
+#include "hexagon/serialize/rpc_types.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_executable_t

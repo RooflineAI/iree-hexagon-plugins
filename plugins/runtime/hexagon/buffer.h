@@ -8,6 +8,7 @@
 
 #include "hexagon/api.h"
 #include "hexagon/mem_alloc.h"
+#include "hexagon/serialize/rpc_types.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 
@@ -24,6 +25,12 @@ iree_status_t iree_hal_hexagon_buffer_wrap(
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_hexagon_device_t *device,
     iree_hal_buffer_t **out_buffer);
+
+/// Return the DSP virtual address of the memory if the buffer is a Hexagon
+/// buffer and it has a DSP virtual address.
+iree_status_t
+iree_hal_hexagon_buffer_get_dsp_vaddr(iree_hal_buffer_t *base_buffer,
+                                      rpc_dsp_vaddr_t *out_dsp_vaddr);
 
 /// Return the impl_ptr from inside the buffer for accounting purposes.
 /// The impl_ptr is used for accounting purposes. It just needs to be stable

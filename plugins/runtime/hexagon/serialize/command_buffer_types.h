@@ -5,6 +5,7 @@
 
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
+#include "iree/hal/utils/resource_set.h"
 #include "rpc_types.h"
 
 //===----------------------------------------------------------------------===//
@@ -14,6 +15,7 @@
 typedef enum iree_hal_hexagon_command_type_e {
   IREE_HAL_HEXAGON_COMMAND_DISPATCH,
   IREE_HAL_HEXAGON_COMMAND_BARRIER,
+  IREE_HAL_HEXAGON_COMMAND_COPY,
 } iree_hal_hexagon_command_type_t;
 
 /// "base class" of commands
@@ -48,6 +50,13 @@ typedef struct iree_hal_hexagon_command_barrier_s {
   iree_hal_hexagon_command_base_t base; ///< keep this the first entry
 } iree_hal_hexagon_command_barrier_t;
 
+/// buffer copy command, "derived" from iree_hal_hexagon_command_base_t
+typedef struct iree_hal_hexagon_command_copy_s {
+  iree_hal_hexagon_command_base_t base; ///< keep this the first entry
+  iree_hal_buffer_ref_t src;
+  iree_hal_buffer_ref_t dest;
+} iree_hal_hexagon_command_copy_t;
+
 typedef struct iree_hal_hexagon_command_buffer_t {
   iree_hal_command_buffer_t base;
   iree_allocator_t host_allocator;
@@ -57,6 +66,9 @@ typedef struct iree_hal_hexagon_command_buffer_t {
   iree_hal_hexagon_command_base_t *first_entry;
   iree_hal_hexagon_command_base_t *last_entry;
   //@}
+  /// owned resources, that's buffers used in direct buffer references (actual
+  /// buffers being referenced at recording time) in transfers and dispatches
+  iree_hal_resource_set_t *resource_set;
   /// command buffer on DSP side (valid if finalized, otherwise 0)
   rpc_command_buffer_handle_t rpc_command_buffer_handle;
 } iree_hal_hexagon_command_buffer_t;

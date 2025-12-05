@@ -2,28 +2,21 @@
 
 #include "hexagon/command_buffer.h"
 
-#include <iree/base/allocator.h>
-#include <iree/base/config.h>
-#include <iree/base/status.h>
-
 #include "AEEStdErr.h"
 #include "hexagon/buffer.h"
-#include "hexagon/channel.h"
 #include "hexagon/executable.h"
-#include "hexagon/units/command_buffer_serialize.h"
-#include "hexagon/units/command_buffer_types.h"
-#include "hexagon/units/rpc_types.h"
+#include "hexagon/serialize/command_buffer_serialize.h"
+#include "hexagon/serialize/command_buffer_types.h"
+#include "hexagon/serialize/rpc_types.h"
 #include "hexagon/utils.h"
 #include "hexagon_dsp.h"
+#include "iree/base/allocator.h"
 #include "iree/base/api.h"
+#include "iree/base/config.h"
+#include "iree/base/status.h"
 #include "iree/hal/api.h"
+#include "iree/hal/utils/resource_set.h"
 #include "rpcmem.h"
-
-#if defined(SLPI) || defined(MDSP)
-#define RPCMEM_HEAP_ID_USE_THIS RPCMEM_HEAP_ID_CONTIG
-#else
-#define RPCMEM_HEAP_ID_USE_THIS RPCMEM_HEAP_ID_SYSTEM
-#endif
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_command_buffer_t
@@ -86,6 +79,7 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
     iree_hal_command_category_t command_categories,
     iree_hal_queue_affinity_t queue_affinity, iree_host_size_t binding_capacity,
     iree_allocator_t host_allocator, rpc_session_handle_t rpc_session_handle,
+    iree_arena_block_pool_t *block_pool,
     iree_hal_command_buffer_t **out_command_buffer) {
   IREE_ASSERT_ARGUMENT(out_command_buffer);
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -114,6 +108,11 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
   // iree_hal_resource_set_t* to make that easier.
   iree_status_t status = iree_ok_status();
 
+  if (!iree_all_bits_set(mode, IREE_HAL_COMMAND_BUFFER_MODE_UNRETAINED)) {
+    status = iree_hal_resource_set_allocate(block_pool,
+                                            &command_buffer->resource_set);
+  }
+
   if (iree_status_is_ok(status)) {
     *out_command_buffer = &command_buffer->base;
   } else {
@@ -134,15 +133,34 @@ static void iree_hal_hexagon_command_buffer_destroy(
   // iree_hal_resource_set_t.
   iree_hal_hexagon_command_buffer_clear(command_buffer);
 
+  if (command_buffer->resource_set) {
+    iree_hal_resource_set_free(command_buffer->resource_set);
+    command_buffer->resource_set = NULL;
+  }
+
   iree_allocator_free(host_allocator, command_buffer);
 
   IREE_TRACE_ZONE_END(z0);
 }
 
 bool iree_hal_hexagon_command_buffer_isa(
-    iree_hal_command_buffer_t *command_buffer) {
-  return iree_hal_resource_is(&command_buffer->resource,
+    iree_hal_command_buffer_t *base_command_buffer) {
+  return iree_hal_resource_is(&base_command_buffer->resource,
                               &iree_hal_hexagon_command_buffer_vtable);
+}
+
+iree_status_t iree_hal_hexagon_command_buffer_get_rpc_handle(
+    iree_hal_command_buffer_t *base_command_buffer,
+    rpc_command_buffer_handle_t *out_rpc_handle) {
+  if (!iree_hal_hexagon_command_buffer_isa(base_command_buffer)) {
+    return iree_make_status(
+        IREE_STATUS_INCOMPATIBLE,
+        "non-Hexagon command buffers do not have RPC handle");
+  }
+  iree_hal_hexagon_command_buffer_t *command_buffer =
+      iree_hal_hexagon_command_buffer_cast(base_command_buffer);
+  *out_rpc_handle = command_buffer->rpc_command_buffer_handle;
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_command_buffer_begin(
@@ -186,7 +204,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_end(
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "serialized command buffer too big");
   }
-  uint8_t *cmd_buf_data = rpcmem_alloc(RPCMEM_HEAP_ID_USE_THIS,
+  uint8_t *cmd_buf_data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM,
                                        RPCMEM_DEFAULT_FLAGS, (int)cmd_buf_size);
   if (!cmd_buf_data) {
     return iree_make_status(IREE_STATUS_UNKNOWN, "rpcmem_alloc returned NULL");
@@ -195,7 +213,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_end(
   // serialize to ARM/DSP data
   iree_status_t status_serialize_exec =
       iree_hal_hexagon_command_buffer_serialize_exec(
-          command_buffer, num_entries, cmd_buf_data, cmd_buf_size);
+          command_buffer, iree_hal_hexagon_buffer_get_dsp_vaddr, num_entries,
+          cmd_buf_data, cmd_buf_size);
   if (!iree_status_is_ok(status_serialize_exec)) {
     rpcmem_free(cmd_buf_data);
     return status_serialize_exec;
@@ -287,9 +306,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       command_buffer->host_allocator, sizeof(*barrier), (void **)&barrier));
 
-  // fill dispatch command
+  // fill barrier command
   barrier->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
-  // TODO SCHUERMANS: fill other fields
   // For now, there is only a single type of execution barrier with no
   // options, so no other fields exist yet.
 
@@ -418,11 +436,28 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
   // device-visible but may reside on either the host or device.
   // Note that either buffer may be a reference to a binding table slot in
   // which case it will be provided during submission to a queue.
-  (void)command_buffer;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "copy buffer not implemented");
 
-  return status;
+  // retain source and target buffers
+  iree_hal_buffer_t *retain_buffers[] = {source_ref.buffer, target_ref.buffer};
+  IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert(
+      command_buffer->resource_set, IREE_ARRAYSIZE(retain_buffers),
+      retain_buffers));
+
+  // allocate buffer for copy command
+  iree_hal_hexagon_command_copy_t *copy = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(command_buffer->host_allocator,
+                                             sizeof(*copy), (void **)&copy));
+
+  // fill copy command
+  copy->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_COPY;
+  copy->src = source_ref;
+  copy->dest = target_ref;
+  // There are no flags yet.
+
+  // append barrier command to command buffer
+  iree_hal_hexagon_command_buffer_append(command_buffer, &copy->base);
+
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_command_buffer_collective(
@@ -507,6 +542,11 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
         IREE_STATUS_UNIMPLEMENTED,
         "non-Hexagon executables are not supported on Hexagon");
   }
+
+  // retain direct buffers
+  IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert_strided(
+      command_buffer->resource_set, bindings.count, bindings.values,
+      offsetof(iree_hal_buffer_ref_t, buffer), sizeof(iree_hal_buffer_ref_t)));
 
   // allocate buffer for dispatch command plus bindings in one block
   iree_host_size_t bindings_sz = bindings.count * sizeof(iree_hal_buffer_ref_t);

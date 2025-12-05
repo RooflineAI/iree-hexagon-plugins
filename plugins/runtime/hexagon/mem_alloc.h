@@ -6,6 +6,7 @@
 #include <iree/base/config.h>
 
 #include "hexagon/api.h"
+#include "hexagon/serialize/rpc_types.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 #include "rpc_types.h"
@@ -36,6 +37,11 @@ void iree_hal_hexagon_mem_alloc_release(iree_hal_hexagon_mem_alloc_t *alloc);
 iree_status_t
 iree_hal_hexagon_mem_alloc_get_host_span(iree_hal_hexagon_mem_alloc_t *alloc,
                                          iree_byte_span_t *out_host_span);
+
+/// Return the DSP virtual address of the memory if possible.
+iree_status_t
+iree_hal_hexagon_mem_alloc_get_dsp_vaddr(iree_hal_hexagon_mem_alloc_t *alloc,
+                                         rpc_dsp_vaddr_t *out_dsp_vaddr);
 
 /// Return the impl_ptr from inside the memory allocation for accounting
 /// purposes. It just needs to be stable (not change for the same alloc) and be

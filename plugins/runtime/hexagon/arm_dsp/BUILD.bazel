@@ -11,5 +11,8 @@ package(
 cc_library(
     name = "hexagon_arm_dsp",
     srcs = [],
-    hdrs = ["cmd_buf.h"],
+    hdrs = [
+        "bindings.h",
+        "cmd_buf.h",
+    ],
 )

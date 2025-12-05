@@ -6,8 +6,10 @@
 
 #include "command_buffer_types.h"
 #include "hexagon/arm_dsp/cmd_buf.h"
+#include "hexagon/serialize/rpc_types.h"
 #include "iree/base/api.h"
 #include "rpc_types.h"
+#include "serialize.h"
 
 iree_status_t iree_hal_hexagon_command_buffer_serialize_prep(
     const iree_hal_hexagon_command_buffer_t *command_buffer,
@@ -33,12 +35,17 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_prep(
       }
       cmd_buf_size += sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
                       command_dispatch->bindings.count *
-                          sizeof(hexagon_rt_arm_dsp_binding_t);
+                          sizeof(hexagon_rt_arm_dsp_buf_ref_t);
       break;
     }
 
     case IREE_HAL_HEXAGON_COMMAND_BARRIER: {
       cmd_buf_size += sizeof(hexagon_rt_arm_dsp_cmd_barrier_t);
+      break;
+    }
+
+    case IREE_HAL_HEXAGON_COMMAND_COPY: {
+      cmd_buf_size += sizeof(hexagon_rt_arm_dsp_cmd_copy_t);
       break;
     }
 
@@ -61,22 +68,10 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_prep(
   return iree_ok_status();
 }
 
-/// Put a data structure of type T into the serialization buffer with current
-/// pointer P and end pointer E.
-/// Make a pointer V to the data structure for assigning values.
-/// note: Because the ARM/DSP data structures are packed ones, casting uint8_t*
-/// to struct pointers is okay.
-#define SERIALIZE_TO(P, E, T, V)                                               \
-  if (P + sizeof(T) > E) {                                                     \
-    return iree_make_status(IREE_STATUS_INTERNAL,                              \
-                            "size computation and actual serialization of "    \
-                            "command buffer did not match");                   \
-  }                                                                            \
-  T *V = (T *)P;                                                               \
-  P += sizeof(T);
-
 iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
     const iree_hal_hexagon_command_buffer_t *command_buffer,
+    iree_status_t (*buffer_to_dsp_vaddr)(iree_hal_buffer_t *buffer,
+                                         rpc_dsp_vaddr_t *out_dsp_vaddr),
     uint32_t num_entries, uint8_t *cmd_buf_data,
     iree_host_size_t cmd_buf_size) {
   uint8_t *ptr = cmd_buf_data;
@@ -102,10 +97,15 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
       for (uint32_t b = 0; b < cmd_dispatch->num_bindings; ++b) {
         const iree_hal_buffer_ref_t *binding =
             &command_dispatch->bindings.values[b];
-        SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_binding_t, bndg)
+        rpc_dsp_vaddr_t dsp_vaddr =
+            0; // stays at 0 if no buffer, means to use slot
+        if (binding->buffer) {
+          IREE_RETURN_IF_ERROR(
+              buffer_to_dsp_vaddr(binding->buffer, &dsp_vaddr));
+        }
+        SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_buf_ref_t, bndg)
         bndg->slot = binding->buffer_slot;
-        bndg->buffer_handle =
-            0; // TODO: get buffer_handle from inside binding->buffer
+        bndg->buffer_dsp_vaddr = dsp_vaddr;
         bndg->offset = binding->offset;
         bndg->length = binding->length;
       }
@@ -115,6 +115,34 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
     case IREE_HAL_HEXAGON_COMMAND_BARRIER: {
       SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_cmd_barrier_t, cmd_barrier)
       cmd_barrier->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_BARRIER;
+      break;
+    }
+
+    case IREE_HAL_HEXAGON_COMMAND_COPY: {
+      const iree_hal_hexagon_command_copy_t *command_copy =
+          (const iree_hal_hexagon_command_copy_t *)command;
+      rpc_dsp_vaddr_t src_dsp_vaddr =
+          0; // stays at 0 if no buffer, means to use slot
+      if (command_copy->src.buffer) {
+        IREE_RETURN_IF_ERROR(
+            buffer_to_dsp_vaddr(command_copy->src.buffer, &src_dsp_vaddr));
+      }
+      rpc_dsp_vaddr_t dest_dsp_vaddr =
+          0; // stays at 0 if no buffer, means to use slot
+      if (command_copy->dest.buffer) {
+        IREE_RETURN_IF_ERROR(
+            buffer_to_dsp_vaddr(command_copy->dest.buffer, &dest_dsp_vaddr));
+      }
+      SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_cmd_copy_t, cmd_copy)
+      cmd_copy->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_COPY;
+      cmd_copy->src.slot = command_copy->src.buffer_slot;
+      cmd_copy->src.buffer_dsp_vaddr = src_dsp_vaddr;
+      cmd_copy->src.offset = command_copy->src.offset;
+      cmd_copy->src.length = command_copy->src.length;
+      cmd_copy->dest.slot = command_copy->dest.buffer_slot;
+      cmd_copy->dest.buffer_dsp_vaddr = dest_dsp_vaddr;
+      cmd_copy->dest.offset = command_copy->dest.offset;
+      cmd_copy->dest.length = command_copy->dest.length;
       break;
     }
 

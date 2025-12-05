@@ -9,14 +9,17 @@ package(
 )
 
 cc_library(
-    name = "hexagon_units",
+    name = "serialize",
     srcs = [
+        "bindings_serialize.c",
         "command_buffer_serialize.c",
     ],
     hdrs = [
+        "bindings_serialize.h",
         "command_buffer_serialize.h",
         "command_buffer_types.h",
         "rpc_types.h",
+        "serialize.h",
     ],
     includes = [
         ".",
@@ -25,5 +28,6 @@ cc_library(
         "//hexagon/arm_dsp:hexagon_arm_dsp",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/hal",
+        "@iree//runtime/src/iree/hal/utils:resource_set",
     ],
 )

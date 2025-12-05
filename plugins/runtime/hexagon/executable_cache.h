@@ -3,7 +3,7 @@
 #ifndef IREE_HAL_DRIVERS_HEXAGON_EXECUTABLE_CACHE_H_
 #define IREE_HAL_DRIVERS_HEXAGON_EXECUTABLE_CACHE_H_
 
-#include "hexagon/units/rpc_types.h"
+#include "hexagon/serialize/rpc_types.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 

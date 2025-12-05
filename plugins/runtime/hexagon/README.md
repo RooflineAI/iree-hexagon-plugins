@@ -7,8 +7,10 @@ implements most interfaces needed by a HAL driver.
 
 - `.`: HAL driver implementation on the ARM side, all sources compiled for ARM
 - `registration`: implementation of HAL driver registation, compiled for ARM
-- `units` parts of the Hexagon HAL driver that can be unit-tested in isolation
-- `unittests`: unit tests for the parts in `units`
+- `serialize` serialization of data for transmission from ARM to DSP, can be
+              unit-tested in isolation, can be compiled for any architecture,
+              runs on ARM side
+- `test`: unit tests for the parts that can be unit-tested
 - `interface`: RPC interface definition, ARM call the functions, DSP provides
                the functions, some ARM and some DSP sources are generated from
                this

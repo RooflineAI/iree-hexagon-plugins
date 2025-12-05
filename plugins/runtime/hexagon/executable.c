@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "AEEStdErr.h"
-#include "hexagon/units/rpc_types.h"
+#include "hexagon/serialize/rpc_types.h"
 #include "hexagon/utils.h"
 #include "hexagon_dsp.h"
 #include "iree/base/api.h"

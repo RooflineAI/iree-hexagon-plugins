@@ -8,6 +8,7 @@
 
 #include "hexagon/api.h"
 #include "hexagon/mem_alloc.h"
+#include "hexagon/serialize/rpc_types.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_buffer_t
@@ -21,6 +22,11 @@ typedef struct iree_hal_hexagon_buffer_t {
 } iree_hal_hexagon_buffer_t;
 
 static const iree_hal_buffer_vtable_t iree_hal_hexagon_buffer_vtable;
+
+static bool iree_hal_hexagon_buffer_isa(iree_hal_buffer_t *base_buffer) {
+  return iree_hal_resource_is(&base_buffer->resource,
+                              &iree_hal_hexagon_buffer_vtable);
+}
 
 static iree_hal_hexagon_buffer_t *
 iree_hal_hexagon_buffer_cast(iree_hal_buffer_t *base_value) {
@@ -75,6 +81,19 @@ iree_status_t iree_hal_hexagon_buffer_wrap(
   }
   IREE_TRACE_ZONE_END(z0);
   return status;
+}
+
+iree_status_t
+iree_hal_hexagon_buffer_get_dsp_vaddr(iree_hal_buffer_t *base_buffer,
+                                      rpc_dsp_vaddr_t *out_dsp_vaddr) {
+  if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
+    *out_dsp_vaddr = 0;
+    return iree_make_status(
+        IREE_STATUS_INCOMPATIBLE,
+        "non-Hexagon buffers do not have a DSP virtual address");
+  }
+  return iree_hal_hexagon_mem_alloc_get_dsp_vaddr(
+      iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_dsp_vaddr);
 }
 
 void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer) {
@@ -144,7 +163,7 @@ static iree_status_t iree_hal_hexagon_buffer_map_range(
                             "access beyond end of buffer requested");
   }
 
-  // Return a mapping to the request part of the buffer.
+  // Return a mapping to the requested part of the buffer.
   mapping->contents = iree_make_byte_span(host_span.data + local_byte_offset,
                                           local_byte_length);
   mapping->buffer = base_buffer;

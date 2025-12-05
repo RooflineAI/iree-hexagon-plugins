@@ -7,6 +7,7 @@
 #include <iree/base/status.h>
 
 #include "AEEStdErr.h"
+#include "hexagon/serialize/rpc_types.h"
 #include "hexagon/utils.h"
 #include "hexagon_dsp.h"
 #include "remote.h"
@@ -24,9 +25,9 @@ struct iree_hal_hexagon_mem_alloc_s {
     struct {
       void *host;
       int fd;
-      int64_t dsp_vaddr;
-    } rpcmem;           ///< for _KIND_RPCMEM
-    int64_t device_hap; ///< for _KIND_DEVICE_HAP
+      rpc_dsp_vaddr_t dsp_vaddr;
+    } rpcmem;                   ///< for _KIND_RPCMEM
+    rpc_dsp_vaddr_t device_hap; ///< for _KIND_DEVICE_HAP
     void *impl_ptr; ///< take whatever is stored in this union for "accounting"
                     ///< (see comment in _allocate_buffer() in allocator.c)
   } ptr;
@@ -73,6 +74,9 @@ iree_status_t iree_hal_hexagon_mem_alloc_create(
     // 5) on DSP: HAP_mmap_get(fd) (see hexagon_dsp_buffer_rpcmem_mmap())
     // There is currently no complete understanding why the SDK is built this
     // way. This is following the examples in the SDK.
+    // Using RPCMEM_DEFAULT_FLAGS results in cached and coherent memory
+    // according to
+    // Hexagon_SDK/6.3.0.0/docs/software/os/os_support_dsp.html#cache-management
     if (size > INT_MAX) {
       status =
           iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -208,6 +212,31 @@ iree_hal_hexagon_mem_alloc_get_host_span(iree_hal_hexagon_mem_alloc_t *alloc,
   return iree_make_status(IREE_STATUS_INCOMPATIBLE,
                           "Hexagon memory kind %d does not have a host pointer",
                           alloc->kind);
+}
+
+iree_status_t
+iree_hal_hexagon_mem_alloc_get_dsp_vaddr(iree_hal_hexagon_mem_alloc_t *alloc,
+                                         rpc_dsp_vaddr_t *out_dsp_vaddr) {
+  IREE_ASSERT_ARGUMENT(alloc);
+  IREE_ASSERT_ARGUMENT(out_dsp_vaddr);
+  *out_dsp_vaddr = 0;
+
+  switch (alloc->kind) {
+  case IREE_HAL_HEXAGON_MEM_KIND_HOST:
+    // no DSP virtual address available
+    break;
+  case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
+    *out_dsp_vaddr = alloc->ptr.rpcmem.dsp_vaddr;
+    return iree_ok_status();
+  case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
+    *out_dsp_vaddr = alloc->ptr.device_hap;
+    return iree_ok_status();
+  }
+
+  return iree_make_status(
+      IREE_STATUS_INCOMPATIBLE,
+      "Hexagon memory kind %d does not have a DSP virtual address",
+      alloc->kind);
 }
 
 void *iree_hal_hexagon_mem_alloc_impl_ptr(iree_hal_hexagon_mem_alloc_t *alloc) {

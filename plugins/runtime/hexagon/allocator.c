@@ -138,19 +138,11 @@ static iree_status_t iree_hal_hexagon_allocator_select_mem_kind(
   }
 
   // Memory needs to be host-visible and device-visible.
-  // -> Use RPC memory. No support for coherent/cached on host.
-  if (!iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_COHERENT |
-                                         IREE_HAL_MEMORY_TYPE_HOST_CACHED)) {
-    *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_RPCMEM;
-    return iree_ok_status();
-  }
-
-  // no memory type available that meets all the requirements
-  iree_bitfield_string_temp_t temp;
-  iree_string_view_t type_str = iree_hal_memory_type_format(memory_type, &temp);
-  return iree_make_status(IREE_STATUS_INCOMPATIBLE,
-                          "no memory on Hexagon supports type %.*s",
-                          (int)type_str.size, type_str.data);
+  // -> Use RPC memory. mem_alloc.c uses RPCMEM_DEFAULT_FLAGS, which results in
+  // cached and coherent memory according to
+  // Hexagon_SDK/6.3.0.0/docs/software/os/os_support_dsp.html#cache-management
+  *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_RPCMEM;
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_allocator_query_memory_heaps(
@@ -206,11 +198,15 @@ iree_hal_hexagon_allocator_query_buffer_compatibility(
       // TODO: Add other things possible with host allocator memory.
       break;
     case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
-      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE;
+      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
+                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH |
+                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER;
       // TODO: Add other things possible with RPC memory.
       break;
     case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
-      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE;
+      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
+                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH |
+                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER;
       // TODO: Add other things possible with device HAP_malloc memory.
       break;
     }

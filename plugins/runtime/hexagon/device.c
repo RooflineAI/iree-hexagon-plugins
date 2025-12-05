@@ -3,13 +3,16 @@
 
 #include "hexagon/allocator.h"
 #include "hexagon/api.h"
+#include "hexagon/buffer.h"
 #include "hexagon/channel.h"
 #include "hexagon/command_buffer.h"
 #include "hexagon/event.h"
 #include "hexagon/executable.h"
 #include "hexagon/executable_cache.h"
 #include "hexagon/semaphore.h"
+#include "hexagon/serialize/bindings_serialize.h"
 #include "hexagon/utils.h"
+#include "iree/base/internal/arena.h"
 #include "iree/base/internal/event_pool.h"
 #include "iree/base/status.h"
 #include "iree/base/string_view.h"
@@ -20,8 +23,9 @@
 #include "iree/hal/utils/queue_host_call_emulation.h"
 
 // Hexagon SDK includes
-#include <AEEStdErr.h>
-#include <remote.h>
+#include "AEEStdErr.h"
+#include "remote.h"
+#include "rpcmem.h"
 
 #include "hexagon_dsp.h"
 #include "rpc_types.h"
@@ -65,6 +69,9 @@ struct iree_hal_hexagon_device_t {
 
   iree_allocator_t host_allocator;
   iree_hal_allocator_t *device_allocator;
+
+  // For now, the entire Hexagon device uses a single block pool.
+  iree_arena_block_pool_t block_pool;
 
   // For now, the entire Hexagon device uses a single event pool.
   iree_event_pool_t *event_pool;
@@ -263,6 +270,10 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_allocator_create(
       device->host_allocator, device, &device->device_allocator));
 
+  // Initialize block pool.
+  iree_arena_block_pool_initialize(4096, device->host_allocator,
+                                   &device->block_pool);
+
   // Allocate the one-and-only event pool for the Hexagon device.
   IREE_RETURN_IF_ERROR(
       iree_event_pool_allocate(IREE_HAL_HEXAGON_EVENT_POOL_CAPACITY,
@@ -358,6 +369,7 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
   }
 
   iree_event_pool_free(device->event_pool);
+  iree_arena_block_pool_deinitialize(&device->block_pool);
   iree_hal_allocator_release(device->device_allocator);
 
   iree_allocator_free(host_allocator, device);
@@ -499,7 +511,7 @@ static iree_status_t iree_hal_hexagon_device_create_command_buffer(
   return iree_hal_hexagon_command_buffer_create(
       iree_hal_device_allocator(base_device), mode, command_categories,
       queue_affinity, binding_capacity, device->host_allocator,
-      device->rpc_session_handle, out_command_buffer);
+      device->rpc_session_handle, &device->block_pool, out_command_buffer);
 }
 
 static iree_status_t iree_hal_hexagon_device_create_event(
@@ -768,6 +780,52 @@ static iree_status_t iree_hal_hexagon_device_queue_dispatch(
       executable, export_ordinal, config, constants, bindings, flags);
 }
 
+static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
+    iree_hal_hexagon_device_t *device,
+    iree_hal_command_buffer_t *command_buffer,
+    iree_hal_buffer_binding_table_t binding_table,
+    iree_hal_execute_flags_t flags) {
+
+  rpc_command_buffer_handle_t rpc_command_buffer_handle = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_command_buffer_get_rpc_handle(
+      command_buffer, &rpc_command_buffer_handle));
+
+  // Get size of serialized binding data.
+  iree_host_size_t bind_tab_size = 0;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_hexagon_bindings_serialize_prep(&binding_table, &bind_tab_size));
+
+  // Allocate RPC memory buffer for serialized binding data.
+  if (bind_tab_size > INT_MAX /* max size supported by rpcmem_alloc() */) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "serialized binding table too big");
+  }
+  uint8_t *bind_tab_data = rpcmem_alloc(
+      RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS, (int)bind_tab_size);
+  if (!bind_tab_size) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "out of RPC memory");
+  }
+
+  // Serialize binding table to ARM/DSP data.
+  iree_status_t status_serialize_exec =
+      iree_hal_hexagon_bindings_serialize_exec(
+          &binding_table, iree_hal_hexagon_buffer_get_dsp_vaddr, bind_tab_data,
+          bind_tab_size);
+  if (!iree_status_is_ok(status_serialize_exec)) {
+    rpcmem_free(bind_tab_data);
+    return status_serialize_exec;
+  }
+
+  // Call RPC on DSP to execute the kernel.
+  // TODO SCHUERMANS
+  (void)device;
+
+  rpcmem_free(bind_tab_data);
+
+  return iree_ok_status();
+}
+
 static iree_status_t iree_hal_hexagon_device_queue_execute(
     iree_hal_device_t *base_device, iree_hal_queue_affinity_t queue_affinity,
     const iree_hal_semaphore_list_t wait_semaphore_list,
@@ -792,11 +850,26 @@ static iree_status_t iree_hal_hexagon_device_queue_execute(
   // devices or queues on the same device from the same thread and blocking here
   // will prevent both concurrency and pipelining.
 
-  (void)device;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "queue execute not implemented");
+  // To get started, implement the functionality sequentially, outside of any
+  // queue.
 
-  return status;
+  // Wait for all semaphores for which we need to wait.
+  IREE_RETURN_IF_ERROR(
+      iree_hal_semaphore_list_wait(wait_semaphore_list, iree_infinite_timeout(),
+                                   IREE_HAL_WAIT_FLAG_DEFAULT));
+
+  // It is possible for command_buffer to be NULL. In this case, there is
+  // nothing to be executed. Just wait skip the execution part. (Still handle
+  // the semaphores.)
+  if (command_buffer) {
+    IREE_RETURN_IF_ERROR(iree_hal_hexagon_device_queue_execute_cmd_buf(
+        device, command_buffer, binding_table, flags));
+  }
+
+  // Signal all semaphores we can signal now.
+  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_signal(signal_semaphore_list));
+
+  return iree_ok_status();
 }
 
 static iree_status_t

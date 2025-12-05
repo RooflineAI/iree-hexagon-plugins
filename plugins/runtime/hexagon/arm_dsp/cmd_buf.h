@@ -5,13 +5,13 @@
 
 #include <stdint.h>
 
-/// a binding for a dispatch command
-typedef struct hexagon_rt_arm_dsp_binding_s {
-  uint32_t slot;
-  int64_t buffer_handle;
+/// reference to a buffer for dispatch
+typedef struct hexagon_rt_arm_dsp_buf_ref_s {
+  uint32_t slot; ///< dispatch time binding slot, used if buffer_dsp_vaddr is 0
+  int64_t buffer_dsp_vaddr;
   uint64_t offset;
   uint64_t length;
-} __attribute__((packed)) hexagon_rt_arm_dsp_binding_t;
+} __attribute__((packed)) hexagon_rt_arm_dsp_buf_ref_t;
 
 /// type of command buffer entry
 /// note: type does not have fixed width, use
@@ -19,6 +19,7 @@ typedef struct hexagon_rt_arm_dsp_binding_s {
 typedef enum hexagon_rt_arm_dsp_cmd_type_enum {
   HEXAGON_RT_ARM_DSP_CMD_DISPATCH,
   HEXAGON_RT_ARM_DSP_CMD_BARRIER,
+  HEXAGON_RT_ARM_DSP_CMD_COPY,
 } hexagon_rt_arm_dsp_cmd_type_enum_t;
 /// fixed width type used for storing enum values in struct,
 /// used to store constants from hexagon_rt_arm_dsp_cmd_type_enum_t
@@ -34,9 +35,9 @@ typedef struct hexagon_rt_arm_dsp_cmd_base_s {
 typedef struct hexagon_rt_arm_dsp_cmd_dispatch_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
   int64_t executable_handle;
-  int32_t export_ordinal;
+  uint32_t export_ordinal;
   uint32_t num_bindings;
-  // followed by num_bindings hexagon_rt_arm_dsp_binding_t
+  // followed by num_bindings hexagon_rt_arm_dsp_buf_ref_t
   // TODO: add fields
 } __attribute__((packed)) hexagon_rt_arm_dsp_cmd_dispatch_t;
 
@@ -44,6 +45,13 @@ typedef struct hexagon_rt_arm_dsp_cmd_dispatch_s {
 typedef struct hexagon_rt_arm_dsp_cmd_barrier_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
 } __attribute__((packed)) hexagon_rt_arm_dsp_cmd_barrier_t;
+
+/// copy command, "derived" from hexagon_rt_arm_dsp_cmd_base_t
+typedef struct hexagon_rt_arm_dsp_cmd_copy_s {
+  hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
+  hexagon_rt_arm_dsp_buf_ref_t src;
+  hexagon_rt_arm_dsp_buf_ref_t dest;
+} __attribute__((packed)) hexagon_rt_arm_dsp_cmd_copy_t;
 
 /// header of serialized command buffer
 typedef struct hexagon_rt_arm_dsp_cmd_buf_s {

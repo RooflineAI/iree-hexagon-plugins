@@ -24,6 +24,7 @@ iree_lit_test_suite(
             "unit/plugin_registration.mlir",
             "unit/shared_objects_have_correct_type.mlir",
             "unit/target_attribute_embedding.mlir",
+            "unit/query_function_generation_and_visibility.mlir",
         ],
         include = [
             "integration/*.mlir",

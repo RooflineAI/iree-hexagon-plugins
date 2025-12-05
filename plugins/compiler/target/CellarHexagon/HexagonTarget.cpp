@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "CodeGen/HexagonCodeGenPipeline.h"
@@ -16,6 +17,7 @@
 #include "CodeGen/IR/HexagonEncodingDialect.h"
 
 #include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
+#include "compiler/plugins/target/LLVMCPU/LibraryBuilder.h"
 #include "compiler/plugins/target/LLVMCPU/LinkerTool.h"
 #include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
 #include "iree/compiler/Dialect/HAL/Target/TargetBackend.h"
@@ -44,15 +46,20 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
-// TODO: After copy pasting so much code, I completely messed up the namespaces,
-// clean this up. You currently have namespaces for the same functionality
-// everywhere and incoherences in naming
+// TODO: There is a lot of code that is calling on functions from the
+// LLVMCPUTarget plugin, especially during linking. This also includes other
+// files inside the hexagon plugin. This will have to be revisited in the future
+// since it is not particularly clean...
+
 // Please do not add the llvm namespace or the code becomes illegible
 using namespace mlir;
 using namespace mlir::iree_compiler;
 using namespace mlir::iree_compiler::IREE::HAL;
 
 namespace hexagon::HAL {
+
+static constexpr char kQueryFunctionName[] =
+    "iree_hal_executable_library_query";
 
 static void dumpMLIRModuleToPath(StringRef path, StringRef baseName,
                                  StringRef suffix, StringRef extPrefix,
@@ -98,6 +105,24 @@ static void dumpLLVMModuleToPath(StringRef path, StringRef baseName,
                  StringRef(binaryData.data(), binaryData.size()));
 }
 
+static void dumpAssemblyFromLLVMModule(ExecutableVariantOp variantOp,
+                                       llvm::Module &llvmModule,
+                                       llvm::TargetMachine &targetMachine,
+                                       StringRef path, StringRef baseName) {
+  llvm::SmallVector<char, 0> asmDataStorage;
+  llvm::raw_svector_ostream asmStream(asmDataStorage);
+  llvm::legacy::PassManager asmPassManager;
+  auto asmModule = llvm::CloneModule(llvmModule);
+  if (targetMachine.addPassesToEmitFile(asmPassManager, asmStream, nullptr,
+                                        llvm::CodeGenFileType::AssemblyFile)) {
+    variantOp.emitOpError()
+        << "Hexagon target machine cannot emit assembly files";
+  }
+  asmPassManager.run(*asmModule);
+  std::vector<int8_t> asmData(asmDataStorage.begin(), asmDataStorage.end());
+  dumpDataToPath<int8_t>(path, baseName, variantOp.getName(), ".s", asmData);
+}
+
 // Registers all LLVM components required for Hexagon code generation.
 static void initializeHexagonTarget() {
   static std::once_flag init;
@@ -119,16 +144,13 @@ struct HexagonOptions {
   std::string linker = "";
 
   void bindOptions(OptionsBinder &binder) {
-    // TODO: Placeholder options for now.
-    // I think we still do not know what architecture we are going to be working
-    // with, placeholder option to determine it
     static llvm::cl::OptionCategory category("Hexagon HAL Target");
+
     binder.opt<std::string>(
         "iree-hexagon-v", version, llvm::cl::cat(category),
         llvm::cl::desc("Hexagon ISA version to target (e.g. 68, 69, 73, 79)."));
-    // TODO: This might need to be passed to the llvm backend. I have not
-    // verified that it modifies the generated code yet, but I am leaving it
-    // here to remember to check this further down the line.
+
+    // This is just passed raw to the LLVM backend for now
     binder.opt<std::string>(
         "iree-hexagon-features", features, llvm::cl::cat(category),
         llvm::cl::desc(
@@ -227,7 +249,8 @@ static LLVMTarget createLLVMTargetForHexagon(const HexagonOptions &options) {
 
 class HexagonTargetBackend final : public TargetBackend {
 public:
-  HexagonTargetBackend(const HexagonOptions &options) : options(options) {}
+  HexagonTargetBackend(const HexagonOptions &options)
+      : hexagonOptions(options) {}
 
   std::string getLegacyDefaultDeviceID() const override { return "hexagon"; }
 
@@ -253,19 +276,17 @@ public:
   ExecutableTargetAttr getExecutableTarget(MLIRContext *context) const {
     Builder builder(context);
 
-    auto target = createLLVMTargetForHexagon(options);
+    auto target = createLLVMTargetForHexagon(hexagonOptions);
 
     SmallVector<NamedAttribute> configItems;
     target.storeToConfigAttrs(context, configItems);
 
-    // New config, unused for now, this is just a placeholder
     configItems.emplace_back(builder.getNamedAttr(
-        "hexagon.version", builder.getStringAttr(options.version)));
+        "hexagon.version", builder.getStringAttr(hexagonOptions.version)));
 
     // I tried using the already existing CPUEncodingResolverAttr. This does not
     // play properly with the custom target backend, so creating a custom one is
     // needed, even for prototyping
-    // This is what is being used for data tiling in the CPU pipeline
     configItems.emplace_back(
         builder.getStringAttr(IREE::Encoding::kEncodingResolverAttrName),
         IREE::Hexagon::HexagonEncodingResolverAttr::get(context, {}));
@@ -307,6 +328,181 @@ public:
         passManager, std::make_optional<std::string>("hexagon"));
   }
 
+  // Build the IREE HAL executable library metadata. The runtime uses this
+  // to find the entry point functions and their information. More details:
+  //
+  // The linking pipeline assigns ordinals to the functions and associates
+  // exported symbols to them, by creating hal.executable.export attributes
+  // (also does the same for imports btw). The hal instructions use these
+  // ordinals to call on the functions. Therefore, we must expose a "query"
+  // function that should allow to retrieve the addresses of the functions from
+  // their assigned ordinals and add it to the executable so that the hal can
+  // call on it.
+  //
+  // Also note that this is not the solution implemented for other targets. The
+  // GPUs embed this information into the flatbuffer instead. This must be
+  // synchronized with the hal. We are copying the pattern from the CPU for the
+  // time being though.
+  //
+  // Another pattern that we are not reusing from LLVMCPUTarget is that all
+  // functions except the query function have their visibility changed and are
+  // hidden. We are not currently doing the same for Hexagon and all functions
+  // are exposed.
+  void buildExecutableMetadata(const LLVMTarget &target,
+                               llvm::Module &llvmModule,
+                               ExecutableVariantOp &variantOp) {
+    LibraryBuilder::Mode libraryBuilderMode =
+        target.debugSymbols ? LibraryBuilder::Mode::INCLUDE_REFLECTION_ATTRS
+                            : LibraryBuilder::Mode::NONE;
+    LibraryBuilder libraryBuilder(&llvmModule, libraryBuilderMode,
+                                  LibraryBuilder::Version::LATEST);
+
+    // The LLVMCPUTarget has support for multiple sanitizer kinds, defined
+    // in target.sanitizerKind. For simplicity, let's not add any for now.
+    libraryBuilder.setSanitizerKind(LibraryBuilder::SanitizerKind::NONE);
+
+    // Declare dynamically imported functions (currently unused by Hexagon, so
+    // this has not been checked).
+    auto importsAttrName =
+        StringAttr::get(variantOp.getContext(), "hal.executable.imports");
+    if (auto importsAttr =
+            variantOp->getAttrOfType<ArrayAttr>(importsAttrName)) {
+      for (auto importAttr : importsAttr.getAsValueRange<ArrayAttr>()) {
+        auto nameAttr = llvm::cast<StringAttr>(importAttr[0]);
+        auto weakAttr = llvm::cast<BoolAttr>(importAttr[1]);
+        libraryBuilder.addImport(nameAttr.getValue(), weakAttr.getValue());
+      }
+      variantOp->removeAttr(importsAttrName);
+    }
+
+    // Declare exported entry points.
+    auto align16 = llvm::Attribute::getWithAlignment(llvmModule.getContext(),
+                                                     llvm::Align(16));
+    for (auto exportOp : variantOp.getBlock().getOps<ExecutableExportOp>()) {
+      // Find the matching function in the LLVM module.
+      auto *llvmFunc = llvmModule.getFunction(exportOp.getName());
+      if (!llvmFunc)
+        continue;
+
+      // We do not want to hide the other functions like LLVMCPUTarget does,
+      // easier debugging for now
+      // llvmFunc->setLinkage(llvm::GlobalValue::LinkageTypes::InternalLinkage);
+      // llvmFunc->setDSOLocal(true);
+
+      // Tag the function parameters in case they got removed during conversion.
+      // (%arg0: environment, %arg1: dispatch_state, %arg2: workgroup_state)
+      for (unsigned i = 0; i <= 2; ++i) {
+        llvmFunc->addParamAttr(i, llvm::Attribute::NonNull);
+        llvmFunc->addParamAttr(i, llvm::Attribute::NoAlias);
+        llvmFunc->addParamAttr(i, align16);
+      }
+
+      LibraryBuilder::DispatchAttrs dispatchAttrs = {};
+
+      // Entry points may optionally specify that they require workgroup local
+      // memory. We fetch that value here and plumb it through so the runtime
+      // knows how much memory to reserve and pass in.
+      dispatchAttrs.localMemorySize = exportOp.getWorkgroupLocalMemory()
+                                          .value_or(APInt(64, 0))
+                                          .getSExtValue();
+
+      // Specify the constant and binding information used to validate
+      // dispatches.
+      if (auto layoutAttr = exportOp.getLayout()) {
+        dispatchAttrs.constantCount = layoutAttr.getConstants();
+        dispatchAttrs.bindingCount = layoutAttr.getBindings().size();
+      }
+
+      LibraryBuilder::SourceLocation sourceLocation;
+      SmallVector<LibraryBuilder::SourceLocation> stageLocations;
+      libraryBuilder.addExport(exportOp.getName(), std::move(sourceLocation),
+                               std::move(stageLocations), /*tag=*/"",
+                               dispatchAttrs, llvmFunc);
+    }
+
+    // TODO: LLVMCPUTarget performs an additional step here to embed source
+    // files. I do not know exactly if this is needed, nor do I understand
+    // its purpose in the LLVMCPUTarget yet
+
+    // TODO: This is where we are actually performing the work. Note that
+    // this is reusing a lot of machinery from LLVMCPUTarget through a call to
+    // the that plugin's functions.
+    auto queryFunctionName = std::string(kQueryFunctionName);
+    auto *queryLibraryFunc = libraryBuilder.build(queryFunctionName);
+
+    // The query function must be exported for dynamic libraries.
+    queryLibraryFunc->setDSOLocal(false);
+    queryLibraryFunc->setVisibility(
+        llvm::GlobalValue::VisibilityTypes::DefaultVisibility);
+    queryLibraryFunc->setLinkage(
+        llvm::GlobalValue::LinkageTypes::ExternalLinkage);
+  }
+
+  // Run the target backend codegen pipeline to produce an ELF object
+  SmallVector<Artifact> generateObjectFiles(llvm::Module &llvmModule,
+                                            llvm::TargetMachine &targetMachine,
+                                            ExecutableVariantOp &variantOp,
+                                            const SerializationOptions &options,
+                                            StringRef libraryName) {
+    llvm::SmallVector<char, 0> objectDataStorage;
+    llvm::raw_svector_ostream objectStream(objectDataStorage);
+    llvm::legacy::PassManager passManager;
+    if (targetMachine.addPassesToEmitFile(passManager, objectStream, nullptr,
+                                          llvm::CodeGenFileType::ObjectFile)) {
+      variantOp.emitOpError()
+          << "Hexagon target machine cannot emit object files";
+    }
+    passManager.run(llvmModule);
+    std::vector<int8_t> objectData(objectDataStorage.begin(),
+                                   objectDataStorage.end());
+
+    if (!options.dumpBinariesPath.empty()) {
+      dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
+                             variantOp.getName(), ".o", objectData);
+    }
+
+    // Persist the temporary object to disk so the linker can turn it into an
+    // ET_DYN shared object
+    SmallVector<Artifact> objectFiles;
+    {
+      Artifact objectFile = Artifact::createTemporary(libraryName, "o");
+      auto &os = objectFile.outputFile->os();
+      os.write(reinterpret_cast<const char *>(objectData.data()),
+               objectData.size());
+      os.flush();
+      os.close();
+      objectFiles.push_back(std::move(objectFile));
+    }
+
+    return objectFiles;
+  }
+
+  std::optional<Artifacts>
+  linkArtifacts(const SmallVector<Artifact> &objectFiles,
+                const LLVMTarget &llvmIreeTarget,
+                const llvm::TargetMachine &targetMachine,
+                ExecutableVariantOp &variantOp, const StringRef libraryName) {
+    // FIXME: I can optionally pass more arguments here, but any other options
+    // would not be useful given my current custom implementation of the linker.
+    // This type is yet another example of reused code from LLVMCPUTarget that
+    // is meant for more complex logic
+    LLVMTargetOptions linkerOptions;
+    linkerOptions.target.copy(llvmIreeTarget);
+    linkerOptions.embeddedLinkerPath = this->hexagonOptions.linker;
+
+    auto linkerTool =
+        createHexagonLinkerTool(targetMachine.getTargetTriple(), linkerOptions);
+
+    auto linkedArtifactsOption =
+        linkerTool->linkDynamicLibrary(libraryName, objectFiles);
+    if (!linkedArtifactsOption) {
+      variantOp.emitOpError() << "failed to link Hexagon shared object "
+                                 "(see linker output above)";
+    }
+
+    return linkedArtifactsOption;
+  }
+
   // Here we are creating our output .vmfb that should contain:
   // .so, constants.bin and .fb
   // For more info, check here:
@@ -338,17 +534,10 @@ public:
 
     auto llvmTargetOption = LLVMTarget::loadFromConfigAttr(
         variantOp->getLoc(), configAttr,
-        createLLVMTargetForHexagon(this->options));
+        createLLVMTargetForHexagon(this->hexagonOptions));
     if (!llvmTargetOption)
-      llvm::errs() << "Failed to load LLVMTarget from configuration attributes";
-    const auto &llvmIreeTarget = llvmTargetOption.value();
-
-    auto targetMachine = createTargetMachine(llvmIreeTarget);
-    if (!targetMachine) {
-      return mlir::emitError(variantOp.getLoc())
-             << "failed to create target machine for target triple '"
-             << llvmIreeTarget.getTriple() << "'";
-    }
+      variantOp->emitError(
+          "Failed to load LLVMTarget from configuration attributes");
 
     llvm::LLVMContext context;
     auto libraryName =
@@ -361,14 +550,28 @@ public:
       return variantOp.emitOpError()
              << "failed to translate module to LLVM IR for Hexagon";
 
+    const auto &llvmIreeTarget = llvmTargetOption.value();
+
+    buildExecutableMetadata(llvmIreeTarget, *llvmModule, variantOp);
+
+    auto targetMachine = createTargetMachine(llvmIreeTarget);
+    if (!targetMachine) {
+      return variantOp->emitError(
+          "failed to create target machine for target triple '" +
+          llvmIreeTarget.getTriple() + "'");
+    }
+
     // This information is embedded into each one of the dispatches. When
     // linking all dispatches together through the linking pipeline, a new
-    // module is created that does not copy this information, so let's add it
-    // again in case it is needed at some other point. Might be a bug in the
-    // linking pipeline? LLVMCPUTarget also needs this dirty fix
+    // module is created that does not copy this information, so let's add
+    // it again in case it is needed at some other point. Might be a bug in
+    // the linking pipeline? LLVMCPUTarget also needs this dirty fix
     llvmModule->setTargetTriple(targetMachine->getTargetTriple());
     llvmModule->setDataLayout(targetMachine->createDataLayout());
 
+    // Note that we are dumping the ll after the fixes above, but LLVMCPUTarget
+    // outputs multiple ll's for each stage though. Be careful if you are
+    // comparing them to each other.
     if (!options.dumpIntermediatesPath.empty()) {
       dumpLLVMModuleToPath(options.dumpIntermediatesPath, options.dumpBaseName,
                            variantOp.getName(), *llvmModule);
@@ -376,83 +579,30 @@ public:
 
     // Dump assembly
     if (!options.dumpBinariesPath.empty()) {
-      llvm::SmallVector<char, 0> asmDataStorage;
-      llvm::raw_svector_ostream asmStream(asmDataStorage);
-      llvm::legacy::PassManager asmPassManager;
-      auto asmModule = llvm::CloneModule(*llvmModule);
-      if (targetMachine->addPassesToEmitFile(
-              asmPassManager, asmStream, nullptr,
-              llvm::CodeGenFileType::AssemblyFile)) {
-        return variantOp.emitOpError()
-               << "Hexagon target machine cannot emit assembly files";
-      }
-      asmPassManager.run(*asmModule);
-      std::vector<int8_t> asmData(asmDataStorage.begin(), asmDataStorage.end());
-      dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
-                             variantOp.getName(), ".s", asmData);
+      dumpAssemblyFromLLVMModule(variantOp, *llvmModule, *targetMachine,
+                                 options.dumpBinariesPath,
+                                 options.dumpBaseName);
     }
 
-    // Run the target backend codegen pipeline to produce an ELF object.
-    llvm::SmallVector<char, 0> objectDataStorage;
-    llvm::raw_svector_ostream objectStream(objectDataStorage);
-    llvm::legacy::PassManager passManager;
-    if (targetMachine->addPassesToEmitFile(passManager, objectStream, nullptr,
-                                           llvm::CodeGenFileType::ObjectFile)) {
-      return variantOp.emitOpError()
-             << "Hexagon target machine cannot emit object files";
-    }
-    passManager.run(*llvmModule);
-    std::vector<int8_t> objectData(objectDataStorage.begin(),
-                                   objectDataStorage.end());
+    SmallVector<Artifact> objectFiles = generateObjectFiles(
+        *llvmModule, *targetMachine, variantOp, options, libraryName);
 
-    if (!options.dumpBinariesPath.empty()) {
-      dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
-                             variantOp.getName(), ".o", objectData);
-    }
+    auto linkedArtifacts = linkArtifacts(
+        objectFiles, llvmIreeTarget, *targetMachine, variantOp, libraryName);
 
-    // Persist the temporary object to disk so the linker can turn it into an
-    // ET_DYN shared object
-    SmallVector<Artifact> objectFiles;
-    {
-      Artifact objectFile = Artifact::createTemporary(libraryName, "o");
-      auto &os = objectFile.outputFile->os();
-      os.write(reinterpret_cast<const char *>(objectData.data()),
-               objectData.size());
-      os.flush();
-      os.close();
-      objectFiles.push_back(std::move(objectFile));
-    }
-
-    // I can optionally pass more arguments here, but any other options would
-    // not be useful given my current custom implementation of the linker. This
-    // type is yet another example of reused code from LLVMCPUTarget that is
-    // meant for more complex logic
-    LLVMTargetOptions linkerOptions;
-    linkerOptions.target.copy(llvmIreeTarget);
-    linkerOptions.embeddedLinkerPath = this->options.linker;
-
-    auto linkerTool = createHexagonLinkerTool(targetMachine->getTargetTriple(),
-                                              linkerOptions);
-
-    auto linkedArtifactsOption =
-        linkerTool->linkDynamicLibrary(libraryName, objectFiles);
-    if (!linkedArtifactsOption) {
-      return variantOp.emitOpError() << "failed to link Hexagon shared object "
-                                        "(see linker output above)";
-    }
-
-    auto &linkedArtifacts = linkedArtifactsOption.value();
-    auto libraryFileOption = linkedArtifacts.libraryFile.read();
+    auto libraryFileOption = linkedArtifacts->libraryFile.read();
     if (!libraryFileOption) {
       return variantOp.emitOpError()
              << "failed to read back linked Hexagon library from "
-             << linkedArtifacts.libraryFile.path;
+             << linkedArtifacts->libraryFile.path;
     }
     if (!options.dumpBinariesPath.empty()) {
       dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
                              variantOp.getName(), ".so",
                              libraryFileOption.value());
     }
+
+    // Embed the resulting executable binary into the IR
     auto bufferAttr = DenseIntElementsAttr::get(
         VectorType::get({static_cast<int64_t>(libraryFileOption->size())},
                         IntegerType::get(executableBuilder.getContext(), 8)),
@@ -467,7 +617,7 @@ public:
   }
 
 private:
-  const HexagonOptions &options;
+  const HexagonOptions &hexagonOptions;
 };
 
 // The plugin session simply takes care of registering all the extensions from

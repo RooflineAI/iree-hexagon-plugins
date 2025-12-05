@@ -22,6 +22,7 @@ iree_compiler_cc_library(
         "HexagonTarget.cpp",
     ],
     deps = [
+        "@iree//compiler/plugins/target/LLVMCPU",
         "@iree//compiler/plugins/target/LLVMCPU:LLVMTargetOptions",
         "@iree//compiler/plugins/target/LLVMCPU:LinkerTool",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",

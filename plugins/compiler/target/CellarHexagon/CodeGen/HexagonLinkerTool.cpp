@@ -56,21 +56,6 @@ public:
     return "";
   }
 
-  LogicalResult
-  configureModule(llvm::Module *llvmModule,
-                  ArrayRef<llvm::Function *> exportedFuncs) override {
-    // Parent doc:
-    // Configures a module prior to compilation with any additional
-    // functions/exports it may need, such as shared object initializer
-    // functions.
-
-    // TODO: Still unsure if we need or do not need custom initializer
-    // functions when using lld. For the time being, executables can be loaded
-    // without them.
-
-    return success();
-  }
-
   std::optional<Artifacts>
   linkDynamicLibrary(StringRef libraryName,
                      ArrayRef<Artifact> objectFiles) override {

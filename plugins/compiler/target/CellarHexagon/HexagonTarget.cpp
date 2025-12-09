@@ -368,8 +368,8 @@ public:
     if (auto importsAttr =
             variantOp->getAttrOfType<ArrayAttr>(importsAttrName)) {
       for (auto importAttr : importsAttr.getAsValueRange<ArrayAttr>()) {
-        auto nameAttr = llvm::cast<StringAttr>(importAttr[0]);
-        auto weakAttr = llvm::cast<BoolAttr>(importAttr[1]);
+        auto nameAttr = cast<StringAttr>(importAttr[0]);
+        auto weakAttr = cast<BoolAttr>(importAttr[1]);
         libraryBuilder.addImport(nameAttr.getValue(), weakAttr.getValue());
       }
       variantOp->removeAttr(importsAttrName);
@@ -411,6 +411,17 @@ public:
       if (auto layoutAttr = exportOp.getLayout()) {
         dispatchAttrs.constantCount = layoutAttr.getConstants();
         dispatchAttrs.bindingCount = layoutAttr.getBindings().size();
+      }
+
+      // Extract workgroup size if specified at compile time.
+      if (auto workgroupSizeAttr = exportOp.getWorkgroupSize()) {
+        auto workgroupSizeValues = workgroupSizeAttr->getValue();
+        dispatchAttrs.workgroupSize[0] = static_cast<uint32_t>(
+            cast<IntegerAttr>(workgroupSizeValues[0]).getInt());
+        dispatchAttrs.workgroupSize[1] = static_cast<uint32_t>(
+            cast<IntegerAttr>(workgroupSizeValues[1]).getInt());
+        dispatchAttrs.workgroupSize[2] = static_cast<uint32_t>(
+            cast<IntegerAttr>(workgroupSizeValues[2]).getInt());
       }
 
       LibraryBuilder::SourceLocation sourceLocation;

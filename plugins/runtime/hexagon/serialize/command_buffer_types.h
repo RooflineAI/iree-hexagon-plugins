@@ -16,6 +16,7 @@ typedef enum iree_hal_hexagon_command_type_e {
   IREE_HAL_HEXAGON_COMMAND_DISPATCH,
   IREE_HAL_HEXAGON_COMMAND_BARRIER,
   IREE_HAL_HEXAGON_COMMAND_COPY,
+  IREE_HAL_HEXAGON_COMMAND_FILL,
 } iree_hal_hexagon_command_type_t;
 
 /// "base class" of commands
@@ -84,6 +85,14 @@ typedef struct iree_hal_hexagon_command_copy_s {
   iree_hal_buffer_ref_t src;
   iree_hal_buffer_ref_t dest;
 } iree_hal_hexagon_command_copy_t;
+
+/// buffer fill command, "derived" from iree_hal_hexagon_command_base_t
+typedef struct iree_hal_hexagon_command_fill_s {
+  iree_hal_hexagon_command_base_t base; ///< keep this the first entry
+  uint8_t pattern_length;
+  uint8_t pattern[4]; // max pattern length according to comments in IREE is 4
+  iree_hal_buffer_ref_t dest;
+} iree_hal_hexagon_command_fill_t;
 
 typedef struct iree_hal_hexagon_command_buffer_t {
   iree_hal_command_buffer_t base;

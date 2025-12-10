@@ -389,6 +389,17 @@ static iree_status_t iree_hal_hexagon_command_buffer_advise_buffer(
   return status;
 }
 
+/// Fill a buffer with a repeating byte pattern.
+/// A pattern of length 1 (i.e. a single byte) means filling the
+/// whole part of the buffer (starting at offset, length given by byte_length)
+/// with this byte (pattern[0]).
+/// A longer pattern (e.g., the 4 bytes (in hex) 11 22 33 44) means writing
+/// the given sequence of bytes repeatedly to the part of the buffer. For
+/// example, for offset 8 and length 12, this would result in the following
+/// data in the buffer if it was zero-filled before:
+///   00 00 00 00 00 00 00 00  11 22 33 44 11 22 33 44
+///   11 22 33 44 11 22 33 44  11 22 33 44 11 22 33 44
+///   00 00 00 00 00 00 00 00  ...
 static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
     iree_hal_command_buffer_t *base_command_buffer,
     iree_hal_buffer_ref_t target_ref, const void *pattern,
@@ -399,11 +410,41 @@ static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
   // TODO(hexagon): memset on the buffer. The pattern_length is 1, 2, or 4
   // bytes. Note that the buffer may be a reference to a binding table slot in
   // which case it will be provided during submission to a queue.
-  (void)command_buffer;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "fill buffer not implemented");
 
-  return status;
+  // check that pattern is non-empty and fits the static buffer
+  //  - comments in IREE HAL state that there is an upper limit of 4
+  //  - note: the NULL case below is for getting the size of the struct field
+  //          without having a struct of this type at this point
+  if (pattern_length == 0 ||
+      pattern_length >
+          sizeof(((iree_hal_hexagon_command_fill_t *)NULL)->pattern)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "unsupported pattern length %" PRIu64,
+                            pattern_length);
+  }
+
+  // retain target buffer
+  IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert(
+      command_buffer->resource_set, 1, &target_ref.buffer));
+
+  // allocate buffer for fill command
+  iree_hal_hexagon_command_fill_t *fill = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(command_buffer->host_allocator,
+                                             sizeof(*fill), (void **)&fill));
+
+  // fill fields of fill command
+  fill->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_FILL;
+  fill->pattern_length = pattern_length;
+  memcpy(fill->pattern, pattern, pattern_length);
+  memset(fill->pattern + pattern_length, 0,
+         sizeof(fill->pattern) - pattern_length); // clear rest of pattern buf
+  fill->dest = target_ref;
+  // There are no flags yet.
+
+  // append fill command to command buffer
+  iree_hal_hexagon_command_buffer_append(command_buffer, &fill->base);
+
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_command_buffer_update_buffer(
@@ -454,7 +495,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
   copy->dest = target_ref;
   // There are no flags yet.
 
-  // append barrier command to command buffer
+  // append copy command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, &copy->base);
 
   return iree_ok_status();

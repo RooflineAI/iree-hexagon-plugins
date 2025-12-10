@@ -253,6 +253,68 @@ TEST(CommandBufferSerializeTest, SingleCopy) {
   EXPECT_EQ(buffer.data() + buffer.size(), cursor);
 }
 
+TEST(CommandBufferSerializeTest, SingleFill) {
+
+  // Test input data structure: command buffer with single buffer fill.
+
+  iree_hal_hexagon_command_fill_t fill = {};
+  fill.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_FILL;
+  const std::array<uint8_t, 4> pattern = {0xAA, 0xBB, 0xCC, 0xDD};
+  fill.pattern_length = pattern.size();
+  for (size_t i = 0; i < pattern.size(); ++i) {
+    fill.pattern[i] = pattern[i];
+  }
+  fill.dest = iree_hal_make_buffer_ref(&direct_buffers[1], /*offset=*/24,
+                                       /*length=*/80);
+
+  iree_hal_hexagon_command_buffer_t command_buffer = {};
+  command_buffer.first_entry = &fill.base;
+  command_buffer.last_entry = &fill.base;
+
+  // Test computing size of serialized data and number of entries.
+
+  const iree_host_size_t expected_size = sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
+                                         sizeof(hexagon_rt_arm_dsp_cmd_fill_t);
+
+  iree_host_size_t cmd_buf_size = 0;
+  uint32_t num_entries = 0;
+  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
+      &command_buffer, &cmd_buf_size, &num_entries));
+  EXPECT_EQ(expected_size, cmd_buf_size);
+  EXPECT_EQ(1u, num_entries);
+
+  // Test generating serialized data.
+
+  std::vector<uint8_t> buffer(cmd_buf_size);
+  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
+      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
+      buffer.size()));
+
+  const auto *header =
+      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
+  EXPECT_EQ(1u, header->num_entries);
+
+  const uint8_t *cursor = buffer.data() + sizeof(*header);
+  const auto *cmd_fill =
+      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_fill_t *>(cursor);
+  cursor += sizeof(*cmd_fill);
+
+  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_FILL, cmd_fill->base.cmd_type);
+  EXPECT_EQ(fill.pattern_length, cmd_fill->pattern_length);
+  for (size_t i = 0; i < pattern.size(); ++i) {
+    EXPECT_EQ(pattern[i], cmd_fill->pattern[i]);
+  }
+
+  EXPECT_EQ(fill.dest.buffer_slot, cmd_fill->dest.slot);
+  EXPECT_EQ(0x420001, cmd_fill->dest.buffer_dsp_vaddr);
+  EXPECT_EQ(fill.dest.offset, cmd_fill->dest.offset);
+  EXPECT_EQ(fill.dest.length, cmd_fill->dest.length);
+
+  // Test the test: Generated data needs to end at end of buffer.
+
+  EXPECT_EQ(buffer.data() + buffer.size(), cursor);
+}
+
 TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   // Test input data structure: command buffer with the following entries:
   // first dispatch, barrier second dispatch.
@@ -396,13 +458,24 @@ TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
   EXPECT_EQ(buffer.data() + buffer.size(), cursor);
 }
 
-TEST(CommandBufferSerializeTest, DispatchBarrierCopy) {
+TEST(CommandBufferSerializeTest, DispatchFillBarrierCopy) {
   // Test input data structure: command buffer with the following entries:
-  // dispatch, barrier, buffer copy.
+  // fill, dispatch, barrier, buffer copy.
+  // The fill writes a pattern into a direct buffer.
   // The dispatch has two buffers references, the first dynamic/indirect, the
   // second fixed/direct.
 
   rpc_executable_handle_t rpc_executable_handle = 0xCAFE;
+
+  iree_hal_hexagon_command_fill_t fill = {};
+  fill.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_FILL;
+  const std::array<uint8_t, 4> fill_pattern = {0x10, 0x20, 0x30, 0x40};
+  fill.pattern_length = fill_pattern.size();
+  for (size_t i = 0; i < fill_pattern.size(); ++i) {
+    fill.pattern[i] = fill_pattern[i];
+  }
+  fill.dest = iree_hal_make_buffer_ref(&direct_buffers[0], /*offset=*/16,
+                                       /*length=*/48);
 
   iree_hal_hexagon_command_dispatch_t dispatch = {};
   dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
@@ -434,19 +507,22 @@ TEST(CommandBufferSerializeTest, DispatchBarrierCopy) {
   copy.dest = iree_hal_make_buffer_ref(&direct_buffers[1], /*offset=*/48,
                                        /*length=*/96);
 
+  fill.base.next = &dispatch.base;
+  dispatch.base.prev = &fill.base;
   dispatch.base.next = &barrier.base;
   barrier.base.prev = &dispatch.base;
   barrier.base.next = &copy.base;
   copy.base.prev = &barrier.base;
 
   iree_hal_hexagon_command_buffer_t command_buffer = {};
-  command_buffer.first_entry = &dispatch.base;
+  command_buffer.first_entry = &fill.base;
   command_buffer.last_entry = &copy.base;
 
   // Test computing size of serialized data and number of entries.
 
   const iree_host_size_t expected_size =
       sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
+      sizeof(hexagon_rt_arm_dsp_cmd_fill_t) +
       sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
       binding_values.size() * sizeof(hexagon_rt_arm_dsp_buf_ref_t) +
       sizeof(hexagon_rt_arm_dsp_cmd_barrier_t) +
@@ -457,7 +533,7 @@ TEST(CommandBufferSerializeTest, DispatchBarrierCopy) {
   IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
       &command_buffer, &cmd_buf_size, &num_entries));
   EXPECT_EQ(expected_size, cmd_buf_size);
-  EXPECT_EQ(3u, num_entries);
+  EXPECT_EQ(4u, num_entries);
 
   // Test generating serialized data.
 
@@ -468,9 +544,23 @@ TEST(CommandBufferSerializeTest, DispatchBarrierCopy) {
 
   const auto *header =
       reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
-  EXPECT_EQ(3u, header->num_entries);
+  EXPECT_EQ(4u, header->num_entries);
 
   const uint8_t *cursor = buffer.data() + sizeof(*header);
+  const auto *cmd_fill =
+      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_fill_t *>(cursor);
+  cursor += sizeof(*cmd_fill);
+
+  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_FILL, cmd_fill->base.cmd_type);
+  EXPECT_EQ(fill.pattern_length, cmd_fill->pattern_length);
+  for (size_t i = 0; i < fill_pattern.size(); ++i) {
+    EXPECT_EQ(fill_pattern[i], cmd_fill->pattern[i]);
+  }
+  EXPECT_EQ(fill.dest.buffer_slot, cmd_fill->dest.slot);
+  EXPECT_EQ(0x420000, cmd_fill->dest.buffer_dsp_vaddr);
+  EXPECT_EQ(fill.dest.offset, cmd_fill->dest.offset);
+  EXPECT_EQ(fill.dest.length, cmd_fill->dest.length);
+
   const auto *cmd_dispatch =
       reinterpret_cast<const hexagon_rt_arm_dsp_cmd_dispatch_t *>(cursor);
   cursor += sizeof(*cmd_dispatch);

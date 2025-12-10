@@ -37,6 +37,7 @@ typedef enum hexagon_rt_arm_dsp_cmd_type_enum {
   HEXAGON_RT_ARM_DSP_CMD_DISPATCH,
   HEXAGON_RT_ARM_DSP_CMD_BARRIER,
   HEXAGON_RT_ARM_DSP_CMD_COPY,
+  HEXAGON_RT_ARM_DSP_CMD_FILL,
 } hexagon_rt_arm_dsp_cmd_type_enum_t;
 /// fixed width type used for storing enum values in struct,
 /// used to store constants from hexagon_rt_arm_dsp_cmd_type_enum_t
@@ -77,6 +78,14 @@ typedef struct hexagon_rt_arm_dsp_cmd_copy_s {
   hexagon_rt_arm_dsp_buf_ref_t src;
   hexagon_rt_arm_dsp_buf_ref_t dest;
 } __attribute__((packed)) hexagon_rt_arm_dsp_cmd_copy_t;
+
+/// fill command, "derived" from hexagon_rt_arm_dsp_cmd_base_t
+typedef struct hexagon_rt_arm_dsp_cmd_fill_s {
+  hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
+  uint8_t pattern_length;
+  uint8_t pattern[4]; // max pattern length according to comments in IREE is 4
+  hexagon_rt_arm_dsp_buf_ref_t dest;
+} __attribute__((packed)) hexagon_rt_arm_dsp_cmd_fill_t;
 
 /// header of serialized command buffer
 typedef struct hexagon_rt_arm_dsp_cmd_buf_s {

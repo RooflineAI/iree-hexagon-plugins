@@ -51,6 +51,11 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_prep(
       break;
     }
 
+    case IREE_HAL_HEXAGON_COMMAND_FILL: {
+      cmd_buf_size += sizeof(hexagon_rt_arm_dsp_cmd_fill_t);
+      break;
+    }
+
     default:
       return iree_make_status(IREE_STATUS_INTERNAL,
                               "unknown command type in command buffer");
@@ -156,6 +161,27 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
       cmd_copy->dest.buffer_dsp_vaddr = dest_dsp_vaddr;
       cmd_copy->dest.offset = command_copy->dest.offset;
       cmd_copy->dest.length = command_copy->dest.length;
+      break;
+    }
+
+    case IREE_HAL_HEXAGON_COMMAND_FILL: {
+      const iree_hal_hexagon_command_fill_t *command_fill =
+          (const iree_hal_hexagon_command_fill_t *)command;
+      rpc_dsp_vaddr_t dest_dsp_vaddr =
+          0; // stays at 0 if no buffer, means to use slot
+      if (command_fill->dest.buffer) {
+        IREE_RETURN_IF_ERROR(
+            buffer_to_dsp_vaddr(command_fill->dest.buffer, &dest_dsp_vaddr));
+      }
+      SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_cmd_fill_t, cmd_fill)
+      cmd_fill->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_FILL;
+      cmd_fill->pattern_length = command_fill->pattern_length;
+      memcpy(cmd_fill->pattern, command_fill->pattern,
+             sizeof(cmd_fill->pattern));
+      cmd_fill->dest.slot = command_fill->dest.buffer_slot;
+      cmd_fill->dest.buffer_dsp_vaddr = dest_dsp_vaddr;
+      cmd_fill->dest.offset = command_fill->dest.offset;
+      cmd_fill->dest.length = command_fill->dest.length;
       break;
     }
 

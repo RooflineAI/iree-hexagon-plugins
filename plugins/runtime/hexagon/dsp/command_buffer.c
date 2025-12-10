@@ -201,7 +201,7 @@ hexa_cmd_buf_resolve_buf(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
  * @param[in,out] cmd_buf_data pointer to pointer to serialized barrier command
  *                data, updated by amount of processed data
  * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
- *                data, updated by amount of processes data
+ *                data, updated by amount of processed data
  * @param[in] bind_tab binding_table
  * @param[in] bind_tab_num_ent number of entries in binding table
  * @retval AEE_SUCCESS for success
@@ -348,7 +348,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
  * @param[in,out] cmd_buf_data pointer to pointer to serialized barrier command
  *                data, updated by amount of processed data
  * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
- data, updated by amount of processes data
+ *                data, updated by amount of processed data
  * @retval AEE_SUCCESS for success
  */
 static int hexa_cmd_buf_exec_barrier(const uint8_t **cmd_buf_data,
@@ -365,7 +365,7 @@ static int hexa_cmd_buf_exec_barrier(const uint8_t **cmd_buf_data,
  * @param[in,out] cmd_buf_data pointer to pointer to serialized copy command
  *                data, updated by amount of processed data
  * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
- *                data, updated by amount of processes data
+ *                data, updated by amount of processed data
  * @param[in] bind_tab binding_table
  * @param[in] bind_tab_num_ent number of entries in binding table
  * @retval AEE_SUCCESS for success
@@ -401,6 +401,51 @@ static int hexa_cmd_buf_exec_copy(const uint8_t **cmd_buf_data,
   // copy data
   memcpy(dest.dsp_vaddr + dest.offset, src.dsp_vaddr + src.offset,
          dest.length < src.length ? dest.length : src.length);
+
+  // flush cache of output buffer
+  err =
+      qurt_mem_cache_clean((qurt_addr_t)dest.dsp_vaddr + dest.offset,
+                           dest.length, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
+  if (err != QURT_EOK) {
+    // according to doc, the only error is QURT_EVAL - invalid cache type
+    return AEE_EFAILED;
+  }
+
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute fill command buffer entry.
+ * @param[in,out] cmd_buf_data pointer to pointer to serialized fill command
+ *                data, updated by amount of processed data
+ * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
+ *                data, updated by amount of processed data
+ * @param[in] bind_tab binding_table
+ * @param[in] bind_tab_num_ent number of entries in binding table
+ * @retval AEE_SUCCESS for success
+ */
+static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
+                                  int *cmd_buf_size,
+                                  const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                                  uint32_t bind_tab_num_ent) {
+  READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_cmd_fill_t,
+                  cmd_fill)
+  hexa_cmd_buf_res_buf_t dest = {};
+  int err = hexa_cmd_buf_resolve_buf(&cmd_fill->dest, bind_tab,
+                                     bind_tab_num_ent, &dest);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+
+  // fill buffer with pattern
+  uint8_t p = 0;
+  for (uint64_t i = 0; i < cmd_fill->dest.length; ++i) {
+    dest.dsp_vaddr[dest.offset + i] = cmd_fill->pattern[p];
+    ++p;
+    if (p >= cmd_fill->pattern_length) {
+      p = 0;
+    }
+  }
 
   // flush cache of output buffer
   err =
@@ -463,6 +508,15 @@ static int hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
 
     case HEXAGON_RT_ARM_DSP_CMD_COPY: {
       int err = hexa_cmd_buf_exec_copy(&cmd_buf_data, &cmd_buf_size, bind_tab,
+                                       bind_tab_num_ent);
+      if (err != AEE_SUCCESS) {
+        return err;
+      }
+      break;
+    }
+
+    case HEXAGON_RT_ARM_DSP_CMD_FILL: {
+      int err = hexa_cmd_buf_exec_fill(&cmd_buf_data, &cmd_buf_size, bind_tab,
                                        bind_tab_num_ent);
       if (err != AEE_SUCCESS) {
         return err;

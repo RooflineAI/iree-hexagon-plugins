@@ -11,6 +11,7 @@ package(
 cc_binary(
     name = "hexagon_dsp_skel",
     srcs = [
+        "align.h",
         "buffer.c",
         "command_buffer.c",
         "device.c",

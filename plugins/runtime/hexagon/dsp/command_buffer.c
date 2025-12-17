@@ -8,8 +8,10 @@
 #include "HAP_mem.h"
 #include "hexagon/arm_dsp/bindings.h"
 #include "hexagon/arm_dsp/cmd_buf.h"
+#include "hexagon/dsp/align.h"
 #include "hexagon/dsp/executable.h"
 #include "hexagon_dsp.h"
+#include "iree/hal/local/executable_library.h"
 #include "qurt.h"
 
 /// data about a command buffer
@@ -83,18 +85,6 @@ int hexagon_dsp_command_buffer_destroy(remote_handle64 rpc_handle,
   HAP_free(command_buffer);
   return AEE_SUCCESS;
 }
-
-/**
- * Type alignment wrapper, to ensure a minimum alignment.
- */
-#define ALIGN_OF_TYPE(T) (__alignof__(T) > 8 ? __alignof__(T) : 8)
-
-/**
- * Align a size S for a certain type T, i.e., find the next non-smaller multiple
- * of the size of the type.
- */
-#define ALIGN_SIZE_FOR_TYPE(S, T)                                              \
-  (((S) + (ALIGN_OF_TYPE(T) - 1)) & ~(ALIGN_OF_TYPE(T) - 1))
 
 /**
  * Macro to read type T from a buffer with serialized data (pointer P, size S).
@@ -231,10 +221,10 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // same buffer and the start addresses are computed based on their size.
   // The data is written to the arrays below the definition of the dispatch
   // data structre.
-  size_t constants_size = ALIGN_SIZE_FOR_TYPE(
+  size_t constants_size = HEXAGON_ALIGN_SIZE_FOR_TYPE(
       cmd_dispatch->constant_count * sizeof(uint32_t), void *);
   size_t binding_ptrs_size =
-      ALIGN_SIZE_FOR_TYPE(num_buf_refs * sizeof(void *), size_t);
+      HEXAGON_ALIGN_SIZE_FOR_TYPE(num_buf_refs * sizeof(void *), size_t);
   size_t binding_lengths_size = num_buf_refs * sizeof(size_t);
   uint8_t *dispatch_arrays = NULL;
   err = HAP_malloc(constants_size + binding_ptrs_size + binding_lengths_size,
@@ -250,9 +240,11 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   size_t *binding_lengths =
       (size_t *)((uint8_t *)binding_ptrs + binding_ptrs_size);
 
-  // Build dispatch state
-  // FIXME: many values hard coded to 1 / 0 for now, need to be implemented
+  // Build dispatch state - must be aligned at 16 bytes, because dispatch
+  // function declarations assumes that alignment
+  // FIXME: max_concurrency still hard coded to 1, need to be implemented
   // properly
+  HEXAGON_ALIGNAS(16)
   iree_hal_executable_dispatch_state_v0_t dispatch_state = {
       .workgroup_size_x = cmd_dispatch->workgroup_size_x,
       .workgroup_size_y = cmd_dispatch->workgroup_size_y,
@@ -310,7 +302,9 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
       for (uint32_t wg_id_x = 0; wg_id_x < dispatch_state.workgroup_count_x;
            ++wg_id_x) {
 
-        // build workgroup state
+        // build workgroup state - must be aligned at 16 bytes, because dispatch
+        // function declarations assumes that alignment
+        HEXAGON_ALIGNAS(16)
         iree_hal_executable_workgroup_state_v0_t workgroup_state = {
             .workgroup_id_x = wg_id_x,
             .workgroup_id_y = wg_id_y,

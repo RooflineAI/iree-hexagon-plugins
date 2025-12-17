@@ -303,7 +303,8 @@ public:
   }
 
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<LLVM::LLVMDialect>();
+    registry
+        .insert<LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonEncodingDialect>();
     registerBuiltinDialectTranslation(registry);
     registerLLVMDialectTranslation(registry);
   }

@@ -4,12 +4,20 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@iree//build_tools/bazel:enforce_glob.bzl", "enforce_glob")
-load("@iree//build_tools/bazel:iree_lit_test.bzl", "iree_lit_test_suite")
+load("@iree//build_tools/bazel:iree_lit_test.bzl", "iree_lit_test", "iree_lit_test_suite")
 
 package(
     features = ["layering_check"],
     licenses = ["notice"],  # Apache 2.0
 )
+
+_COMMON_TOOLS = [
+    "@iree//tools:iree-compile",
+    "@iree//tools:iree-opt",
+    "@llvm-project//lld:ld.lld",
+    "@llvm-project//llvm:FileCheck",
+    "@llvm-project//llvm:not",
+]
 
 iree_lit_test_suite(
     name = "lit",
@@ -22,7 +30,7 @@ iree_lit_test_suite(
             "unit/encoder_and_materializer_registration.mlir",
             "unit/executable_generation_and_dumping.mlir",
             "unit/plugin_registration.mlir",
-            "unit/shared_objects_have_correct_type.mlir",
+            # unit/shared_objects_have_correct_type.mlir tested separately (Linux-only).
             "unit/target_attribute_embedding.mlir",
             "unit/query_function_generation_and_visibility.mlir",
         ],
@@ -30,13 +38,20 @@ iree_lit_test_suite(
             "integration/*.mlir",
             "unit/*.mlir",
         ],
+        exclude = [
+            # Tested separately with target_compatible_with restriction.
+            "unit/shared_objects_have_correct_type.mlir",
+        ],
     ),
     cfg = "//:lit.cfg.py",
-    tools = [
-        "@iree//tools:iree-compile",
-        "@iree//tools:iree-opt",
-        "@llvm-project//lld:ld.lld",
-        "@llvm-project//llvm:FileCheck",
-        "@llvm-project//llvm:not",
-    ],
+    tools = _COMMON_TOOLS,
+)
+
+# This test uses `readelf` which is only available on Linux.
+iree_lit_test(
+    name = "unit/shared_objects_have_correct_type.mlir.test",
+    cfg = "//:lit.cfg.py",
+    target_compatible_with = ["@platforms//os:linux"],
+    test_file = "unit/shared_objects_have_correct_type.mlir",
+    tools = _COMMON_TOOLS,
 )

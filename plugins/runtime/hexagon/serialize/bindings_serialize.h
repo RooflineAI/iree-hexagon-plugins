@@ -1,7 +1,7 @@
 // Copyright 2025 RooflineAI GmbH
 
-#ifndef IREE_HAL_DRIVERS_HEXAGON_BINDINGS_SERIALIZE_H_
-#define IREE_HAL_DRIVERS_HEXAGON_BINDINGS_SERIALIZE_H_
+#ifndef IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_BINDINGS_SERIALIZE_H_
+#define IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_BINDINGS_SERIALIZE_H_
 
 #include <stdint.h>
 
@@ -35,4 +35,4 @@ iree_status_t iree_hal_hexagon_bindings_serialize_exec(
                                          rpc_dsp_vaddr_t *out_dsp_vaddr),
     uint8_t *bind_tab_data, iree_host_size_t bind_tab_size);
 
-#endif // IREE_HAL_DRIVERS_HEXAGON_BINDINGS_SERIALIZE_H_
+#endif // IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_BINDINGS_SERIALIZE_H_

@@ -9,8 +9,8 @@
 // This file can be compiled on any architecture and thus enable the compilation
 // of unit tests with the types defined in this file.
 
-#ifndef IREE_HAL_DRIVERS_HEXAGON_RPC_TYPES_H_
-#define IREE_HAL_DRIVERS_HEXAGON_RPC_TYPES_H_
+#ifndef IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_RPC_TYPES_H_
+#define IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_RPC_TYPES_H_
 
 /// RPC session handle
 typedef unsigned long rpc_session_handle_t;
@@ -24,4 +24,4 @@ typedef long long rpc_command_buffer_handle_t;
 /// DSP virtual memory address
 typedef long long rpc_dsp_vaddr_t;
 
-#endif // IREE_HAL_DRIVERS_HEXAGON_RPC_TYPES_H_
+#endif // IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_RPC_TYPES_H_

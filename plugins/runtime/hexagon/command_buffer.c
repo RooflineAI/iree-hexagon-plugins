@@ -5,6 +5,10 @@
 #include "AEEStdErr.h"
 #include "hexagon/buffer.h"
 #include "hexagon/executable.h"
+#include "hexagon/serialize/cmd_barrier_serialize.h"
+#include "hexagon/serialize/cmd_copy_serialize.h"
+#include "hexagon/serialize/cmd_dispatch_serialize.h"
+#include "hexagon/serialize/cmd_fill_serialize.h"
 #include "hexagon/serialize/command_buffer_serialize.h"
 #include "hexagon/serialize/command_buffer_types.h"
 #include "hexagon/serialize/rpc_types.h"
@@ -51,11 +55,11 @@ iree_hal_hexagon_command_buffer_cast(iree_hal_command_buffer_t *base_value) {
 
 static void iree_hal_hexagon_command_buffer_clear_recorded(
     iree_hal_hexagon_command_buffer_t *command_buffer) {
-  iree_hal_hexagon_command_base_t *cmd = command_buffer->first_entry;
-  while (cmd != NULL) {
-    iree_hal_hexagon_command_base_t *cmd_to_free = cmd;
-    cmd = cmd->next;
-    iree_allocator_free(command_buffer->host_allocator, cmd_to_free);
+  iree_hal_hexagon_command_buffer_entry_t *entry = command_buffer->first_entry;
+  while (entry != NULL) {
+    iree_hal_hexagon_command_buffer_entry_t *entry_to_free = entry;
+    entry = entry->next;
+    iree_allocator_free(command_buffer->host_allocator, entry_to_free);
   }
   command_buffer->first_entry = NULL;
   command_buffer->last_entry = NULL;
@@ -268,14 +272,13 @@ static iree_status_t iree_hal_hexagon_command_buffer_end_debug_group(
 /// append command to command buffer
 static void iree_hal_hexagon_command_buffer_append(
     iree_hal_hexagon_command_buffer_t *command_buffer,
-    iree_hal_hexagon_command_base_t *cmd) {
+    iree_hal_hexagon_command_buffer_entry_t *entry) {
   if (command_buffer->last_entry) {
-    command_buffer->last_entry->next = cmd;
-    cmd->prev = command_buffer->last_entry;
+    command_buffer->last_entry->next = entry;
   } else {
-    command_buffer->first_entry = cmd;
+    command_buffer->first_entry = entry;
   }
-  command_buffer->last_entry = cmd;
+  command_buffer->last_entry = entry;
 }
 
 static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
@@ -301,18 +304,30 @@ static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
                             "barriers on specific buffers");
   }
 
-  // allocate buffer for barrier command
-  iree_hal_hexagon_command_barrier_t *barrier = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      command_buffer->host_allocator, sizeof(*barrier), (void **)&barrier));
+  // get size of serialized barrier command
+  iree_host_size_t cmd_size = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_cmd_barrier_serialize_prep(&cmd_size));
 
-  // fill barrier command
-  barrier->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
-  // For now, there is only a single type of execution barrier with no
-  // options, so no other fields exist yet.
+  // allocate buffer for command buffer entry and serialized command
+  iree_hal_hexagon_command_buffer_entry_t *cmd_barrier_entry = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      command_buffer->host_allocator, sizeof(*cmd_barrier_entry) + cmd_size,
+      (void **)&cmd_barrier_entry));
+  // initialize new entry
+  cmd_barrier_entry->next = NULL;
+  cmd_barrier_entry->size = cmd_size;
+  uint8_t *cmd_data = (uint8_t *)cmd_barrier_entry + sizeof(*cmd_barrier_entry);
+
+  // serialize barrier command
+  iree_status_t status_serialize =
+      iree_hal_hexagon_cmd_barrier_serialize_exec(cmd_data, cmd_size);
+  if (!iree_status_is_ok(status_serialize)) {
+    iree_allocator_free(command_buffer->host_allocator, cmd_barrier_entry);
+    return status_serialize;
+  }
 
   // append barrier command to command buffer
-  iree_hal_hexagon_command_buffer_append(command_buffer, &barrier->base);
+  iree_hal_hexagon_command_buffer_append(command_buffer, cmd_barrier_entry);
 
   return iree_ok_status();
 }
@@ -413,36 +428,45 @@ static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
 
   // check that pattern is non-empty and fits the static buffer
   //  - comments in IREE HAL state that there is an upper limit of 4
-  //  - note: the NULL case below is for getting the size of the struct field
-  //          without having a struct of this type at this point
-  if (pattern_length == 0 ||
-      pattern_length >
-          sizeof(((iree_hal_hexagon_command_fill_t *)NULL)->pattern)) {
+  if (pattern_length == 0 || pattern_length > 4) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "unsupported pattern length %" PRIu64,
                             pattern_length);
   }
 
-  // retain target buffer
-  IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert(
-      command_buffer->resource_set, 1, &target_ref.buffer));
+  // get size of serialized fill command
+  iree_host_size_t cmd_size = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_cmd_fill_serialize_prep(&cmd_size));
 
-  // allocate buffer for fill command
-  iree_hal_hexagon_command_fill_t *fill = NULL;
+  // allocate buffer for command buffer entry and serialized command
+  iree_hal_hexagon_command_buffer_entry_t *cmd_fill_entry = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(command_buffer->host_allocator,
-                                             sizeof(*fill), (void **)&fill));
+                                             sizeof(*cmd_fill_entry) + cmd_size,
+                                             (void **)&cmd_fill_entry));
+  // initialize new entry
+  cmd_fill_entry->next = NULL;
+  cmd_fill_entry->size = cmd_size;
+  uint8_t *cmd_data = (uint8_t *)cmd_fill_entry + sizeof(*cmd_fill_entry);
 
-  // fill fields of fill command
-  fill->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_FILL;
-  fill->pattern_length = pattern_length;
-  memcpy(fill->pattern, pattern, pattern_length);
-  memset(fill->pattern + pattern_length, 0,
-         sizeof(fill->pattern) - pattern_length); // clear rest of pattern buf
-  fill->dest = target_ref;
-  // There are no flags yet.
+  // serialize fill command
+  iree_status_t status_serialize = iree_hal_hexagon_cmd_fill_serialize_exec(
+      pattern_length, pattern, &target_ref,
+      iree_hal_hexagon_buffer_get_dsp_vaddr, cmd_data, cmd_size);
+  if (!iree_status_is_ok(status_serialize)) {
+    iree_allocator_free(command_buffer->host_allocator, cmd_fill_entry);
+    return status_serialize;
+  }
+
+  // retain target buffer
+  iree_status_t status_retain = iree_hal_resource_set_insert(
+      command_buffer->resource_set, 1, &target_ref.buffer);
+  if (!iree_status_is_ok(status_retain)) {
+    iree_allocator_free(command_buffer->host_allocator, cmd_fill_entry);
+    return status_retain;
+  }
 
   // append fill command to command buffer
-  iree_hal_hexagon_command_buffer_append(command_buffer, &fill->base);
+  iree_hal_hexagon_command_buffer_append(command_buffer, cmd_fill_entry);
 
   return iree_ok_status();
 }
@@ -478,25 +502,41 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
   // Note that either buffer may be a reference to a binding table slot in
   // which case it will be provided during submission to a queue.
 
+  // get size of serialized copy command
+  iree_host_size_t cmd_size = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_cmd_copy_serialize_prep(&cmd_size));
+
+  // allocate buffer for command buffer entry and serialized command
+  iree_hal_hexagon_command_buffer_entry_t *cmd_copy_entry = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(command_buffer->host_allocator,
+                                             sizeof(*cmd_copy_entry) + cmd_size,
+                                             (void **)&cmd_copy_entry));
+  // initialize new entry
+  cmd_copy_entry->next = NULL;
+  cmd_copy_entry->size = cmd_size;
+  uint8_t *cmd_data = (uint8_t *)cmd_copy_entry + sizeof(*cmd_copy_entry);
+
+  // serialize copy command
+  iree_status_t status_serialize = iree_hal_hexagon_cmd_copy_serialize_exec(
+      &source_ref, &target_ref, iree_hal_hexagon_buffer_get_dsp_vaddr, cmd_data,
+      cmd_size);
+  if (!iree_status_is_ok(status_serialize)) {
+    iree_allocator_free(command_buffer->host_allocator, cmd_copy_entry);
+    return status_serialize;
+  }
+
   // retain source and target buffers
   iree_hal_buffer_t *retain_buffers[] = {source_ref.buffer, target_ref.buffer};
-  IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert(
+  iree_status_t status_retain = iree_hal_resource_set_insert(
       command_buffer->resource_set, IREE_ARRAYSIZE(retain_buffers),
-      retain_buffers));
-
-  // allocate buffer for copy command
-  iree_hal_hexagon_command_copy_t *copy = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(command_buffer->host_allocator,
-                                             sizeof(*copy), (void **)&copy));
-
-  // fill copy command
-  copy->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_COPY;
-  copy->src = source_ref;
-  copy->dest = target_ref;
-  // There are no flags yet.
+      retain_buffers);
+  if (!iree_status_is_ok(status_retain)) {
+    iree_allocator_free(command_buffer->host_allocator, cmd_copy_entry);
+    return status_retain;
+  }
 
   // append copy command to command buffer
-  iree_hal_hexagon_command_buffer_append(command_buffer, &copy->base);
+  iree_hal_hexagon_command_buffer_append(command_buffer, cmd_copy_entry);
 
   return iree_ok_status();
 }
@@ -554,35 +594,6 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                             "indirect parameters are not supported on Hexagon");
   }
-  // workgroup size Z uses a short type in IREE dispatches, check for overflow
-  if (config.workgroup_size[2] > UINT16_MAX) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "workgroup_size[2] (z) of %" PRIu32
-                            "d is too large",
-                            config.workgroup_size[2]);
-  }
-  if (config.workgroup_count_ref.length != 0) {
-    return iree_make_status(
-        IREE_STATUS_UNIMPLEMENTED,
-        "indirect workgroup counts are not supported on Hexagon");
-  }
-  if (config.dynamic_workgroup_local_memory != 0) {
-    return iree_make_status(
-        IREE_STATUS_UNIMPLEMENTED,
-        "dynamic workgroup local memory is not supported on Hexagon");
-  }
-  if ((constants.data_length & (sizeof(uint32_t) - 1)) != 0) {
-    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "constant data that is not a multiple of %u bytes "
-                            "is not supported on Hexagon",
-                            (unsigned int)sizeof(uint32_t));
-  }
-  iree_host_size_t constant_count = constants.data_length / sizeof(uint32_t);
-  if (constant_count > UINT16_MAX) {
-    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "too many constants %" PRIu64 "u for Hexagon",
-                            constant_count);
-  }
 
   rpc_executable_handle_t rpc_executable_handle =
       iree_hal_hexagon_executable_get_rpc_executable(executable);
@@ -592,52 +603,42 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
         "non-Hexagon executables are not supported on Hexagon");
   }
 
-  // retain direct buffers
-  IREE_RETURN_IF_ERROR(iree_hal_resource_set_insert_strided(
-      command_buffer->resource_set, bindings.count, bindings.values,
-      offsetof(iree_hal_buffer_ref_t, buffer), sizeof(iree_hal_buffer_ref_t)));
+  // get size of serialized dispatch command
+  iree_host_size_t cmd_size = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_hexagon_cmd_dispatch_serialize_prep(
+      &constants, &bindings, &cmd_size));
 
-  // allocate buffer for dispatch command plus constants and bindings in one
-  // block, make sure to pad the constants array at the end to properly align
-  // the array for buffer references that follows the constants
-  iree_host_size_t constants_size = iree_host_align(
-      constant_count * sizeof(uint32_t), iree_alignof(iree_hal_buffer_ref_t));
-  iree_host_size_t bindings_sz = bindings.count * sizeof(iree_hal_buffer_ref_t);
-  iree_hal_hexagon_command_dispatch_t *dispatch = NULL;
+  // allocate buffer for command buffer entry and serialized command
+  iree_hal_hexagon_command_buffer_entry_t *cmd_dispatch_entry = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      command_buffer->host_allocator,
-      sizeof(*dispatch) + constants_size + bindings_sz, (void **)&dispatch));
-  uint32_t *constants_array =
-      (uint32_t *)((uint8_t *)dispatch + sizeof(*dispatch));
-  iree_hal_buffer_ref_t *bindings_values =
-      (iree_hal_buffer_ref_t *)((uint8_t *)constants_array + constants_size);
+      command_buffer->host_allocator, sizeof(*cmd_dispatch_entry) + cmd_size,
+      (void **)&cmd_dispatch_entry));
+  // initialize new entry
+  cmd_dispatch_entry->next = NULL;
+  cmd_dispatch_entry->size = cmd_size;
+  uint8_t *cmd_data =
+      (uint8_t *)cmd_dispatch_entry + sizeof(*cmd_dispatch_entry);
 
-  // fill dispatch command
-  dispatch->base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
-  dispatch->executable = executable;
-  dispatch->rpc_executable_handle = rpc_executable_handle;
-  dispatch->export_ordinal = export_ordinal;
-  // workgroup size 0 means default workgroup size, it is 1 here
-  dispatch->workgroup_size_x =
-      config.workgroup_size[0] ? config.workgroup_size[0] : 1;
-  dispatch->workgroup_size_y =
-      config.workgroup_size[1] ? config.workgroup_size[1] : 1;
-  dispatch->workgroup_size_z =
-      config.workgroup_size[2] ? config.workgroup_size[2] : 1;
-  dispatch->workgroup_count_x = config.workgroup_count[0];
-  dispatch->workgroup_count_y = config.workgroup_count[1];
-  dispatch->workgroup_count_z = config.workgroup_count[2];
-  dispatch->constant_count = constant_count;
-  dispatch->constants = constants_array;
-  dispatch->bindings.count = bindings.count;
-  dispatch->bindings.values = bindings_values;
+  // serialize dispatch command
+  iree_status_t status_serialize = iree_hal_hexagon_cmd_dispatch_serialize_exec(
+      rpc_executable_handle, export_ordinal, &config, &constants, &bindings,
+      iree_hal_hexagon_buffer_get_dsp_vaddr, cmd_data, cmd_size);
+  if (!iree_status_is_ok(status_serialize)) {
+    iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);
+    return status_serialize;
+  }
 
-  // copy content of constants and bindings
-  memcpy(constants_array, constants.data, constant_count * sizeof(uint32_t));
-  memcpy(bindings_values, bindings.values, bindings_sz);
+  // retain direct buffers
+  iree_status_t status_retain = iree_hal_resource_set_insert_strided(
+      command_buffer->resource_set, bindings.count, bindings.values,
+      offsetof(iree_hal_buffer_ref_t, buffer), sizeof(iree_hal_buffer_ref_t));
+  if (!iree_status_is_ok(status_retain)) {
+    iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);
+    return status_retain;
+  }
 
   // append dispatch command to command buffer
-  iree_hal_hexagon_command_buffer_append(command_buffer, &dispatch->base);
+  iree_hal_hexagon_command_buffer_append(command_buffer, cmd_dispatch_entry);
 
   return iree_ok_status();
 }

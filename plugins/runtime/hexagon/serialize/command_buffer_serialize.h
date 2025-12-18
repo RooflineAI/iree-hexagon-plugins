@@ -1,7 +1,7 @@
 // Copyright 2025 RooflineAI GmbH
 
-#ifndef IREE_HAL_DRIVERS_HEXAGON_COMMAND_BUFFER_SERIALIZE_H_
-#define IREE_HAL_DRIVERS_HEXAGON_COMMAND_BUFFER_SERIALIZE_H_
+#ifndef IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_COMMAND_BUFFER_SERIALIZE_H_
+#define IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_COMMAND_BUFFER_SERIALIZE_H_
 
 #include <stdint.h>
 
@@ -37,4 +37,4 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
                                          rpc_dsp_vaddr_t *out_dsp_vaddr),
     uint32_t num_entries, uint8_t *cmd_buf_data, iree_host_size_t cmd_buf_size);
 
-#endif // IREE_HAL_DRIVERS_HEXAGON_COMMAND_BUFFER_SERIALIZE_H_
+#endif // IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_COMMAND_BUFFER_SERIALIZE_H_

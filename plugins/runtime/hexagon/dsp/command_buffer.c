@@ -377,7 +377,7 @@ static int hexa_cmd_buf_exec_copy(const uint8_t **cmd_buf_data,
     return err;
   }
   hexa_cmd_buf_res_buf_t dest = {};
-  err = hexa_cmd_buf_resolve_buf(&cmd_copy->dest, bind_tab, bind_tab_num_ent,
+  err = hexa_cmd_buf_resolve_buf(&cmd_copy->trgt, bind_tab, bind_tab_num_ent,
                                  &dest);
   if (err != AEE_SUCCESS) {
     return err;
@@ -425,7 +425,7 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
   READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_cmd_fill_t,
                   cmd_fill)
   hexa_cmd_buf_res_buf_t dest = {};
-  int err = hexa_cmd_buf_resolve_buf(&cmd_fill->dest, bind_tab,
+  int err = hexa_cmd_buf_resolve_buf(&cmd_fill->trgt, bind_tab,
                                      bind_tab_num_ent, &dest);
   if (err != AEE_SUCCESS) {
     return err;
@@ -433,7 +433,7 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
 
   // fill buffer with pattern
   uint8_t p = 0;
-  for (uint64_t i = 0; i < cmd_fill->dest.length; ++i) {
+  for (uint64_t i = 0; i < cmd_fill->trgt.length; ++i) {
     dest.dsp_vaddr[dest.offset + i] = cmd_fill->pattern[p];
     ++p;
     if (p >= cmd_fill->pattern_length) {

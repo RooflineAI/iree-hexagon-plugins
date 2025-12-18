@@ -52,19 +52,28 @@ typedef struct hexagon_rt_arm_dsp_cmd_base_s {
 /// dispatch command, "derived" from hexagon_rt_arm_dsp_cmd_base_t
 typedef struct hexagon_rt_arm_dsp_cmd_dispatch_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
+  /// DSP handle to executable that contains the function to call
   int64_t executable_handle;
+  /// number of exported function to call from executable
   uint32_t export_ordinal;
+  /// workgroup size - divided into x * y * z (z uses smaller type in IREE)
+  //@{
   uint32_t workgroup_size_x;
   uint32_t workgroup_size_y;
   uint16_t workgroup_size_z;
+  //@}
+  /// workgroup count - divided into x * y * z (z uses smaller type in IREE)
+  //@{
   uint32_t workgroup_count_x;
   uint32_t workgroup_count_y;
   uint16_t workgroup_count_z;
+  //@}
+  /// number of constant values to pass to the kernel
   uint16_t constant_count;
+  /// number of bindings (i.e. fixed buffers or placeholders)
   uint32_t num_bindings;
   // followed by constant_count constants of hexagon_rt_arm_dsp_con_t each
   // followed by num_bindings hexagon_rt_arm_dsp_buf_ref_t
-  // TODO: add fields
 } __attribute__((packed)) hexagon_rt_arm_dsp_cmd_dispatch_t;
 
 /// barrier command, "derived" from hexagon_rt_arm_dsp_cmd_base_t
@@ -76,7 +85,7 @@ typedef struct hexagon_rt_arm_dsp_cmd_barrier_s {
 typedef struct hexagon_rt_arm_dsp_cmd_copy_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
   hexagon_rt_arm_dsp_buf_ref_t src;
-  hexagon_rt_arm_dsp_buf_ref_t dest;
+  hexagon_rt_arm_dsp_buf_ref_t trgt;
 } __attribute__((packed)) hexagon_rt_arm_dsp_cmd_copy_t;
 
 /// fill command, "derived" from hexagon_rt_arm_dsp_cmd_base_t
@@ -84,13 +93,13 @@ typedef struct hexagon_rt_arm_dsp_cmd_fill_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
   uint8_t pattern_length;
   uint8_t pattern[4]; // max pattern length according to comments in IREE is 4
-  hexagon_rt_arm_dsp_buf_ref_t dest;
+  hexagon_rt_arm_dsp_buf_ref_t trgt;
 } __attribute__((packed)) hexagon_rt_arm_dsp_cmd_fill_t;
 
 /// header of serialized command buffer
 typedef struct hexagon_rt_arm_dsp_cmd_buf_s {
   uint32_t num_entries; ///< number of entries
-  // followed by num_entries hexagon_rt_arm_dsp_cmd_base_t
+  // followed by num_entries "derived" from hexagon_rt_arm_dsp_cmd_base_t
 } __attribute__((packed)) hexagon_rt_arm_dsp_cmd_buf_t;
 
 #endif // #ifndef IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_CMD_BUF_H_

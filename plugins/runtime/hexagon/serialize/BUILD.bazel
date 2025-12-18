@@ -12,10 +12,18 @@ cc_library(
     name = "serialize",
     srcs = [
         "bindings_serialize.c",
+        "cmd_barrier_serialize.c",
+        "cmd_copy_serialize.c",
+        "cmd_dispatch_serialize.c",
+        "cmd_fill_serialize.c",
         "command_buffer_serialize.c",
     ],
     hdrs = [
         "bindings_serialize.h",
+        "cmd_barrier_serialize.h",
+        "cmd_copy_serialize.h",
+        "cmd_dispatch_serialize.h",
+        "cmd_fill_serialize.h",
         "command_buffer_serialize.h",
         "command_buffer_types.h",
         "rpc_types.h",

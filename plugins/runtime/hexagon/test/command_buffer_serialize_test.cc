@@ -1,36 +1,25 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
 extern "C" {
+#include "cmd_barrier_serialize.h"
+#include "cmd_copy_serialize.h"
+#include "cmd_dispatch_serialize.h"
+#include "cmd_fill_serialize.h"
 #include "command_buffer_serialize.h"
 #include "command_buffer_types.h"
 #include "hexagon/arm_dsp/cmd_buf.h"
 #include "hexagon/serialize/rpc_types.h"
 }
+#include "serialize_test_utils.h"
 
 namespace {
-
-iree_hal_buffer_t direct_buffers[2] = {};
-
-// Mock function for getting DSP virtual address from buffer.
-// Return some fake DSP virtual address that has the number of the direct buffer
-// at the end.
-iree_status_t buffer_to_dsp_vaddr(iree_hal_buffer_t *buffer,
-                                  rpc_dsp_vaddr_t *out_dsp_vaddr) {
-  for (size_t i = 0; i < sizeof(direct_buffers) / sizeof(direct_buffers[0]);
-       ++i) {
-    if (buffer == &direct_buffers[i]) {
-      *out_dsp_vaddr = static_cast<rpc_dsp_vaddr_t>(0x420000 + i);
-      return iree_ok_status();
-    }
-  }
-  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "unknown buffer");
-}
 
 TEST(CommandBufferSerializeTest, EmptyCommandBuffer) {
 
@@ -49,565 +38,137 @@ TEST(CommandBufferSerializeTest, EmptyCommandBuffer) {
 
   std::vector<uint8_t> buffer(cmd_buf_size);
   IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
-      buffer.size()));
+      &command_buffer, hexagon_test_buffer_to_dsp_vaddr, num_entries,
+      buffer.data(), buffer.size()));
 
   const auto *header =
       reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
   EXPECT_EQ(0u, header->num_entries);
 }
 
-TEST(CommandBufferSerializeTest, SingleDispatch) {
-  // Test input data structure: command buffer with single dispatch.
-  // The dispatch has three buffers references, the first two dynamic/indirect,
-  // the last one fixed/direct.
-
-  iree_hal_hexagon_command_dispatch_t dispatch = {};
-  dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
-  dispatch.rpc_executable_handle = 0x123456;
-  dispatch.export_ordinal = 7;
-  dispatch.workgroup_size_x = 8;
-  dispatch.workgroup_size_y = 4;
-  dispatch.workgroup_size_z = 2;
-  dispatch.workgroup_count_x = 3;
-  dispatch.workgroup_count_y = 2;
-  dispatch.workgroup_count_z = 1;
-
-  std::array<iree_hal_buffer_ref_t, 3> binding_values = {
-      iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/1, /*offset=*/32,
-                                        /*length=*/64),
-      iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/2, /*offset=*/96,
-                                        /*length=*/128),
-      iree_hal_make_buffer_ref(&direct_buffers[0], /*offset=*/160,
-                               /*length=*/64),
+TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
+  // Pre-serialize a fill, a dispatch, a barrier, and a copy and check they are
+  // concatenated into the final command buffer.
+  struct SerializedEntry {
+    std::vector<uint8_t> storage;
+    iree_hal_hexagon_command_buffer_entry_t *entry = nullptr;
+    uint8_t *cmd_data = nullptr;
   };
-  dispatch.bindings.count = binding_values.size();
-  dispatch.bindings.values = binding_values.data();
-
-  iree_hal_hexagon_command_buffer_t command_buffer = {};
-  command_buffer.first_entry = &dispatch.base;
-  command_buffer.last_entry = &dispatch.base;
-
-  // Test computing size of serialized data and number of entries.
-
-  const iree_host_size_t expected_size =
-      sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
-      binding_values.size() * sizeof(hexagon_rt_arm_dsp_buf_ref_t);
-
-  iree_host_size_t cmd_buf_size = 0;
-  uint32_t num_entries = 0;
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
-      &command_buffer, &cmd_buf_size, &num_entries));
-  EXPECT_EQ(expected_size, cmd_buf_size);
-  EXPECT_EQ(1u, num_entries);
-
-  // Test generating serialized data.
-
-  std::vector<uint8_t> buffer(cmd_buf_size);
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
-      buffer.size()));
-
-  const auto *header =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
-  EXPECT_EQ(1u, header->num_entries);
-
-  const uint8_t *cursor = buffer.data() + sizeof(*header);
-  const auto *cmd_dispatch =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_dispatch_t *>(cursor);
-  cursor += sizeof(*cmd_dispatch);
-
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
-  EXPECT_EQ(dispatch.rpc_executable_handle, cmd_dispatch->executable_handle);
-  EXPECT_EQ(dispatch.export_ordinal, cmd_dispatch->export_ordinal);
-  EXPECT_EQ(dispatch.workgroup_size_x, cmd_dispatch->workgroup_size_x);
-  EXPECT_EQ(dispatch.workgroup_size_y, cmd_dispatch->workgroup_size_y);
-  EXPECT_EQ(dispatch.workgroup_size_z, cmd_dispatch->workgroup_size_z);
-  EXPECT_EQ(dispatch.workgroup_count_x, cmd_dispatch->workgroup_count_x);
-  EXPECT_EQ(dispatch.workgroup_count_y, cmd_dispatch->workgroup_count_y);
-  EXPECT_EQ(dispatch.workgroup_count_z, cmd_dispatch->workgroup_count_z);
-  EXPECT_EQ(binding_values.size(), cmd_dispatch->num_bindings);
-
-  for (size_t i = 0; i < binding_values.size(); ++i) {
-    const auto *binding =
-        reinterpret_cast<const hexagon_rt_arm_dsp_buf_ref_t *>(cursor);
-    cursor += sizeof(*binding);
-    EXPECT_EQ(binding_values[i].buffer_slot, binding->slot);
-    // buffer ref at index 2 uses direct buffer 0 -> expect DSP virtual address
-    EXPECT_EQ(i == 2 ? 0x420000 : 0, binding->buffer_dsp_vaddr);
-    EXPECT_EQ(binding_values[i].offset, binding->offset);
-    EXPECT_EQ(binding_values[i].length, binding->length);
-  }
-
-  // Test the test: Generated data needs to end at end of buffer.
-
-  EXPECT_EQ(buffer.data() + buffer.size(), cursor);
-}
-
-TEST(CommandBufferSerializeTest, SingleExecutionBarrier) {
-
-  // Test input data structure: command buffer with single execution barrier
-  // entry.
-
-  iree_hal_hexagon_command_barrier_t barrier = {};
-  barrier.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
-
-  iree_hal_hexagon_command_buffer_t command_buffer = {};
-  command_buffer.first_entry = &barrier.base;
-  command_buffer.last_entry = &barrier.base;
-
-  // Test computing size of serialized data and number of entries.
-
-  const iree_host_size_t expected_size =
-      sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_barrier_t);
-
-  iree_host_size_t cmd_buf_size = 0;
-  uint32_t num_entries = 0;
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
-      &command_buffer, &cmd_buf_size, &num_entries));
-  EXPECT_EQ(expected_size, cmd_buf_size);
-  EXPECT_EQ(1u, num_entries);
-
-  // Test generating serialized data.
-
-  std::vector<uint8_t> buffer(cmd_buf_size);
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
-      buffer.size()));
-
-  const auto *header =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
-  EXPECT_EQ(1u, header->num_entries);
-
-  const uint8_t *cursor = buffer.data() + sizeof(*header);
-  const auto *cmd_barrier =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_barrier_t *>(cursor);
-  cursor += sizeof(*cmd_barrier);
-
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_BARRIER, cmd_barrier->base.cmd_type);
-
-  // Test the test: Generated data needs to end at end of buffer.
-
-  EXPECT_EQ(buffer.data() + buffer.size(), cursor);
-}
-
-TEST(CommandBufferSerializeTest, SingleCopy) {
-
-  // Test input data structure: command buffer with single buffer copy.
-
-  iree_hal_hexagon_command_copy_t copy = {};
-  copy.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_COPY;
-  copy.src = iree_hal_make_buffer_ref(&direct_buffers[0], /*offset=*/8,
-                                      /*length=*/64);
-  copy.dest = iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/9,
-                                                /*offset=*/24, /*length=*/64);
-
-  iree_hal_hexagon_command_buffer_t command_buffer = {};
-  command_buffer.first_entry = &copy.base;
-  command_buffer.last_entry = &copy.base;
-
-  // Test computing size of serialized data and number of entries.
-
-  const iree_host_size_t expected_size = sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
-                                         sizeof(hexagon_rt_arm_dsp_cmd_copy_t);
-
-  iree_host_size_t cmd_buf_size = 0;
-  uint32_t num_entries = 0;
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
-      &command_buffer, &cmd_buf_size, &num_entries));
-  EXPECT_EQ(expected_size, cmd_buf_size);
-  EXPECT_EQ(1u, num_entries);
-
-  // Test generating serialized data.
-
-  std::vector<uint8_t> buffer(cmd_buf_size);
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
-      buffer.size()));
-
-  const auto *header =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
-  EXPECT_EQ(1u, header->num_entries);
-
-  const uint8_t *cursor = buffer.data() + sizeof(*header);
-  const auto *cmd_copy =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_copy_t *>(cursor);
-  cursor += sizeof(*cmd_copy);
-
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_COPY, cmd_copy->base.cmd_type);
-
-  EXPECT_EQ(copy.src.buffer_slot, cmd_copy->src.slot);
-  EXPECT_EQ(0x420000, cmd_copy->src.buffer_dsp_vaddr);
-  EXPECT_EQ(copy.src.offset, cmd_copy->src.offset);
-  EXPECT_EQ(copy.src.length, cmd_copy->src.length);
-
-  EXPECT_EQ(copy.dest.buffer_slot, cmd_copy->dest.slot);
-  EXPECT_EQ(0, cmd_copy->dest.buffer_dsp_vaddr);
-  EXPECT_EQ(copy.dest.offset, cmd_copy->dest.offset);
-  EXPECT_EQ(copy.dest.length, cmd_copy->dest.length);
-
-  // Test the test: Generated data needs to end at end of buffer.
-
-  EXPECT_EQ(buffer.data() + buffer.size(), cursor);
-}
-
-TEST(CommandBufferSerializeTest, SingleFill) {
-
-  // Test input data structure: command buffer with single buffer fill.
-
-  iree_hal_hexagon_command_fill_t fill = {};
-  fill.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_FILL;
-  const std::array<uint8_t, 4> pattern = {0xAA, 0xBB, 0xCC, 0xDD};
-  fill.pattern_length = pattern.size();
-  for (size_t i = 0; i < pattern.size(); ++i) {
-    fill.pattern[i] = pattern[i];
-  }
-  fill.dest = iree_hal_make_buffer_ref(&direct_buffers[1], /*offset=*/24,
-                                       /*length=*/80);
-
-  iree_hal_hexagon_command_buffer_t command_buffer = {};
-  command_buffer.first_entry = &fill.base;
-  command_buffer.last_entry = &fill.base;
-
-  // Test computing size of serialized data and number of entries.
-
-  const iree_host_size_t expected_size = sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
-                                         sizeof(hexagon_rt_arm_dsp_cmd_fill_t);
-
-  iree_host_size_t cmd_buf_size = 0;
-  uint32_t num_entries = 0;
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
-      &command_buffer, &cmd_buf_size, &num_entries));
-  EXPECT_EQ(expected_size, cmd_buf_size);
-  EXPECT_EQ(1u, num_entries);
-
-  // Test generating serialized data.
-
-  std::vector<uint8_t> buffer(cmd_buf_size);
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
-      buffer.size()));
-
-  const auto *header =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
-  EXPECT_EQ(1u, header->num_entries);
-
-  const uint8_t *cursor = buffer.data() + sizeof(*header);
-  const auto *cmd_fill =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_fill_t *>(cursor);
-  cursor += sizeof(*cmd_fill);
-
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_FILL, cmd_fill->base.cmd_type);
-  EXPECT_EQ(fill.pattern_length, cmd_fill->pattern_length);
-  for (size_t i = 0; i < pattern.size(); ++i) {
-    EXPECT_EQ(pattern[i], cmd_fill->pattern[i]);
-  }
-
-  EXPECT_EQ(fill.dest.buffer_slot, cmd_fill->dest.slot);
-  EXPECT_EQ(0x420001, cmd_fill->dest.buffer_dsp_vaddr);
-  EXPECT_EQ(fill.dest.offset, cmd_fill->dest.offset);
-  EXPECT_EQ(fill.dest.length, cmd_fill->dest.length);
-
-  // Test the test: Generated data needs to end at end of buffer.
-
-  EXPECT_EQ(buffer.data() + buffer.size(), cursor);
-}
-
-TEST(CommandBufferSerializeTest, DispatchBarrierDispatch) {
-  // Test input data structure: command buffer with the following entries:
-  // first dispatch, barrier second dispatch.
-  // The first dispatch has one dynamic/indirect buffer reference.
-  // The second dispatch has four buffers references, the first three
-  // dynamic/indirect, the last one fixed/direct.
-
-  rpc_executable_handle_t first_rpc_executable_handle = 0xAAAA;
-  rpc_executable_handle_t second_rpc_executable_handle = 0xBBBB;
-
-  iree_hal_hexagon_command_dispatch_t first_dispatch = {};
-  first_dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
-  first_dispatch.rpc_executable_handle = first_rpc_executable_handle;
-  first_dispatch.export_ordinal = 2;
-  first_dispatch.workgroup_size_x = 1;
-  first_dispatch.workgroup_size_y = 2;
-  first_dispatch.workgroup_size_z = 3;
-  first_dispatch.workgroup_count_x = 4;
-  first_dispatch.workgroup_count_y = 5;
-  first_dispatch.workgroup_count_z = 6;
-
-  iree_hal_hexagon_command_barrier_t barrier = {};
-  barrier.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
-
-  iree_hal_hexagon_command_dispatch_t second_dispatch = {};
-  second_dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
-  second_dispatch.rpc_executable_handle = second_rpc_executable_handle;
-  second_dispatch.export_ordinal = 5;
-  second_dispatch.workgroup_size_x = 7;
-  second_dispatch.workgroup_size_y = 8;
-  second_dispatch.workgroup_size_z = 9;
-  second_dispatch.workgroup_count_x = 10;
-  second_dispatch.workgroup_count_y = 11;
-  second_dispatch.workgroup_count_z = 12;
-
-  std::array<iree_hal_buffer_ref_t, 1> first_bindings = {
-      iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/3, /*offset=*/0,
-                                        /*length=*/256),
+  auto make_entry = [](iree_host_size_t cmd_size) {
+    SerializedEntry result;
+    result.storage.resize(sizeof(iree_hal_hexagon_command_buffer_entry_t) +
+                          cmd_size);
+    result.entry = reinterpret_cast<iree_hal_hexagon_command_buffer_entry_t *>(
+        result.storage.data());
+    *result.entry = {};
+    result.entry->size = cmd_size;
+    result.cmd_data =
+        result.storage.data() + sizeof(iree_hal_hexagon_command_buffer_entry_t);
+    return result;
   };
-  first_dispatch.bindings.count = first_bindings.size();
-  first_dispatch.bindings.values = first_bindings.data();
 
-  std::array<iree_hal_buffer_ref_t, 4> second_bindings = {
-      iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/4, /*offset=*/32,
-                                        /*length=*/64),
-      iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/7, /*offset=*/96,
-                                        /*length=*/128),
-      iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/8, /*offset=*/224,
-                                        /*length=*/48),
-      iree_hal_make_buffer_ref(&direct_buffers[1], /*offset=*/0,
-                               /*length=*/192),
-  };
-  second_dispatch.bindings.count = second_bindings.size();
-  second_dispatch.bindings.values = second_bindings.data();
-
-  first_dispatch.base.next = &barrier.base;
-  barrier.base.prev = &first_dispatch.base;
-  barrier.base.next = &second_dispatch.base;
-  second_dispatch.base.prev = &barrier.base;
-
-  iree_hal_hexagon_command_buffer_t command_buffer = {};
-  command_buffer.first_entry = &first_dispatch.base;
-  command_buffer.last_entry = &second_dispatch.base;
-
-  // Test computing size of serialized data and number of entries.
-
-  const iree_host_size_t expected_size =
-      sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
-      first_bindings.size() * sizeof(hexagon_rt_arm_dsp_buf_ref_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_barrier_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
-      second_bindings.size() * sizeof(hexagon_rt_arm_dsp_buf_ref_t);
-
-  iree_host_size_t cmd_buf_size = 0;
-  uint32_t num_entries = 0;
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
-      &command_buffer, &cmd_buf_size, &num_entries));
-  EXPECT_EQ(expected_size, cmd_buf_size);
-  EXPECT_EQ(3u, num_entries);
-
-  // Test generating serialized data.
-
-  std::vector<uint8_t> buffer(cmd_buf_size);
-  IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
-      buffer.size()));
-
-  const auto *header =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
-  EXPECT_EQ(3u, header->num_entries);
-
-  const uint8_t *cursor = buffer.data() + sizeof(*header);
-  auto verify_dispatch =
-      [&](const iree_hal_hexagon_command_dispatch_t &dispatch,
-          const iree_hal_buffer_ref_t *refs, size_t count,
-          size_t direct_buffer_at_idx, int64_t dsp_virt_addr) {
-        const auto *cmd_dispatch =
-            reinterpret_cast<const hexagon_rt_arm_dsp_cmd_dispatch_t *>(cursor);
-        cursor += sizeof(*cmd_dispatch);
-
-        EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
-        EXPECT_EQ(dispatch.rpc_executable_handle,
-                  cmd_dispatch->executable_handle);
-        EXPECT_EQ(dispatch.export_ordinal, cmd_dispatch->export_ordinal);
-        EXPECT_EQ(dispatch.workgroup_size_x, cmd_dispatch->workgroup_size_x);
-        EXPECT_EQ(dispatch.workgroup_size_y, cmd_dispatch->workgroup_size_y);
-        EXPECT_EQ(dispatch.workgroup_size_z, cmd_dispatch->workgroup_size_z);
-        EXPECT_EQ(dispatch.workgroup_count_x, cmd_dispatch->workgroup_count_x);
-        EXPECT_EQ(dispatch.workgroup_count_y, cmd_dispatch->workgroup_count_y);
-        EXPECT_EQ(dispatch.workgroup_count_z, cmd_dispatch->workgroup_count_z);
-        EXPECT_EQ(count, cmd_dispatch->num_bindings);
-
-        for (size_t i = 0; i < count; ++i) {
-          const auto *binding =
-              reinterpret_cast<const hexagon_rt_arm_dsp_buf_ref_t *>(cursor);
-          cursor += sizeof(*binding);
-          EXPECT_EQ(refs[i].buffer_slot, binding->slot);
-          // expect DSP virtual address for direct buffer reference
-          EXPECT_EQ(i == direct_buffer_at_idx ? dsp_virt_addr : 0,
-                    binding->buffer_dsp_vaddr);
-          EXPECT_EQ(refs[i].offset, binding->offset);
-          EXPECT_EQ(refs[i].length, binding->length);
-        }
-      };
-
-  verify_dispatch(first_dispatch, first_bindings.data(), first_bindings.size(),
-                  first_bindings.size() /* no direct buffer ref*/,
-                  -1 /* unused */);
-
-  const auto *cmd_barrier =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_barrier_t *>(cursor);
-  cursor += sizeof(*cmd_barrier);
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_BARRIER, cmd_barrier->base.cmd_type);
-
-  verify_dispatch(second_dispatch, second_bindings.data(),
-                  second_bindings.size(), 3, 0x420001);
-
-  // Test the test: Generated data needs to end at end of buffer.
-
-  EXPECT_EQ(buffer.data() + buffer.size(), cursor);
-}
-
-TEST(CommandBufferSerializeTest, DispatchFillBarrierCopy) {
-  // Test input data structure: command buffer with the following entries:
-  // fill, dispatch, barrier, buffer copy.
-  // The fill writes a pattern into a direct buffer.
-  // The dispatch has two buffers references, the first dynamic/indirect, the
-  // second fixed/direct.
-
-  rpc_executable_handle_t rpc_executable_handle = 0xCAFE;
-
-  iree_hal_hexagon_command_fill_t fill = {};
-  fill.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_FILL;
+  // Fill entry.
   const std::array<uint8_t, 4> fill_pattern = {0x10, 0x20, 0x30, 0x40};
-  fill.pattern_length = fill_pattern.size();
-  for (size_t i = 0; i < fill_pattern.size(); ++i) {
-    fill.pattern[i] = fill_pattern[i];
-  }
-  fill.dest = iree_hal_make_buffer_ref(&direct_buffers[0], /*offset=*/16,
-                                       /*length=*/48);
+  iree_hal_buffer_ref_t fill_dest = iree_hal_make_buffer_ref(
+      &hexagon_test_direct_buffers[0], /*offset=*/16, /*length=*/48);
+  iree_host_size_t fill_cmd_size = 0;
+  IREE_EXPECT_OK(iree_hal_hexagon_cmd_fill_serialize_prep(&fill_cmd_size));
+  auto fill_entry = make_entry(fill_cmd_size);
+  IREE_EXPECT_OK(iree_hal_hexagon_cmd_fill_serialize_exec(
+      fill_pattern.size(), fill_pattern.data(), &fill_dest,
+      hexagon_test_buffer_to_dsp_vaddr, fill_entry.cmd_data,
+      fill_entry.entry->size));
 
-  iree_hal_hexagon_command_dispatch_t dispatch = {};
-  dispatch.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_DISPATCH;
-  dispatch.rpc_executable_handle = rpc_executable_handle;
-  dispatch.export_ordinal = 4;
-  dispatch.workgroup_size_x = 8;
-  dispatch.workgroup_size_y = 6;
-  dispatch.workgroup_size_z = 4;
-  dispatch.workgroup_count_x = 2;
-  dispatch.workgroup_count_y = 3;
-  dispatch.workgroup_count_z = 5;
-
-  std::array<iree_hal_buffer_ref_t, 2> binding_values = {
+  // Dispatch entry.
+  const iree_const_byte_span_t empty_constants =
+      iree_make_const_byte_span(nullptr, 0);
+  iree_hal_dispatch_config_t dispatch_config =
+      iree_hal_make_static_dispatch_config(/*x=*/2, /*y=*/3, /*z=*/5);
+  dispatch_config.workgroup_size[0] = 8;
+  dispatch_config.workgroup_size[1] = 6;
+  dispatch_config.workgroup_size[2] = 4;
+  std::array<iree_hal_buffer_ref_t, 2> dispatch_bindings = {
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/6, /*offset=*/0,
                                         /*length=*/128),
-      iree_hal_make_buffer_ref(&direct_buffers[0], /*offset=*/64,
+      iree_hal_make_buffer_ref(&hexagon_test_direct_buffers[0], /*offset=*/64,
                                /*length=*/32),
   };
-  dispatch.bindings.count = binding_values.size();
-  dispatch.bindings.values = binding_values.data();
+  iree_hal_buffer_ref_list_t dispatch_binding_list = {dispatch_bindings.size(),
+                                                      dispatch_bindings.data()};
+  iree_host_size_t dispatch_cmd_size = 0;
+  IREE_EXPECT_OK(iree_hal_hexagon_cmd_dispatch_serialize_prep(
+      &empty_constants, &dispatch_binding_list, &dispatch_cmd_size));
+  auto dispatch_entry = make_entry(dispatch_cmd_size);
+  IREE_EXPECT_OK(iree_hal_hexagon_cmd_dispatch_serialize_exec(
+      /*executable_handle=*/0xCAFE, /*export_ordinal=*/4, &dispatch_config,
+      &empty_constants, &dispatch_binding_list,
+      hexagon_test_buffer_to_dsp_vaddr, dispatch_entry.cmd_data,
+      dispatch_entry.entry->size));
 
-  iree_hal_hexagon_command_barrier_t barrier = {};
-  barrier.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_BARRIER;
+  // Barrier entry.
+  iree_host_size_t barrier_cmd_size = 0;
+  IREE_EXPECT_OK(
+      iree_hal_hexagon_cmd_barrier_serialize_prep(&barrier_cmd_size));
+  auto barrier_entry = make_entry(barrier_cmd_size);
+  IREE_EXPECT_OK(iree_hal_hexagon_cmd_barrier_serialize_exec(
+      barrier_entry.cmd_data, barrier_entry.entry->size));
 
-  iree_hal_hexagon_command_copy_t copy = {};
-  copy.base.cmd_type = IREE_HAL_HEXAGON_COMMAND_COPY;
-  copy.src = iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/11,
-                                               /*offset=*/32, /*length=*/96);
-  copy.dest = iree_hal_make_buffer_ref(&direct_buffers[1], /*offset=*/48,
-                                       /*length=*/96);
+  // Copy entry.
+  iree_hal_buffer_ref_t copy_src = iree_hal_make_indirect_buffer_ref(
+      /*buffer_slot=*/11, /*offset=*/32, /*length=*/96);
+  iree_hal_buffer_ref_t copy_dest = iree_hal_make_buffer_ref(
+      &hexagon_test_direct_buffers[1], /*offset=*/48, /*length=*/96);
+  iree_host_size_t copy_cmd_size = 0;
+  IREE_EXPECT_OK(iree_hal_hexagon_cmd_copy_serialize_prep(&copy_cmd_size));
+  auto copy_entry = make_entry(copy_cmd_size);
+  IREE_EXPECT_OK(iree_hal_hexagon_cmd_copy_serialize_exec(
+      &copy_src, &copy_dest, hexagon_test_buffer_to_dsp_vaddr,
+      copy_entry.cmd_data, copy_entry.entry->size));
 
-  fill.base.next = &dispatch.base;
-  dispatch.base.prev = &fill.base;
-  dispatch.base.next = &barrier.base;
-  barrier.base.prev = &dispatch.base;
-  barrier.base.next = &copy.base;
-  copy.base.prev = &barrier.base;
+  // Chain entries.
+  fill_entry.entry->next = dispatch_entry.entry;
+  dispatch_entry.entry->next = barrier_entry.entry;
+  barrier_entry.entry->next = copy_entry.entry;
 
   iree_hal_hexagon_command_buffer_t command_buffer = {};
-  command_buffer.first_entry = &fill.base;
-  command_buffer.last_entry = &copy.base;
+  command_buffer.first_entry = fill_entry.entry;
+  command_buffer.last_entry = copy_entry.entry;
 
-  // Test computing size of serialized data and number of entries.
-
-  const iree_host_size_t expected_size =
-      sizeof(hexagon_rt_arm_dsp_cmd_buf_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_fill_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
-      binding_values.size() * sizeof(hexagon_rt_arm_dsp_buf_ref_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_barrier_t) +
-      sizeof(hexagon_rt_arm_dsp_cmd_copy_t);
-
+  // Serialize command buffer.
+  const iree_host_size_t expected_cmd_buf_size =
+      sizeof(hexagon_rt_arm_dsp_cmd_buf_t) + fill_entry.entry->size +
+      dispatch_entry.entry->size + barrier_entry.entry->size +
+      copy_entry.entry->size;
   iree_host_size_t cmd_buf_size = 0;
   uint32_t num_entries = 0;
   IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_prep(
       &command_buffer, &cmd_buf_size, &num_entries));
-  EXPECT_EQ(expected_size, cmd_buf_size);
+  EXPECT_EQ(expected_cmd_buf_size, cmd_buf_size);
   EXPECT_EQ(4u, num_entries);
-
-  // Test generating serialized data.
 
   std::vector<uint8_t> buffer(cmd_buf_size);
   IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, buffer_to_dsp_vaddr, num_entries, buffer.data(),
-      buffer.size()));
+      &command_buffer, hexagon_test_buffer_to_dsp_vaddr, num_entries,
+      buffer.data(), buffer.size()));
+
+  // Check that the serialization of the command buffer set up a header and
+  // concatenated the data of the pre-serialized entries.
 
   const auto *header =
       reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
   EXPECT_EQ(4u, header->num_entries);
 
   const uint8_t *cursor = buffer.data() + sizeof(*header);
-  const auto *cmd_fill =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_fill_t *>(cursor);
-  cursor += sizeof(*cmd_fill);
-
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_FILL, cmd_fill->base.cmd_type);
-  EXPECT_EQ(fill.pattern_length, cmd_fill->pattern_length);
-  for (size_t i = 0; i < fill_pattern.size(); ++i) {
-    EXPECT_EQ(fill_pattern[i], cmd_fill->pattern[i]);
-  }
-  EXPECT_EQ(fill.dest.buffer_slot, cmd_fill->dest.slot);
-  EXPECT_EQ(0x420000, cmd_fill->dest.buffer_dsp_vaddr);
-  EXPECT_EQ(fill.dest.offset, cmd_fill->dest.offset);
-  EXPECT_EQ(fill.dest.length, cmd_fill->dest.length);
-
-  const auto *cmd_dispatch =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_dispatch_t *>(cursor);
-  cursor += sizeof(*cmd_dispatch);
-
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
-  EXPECT_EQ(dispatch.rpc_executable_handle, cmd_dispatch->executable_handle);
-  EXPECT_EQ(dispatch.export_ordinal, cmd_dispatch->export_ordinal);
-  EXPECT_EQ(dispatch.workgroup_size_x, cmd_dispatch->workgroup_size_x);
-  EXPECT_EQ(dispatch.workgroup_size_y, cmd_dispatch->workgroup_size_y);
-  EXPECT_EQ(dispatch.workgroup_size_z, cmd_dispatch->workgroup_size_z);
-  EXPECT_EQ(dispatch.workgroup_count_x, cmd_dispatch->workgroup_count_x);
-  EXPECT_EQ(dispatch.workgroup_count_y, cmd_dispatch->workgroup_count_y);
-  EXPECT_EQ(dispatch.workgroup_count_z, cmd_dispatch->workgroup_count_z);
-  EXPECT_EQ(binding_values.size(), cmd_dispatch->num_bindings);
-
-  for (size_t i = 0; i < binding_values.size(); ++i) {
-    const auto *binding =
-        reinterpret_cast<const hexagon_rt_arm_dsp_buf_ref_t *>(cursor);
-    cursor += sizeof(*binding);
-    EXPECT_EQ(binding_values[i].buffer_slot, binding->slot);
-    EXPECT_EQ(i == 1 ? 0x420000 : 0, binding->buffer_dsp_vaddr);
-    EXPECT_EQ(binding_values[i].offset, binding->offset);
-    EXPECT_EQ(binding_values[i].length, binding->length);
-  }
-
-  const auto *cmd_barrier =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_barrier_t *>(cursor);
-  cursor += sizeof(*cmd_barrier);
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_BARRIER, cmd_barrier->base.cmd_type);
-
-  const auto *cmd_copy =
-      reinterpret_cast<const hexagon_rt_arm_dsp_cmd_copy_t *>(cursor);
-  cursor += sizeof(*cmd_copy);
-
-  EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_COPY, cmd_copy->base.cmd_type);
-
-  EXPECT_EQ(copy.src.buffer_slot, cmd_copy->src.slot);
-  EXPECT_EQ(0, cmd_copy->src.buffer_dsp_vaddr);
-  EXPECT_EQ(copy.src.offset, cmd_copy->src.offset);
-  EXPECT_EQ(copy.src.length, cmd_copy->src.length);
-
-  EXPECT_EQ(copy.dest.buffer_slot, cmd_copy->dest.slot);
-  EXPECT_EQ(0x420001, cmd_copy->dest.buffer_dsp_vaddr);
-  EXPECT_EQ(copy.dest.offset, cmd_copy->dest.offset);
-  EXPECT_EQ(copy.dest.length, cmd_copy->dest.length);
-
-  // Test the test: Generated data needs to end at end of buffer.
+  EXPECT_EQ(0, memcmp(cursor, fill_entry.cmd_data, fill_entry.entry->size));
+  cursor += fill_entry.entry->size;
+  EXPECT_EQ(
+      0, memcmp(cursor, dispatch_entry.cmd_data, dispatch_entry.entry->size));
+  cursor += dispatch_entry.entry->size;
+  EXPECT_EQ(0,
+            memcmp(cursor, barrier_entry.cmd_data, barrier_entry.entry->size));
+  cursor += barrier_entry.entry->size;
+  EXPECT_EQ(0, memcmp(cursor, copy_entry.cmd_data, copy_entry.entry->size));
+  cursor += copy_entry.entry->size;
 
   EXPECT_EQ(buffer.data() + buffer.size(), cursor);
 }

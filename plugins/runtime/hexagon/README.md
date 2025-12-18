@@ -30,9 +30,17 @@ bazel build --platforms=//platform:aarch64_android @iree//tools:iree-run-module
 ```
 
 Please note that this requires an Android NDK to be present on the system. It
-can be installed on Ubuntu Linux using
+can be installed using
 ```sh
-sudo apt install google-android-ndk-r26c-installer
+NDK_VERSION=r28c
+NDK_FOLDER=28.2.13676358
+NDK_ZIP="android-ndk-${NDK_VERSION}-linux.zip"
+NDK_SHA256="dfb20d396df28ca02a8c708314b814a4d961dc9074f9a161932746f815aa552f"
+wget https://dl.google.com/android/repository/${NDK_ZIP} -O /tmp/ndk.zip
+echo "${NDK_SHA256} /tmp/ndk.zip" | sha256sum -c -
+sudo unzip -q /tmp/ndk.zip -d /opt
+sudo mkdir -p /opt/android-sdk/ndk
+sudo mv "/opt/android-ndk-${NDK_VERSION}" "/opt/android-sdk/ndk/${NDK_FOLDER}"
 ```
 
 There are two files resulting from the above build command:

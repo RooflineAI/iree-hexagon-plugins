@@ -1,6 +1,7 @@
 # Copyright 2025 RooflineAI GmbH
 
 load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_runtime_cc_library")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
 
 package(
@@ -70,17 +71,36 @@ iree_runtime_cc_library(
     ],
 )
 
-filegroup(
-    name = "hexagon_runtime_files",
+# The .farf file contains flags (as value in hex) controlling the debug output
+# from the Hexagon core. 0x1f means to enable all 5 flags.
+pkg_files(
+    name = "hexagon_runtime_bin_files",
     srcs = [
-        "//hexagon/dsp:hexagon_dsp_skel_out",
+        "iree-run-module.farf",
         "@iree//tools:iree-run-module",
     ],
+    prefix = "bin",
+)
+
+pkg_files(
+    name = "hexagon_runtime_lib_files",
+    srcs = ["@android_ndk_sysroot//:libcxx_shared"],
+    prefix = "lib",
+)
+
+pkg_files(
+    name = "hexagon_runtime_hexagon_lib_files",
+    srcs = ["//hexagon/dsp:hexagon_dsp_skel_out"],
+    prefix = "lib/hexagon",
 )
 
 pkg_zip(
     name = "hexagon_runtime",
-    srcs = [":hexagon_runtime_files"],
+    srcs = [
+        ":hexagon_runtime_bin_files",
+        ":hexagon_runtime_hexagon_lib_files",
+        ":hexagon_runtime_lib_files",
+    ],
     package_dir = ".",
     visibility = ["//visibility:public"],
 )

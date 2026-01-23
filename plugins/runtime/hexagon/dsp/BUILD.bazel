@@ -1,5 +1,5 @@
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
-load("@roof_mlir//:build_tools/bazel/hexagon_platform_alias.bzl", "hexagon_platform_alias")
+load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 
 package(

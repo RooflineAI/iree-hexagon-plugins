@@ -1,6 +1,7 @@
 # Copyright 2025 RooflineAI GmbH
 
 load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_runtime_cc_library")
+load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "aarch64_android_platform_alias")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
 
@@ -103,4 +104,12 @@ pkg_zip(
     ],
     package_dir = ".",
     visibility = ["//visibility:public"],
+)
+
+# Provide a platform alias for Android aarch64 here for integration tests
+# that run onLinux x86_64, but need the Hexagon runtime package built for
+# Android aarch64 to push it to an Android phone and run it there.
+aarch64_android_platform_alias(
+    name = "hexagon_runtime_aarch64_android",
+    actual = ":hexagon_runtime",
 )

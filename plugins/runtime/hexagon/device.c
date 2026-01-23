@@ -934,10 +934,8 @@ static iree_status_t iree_hal_hexagon_device_profiling_begin(
   // This will be paired with a profiling_end call at some point in the future.
   // Hosting applications may periodically call profiling_flush.
   (void)device;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "device profiling not implemented");
 
-  return status;
+  return iree_ok_status();
 }
 
 static iree_status_t
@@ -950,10 +948,8 @@ iree_hal_hexagon_device_profiling_flush(iree_hal_device_t *base_device) {
   // example, are expected to call this periodically with their timing
   // suspended.
   (void)device;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "device profiling not implemented");
 
-  return status;
+  return iree_ok_status();
 }
 
 static iree_status_t
@@ -963,10 +959,8 @@ iree_hal_hexagon_device_profiling_end(iree_hal_device_t *base_device) {
   // TODO(hexagon): unset whatever profiling_begin set, if anything. May be
   // no-op.
   (void)device;
-  iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                                          "device profiling not implemented");
 
-  return status;
+  return iree_ok_status();
 }
 
 static const iree_hal_device_vtable_t iree_hal_hexagon_device_vtable = {

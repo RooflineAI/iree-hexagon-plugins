@@ -26,7 +26,7 @@ with an aarch64 CPU and a Hexagon DSP. Thus, building is done by cross-compiling
 on x86_64:
 
 ```sh
-bazel build --platforms=//platform:aarch64_android @iree//tools:iree-run-module
+bazel build --platforms=//platform:aarch64_android @patio_runtime//hexagon:hexagon_runtime
 ```
 
 Please note that this requires an Android NDK to be present on the system. It
@@ -43,18 +43,44 @@ sudo mkdir -p /opt/android-sdk/ndk
 sudo mv "/opt/android-ndk-${NDK_VERSION}" "/opt/android-sdk/ndk/${NDK_FOLDER}"
 ```
 
-There are two files resulting from the above build command:
-- `bazel-out/aarch64-*/bin/external/iree/tools/iree-run-module`:
-  This is the main IREE runtime, which contains the ARM part of the Hexagon
+The output file can be queried:
+```sh
+bazel cquery --output=files --platforms=//platform:aarch64_android @patio_runtime//hexagon:hexagon_runtime
+```
+It usually returns:
+```sh
+bazel-out/aarch64-dbg/bin/external/_main~_repo_rules~patio_runtime/hexagon/hexagon_runtime.zip
+```
+
+This zip file contains two binaries and some support files:
+- `bin/iree-benchmark-module`:
+  This is the IREE runtime for benchmarking. It contains the ARM host part of
+  the Hexagon runtime.
+- `bin/iree-run-module`:
+  This is the main IREE runtime. It contains the ARM host part of the Hexagon
   runtime.
-- `bazel-out/aarch64-*/bin/external/patio_runtime/hexagon/dsp/lib/hexagon/libhexagon_dsp_skel.so`:
+- `lib/hexagon/libhexagon_dsp_skel.so`:
   This is the DSP part of the Hexagon runtime.
+- `lib/hexagon/*.farf`:
+  These files contains debug flags for the binary with the matching name.
+  The flags turn on debug output from the DSP side to `adb logcat -s adsprpc`.
+- `lib/libc++_shared.so`:
+  Shared C++ library from the Android NDK used for building. The Android NDK
+  docs state that the exact C++ library used for building has to be used for
+  executing the binary.
 
 ## Deployment
 
-Copy `iree-run-module` and `libhexagon_dsp_skel.so` (mentioned in th previous
-section) to the Android phone. Set the environment variable `DSP_LIBRARY_PATH``
-to the absolute path to the directory that contains `libhexagon_dsk_skel.so`.
+Copy `hexagon_runtime.zip` (described in the previous section) to the Android
+phone. Unzip it:
+```sh
+unzip hexagon_runtime.zip
+```
+Set the environment variable `DSP_LIBRARY_PATH` to the absolute path of the
+directory that contains `libhexagon_dsk_skel.so`:
+```sh
+export DSP_LIBRARY_PATH=$(pwd)/lib/hexagon
+```
 
 ## DSP Debug Output
 

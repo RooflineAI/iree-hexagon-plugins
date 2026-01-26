@@ -15,12 +15,15 @@
 #include "iree/base/internal/arena.h"
 #include "iree/base/internal/event_pool.h"
 #include "iree/base/status.h"
+#include "iree/base/string_builder.h"
 #include "iree/base/string_view.h"
 #include "iree/hal/semaphore.h"
 #include "iree/hal/utils/file_registry.h"
 #include "iree/hal/utils/file_transfer.h"
 #include "iree/hal/utils/queue_emulation.h"
 #include "iree/hal/utils/queue_host_call_emulation.h"
+
+#include <unistd.h>
 
 // Hexagon SDK includes
 #include "AEEStdErr.h"
@@ -133,6 +136,68 @@ int iree_hal_hexagon_get_domain_id(iree_string_view_t name,
   LOOKUP_HEXAGON_DOMAINS
 #undef LOOKUP_HEXAGON_DOMAIN
   return 0;
+}
+
+// Get the name of the directory (ending with a slash) of the currently running
+// binary.
+static iree_status_t get_binary_dir(iree_allocator_t allocator,
+                                    char **binary_dir) {
+  // build string "/proc/$$/exe"
+  iree_string_builder_t proc_exe_builder;
+  iree_string_builder_initialize(allocator, &proc_exe_builder);
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      &proc_exe_builder, "/proc/%u/exe", (unsigned int)getpid()));
+  iree_string_view_t end = {.data = "", .size = 1};
+  IREE_RETURN_IF_ERROR(
+      iree_string_builder_append_string(&proc_exe_builder, end));
+  // proc_exe_builder contains a string that ends in '\0', so the .data of the
+  // view is a valid C-string.
+  const char *proc_exe = iree_string_builder_view(&proc_exe_builder).data;
+
+  // Resolve symlink. Need to try with larger buffer till it fits.
+  iree_host_size_t resolved_max_size = 64;
+  char *resolved = NULL;
+  while (1) {
+    IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
+        allocator, resolved_max_size, (void **)&resolved));
+    ssize_t ret = readlink(proc_exe, resolved, resolved_max_size);
+    if (ret < 0) {
+      return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_ERRNO(
+          "resolving path of binary failed");
+    }
+    // resolved path fit buffer -> done
+    //  - if ret == resolved_max_size, it is not clear if it got truncated or
+    //    not, so treat as "did not fit"
+    //  - readlink does not add a terminating 0 char, so add it, there is space
+    //    in the buffer for it as ret is strictly less than resolved_max_size
+    if (ret < resolved_max_size) {
+      resolved[ret] = 0;
+      break;
+    }
+    // buffer too small -> enlarge and try again
+    // - fail if size reached 64K (way to big for file path), something is
+    //   going very wrong if that happens
+    iree_allocator_free(allocator, resolved);
+    if (resolved_max_size >= 65536) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "resolved path of binary did not fit 64K");
+    }
+    resolved_max_size *= 2;
+  }
+
+  iree_string_builder_deinitialize(&proc_exe_builder);
+
+  // Remove basename from binary path binary. Keep slash at end of directory.
+  char *last_slash = strrchr(resolved, '/');
+  if (!last_slash) {
+    iree_allocator_free(allocator, resolved);
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "no directory found in binary path '%s'", resolved);
+  }
+  last_slash[1] = 0;
+
+  *binary_dir = resolved;
+  return iree_ok_status();
 }
 
 // Convert a domain ID to a domain URI suffix.
@@ -291,21 +356,64 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   }
 
   // Assemble the URI for the DSP session.
+  // The format is: <prefix> <so_file_name> "?" <func_name> "&" <mod_ver> "&"
+  // <idl_ver> "&" <dom>
+  //   prefix: "file:///" (yes 3 slashes here, not 2)
+  //   so_file_name: path to the DSP library,
+  //                 no slash in here means to look in predefined directories in
+  //                 an $DSP_LIBRARY_PATH, an absolute path works
+  //   func_name: name of the main entry function into the DSP library (e.g.
+  //   <interface_name> "_skel_handle_invoke") mod_ver: "_modver=" <version>
+  //   (e.g. "1.0") idl_ver: "_idlver=" <version> (e.g. "1.2.3") dom: _dom=<dsp
+  //   type lower case> (e.g. "cdsp")
+  // hexagon_dsp_URI contains everything without "&" <dom> and uses just the
+  // library basename for <so_file_name>. If getting the absolute path of the
+  // directory of the running binary works, insert this directory plus
+  // "../lib/hexagon/", so loading the DSP library works without setting
+  // DSP_LIBRARY_PATH.
+
+  // Check prefix and cut it off.
+  iree_string_view_t uri_main = iree_make_cstring_view(hexagon_dsp_URI);
+  iree_string_view_t prefix = iree_make_cstring_view("file:///");
+  if (!iree_string_view_consume_prefix(&uri_main, prefix)) {
+    return iree_make_status(IREE_STATUS_UNKNOWN,
+                            "DSP URI %.*s does not start with expected prefix",
+                            (int)uri_main.size, uri_main.data);
+  }
+
+  // Obtain DSP domain suffix.
   const char *suffix = NULL;
   if (!domain_id_to_uri_suffix(device->domain_id, &suffix)) {
     return iree_make_status(IREE_STATUS_UNKNOWN,
                             "cannot convert DSP domain ID to URI suffix");
   }
-  iree_host_size_t uri_sz = strlen(hexagon_dsp_URI) + strlen(suffix) + 1;
-  char *uri = NULL;
+
+  // Obtain directory of current binary.
+  char *binary_dir = NULL;
+  IREE_RETURN_IF_ERROR(get_binary_dir(device->host_allocator, &binary_dir));
+
+  // Build full URI.
+  iree_string_builder_t uri_builder;
+  iree_string_builder_initialize(device->host_allocator, &uri_builder);
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_string(&uri_builder, prefix));
   IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(device->host_allocator, uri_sz, (void **)&uri));
-  strcpy(uri, hexagon_dsp_URI);
-  strcat(uri, suffix);
+      iree_string_builder_append_cstring(&uri_builder, binary_dir));
+  iree_allocator_free(device->host_allocator, binary_dir);
+  IREE_RETURN_IF_ERROR(
+      iree_string_builder_append_cstring(&uri_builder, "../lib/hexagon/"));
+  IREE_RETURN_IF_ERROR(
+      iree_string_builder_append_string(&uri_builder, uri_main));
+  IREE_RETURN_IF_ERROR(
+      iree_string_builder_append_cstring(&uri_builder, suffix));
+  iree_string_view_t end = {.data = "", .size = 1};
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_string(&uri_builder, end));
+  // uri_builder contains a string that ends in '\0', so the .data of the view
+  // is a valid C-string.
+  const char *uri = iree_string_builder_view(&uri_builder).data;
 
   // Open the actual DSP RPC session.
   int dsp_open_ret = hexagon_dsp_open(uri, &device->rpc_session_handle);
-  iree_allocator_free(device->host_allocator, uri);
+  iree_string_builder_deinitialize(&uri_builder);
   if (dsp_open_ret != AEE_SUCCESS) {
     return iree_make_status(IREE_STATUS_UNKNOWN,
                             "opening RPC session with DSP failed");

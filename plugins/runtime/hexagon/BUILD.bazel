@@ -1,6 +1,5 @@
 # Copyright 2025 RooflineAI GmbH
 
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_runtime_cc_library")
 load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "aarch64_android_platform_alias")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
@@ -94,36 +93,10 @@ pkg_files(
     prefix = "lib/hexagon",
 )
 
-# The .farf files contain flags (as value in hex) controlling the debug output
-# from the Hexagon core. 0x1f means to enable all 5 flags. The name of the
-# .farf file has to match the name of the executable and it needs to be located
-# in the DSP_LIBRARY_PATH directory.
-write_file(
-    name = "iree_benchmark_module_farf",
-    out = "iree-benchmark-module.farf",
-    content = ["0x1f\n"],
-)
-
-write_file(
-    name = "iree_run_module_farf",
-    out = "iree-run-module.farf",
-    content = ["0x1f\n"],
-)
-
-pkg_files(
-    name = "hexagon_runtime_hexagon_farf_files",
-    srcs = [
-        ":iree_benchmark_module_farf",
-        ":iree_run_module_farf",
-    ],
-    prefix = "lib/hexagon",
-)
-
 pkg_zip(
     name = "hexagon_runtime",
     srcs = [
         ":hexagon_runtime_bin_files",
-        ":hexagon_runtime_hexagon_farf_files",
         ":hexagon_runtime_hexagon_lib_files",
         ":hexagon_runtime_lib_files",
     ],

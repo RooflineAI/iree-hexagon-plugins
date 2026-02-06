@@ -3,6 +3,8 @@
 #ifndef IREE_HAL_DRIVERS_HEXAGON_API_H_
 #define IREE_HAL_DRIVERS_HEXAGON_API_H_
 
+#include <stdint.h>
+
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 
@@ -13,6 +15,9 @@ extern "C" {
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_device_t
 //===----------------------------------------------------------------------===//
+
+// Number of PMU counters available on Hexagon.
+#define IREE_HAL_HEXAGON_PMU_COUNTERS 8
 
 // DSP domain ID used by Hexagon SDK
 typedef int iree_hal_hexagon_domain_id_t;
@@ -25,6 +30,11 @@ typedef struct iree_hal_hexagon_device_options_t {
   int verbose;
   /// notify about DSP status changes, 0 by default, 1 if enabled
   int dsp_status_notify;
+  /// Number of PMU event IDs provided. If 0, defaults are used.
+  uint8_t pmu_event_ids_count;
+  /// PMU event IDs to configure for counters
+  /// 0..IREE_HAL_HEXAGON_PMU_COUNTERS-1.
+  uint32_t pmu_event_ids[IREE_HAL_HEXAGON_PMU_COUNTERS];
   // note: This sdata structure is copied into the device data in
   // iree_hal_hexagon_device_create()
   // TODO(hexagon): options for initializing a device such as hardware

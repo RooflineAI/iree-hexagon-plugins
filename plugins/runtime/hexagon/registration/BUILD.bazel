@@ -15,6 +15,7 @@ iree_register_external_hal_driver(
     deps = [
         "//hexagon",
         "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/base/internal:flags",
         "@iree//runtime/src/iree/hal",
     ],
 )

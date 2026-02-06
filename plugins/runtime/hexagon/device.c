@@ -7,8 +7,8 @@
 #include "hexagon/channel.h"
 #include "hexagon/command_buffer.h"
 #include "hexagon/event.h"
-#include "hexagon/executable.h"
 #include "hexagon/executable_cache.h"
+#include "hexagon/profiling.h"
 #include "hexagon/semaphore.h"
 #include "hexagon/serialize/bindings_serialize.h"
 #include "hexagon/utils.h"
@@ -17,11 +17,19 @@
 #include "iree/base/status.h"
 #include "iree/base/string_builder.h"
 #include "iree/base/string_view.h"
+#include "iree/base/tracing.h"
+#include "iree/hal/allocator.h"
+#include "iree/hal/channel_provider.h"
+#include "iree/hal/resource.h"
 #include "iree/hal/semaphore.h"
 #include "iree/hal/utils/file_registry.h"
 #include "iree/hal/utils/file_transfer.h"
 #include "iree/hal/utils/queue_emulation.h"
 #include "iree/hal/utils/queue_host_call_emulation.h"
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include <unistd.h>
 
@@ -50,6 +58,12 @@ static iree_status_t iree_hal_hexagon_device_options_verify(
     const iree_hal_hexagon_device_options_t *options) {
   // TODO(hexagon): verify that the parameters are within expected ranges and
   // any requested features are supported.
+  if (options->pmu_event_ids_count > IREE_HAL_HEXAGON_PMU_COUNTERS) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "too many PMU event IDs (%u, max %u)",
+                            (unsigned int)options->pmu_event_ids_count,
+                            (unsigned int)IREE_HAL_HEXAGON_PMU_COUNTERS);
+  }
   return iree_ok_status();
 }
 
@@ -84,6 +98,12 @@ struct iree_hal_hexagon_device_t {
 
   // Optional provider used for creating/configuring collective channels.
   iree_hal_channel_provider_t *channel_provider;
+
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+  // Cached tracy GPU context id.
+  uint8_t tracy_context_id;
+  iree_tracing_context_t *tracy_plot_context;
+#endif
 
   // + trailing identifier string storage
 };
@@ -448,6 +468,11 @@ iree_status_t iree_hal_hexagon_device_create(
   device->options = *options; /// copy by value due to lifetime of options arg
   device->host_allocator = host_allocator;
 
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+  device->tracy_context_id = IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID;
+  device->tracy_plot_context = NULL;
+#endif
+
   iree_status_t status = iree_hal_hexagon_device_set_up(domain_id, device);
 
   if (iree_status_is_ok(status)) {
@@ -475,6 +500,10 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
   if (device->rpc_session_handle) {
     hexagon_dsp_close(device->rpc_session_handle);
   }
+
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+  iree_tracing_context_free(device->tracy_plot_context);
+#endif
 
   iree_event_pool_free(device->event_pool);
   iree_arena_block_pool_deinitialize(&device->block_pool);
@@ -893,7 +922,6 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
     iree_hal_command_buffer_t *command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
     iree_hal_execute_flags_t flags) {
-
   rpc_command_buffer_handle_t rpc_command_buffer_handle = 0;
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_command_buffer_get_rpc_handle(
       command_buffer, &rpc_command_buffer_handle));
@@ -910,7 +938,7 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
   }
   uint8_t *bind_tab_data = rpcmem_alloc(
       RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS, (int)bind_tab_size);
-  if (!bind_tab_size) {
+  if (!bind_tab_data) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "out of RPC memory");
   }
@@ -920,20 +948,64 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       iree_hal_hexagon_bindings_serialize_exec(
           &binding_table, iree_hal_hexagon_buffer_get_dsp_vaddr, bind_tab_data,
           bind_tab_size);
+
   if (!iree_status_is_ok(status_serialize_exec)) {
     rpcmem_free(bind_tab_data);
     return status_serialize_exec;
   }
 
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+  uint8_t *profiling_data = NULL;
+  iree_host_size_t profiling_data_size = 0;
+  iree_status_t status_profiling =
+      iree_hal_hexagon_alloc_and_init_profiling_data(
+          command_buffer, &device->options, &profiling_data,
+          &profiling_data_size);
+  if (!iree_status_is_ok(status_profiling)) {
+    rpcmem_free(bind_tab_data);
+    return status_profiling;
+  }
+#endif
+
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+  IREE_TRACE_ZONE_BEGIN_NAMED(z0, "RPC call");
+  // Call RPC on DSP to execute the kernel with profiling
+  int dsp_err = hexagon_dsp_command_buffer_execute_profiling(
+      device->rpc_session_handle, rpc_command_buffer_handle, bind_tab_data,
+      bind_tab_size, profiling_data, profiling_data_size);
+  rpcmem_free(bind_tab_data);
+
+  if (dsp_err != AEE_SUCCESS) {
+    rpcmem_free(profiling_data);
+    return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
+        dsp_err, "could not execute command buffer on DSP");
+  }
+  IREE_TRACE_ZONE_END(z0);
+#else
   // Call RPC on DSP to execute the kernel.
   int dsp_err = hexagon_dsp_command_buffer_execute(
       device->rpc_session_handle, rpc_command_buffer_handle, bind_tab_data,
       bind_tab_size);
+
   rpcmem_free(bind_tab_data);
+
   if (dsp_err != AEE_SUCCESS) {
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
         dsp_err, "could not execute command buffer on DSP");
   }
+#endif
+
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+  iree_status_t status_exporting = iree_hal_hexagon_export_profiling_data(
+      device->host_allocator, profiling_data, &device->tracy_context_id,
+      &device->tracy_plot_context);
+
+  rpcmem_free(profiling_data);
+
+  if (!iree_status_is_ok(status_exporting)) {
+    return status_exporting;
+  }
+#endif
 
   return iree_ok_status();
 }
@@ -1036,37 +1108,31 @@ static iree_status_t iree_hal_hexagon_device_wait_semaphores(
 static iree_status_t iree_hal_hexagon_device_profiling_begin(
     iree_hal_device_t *base_device,
     const iree_hal_device_profiling_options_t *options) {
-  iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
-
-  // TODO(hexagon): set implementation-defined device or global profiling modes.
-  // This will be paired with a profiling_end call at some point in the future.
-  // Hosting applications may periodically call profiling_flush.
-  (void)device;
+  // Currently, allocations are happening before command buffer execution, when
+  // we already know the number of dispatches and can therefore allocate the
+  // necessary size. This assumes we only have a single command buffer being
+  // executed simultaneously (this is also assumed by the PMU configuration in
+  // the DSP side).
+  // While working with synchronous command buffer execution, this
+  // is ok, but will need to be changed in the future in case we switch to
+  // multiple command buffers running asynchronously. An example of this is
+  // available in the Vulkan runtime.
+  // These functions are meant to be used with fixed size and global allocations
+  // per benchmark
 
   return iree_ok_status();
 }
 
 static iree_status_t
 iree_hal_hexagon_device_profiling_flush(iree_hal_device_t *base_device) {
-  iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
-
-  // TODO(hexagon): flush if needed. May be no-op. Any accumulated profiling
-  // information should be carried across the flush but the event can be used to
-  // reclaim resources or perform other expensive bookkeeping. Benchmarks, for
-  // example, are expected to call this periodically with their timing
-  // suspended.
-  (void)device;
+  // Read iree_hal_hexagon_device_profiling_begin.
 
   return iree_ok_status();
 }
 
 static iree_status_t
 iree_hal_hexagon_device_profiling_end(iree_hal_device_t *base_device) {
-  iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
-
-  // TODO(hexagon): unset whatever profiling_begin set, if anything. May be
-  // no-op.
-  (void)device;
+  // Read iree_hal_hexagon_device_profiling_begin.
 
   return iree_ok_status();
 }

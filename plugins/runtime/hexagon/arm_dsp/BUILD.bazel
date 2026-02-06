@@ -14,5 +14,12 @@ cc_library(
     hdrs = [
         "bindings.h",
         "cmd_buf.h",
+        "profiling.h",
     ],
+    defines = select({
+        "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+        ],
+        "//conditions:default": [],
+    }),
 )

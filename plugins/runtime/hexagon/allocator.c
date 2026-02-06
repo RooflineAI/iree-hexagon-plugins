@@ -40,6 +40,25 @@ iree_hal_hexagon_allocator_cast(iree_hal_allocator_t *base_value) {
   return (iree_hal_hexagon_allocator_t *)base_value;
 }
 
+static void
+iree_hal_hexagon_buffer_release_callback(void *user_data,
+                                         iree_hal_buffer_t *buffer) {
+  iree_hal_hexagon_allocator_t *allocator =
+      iree_hal_hexagon_allocator_cast((iree_hal_allocator_t *)user_data);
+  void *impl_ptr = iree_hal_hexagon_buffer_impl_ptr(buffer);
+  (void)impl_ptr;
+
+  // TODO(hexagon): if the buffer was imported then this accounting may need to
+  // be conditional depending on the implementation.
+  bool was_imported = false;
+  if (!was_imported) {
+    IREE_TRACE_FREE_NAMED(IREE_HAL_HEXAGON_ALLOCATOR_ID, impl_ptr);
+    IREE_STATISTICS(iree_hal_allocator_statistics_record_free(
+        &allocator->statistics, iree_hal_buffer_memory_type(buffer),
+        iree_hal_buffer_allocation_size(buffer)));
+  }
+}
+
 iree_status_t
 iree_hal_hexagon_allocator_create(iree_allocator_t host_allocator,
                                   iree_hal_hexagon_device_t *device,
@@ -293,16 +312,20 @@ static iree_status_t iree_hal_hexagon_allocator_allocate_buffer(
   // Allocate an IREE buffer data structure and put the allocated memory into
   // it.
   iree_hal_buffer_t *buffer = NULL;
+  // This release callback takes care of profiling statistics
+  iree_hal_buffer_release_callback_t release_callback = {
+      .fn = iree_hal_hexagon_buffer_release_callback,
+      .user_data = (void *)base_allocator,
+  };
   iree_status_t status = iree_hal_hexagon_buffer_wrap(
       alloc, placement, memory_type, allowed_access, allowed_usage,
       allocation_size,
-      /* byte_offset */ 0, /* byte_length */ allocation_size,
-      iree_hal_buffer_release_callback_null(), allocator->host_allocator,
-      allocator->device, &buffer);
+      /* byte_offset */ 0, /* byte_length */ allocation_size, release_callback,
+      allocator->host_allocator, allocator->device, &buffer);
 
   if (iree_status_is_ok(status)) {
-    // TODO(hexagon): ensure this accounting is balanced in deallocate_buffer.
-    IREE_TRACE_ALLOC_NAMED(IREE_HAL_HEXAGON_ALLOCATOR_ID, alloc->ptr.impl_ptr,
+    IREE_TRACE_ALLOC_NAMED(IREE_HAL_HEXAGON_ALLOCATOR_ID,
+                           iree_hal_hexagon_mem_alloc_impl_ptr(alloc),
                            allocation_size);
     IREE_STATISTICS(iree_hal_allocator_statistics_record_alloc(
         &allocator->statistics, compat_params.type, allocation_size));
@@ -318,28 +341,7 @@ static iree_status_t iree_hal_hexagon_allocator_allocate_buffer(
 static void iree_hal_hexagon_allocator_deallocate_buffer(
     iree_hal_allocator_t *IREE_RESTRICT base_allocator,
     iree_hal_buffer_t *IREE_RESTRICT base_buffer) {
-  iree_hal_hexagon_allocator_t *allocator =
-      iree_hal_hexagon_allocator_cast(base_allocator);
-
-  // TODO(hexagon): free the underlying device memory here. Buffers allocated
-  // from this allocator will call this method to handle cleanup. Note that
-  // because this method is responsible for doing the base
-  // iree_hal_buffer_destroy and the caller assumes the memory has been freed an
-  // implementation could pool the buffer handle and return it in the future.
-  (void)allocator;
-  void *impl_ptr = iree_hal_hexagon_buffer_impl_ptr(base_buffer);
-  (void)impl_ptr;
-
-  // TODO(hexagon): if the buffer was imported then this accounting may need to
-  // be conditional depending on the implementation.
-  bool was_imported = false;
-  if (!was_imported) {
-    IREE_TRACE_FREE_NAMED(IREE_HAL_HEXAGON_ALLOCATOR_ID, impl_ptr);
-    IREE_STATISTICS(iree_hal_allocator_statistics_record_free(
-        &allocator->statistics, iree_hal_buffer_memory_type(base_buffer),
-        iree_hal_buffer_allocation_size(base_buffer)));
-  }
-
+  // NOTE: tracing/statistics are handled by the buffer release callback.
   iree_hal_buffer_destroy(base_buffer);
 }
 

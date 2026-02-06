@@ -116,3 +116,77 @@ The following options are available:
 ## OnePlus 13 Phone
 
 The DSP in the OnePlus 13 phone is a CDSP, so use `--device=hexagon://CDSP`.
+
+## Profiling
+
+Hexagon currently has limited profiling support.
+The profiling consists of zone data registration on the DSP to export to the host (sampling supported on the host, but not the DSP!) through Tracy.
+The execution time is currently implemented through linear mapping and timeline synchronization on command buffer execution dispatch and end.
+For this purpose, the RPC execution time is considered negligible.
+
+The expected Tracy version is `0.11.2`. It is needed to forward the port used by Tracy in the phone:
+```sh
+adb forward tcp:8086 tcp:8086
+```
+Example script to run tracing:
+```sh
+DIRECTORY=/data/local/tmp/{your_path}
+bazel build --platforms=//platform:aarch64_android @patio_runtime//hexagon:hexagon_runtime --@iree//runtime/src/iree/base/tracing:tracing_provider=tracy
+adb shell rm -rf $DIRECTORY/bin $DIRECTORY/lib $DIRECTORY/hexagon_runtime.zip
+adb push bazel-bin/external/_main~_repo_rules~patio_runtime/hexagon/hexagon_runtime.zip $DIRECTORY
+adb shell unzip $DIRECTORY/hexagon_runtime.zip -d $DIRECTORY
+adb shell chmod +x $DIRECTORY/bin/iree-run-module
+adb shell "export DSP_LIBRARY_PATH=$DIRECTORY/farf && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
+```
+On a different shell, retrieve the output from profiling:
+```sh
+./roof-mlir/third-party/iree/third_party/tracy/capture/build/tracy-capture -o /tmp/capture.tracy
+```
+Or alternatively, open the Tracy UI and connect to the listed available client to get the output directly.
+
+
+### PMU Event Selection
+
+Profiling supports configuration for Hexagon's PMU.
+This unit contains 8 performance counters that can extract information such as cache misses or committed instructions.
+The PMU configuration assumes that only one command buffer is executed at once and will output garbage otherwise.
+Events can be configured using an `iree-run-module` flag:
+
+```sh
+iree-run-module \
+  --device=hexagon \
+  --hexagon_pmu_events=0x0003,0x0004
+```
+
+`--hexagon_pmu_events` accepts a comma-separated list (or multiple uses of the
+flag) of numeric event IDs (decimal or hex, e.g. `0x0003`). Up to 8 events are
+used; if fewer are provided, the remaining counters keep the runtime defaults.
+The numeric event IDs are listed an explained in [hexagon_pmu_events_table.inc](arm_dsp/pmu/hexagon_pmu_events_table.inc).
+
+These pmu events are displayed in a different plot and are only registered for `KERNEL` zones in the DSP.
+Other zones currently do not have any PMU information.
+These values values are extracted at the beginning and end of the zone and are not interpolated,
+therefore they remain constant over the duration of their corresponding zone.
+
+### Some notable PMU events
+
+See `hexagon_pmu_events_ids.h` for IDs:
+- Committed work: `HEX_PMU_EVENT_COMMITTED_PKT_ANY`, `HEX_PMU_EVENT_COMMITTED_INSTS`
+- Thread utilization: `HEX_PMU_EVENT_COMMITTED_PKT_T0`, `HEX_PMU_EVENT_COMMITTED_PKT_3_THREAD_RUNNING`
+- Vector utilization: `HEX_PMU_EVENT_HVX_ACTIVE`, `HEX_PMU_EVENT_HVX_PKT`
+- Memory pressure (scalar): `HEX_PMU_EVENT_L2_DU_READ_MISS`, `HEX_PMU_EVENT_L2_DU_STORE_MISS`
+- VTCM usage/contention: `HEX_PMU_EVENT_VTCM_FIFO_FULL_CYCLES`, `HEX_PMU_EVENT_TCM_DU_ACCESS`
+- Contention/stalls: `HEX_PMU_EVENT_VTCM_FIFO_FULL_CYCLES`, `HEX_PMU_EVENT_ANY_DU_REPLAY`
+- TLB pressure: `HEX_PMU_EVENT_JTLB_MISS`, `HEX_PMU_EVENT_ITLB_MISS`
+- Thermal / throttling: `HEX_PMU_EVENT_THREAD_LMH_THROTTLE`
+
+## Technical notes
+
+### Memory allocation
+
+Memory allocation can be done through `iree_hal_hexagon_mem_alloc_create`. Its implementation is in `mem_alloc.c`.
+There are three alternative allocations that can be done (available in `iree_hal_hexagon_mem_kind_e`). They represent DSP, host and shared allocations.
+The shared allocations in particular are a (deduced) reimplementation of the work performed by the proprietary RPC framework.
+Note that the behavior of the allocated memory differs depending on whether this framework is used or not.
+For example, when passing an allocation through an RPC as an argument, flushing the cache for synchronization with the host at the end of the RPC is automated.
+It must be done manually when not passed as an argument though.

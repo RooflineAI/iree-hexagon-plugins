@@ -103,6 +103,9 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
       &iree_hal_hexagon_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
   command_buffer->rpc_session_handle = rpc_session_handle;
+  // Starts at 1, because index 0 is used for the topmost record for
+  // synchronization
+  command_buffer->profiling_entries = 1;
 
   // TODO(hexagon): allocate any additional resources for managing command
   // buffer state. Some implementations may have their own command
@@ -328,6 +331,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
 
   // append barrier command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_barrier_entry);
+  command_buffer->profiling_entries++;
 
   return iree_ok_status();
 }
@@ -467,6 +471,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
 
   // append fill command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_fill_entry);
+  command_buffer->profiling_entries++;
 
   return iree_ok_status();
 }
@@ -537,6 +542,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
 
   // append copy command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_copy_entry);
+  command_buffer->profiling_entries++;
 
   return iree_ok_status();
 }
@@ -639,6 +645,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
 
   // append dispatch command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_dispatch_entry);
+  // One for the dispatch, one for the kernel, two for cache management
+  command_buffer->profiling_entries += 4;
 
   return iree_ok_status();
 }

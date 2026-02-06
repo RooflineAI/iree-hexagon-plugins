@@ -1,11 +1,17 @@
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
 
 package(
     default_visibility = ["//visibility:public"],
     features = ["layering_check"],
     licenses = [],
+)
+
+cc_import(
+    name = "qurt_lib",
+    static_library = "@hexagon_sdk//:rtos/qurt/computev68/lib/libqurt.a",
 )
 
 cc_binary(
@@ -17,18 +23,28 @@ cc_binary(
         "device.c",
         "executable.c",
         "executable.h",
+        "profiling.c",
+        "profiling.h",
         "//hexagon/interface:hexagon_dsp_skel_c",
     ],
     copts = [
         "-Wswitch-enum",
     ],
+    defines = select({
+        "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+        ],
+        "//conditions:default": [],
+    }),
     linkshared = True,
     target_compatible_with = [
         "@//constraints:os_qurt",
         "@//constraints:cpu_hexagon",
     ],
     deps = [
+        ":qurt_lib",
         "//hexagon/arm_dsp:hexagon_arm_dsp",
+        "//hexagon/dsp/pmu:hexagon_pmu_helpers",
         "//hexagon/interface:hexagon_dsp_skel_hdr_lib",
         "@iree//runtime/src/iree/hal/local:executable_library",
     ],

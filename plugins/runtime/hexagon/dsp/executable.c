@@ -135,3 +135,22 @@ int hexagon_dsp_executable_get_dispatch_func(
   *out_dispatch_func = exports->ptrs[export_ordinal];
   return AEE_SUCCESS;
 }
+
+int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
+                                                  uint32_t export_ordinal,
+                                                  const char **out_name) {
+  hexagon_dsp_executable_t *executable =
+      (hexagon_dsp_executable_t *)executable_handle;
+  const iree_hal_executable_export_table_v0_t *exports =
+      &executable->library.v0->exports;
+
+  if (export_ordinal >= exports->count || !out_name) {
+    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-WARNING: Failed to retrieve dispatch "
+                       "function name.\n");
+    return AEE_EBADPARM;
+  }
+
+  *out_name = exports->names ? exports->names[export_ordinal] : NULL;
+
+  return AEE_SUCCESS;
+}

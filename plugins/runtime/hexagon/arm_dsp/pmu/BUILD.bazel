@@ -1,0 +1,21 @@
+# Copyright 2025 RooflineAI GmbH
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cc_library(
+    name = "hexagon_pmu_events",
+    srcs = [],
+    hdrs = [
+        "hexagon_pmu_events_ids.h",
+        "hexagon_pmu_events_table.inc",
+    ],
+    deps = [
+        "@hexagon_sdk//:qurt_headers",
+    ],
+)

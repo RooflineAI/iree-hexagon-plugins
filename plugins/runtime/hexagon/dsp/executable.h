@@ -51,4 +51,19 @@ int hexagon_dsp_executable_get_dispatch_func(
     int64 executable_handle, uint32_t export_ordinal,
     iree_hal_executable_dispatch_v0_t *out_dispatch_func);
 
+/**
+ * @brief Get the dispatch function.
+ *
+ * The export table may omit names to save binary size. When unavailable,
+ * the corresponding output pointers are set to NULL.
+ *
+ * @param[in] executable_handle handle of the executable
+ * @param[in] export_ordinal number of exported function
+ * @param[out] out_name optional export name string
+ * @retval AEE_SUCCESS for success
+ */
+int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
+                                                  uint32_t export_ordinal,
+                                                  const char **out_name);
+
 #endif // #ifndef HEXAGON_DSP_EXECUTABLE_H

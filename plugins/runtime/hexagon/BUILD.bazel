@@ -42,6 +42,8 @@ iree_runtime_cc_library(
         "executable_cache.h",
         "mem_alloc.c",
         "mem_alloc.h",
+        "profiling.c",
+        "profiling.h",
         "rpc_types.c",
         "semaphore.c",
         "semaphore.h",
@@ -54,8 +56,16 @@ iree_runtime_cc_library(
     data = [
         "//hexagon/dsp:hexagon_dsp_skel_out",
     ],
+    defines = select({
+        "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+            "IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1",
+        ],
+        "//conditions:default": [],
+    }),
     deps = [
         "//hexagon/arm_dsp:hexagon_arm_dsp",
+        "//hexagon/dsp/pmu:hexagon_pmu_helpers",
         "//hexagon/interface:hexagon_dsp_stub_lib",
         "//hexagon/serialize",
         "@hexagon_sdk//:cdsprpc_android_aarch64",

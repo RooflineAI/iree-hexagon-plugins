@@ -23,14 +23,22 @@ implements most interfaces needed by a HAL driver.
 
 The Hexagon SDK contains x86_64 binaries. The target device is an Android phone
 with an aarch64 CPU and a Hexagon DSP. Thus, building is done by cross-compiling
-on x86_64:
+on x86_64.
 
-```sh
-bazel build --platforms=//platform:aarch64_android @patio_runtime//hexagon:hexagon_runtime
+Certain generic targets (e.g. //integration_tests/hexagon/...) optionally
+depend on the cross-compiled IREE runtime for Hexagon and will use it on a
+remote Android phone.
+Those dependencies can be enabled by adding the following lines to
+`configured.bazelrc`:
 ```
+build --config=enable_hexagon_cross
+test --config=enable_hexagon_cross
+```
+This is done by `python copnfigure_bazel.py` when called with the
+`--enable_hexagon_cross` option.
 
-Please note that this requires an Android NDK to be present on the system. It
-can be installed using
+Please note that cross-compiling requires an Android NDK to be present on the
+system. It can be installed using
 ```sh
 NDK_VERSION=r28c
 NDK_FOLDER=28.2.13676358
@@ -43,9 +51,14 @@ sudo mkdir -p /opt/android-sdk/ndk
 sudo mv "/opt/android-ndk-${NDK_VERSION}" "/opt/android-sdk/ndk/${NDK_FOLDER}"
 ```
 
+The cross-compile command is:
+```sh
+bazel build @patio_runtime//hexagon:hexagon_runtime_aarch64_android
+```
+
 The output file can be queried:
 ```sh
-bazel cquery --output=files --platforms=//platform:aarch64_android @patio_runtime//hexagon:hexagon_runtime
+bazel cquery --output=files @patio_runtime//hexagon:hexagon_runtime_aarch64_android
 ```
 It usually returns:
 ```sh

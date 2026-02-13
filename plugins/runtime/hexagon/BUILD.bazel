@@ -65,7 +65,6 @@ iree_runtime_cc_library(
     }),
     deps = [
         "//hexagon/arm_dsp:hexagon_arm_dsp",
-        "//hexagon/dsp/pmu:hexagon_pmu_helpers",
         "//hexagon/interface:hexagon_dsp_stub_lib",
         "//hexagon/serialize",
         "@hexagon_sdk//:cdsprpc_android_aarch64",

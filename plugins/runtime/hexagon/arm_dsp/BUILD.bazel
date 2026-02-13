@@ -22,4 +22,7 @@ cc_library(
         ],
         "//conditions:default": [],
     }),
+    deps = [
+        "//hexagon/arm_dsp/pmu:hexagon_pmu_events",
+    ],
 )

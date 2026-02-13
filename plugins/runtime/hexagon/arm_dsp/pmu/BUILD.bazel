@@ -15,7 +15,4 @@ cc_library(
         "hexagon_pmu_events_ids.h",
         "hexagon_pmu_events_table.inc",
     ],
-    deps = [
-        "@hexagon_sdk//:qurt_headers",
-    ],
 )

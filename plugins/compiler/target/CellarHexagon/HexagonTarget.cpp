@@ -10,11 +10,11 @@
 #include <string>
 #include <vector>
 
-#include "CodeGen/HexagonCodeGenPipeline.h"
 #include "CodeGen/HexagonEncodingExternalModels.h"
 #include "CodeGen/HexagonLinkerTool.h"
 #include "CodeGen/IR/HexagonEncodingAttrs.h"
 #include "CodeGen/IR/HexagonEncodingDialect.h"
+#include "CodeGen/Passes.h"
 
 #include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
 #include "compiler/plugins/target/LLVMCPU/LibraryBuilder.h"

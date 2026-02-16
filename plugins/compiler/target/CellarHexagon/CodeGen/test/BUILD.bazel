@@ -29,6 +29,7 @@ iree_lit_test_suite(
             "integration/encoding_resolver_generated_attribute.mlir",
             "unit/encoder_and_materializer_registration.mlir",
             "unit/executable_generation_and_dumping.mlir",
+            "unit/hexagon_lower_executable_target.mlir",
             "unit/plugin_registration.mlir",
             # unit/shared_objects_have_correct_type.mlir tested separately (Linux-only).
             "unit/target_attribute_embedding.mlir",

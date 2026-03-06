@@ -92,7 +92,7 @@ pkg_files(
 
 pkg_files(
     name = "hexagon_runtime_lib_files",
-    srcs = ["@android_ndk_sysroot//:libcxx_shared"],
+    srcs = ["@android_ndk_detect//:libcxx_shared"],
     prefix = "lib",
 )
 
@@ -119,4 +119,8 @@ pkg_zip(
 aarch64_android_platform_alias(
     name = "hexagon_runtime_aarch64_android",
     actual = ":hexagon_runtime",
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )

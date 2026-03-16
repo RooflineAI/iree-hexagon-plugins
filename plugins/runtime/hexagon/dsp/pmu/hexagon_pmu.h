@@ -35,21 +35,30 @@ static inline void hexagon_pmu_configure(const hexagon_pmu_counters_ids_t *in) {
   qurt_pmu_set(QURT_PMUCFG, pmucfg);
 }
 
-static inline void hexagon_pmu_log_delta(const hexagon_pmu_counters_t *before,
-                                         const hexagon_pmu_counters_t *after) {
+static inline void
+hexagon_pmu_log_delta(const hexagon_pmu_counters_t *before,
+                      const hexagon_pmu_counters_t *after,
+                      const hexagon_pmu_counters_ids_t *counter_ids) {
   if (!before || !after) {
     return;
   }
-  FARF(RUNTIME_HIGH,
-       "QURT PMU delta: c0=%u c1=%u c2=%u c3=%u c4=%u c5=%u c6=%u c7=%u",
-       (unsigned)(after->cts[0] - before->cts[0]),
-       (unsigned)(after->cts[1] - before->cts[1]),
-       (unsigned)(after->cts[2] - before->cts[2]),
-       (unsigned)(after->cts[3] - before->cts[3]),
-       (unsigned)(after->cts[4] - before->cts[4]),
-       (unsigned)(after->cts[5] - before->cts[5]),
-       (unsigned)(after->cts[6] - before->cts[6]),
-       (unsigned)(after->cts[7] - before->cts[7]));
+
+  if (counter_ids) {
+    for (int i = 0; i < HEXAGON_PMU_COUNTERS; ++i) {
+      const uint32_t event_id = counter_ids->ids[i];
+      const char *event_name = hexagon_pmu_event_name(event_id);
+      FARF(RUNTIME_HIGH, "QURT PMU delta: c%d[%s:0x%04x]=%u", i,
+           event_name ? event_name : "UNKNOWN_EVENT", event_id,
+           (after->cts[i] - before->cts[i]));
+    }
+  } else {
+    FARF(RUNTIME_HIGH,
+         "QURT PMU delta: c0=%u c1=%u c2=%u c3=%u c4=%u c5=%u c6=%u c7=%u",
+         (after->cts[0] - before->cts[0]), (after->cts[1] - before->cts[1]),
+         (after->cts[2] - before->cts[2]), (after->cts[3] - before->cts[3]),
+         (after->cts[4] - before->cts[4]), (after->cts[5] - before->cts[5]),
+         (after->cts[6] - before->cts[6]), (after->cts[7] - before->cts[7]));
+  }
 }
 
 static inline void hexagon_pmu_dump_registers(const char *tag) {

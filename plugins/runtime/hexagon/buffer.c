@@ -83,22 +83,44 @@ iree_status_t iree_hal_hexagon_buffer_wrap(
   return status;
 }
 
-iree_status_t
-iree_hal_hexagon_buffer_get_dsp_vaddr(iree_hal_buffer_t *base_buffer,
-                                      rpc_dsp_vaddr_t *out_dsp_vaddr) {
-  if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
-    *out_dsp_vaddr = 0;
-    return iree_make_status(
-        IREE_STATUS_INCOMPATIBLE,
-        "non-Hexagon buffers do not have a DSP virtual address");
-  }
-  return iree_hal_hexagon_mem_alloc_get_dsp_vaddr(
-      iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_dsp_vaddr);
-}
-
 void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer) {
   iree_hal_hexagon_buffer_t *buffer = iree_hal_hexagon_buffer_cast(base_buffer);
   return iree_hal_hexagon_mem_alloc_impl_ptr(buffer->alloc);
+}
+
+iree_status_t iree_hal_hexagon_buffer_map_to_dsp(iree_hal_buffer_t *base_buffer,
+                                                 int *out_fd) {
+  if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
+    *out_fd = -1;
+    return iree_make_status(IREE_STATUS_INCOMPATIBLE,
+                            "non-Hexagon buffers cannot be mapped to DSP");
+  }
+  return iree_hal_hexagon_mem_alloc_map(
+      iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_fd);
+}
+
+iree_status_t
+iree_hal_hexagon_buffer_get_fd_for_dsp(iree_hal_buffer_t *base_buffer,
+                                       int *out_fd) {
+  if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
+    *out_fd = -1;
+    return iree_make_status(
+        IREE_STATUS_INCOMPATIBLE,
+        "non-Hexagon buffers do not have a file descriptor for the DSP");
+  }
+  return iree_hal_hexagon_mem_alloc_get_fd(
+      iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_fd);
+}
+
+iree_status_t
+iree_hal_hexagon_buffer_unmap_from_dsp(iree_hal_buffer_t *base_buffer) {
+
+  if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
+    return iree_make_status(IREE_STATUS_INCOMPATIBLE,
+                            "non-Hexagon buffers cannot be unmapped from DSP");
+  }
+  return iree_hal_hexagon_mem_alloc_unmap(
+      iree_hal_hexagon_buffer_cast(base_buffer)->alloc);
 }
 
 static void iree_hal_hexagon_buffer_destroy(iree_hal_buffer_t *base_buffer) {

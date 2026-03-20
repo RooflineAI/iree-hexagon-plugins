@@ -140,7 +140,22 @@ static void iree_hal_hexagon_command_buffer_destroy(
   // iree_hal_resource_set_t.
   iree_hal_hexagon_command_buffer_clear(command_buffer);
 
+  // retained direct buffers are mapped to DSP and owned
+  // -> unmap and drop ownership
   if (command_buffer->resource_set) {
+    // unmap from DSP
+    const iree_hal_resource_set_chunk_t *chunk =
+        command_buffer->resource_set->chunk_head;
+    while (chunk) {
+      for (iree_host_size_t idx = 0; idx < chunk->count; ++idx) {
+        // Only buffer pointers are stored in the resource_set. Thus, it's fine
+        // to cast the entries to that type here.
+        iree_hal_hexagon_buffer_unmap_from_dsp(
+            (iree_hal_buffer_t *)chunk->resources[idx]);
+      }
+      chunk = chunk->next_chunk;
+    }
+    // drop ownership
     iree_hal_resource_set_free(command_buffer->resource_set);
     command_buffer->resource_set = NULL;
   }
@@ -220,8 +235,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_end(
   // serialize to ARM/DSP data
   iree_status_t status_serialize_exec =
       iree_hal_hexagon_command_buffer_serialize_exec(
-          command_buffer, iree_hal_hexagon_buffer_get_dsp_vaddr, num_entries,
-          cmd_buf_data, cmd_buf_size);
+          command_buffer, num_entries, cmd_buf_data, cmd_buf_size);
   if (!iree_status_is_ok(status_serialize_exec)) {
     rpcmem_free(cmd_buf_data);
     return status_serialize_exec;
@@ -452,11 +466,25 @@ static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
   cmd_fill_entry->size = cmd_size;
   uint8_t *cmd_data = (uint8_t *)cmd_fill_entry + sizeof(*cmd_fill_entry);
 
+  // map direct buffer (if any) to DSP
+  if (target_ref.buffer) {
+    int fd = -1;
+    iree_status_t status =
+        iree_hal_hexagon_buffer_map_to_dsp(target_ref.buffer, &fd);
+    if (!iree_status_is_ok(status)) {
+      iree_allocator_free(command_buffer->host_allocator, cmd_fill_entry);
+      return status;
+    }
+  }
+
   // serialize fill command
   iree_status_t status_serialize = iree_hal_hexagon_cmd_fill_serialize_exec(
       pattern_length, pattern, &target_ref,
-      iree_hal_hexagon_buffer_get_dsp_vaddr, cmd_data, cmd_size);
+      iree_hal_hexagon_buffer_get_fd_for_dsp, cmd_data, cmd_size);
   if (!iree_status_is_ok(status_serialize)) {
+    if (target_ref.buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(target_ref.buffer);
+    }
     iree_allocator_free(command_buffer->host_allocator, cmd_fill_entry);
     return status_serialize;
   }
@@ -465,6 +493,9 @@ static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
   iree_status_t status_retain = iree_hal_resource_set_insert(
       command_buffer->resource_set, 1, &target_ref.buffer);
   if (!iree_status_is_ok(status_retain)) {
+    if (target_ref.buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(target_ref.buffer);
+    }
     iree_allocator_free(command_buffer->host_allocator, cmd_fill_entry);
     return status_retain;
   }
@@ -521,11 +552,40 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
   cmd_copy_entry->size = cmd_size;
   uint8_t *cmd_data = (uint8_t *)cmd_copy_entry + sizeof(*cmd_copy_entry);
 
+  // map direct buffers (if any) to DSP
+  if (source_ref.buffer) {
+    int fd = -1;
+    iree_status_t status =
+        iree_hal_hexagon_buffer_map_to_dsp(source_ref.buffer, &fd);
+    if (!iree_status_is_ok(status)) {
+      iree_allocator_free(command_buffer->host_allocator, cmd_copy_entry);
+      return status;
+    }
+  }
+  if (target_ref.buffer) {
+    int fd = -1;
+    iree_status_t status =
+        iree_hal_hexagon_buffer_map_to_dsp(target_ref.buffer, &fd);
+    if (!iree_status_is_ok(status)) {
+      if (source_ref.buffer) {
+        iree_hal_hexagon_buffer_unmap_from_dsp(source_ref.buffer);
+      }
+      iree_allocator_free(command_buffer->host_allocator, cmd_copy_entry);
+      return status;
+    }
+  }
+
   // serialize copy command
   iree_status_t status_serialize = iree_hal_hexagon_cmd_copy_serialize_exec(
-      &source_ref, &target_ref, iree_hal_hexagon_buffer_get_dsp_vaddr, cmd_data,
-      cmd_size);
+      &source_ref, &target_ref, iree_hal_hexagon_buffer_get_fd_for_dsp,
+      cmd_data, cmd_size);
   if (!iree_status_is_ok(status_serialize)) {
+    if (source_ref.buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(source_ref.buffer);
+    }
+    if (target_ref.buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(target_ref.buffer);
+    }
     iree_allocator_free(command_buffer->host_allocator, cmd_copy_entry);
     return status_serialize;
   }
@@ -536,6 +596,12 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
       command_buffer->resource_set, IREE_ARRAYSIZE(retain_buffers),
       retain_buffers);
   if (!iree_status_is_ok(status_retain)) {
+    if (source_ref.buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(source_ref.buffer);
+    }
+    if (target_ref.buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(target_ref.buffer);
+    }
     iree_allocator_free(command_buffer->host_allocator, cmd_copy_entry);
     return status_retain;
   }
@@ -564,6 +630,16 @@ static iree_status_t iree_hal_hexagon_command_buffer_collective(
                                           "collectives not implemented");
 
   return status;
+}
+
+static void
+iree_hal_hexagon_command_buffer_helper_unmap(const iree_hal_buffer_ref_t *refs,
+                                             iree_host_size_t count) {
+  for (iree_host_size_t idx = 0; idx < count; ++idx) {
+    if (refs[idx].buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(refs[idx].buffer);
+    }
+  }
 }
 
 static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
@@ -625,11 +701,28 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   uint8_t *cmd_data =
       (uint8_t *)cmd_dispatch_entry + sizeof(*cmd_dispatch_entry);
 
+  // map direct buffers (if any) to DSP
+  for (iree_host_size_t idx = 0; idx < bindings.count; ++idx) {
+    if (!bindings.values[idx].buffer) {
+      continue;
+    }
+    int fd = -1;
+    iree_status_t status =
+        iree_hal_hexagon_buffer_map_to_dsp(bindings.values[idx].buffer, &fd);
+    if (!iree_status_is_ok(status)) {
+      iree_hal_hexagon_command_buffer_helper_unmap(bindings.values, idx);
+      iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);
+      return status;
+    }
+  }
+
   // serialize dispatch command
   iree_status_t status_serialize = iree_hal_hexagon_cmd_dispatch_serialize_exec(
       rpc_executable_handle, export_ordinal, &config, &constants, &bindings,
-      iree_hal_hexagon_buffer_get_dsp_vaddr, cmd_data, cmd_size);
+      iree_hal_hexagon_buffer_get_fd_for_dsp, cmd_data, cmd_size);
   if (!iree_status_is_ok(status_serialize)) {
+    iree_hal_hexagon_command_buffer_helper_unmap(bindings.values,
+                                                 bindings.count);
     iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);
     return status_serialize;
   }
@@ -639,6 +732,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
       command_buffer->resource_set, bindings.count, bindings.values,
       offsetof(iree_hal_buffer_ref_t, buffer), sizeof(iree_hal_buffer_ref_t));
   if (!iree_status_is_ok(status_retain)) {
+    iree_hal_hexagon_command_buffer_helper_unmap(bindings.values,
+                                                 bindings.count);
     iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);
     return status_retain;
   }

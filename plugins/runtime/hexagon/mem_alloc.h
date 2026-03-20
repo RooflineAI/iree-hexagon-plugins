@@ -8,14 +8,8 @@
 #include "hexagon/api.h"
 #include "hexagon/serialize/rpc_types.h"
 #include "iree/base/api.h"
-#include "iree/hal/api.h"
+#include "iree/base/status.h"
 #include "rpc_types.h"
-
-typedef enum iree_hal_hexagon_mem_kind_e {
-  IREE_HAL_HEXAGON_MEM_KIND_HOST,
-  IREE_HAL_HEXAGON_MEM_KIND_RPCMEM,
-  IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP,
-} iree_hal_hexagon_mem_kind_t;
 
 /// A {Qualcomm Hexagon} memory allocation.
 typedef struct iree_hal_hexagon_mem_alloc_s iree_hal_hexagon_mem_alloc_t;
@@ -23,8 +17,8 @@ typedef struct iree_hal_hexagon_mem_alloc_s iree_hal_hexagon_mem_alloc_t;
 /// Create a {Qualcomm Hexagon} memory allocation.
 iree_status_t iree_hal_hexagon_mem_alloc_create(
     iree_allocator_t host_allocator, iree_hal_hexagon_domain_id_t domain_id,
-    rpc_session_handle_t rpc_session_handle, iree_hal_hexagon_mem_kind_t kind,
-    iree_device_size_t size, iree_hal_hexagon_mem_alloc_t **out_alloc);
+    rpc_session_handle_t rpc_session_handle, iree_device_size_t size,
+    iree_hal_hexagon_mem_alloc_t **out_alloc);
 
 /// Retain a {Qualcomm Hexagon} memory allocation - increase ref counter.
 void iree_hal_hexagon_mem_alloc_retain(iree_hal_hexagon_mem_alloc_t *alloc);
@@ -33,20 +27,31 @@ void iree_hal_hexagon_mem_alloc_retain(iree_hal_hexagon_mem_alloc_t *alloc);
 /// free it if counter reaches zero.
 void iree_hal_hexagon_mem_alloc_release(iree_hal_hexagon_mem_alloc_t *alloc);
 
-/// Return the host span to the memory allocation if possible.
-iree_status_t
-iree_hal_hexagon_mem_alloc_get_host_span(iree_hal_hexagon_mem_alloc_t *alloc,
-                                         iree_byte_span_t *out_host_span);
-
-/// Return the DSP virtual address of the memory if possible.
-iree_status_t
-iree_hal_hexagon_mem_alloc_get_dsp_vaddr(iree_hal_hexagon_mem_alloc_t *alloc,
-                                         rpc_dsp_vaddr_t *out_dsp_vaddr);
-
 /// Return the impl_ptr from inside the memory allocation for accounting
 /// purposes. It just needs to be stable (not change for the same alloc) and be
 /// different for each alloc (see comment in
 /// iree_hal_hexagon_allocator_allocate_buffer() in allocator.c).
 void *iree_hal_hexagon_mem_alloc_impl_ptr(iree_hal_hexagon_mem_alloc_t *alloc);
+
+/// Return the host span to the memory allocation if possible.
+iree_status_t
+iree_hal_hexagon_mem_alloc_get_host_span(iree_hal_hexagon_mem_alloc_t *alloc,
+                                         iree_byte_span_t *out_host_span);
+
+/// Map the memory allocation to DSP (increase mapping count) and return the
+/// file descriptor.
+iree_status_t
+iree_hal_hexagon_mem_alloc_map(iree_hal_hexagon_mem_alloc_t *alloc,
+                               int *out_fd);
+
+/// Return the file descriptor of the memory allocation (if mapped to DSP).
+iree_status_t
+iree_hal_hexagon_mem_alloc_get_fd(iree_hal_hexagon_mem_alloc_t *alloc,
+                                  int *out_fd);
+
+/// Unmap the memory allocation from DSP (decrease mapping count, actually unmap
+/// when reaching zero).
+iree_status_t
+iree_hal_hexagon_mem_alloc_unmap(iree_hal_hexagon_mem_alloc_t *alloc);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_MEM_ALLOC_H_

@@ -12,15 +12,15 @@
 // iree_hal_hexagon_command_buffer_t
 //===----------------------------------------------------------------------===//
 
-/// Function pointer type for translating a buffer to the DSP virtual address.
+/// Function pointer type for obtaining the file descriptor for a mapped RPCmem
+/// buffer.
 /// It is used to pass the translation function to the serialization functions
 /// in order to decouple unit tests from the actual HAL.
 /// @param[in] buffer pointer to IREE buffer
-/// @param[out] out_dsp_vaddr filled with virtual address of buffer's memory on
-///                           DSP
+/// @param[out] out_fd filled with file descriptor of RPCmem for use on DSP
 /// @return IREE status
-typedef iree_status_t (*iree_hal_hexagon_buffer_to_dsp_vaddr_t)(
-    iree_hal_buffer_t *buffer, rpc_dsp_vaddr_t *out_dsp_vaddr);
+typedef iree_status_t (*iree_hal_hexagon_get_buffer_fd_t)(
+    iree_hal_buffer_t *buffer, int *out_fd);
 
 /// an entry in the command buffer
 typedef struct iree_hal_hexagon_command_buffer_entry_s {

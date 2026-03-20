@@ -129,13 +129,15 @@ int hexagon_dsp_command_buffer_destroy(remote_handle64 rpc_handle,
 
 /// resolved buffer reference
 typedef struct hexa_cmd_buf_res_buf_s {
+  int fd;
   uint8_t *dsp_vaddr;
   uint64_t offset;
   uint64_t length;
 } hexa_cmd_buf_res_buf_t;
 
 /**
- * @brief Resolve a buffer reference to an actual DSP vaddr, offset and length.
+ * @brief Resolve a buffer reference to an actual RPCmem file descriptor,
+ *        offset and length. Map the file descriptor to get a virtual address.
  * @param[in] buf_ref buffer reference to resolve, might use "slot" to point to
  *                    buffer in binding table
  * @param[in] bind_tab binding_table
@@ -161,13 +163,13 @@ typedef struct hexa_cmd_buf_res_buf_s {
  * and the length of the memory range to use.
  */
 static int
-hexa_cmd_buf_resolve_buf(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
-                         const hexagon_rt_arm_dsp_binding_t *bind_tab,
-                         uint32_t bind_tab_num_ent,
-                         hexa_cmd_buf_res_buf_t *out_res_buf) {
+hexa_cmd_buf_resolve_and_map(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
+                             const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                             uint32_t bind_tab_num_ent,
+                             hexa_cmd_buf_res_buf_t *out_res_buf) {
   // direct buffer reference -> use this buffer
-  if (buf_ref->buffer_dsp_vaddr != 0) {
-    out_res_buf->dsp_vaddr = (uint8_t *)buf_ref->buffer_dsp_vaddr;
+  if (buf_ref->fd != -1) {
+    out_res_buf->fd = buf_ref->fd;
     out_res_buf->offset = buf_ref->offset;
     out_res_buf->length = buf_ref->length;
   }
@@ -191,7 +193,7 @@ hexa_cmd_buf_resolve_buf(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
      * m: memory provided by buffer in binding table entry
      * D: part of memory used by buffer reference of dispatch
      */
-    out_res_buf->dsp_vaddr = (uint8_t *)bind_entry->buffer_dsp_vaddr;
+    out_res_buf->fd = bind_entry->fd;
     if (buf_ref->offset > bind_entry->length) {
       return AEE_EBADITEM; // offset to behind binding table entry's buffer
     }
@@ -202,7 +204,18 @@ hexa_cmd_buf_resolve_buf(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
                           buf_ref->offset; // overall offset into bind tab's buf
     out_res_buf->length = buf_ref->length;
   }
-  return AEE_SUCCESS;
+
+  // map the buffer to a DSP virtual address
+  uint64_t paddr = 0;
+  return HAP_mmap_get(out_res_buf->fd, (void **)&out_res_buf->dsp_vaddr,
+                      &paddr);
+}
+
+/// Unmap the file descriptors in mapped_fds.
+static void hexa_cmd_buf_unmap(const int *mapped_fds, uint32_t mapped_fds_cnt) {
+  for (uint32_t idx = 0; idx < mapped_fds_cnt; ++idx) {
+    HAP_mmap_put(mapped_fds[idx]);
+  }
 }
 
 /**
@@ -245,14 +258,22 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // To reduce the number of HAL_malloc calls, the arrays are allocated in the
   // same buffer and the start addresses are computed based on their size.
   // The data is written to the arrays below the definition of the dispatch
-  // data structre.
-  size_t constants_size = HEXAGON_ALIGN_SIZE_FOR_TYPE(
-      cmd_dispatch->constant_count * sizeof(uint32_t), void *);
-  size_t binding_ptrs_size =
-      HEXAGON_ALIGN_SIZE_FOR_TYPE(num_buf_refs * sizeof(void *), size_t);
+  // data structure.
+  // Storage for the RPCmem file descriptors to unmap at the end is also
+  // allocated in the same memory block.
+  size_t constants_offset = 0;
+  size_t constants_size = cmd_dispatch->constant_count * sizeof(uint32_t);
+  size_t binding_ptrs_offset =
+      HEXAGON_ALIGN_SIZE_FOR_TYPE(constants_offset + constants_size, void *);
+  size_t binding_ptrs_size = num_buf_refs * sizeof(void *);
+  size_t binding_lengths_offset = HEXAGON_ALIGN_SIZE_FOR_TYPE(
+      binding_ptrs_offset + binding_ptrs_size, size_t);
   size_t binding_lengths_size = num_buf_refs * sizeof(size_t);
+  size_t mapped_fds_offset = HEXAGON_ALIGN_SIZE_FOR_TYPE(
+      binding_lengths_offset + binding_lengths_size, int);
+  size_t mapped_fds_size = num_buf_refs * sizeof(int);
   uint8_t *dispatch_arrays = NULL;
-  err = HAP_malloc(constants_size + binding_ptrs_size + binding_lengths_size,
+  err = HAP_malloc(mapped_fds_offset + mapped_fds_size,
                    (void **)&dispatch_arrays);
   if (err != AEE_SUCCESS) {
     return err;
@@ -260,10 +281,11 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   if (!dispatch_arrays) {
     return AEE_ENOMEMORY;
   }
-  uint32_t *constants = (uint32_t *)dispatch_arrays;
-  void **binding_ptrs = (void **)((uint8_t *)constants + constants_size);
+  uint32_t *constants = (uint32_t *)(dispatch_arrays + constants_offset);
+  void **binding_ptrs = (void **)(dispatch_arrays + binding_ptrs_offset);
   size_t *binding_lengths =
-      (size_t *)((uint8_t *)binding_ptrs + binding_ptrs_size);
+      (size_t *)(dispatch_arrays + binding_lengths_offset);
+  int *mapped_fds = (int *)(dispatch_arrays + mapped_fds_offset);
 
   // Build dispatch state - must be aligned at 16 bytes, because dispatch
   // function declarations assumes that alignment
@@ -294,17 +316,19 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // Resolve buffer references and fill buffer pointers and lengths in
   // dispatch state.
   for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
-    hexa_cmd_buf_res_buf_t res_buf = {};
     READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_buf_ref_t,
                     buf_ref)
-    err =
-        hexa_cmd_buf_resolve_buf(buf_ref, bind_tab, bind_tab_num_ent, &res_buf);
+    hexa_cmd_buf_res_buf_t res_buf = {};
+    err = hexa_cmd_buf_resolve_and_map(buf_ref, bind_tab, bind_tab_num_ent,
+                                       &res_buf);
     if (err != AEE_SUCCESS) {
+      hexa_cmd_buf_unmap(mapped_fds, idx_buf_ref);
       HAP_free(dispatch_arrays);
       return err;
     }
     binding_ptrs[idx_buf_ref] = (void *)(res_buf.dsp_vaddr + res_buf.offset);
     binding_lengths[idx_buf_ref] = res_buf.length;
+    mapped_fds[idx_buf_ref] = res_buf.fd;
   }
 
   profiler_measurement_start(profiling_header, profiling_records,
@@ -316,6 +340,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
                                QURT_MEM_CACHE_INVALIDATE, QURT_MEM_DCACHE);
     if (err != QURT_EOK) {
       // according to doc, the only error is QURT_EVAL - invalid cache type
+      hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
       HAP_free(dispatch_arrays);
       return AEE_EFAILED;
     }
@@ -370,11 +395,13 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
                                QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
     if (err != QURT_EOK) {
       // according to doc, the only error is QURT_EVAL - invalid cache type
+      hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
       HAP_free(dispatch_arrays);
       return AEE_EFAILED;
     }
   }
 
+  hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
   HAP_free(dispatch_arrays);
 
   profiler_measurement_finish_and_record(profiling_header, profiling_records);
@@ -416,15 +443,16 @@ static int hexa_cmd_buf_exec_copy(const uint8_t **cmd_buf_data,
   READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_cmd_copy_t,
                   cmd_copy)
   hexa_cmd_buf_res_buf_t src = {};
-  int err = hexa_cmd_buf_resolve_buf(&cmd_copy->src, bind_tab, bind_tab_num_ent,
-                                     &src);
+  int err = hexa_cmd_buf_resolve_and_map(&cmd_copy->src, bind_tab,
+                                         bind_tab_num_ent, &src);
   if (err != AEE_SUCCESS) {
     return err;
   }
   hexa_cmd_buf_res_buf_t dest = {};
-  err = hexa_cmd_buf_resolve_buf(&cmd_copy->trgt, bind_tab, bind_tab_num_ent,
-                                 &dest);
+  err = hexa_cmd_buf_resolve_and_map(&cmd_copy->trgt, bind_tab,
+                                     bind_tab_num_ent, &dest);
   if (err != AEE_SUCCESS) {
+    HAP_mmap_put(src.fd);
     return err;
   }
 
@@ -434,6 +462,8 @@ static int hexa_cmd_buf_exec_copy(const uint8_t **cmd_buf_data,
                            QURT_MEM_CACHE_INVALIDATE, QURT_MEM_DCACHE);
   if (err != QURT_EOK) {
     // according to doc, the only error is QURT_EVAL - invalid cache type
+    HAP_mmap_put(dest.fd);
+    HAP_mmap_put(src.fd);
     return AEE_EFAILED;
   }
 
@@ -447,9 +477,13 @@ static int hexa_cmd_buf_exec_copy(const uint8_t **cmd_buf_data,
                            dest.length, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
   if (err != QURT_EOK) {
     // according to doc, the only error is QURT_EVAL - invalid cache type
+    HAP_mmap_put(dest.fd);
+    HAP_mmap_put(src.fd);
     return AEE_EFAILED;
   }
 
+  HAP_mmap_put(dest.fd);
+  HAP_mmap_put(src.fd);
   return AEE_SUCCESS;
 }
 
@@ -470,8 +504,8 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
   READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_cmd_fill_t,
                   cmd_fill)
   hexa_cmd_buf_res_buf_t dest = {};
-  int err = hexa_cmd_buf_resolve_buf(&cmd_fill->trgt, bind_tab,
-                                     bind_tab_num_ent, &dest);
+  int err = hexa_cmd_buf_resolve_and_map(&cmd_fill->trgt, bind_tab,
+                                         bind_tab_num_ent, &dest);
   if (err != AEE_SUCCESS) {
     return err;
   }
@@ -492,9 +526,11 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
                            dest.length, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
   if (err != QURT_EOK) {
     // according to doc, the only error is QURT_EVAL - invalid cache type
+    HAP_mmap_put(dest.fd);
     return AEE_EFAILED;
   }
 
+  HAP_mmap_put(dest.fd);
   return AEE_SUCCESS;
 }
 

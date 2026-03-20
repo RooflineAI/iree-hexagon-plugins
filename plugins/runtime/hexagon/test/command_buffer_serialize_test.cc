@@ -38,8 +38,7 @@ TEST(CommandBufferSerializeTest, EmptyCommandBuffer) {
 
   std::vector<uint8_t> buffer(cmd_buf_size);
   IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, hexagon_test_buffer_to_dsp_vaddr, num_entries,
-      buffer.data(), buffer.size()));
+      &command_buffer, num_entries, buffer.data(), buffer.size()));
 
   const auto *header =
       reinterpret_cast<const hexagon_rt_arm_dsp_cmd_buf_t *>(buffer.data());
@@ -76,8 +75,7 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
   auto fill_entry = make_entry(fill_cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_fill_serialize_exec(
       fill_pattern.size(), fill_pattern.data(), &fill_dest,
-      hexagon_test_buffer_to_dsp_vaddr, fill_entry.cmd_data,
-      fill_entry.entry->size));
+      hexagon_test_get_buffer_fd, fill_entry.cmd_data, fill_entry.entry->size));
 
   // Dispatch entry.
   const iree_const_byte_span_t empty_constants =
@@ -101,9 +99,8 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
   auto dispatch_entry = make_entry(dispatch_cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_dispatch_serialize_exec(
       /*executable_handle=*/0xCAFE, /*export_ordinal=*/4, &dispatch_config,
-      &empty_constants, &dispatch_binding_list,
-      hexagon_test_buffer_to_dsp_vaddr, dispatch_entry.cmd_data,
-      dispatch_entry.entry->size));
+      &empty_constants, &dispatch_binding_list, hexagon_test_get_buffer_fd,
+      dispatch_entry.cmd_data, dispatch_entry.entry->size));
 
   // Barrier entry.
   iree_host_size_t barrier_cmd_size = 0;
@@ -122,8 +119,8 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_copy_serialize_prep(&copy_cmd_size));
   auto copy_entry = make_entry(copy_cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_copy_serialize_exec(
-      &copy_src, &copy_dest, hexagon_test_buffer_to_dsp_vaddr,
-      copy_entry.cmd_data, copy_entry.entry->size));
+      &copy_src, &copy_dest, hexagon_test_get_buffer_fd, copy_entry.cmd_data,
+      copy_entry.entry->size));
 
   // Chain entries.
   fill_entry.entry->next = dispatch_entry.entry;
@@ -148,8 +145,7 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
 
   std::vector<uint8_t> buffer(cmd_buf_size);
   IREE_EXPECT_OK(iree_hal_hexagon_command_buffer_serialize_exec(
-      &command_buffer, hexagon_test_buffer_to_dsp_vaddr, num_entries,
-      buffer.data(), buffer.size()));
+      &command_buffer, num_entries, buffer.data(), buffer.size()));
 
   // Check that the serialization of the command buffer set up a header and
   // concatenated the data of the pre-serialized entries.

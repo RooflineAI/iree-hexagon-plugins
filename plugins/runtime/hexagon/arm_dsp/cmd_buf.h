@@ -24,8 +24,8 @@ typedef struct hexagon_rt_arm_dsp_con_s {
 
 /// reference to a buffer for dispatch
 typedef struct hexagon_rt_arm_dsp_buf_ref_s {
-  uint32_t slot; ///< dispatch time binding slot, used if buffer_dsp_vaddr is 0
-  int64_t buffer_dsp_vaddr;
+  uint32_t slot; ///< dispatch time binding slot, used if fd is -1
+  int32_t fd;    ///< file descriptor of RPCmem allocation, -1 if unused
   uint64_t offset;
   uint64_t length;
 } __attribute__((packed)) hexagon_rt_arm_dsp_buf_ref_t;

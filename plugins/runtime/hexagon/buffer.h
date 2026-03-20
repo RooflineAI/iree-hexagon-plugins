@@ -26,16 +26,26 @@ iree_status_t iree_hal_hexagon_buffer_wrap(
     iree_allocator_t host_allocator, iree_hal_hexagon_device_t *device,
     iree_hal_buffer_t **out_buffer);
 
-/// Return the DSP virtual address of the memory if the buffer is a Hexagon
-/// buffer and it has a DSP virtual address.
-iree_status_t
-iree_hal_hexagon_buffer_get_dsp_vaddr(iree_hal_buffer_t *base_buffer,
-                                      rpc_dsp_vaddr_t *out_dsp_vaddr);
-
 /// Return the impl_ptr from inside the buffer for accounting purposes.
 /// The impl_ptr is used for accounting purposes. It just needs to be stable
 /// (not change for the same buffer) and be different for each buffer (see
 /// comment in iree_hal_hexagon_allocator_allocate_buffer() in allocator.c).
 void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer);
+
+/// Make the buffer available on the DSP by mapping it (increase mapping
+/// count) and return the file descriptor.
+iree_status_t iree_hal_hexagon_buffer_map_to_dsp(iree_hal_buffer_t *base_buffer,
+                                                 int *out_fd);
+
+/// Return the file descriptor of buffer's memory block for access of the memory
+/// on the DSP (if mapped to DSP).
+iree_status_t
+iree_hal_hexagon_buffer_get_fd_for_dsp(iree_hal_buffer_t *base_buffer,
+                                       int *out_fd);
+
+/// Unmap the buffer from DSP (decrease mapping count, actually unmap when
+/// reaching zero).
+iree_status_t
+iree_hal_hexagon_buffer_unmap_from_dsp(iree_hal_buffer_t *base_buffer);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_BUFFER_H_

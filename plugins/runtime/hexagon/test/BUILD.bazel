@@ -24,6 +24,7 @@ cc_test(
         "bindings_serialize_test.cc",
     ],
     deps = [
+        ":serialize_test_utils",
         "//hexagon/arm_dsp:hexagon_arm_dsp",
         "//hexagon/serialize",
         "@iree//runtime/src/iree/testing:gtest",

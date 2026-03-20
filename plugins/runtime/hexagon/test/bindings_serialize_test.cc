@@ -8,25 +8,10 @@
 extern "C" {
 #include "bindings_serialize.h"
 #include "hexagon/arm_dsp/bindings.h"
-#include "hexagon/serialize/rpc_types.h"
 }
+#include "serialize_test_utils.h"
 
 namespace {
-
-iree_hal_buffer_t direct_buffers[3] = {};
-
-// Returns deterministic fake DSP virtual addresses for known buffers.
-iree_status_t buffer_to_dsp_vaddr(iree_hal_buffer_t *buffer,
-                                  rpc_dsp_vaddr_t *out_dsp_vaddr) {
-  for (size_t i = 0; i < sizeof(direct_buffers) / sizeof(direct_buffers[0]);
-       ++i) {
-    if (buffer == &direct_buffers[i]) {
-      *out_dsp_vaddr = static_cast<rpc_dsp_vaddr_t>(0x420000 + i);
-      return iree_ok_status();
-    }
-  }
-  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "unknown buffer");
-}
 
 TEST(BindingsSerializeTest, EmptyBindingTable) {
 
@@ -45,7 +30,8 @@ TEST(BindingsSerializeTest, EmptyBindingTable) {
 
   std::vector<uint8_t> buffer(bind_tab_size);
   IREE_EXPECT_OK(iree_hal_hexagon_bindings_serialize_exec(
-      &binding_table, buffer_to_dsp_vaddr, buffer.data(), buffer.size()));
+      &binding_table, hexagon_test_get_buffer_fd, buffer.data(),
+      buffer.size()));
 
   const auto *header =
       reinterpret_cast<const hexagon_rt_arm_dsp_binding_tab_t *>(buffer.data());
@@ -57,9 +43,9 @@ TEST(BindingsSerializeTest, MultipleBindings) {
   // Test input data: binding table with three different entries.
 
   std::array<iree_hal_buffer_binding_t, 3> bindings = {
-      {{&direct_buffers[0], 0, 32},
-       {&direct_buffers[1], 64, 96},
-       {&direct_buffers[2], 256, 16}}};
+      {{&hexagon_test_direct_buffers[0], 0, 32},
+       {&hexagon_test_direct_buffers[1], 64, 96},
+       {&hexagon_test_direct_buffers[2], 256, 16}}};
 
   iree_hal_buffer_binding_table_t binding_table = {};
   binding_table.count = bindings.size();
@@ -80,7 +66,8 @@ TEST(BindingsSerializeTest, MultipleBindings) {
 
   std::vector<uint8_t> buffer(bind_tab_size);
   IREE_EXPECT_OK(iree_hal_hexagon_bindings_serialize_exec(
-      &binding_table, buffer_to_dsp_vaddr, buffer.data(), buffer.size()));
+      &binding_table, hexagon_test_get_buffer_fd, buffer.data(),
+      buffer.size()));
 
   const auto *header =
       reinterpret_cast<const hexagon_rt_arm_dsp_binding_tab_t *>(buffer.data());
@@ -92,8 +79,7 @@ TEST(BindingsSerializeTest, MultipleBindings) {
         reinterpret_cast<const hexagon_rt_arm_dsp_binding_t *>(cursor);
     cursor += sizeof(*binding);
 
-    EXPECT_EQ(static_cast<rpc_dsp_vaddr_t>(0x420000 + i),
-              binding->buffer_dsp_vaddr);
+    EXPECT_EQ(HEXAGON_TEST_FAKE_FD(i), binding->fd);
     EXPECT_EQ(bindings[i].offset, binding->offset);
     EXPECT_EQ(bindings[i].length, binding->length);
   }

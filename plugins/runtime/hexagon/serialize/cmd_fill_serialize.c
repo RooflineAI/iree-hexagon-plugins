@@ -18,8 +18,8 @@ iree_hal_hexagon_cmd_fill_serialize_prep(iree_host_size_t *out_cmd_size) {
 iree_status_t iree_hal_hexagon_cmd_fill_serialize_exec(
     uint8_t pattern_length, const uint8_t *pattern,
     const iree_hal_buffer_ref_t *target_ref,
-    iree_hal_hexagon_buffer_to_dsp_vaddr_t buffer_to_dsp_vaddr,
-    uint8_t *cmd_data, iree_host_size_t cmd_size) {
+    iree_hal_hexagon_get_buffer_fd_t get_buffer_fd, uint8_t *cmd_data,
+    iree_host_size_t cmd_size) {
 
   uint8_t *ptr = cmd_data;
   uint8_t *endptr = cmd_data + cmd_size;
@@ -41,14 +41,12 @@ iree_status_t iree_hal_hexagon_cmd_fill_serialize_exec(
          sizeof(fill->pattern) - pattern_length);
 
   // fill in target buffer
-  rpc_dsp_vaddr_t trgt_dsp_vaddr =
-      0; // stays at 0 if no buffer, means to use slot
+  int fd = -1; // stays at -1 if no buffer, means to use slot
   if (target_ref->buffer) {
-    IREE_RETURN_IF_ERROR(
-        buffer_to_dsp_vaddr(target_ref->buffer, &trgt_dsp_vaddr));
+    IREE_RETURN_IF_ERROR(get_buffer_fd(target_ref->buffer, &fd));
   }
   fill->trgt.slot = target_ref->buffer_slot;
-  fill->trgt.buffer_dsp_vaddr = trgt_dsp_vaddr;
+  fill->trgt.fd = fd;
   fill->trgt.offset = target_ref->offset;
   fill->trgt.length = target_ref->length;
 

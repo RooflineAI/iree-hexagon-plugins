@@ -56,8 +56,7 @@ TEST(CmdDispatchSerializeTest, Serialize) {
   std::vector<uint8_t> buffer(cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_dispatch_serialize_exec(
       rpc_executable_handle, /*export_ordinal=*/7, &config, &constants,
-      &bindings, hexagon_test_buffer_to_dsp_vaddr, buffer.data(),
-      buffer.size()));
+      &bindings, hexagon_test_get_buffer_fd, buffer.data(), buffer.size()));
 
   const auto *cmd_dispatch =
       reinterpret_cast<const hexagon_rt_arm_dsp_cmd_dispatch_t *>(
@@ -87,7 +86,7 @@ TEST(CmdDispatchSerializeTest, Serialize) {
         reinterpret_cast<const hexagon_rt_arm_dsp_buf_ref_t *>(cursor);
     cursor += sizeof(*binding);
     EXPECT_EQ(binding_values[i].buffer_slot, binding->slot);
-    EXPECT_EQ(i == 2 ? 0x420000 : 0, binding->buffer_dsp_vaddr);
+    EXPECT_EQ(i == 2 ? HEXAGON_TEST_FAKE_FD(0) : -1, binding->fd);
     EXPECT_EQ(binding_values[i].offset, binding->offset);
     EXPECT_EQ(binding_values[i].length, binding->length);
   }

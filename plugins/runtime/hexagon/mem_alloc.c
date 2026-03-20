@@ -17,26 +17,17 @@ struct iree_hal_hexagon_mem_alloc_s {
   iree_allocator_t host_allocator;
   iree_hal_hexagon_domain_id_t domain_id;
   rpc_session_handle_t rpc_session_handle;
-  iree_hal_hexagon_mem_kind_t kind;
   iree_device_size_t size;
-  unsigned int ref_count;
-  union {
-    void *host; ///< for _KIND_HOST
-    struct {
-      void *host;
-      int fd;
-      rpc_dsp_vaddr_t dsp_vaddr;
-    } rpcmem;                   ///< for _KIND_RPCMEM
-    rpc_dsp_vaddr_t device_hap; ///< for _KIND_DEVICE_HAP
-    void *impl_ptr; ///< take whatever is stored in this union for "accounting"
-                    ///< (see comment in _allocate_buffer() in allocator.c)
-  } ptr;
+  unsigned int ref_count; // reference count for allocation, for "host"
+  unsigned int map_count; // reference count for mapping, for "fd"
+  void *ptr_host;         // host pointer as returned by rpcmem_alloc()
+  int fd; // file descriptor returned by rpcmem_to_fd(), valid if map_count > 0
 };
 
 iree_status_t iree_hal_hexagon_mem_alloc_create(
     iree_allocator_t host_allocator, iree_hal_hexagon_domain_id_t domain_id,
-    rpc_session_handle_t rpc_session_handle, iree_hal_hexagon_mem_kind_t kind,
-    iree_device_size_t size, iree_hal_hexagon_mem_alloc_t **out_alloc) {
+    rpc_session_handle_t rpc_session_handle, iree_device_size_t size,
+    iree_hal_hexagon_mem_alloc_t **out_alloc) {
   IREE_ASSERT_ARGUMENT(out_alloc);
   *out_alloc = NULL;
 
@@ -46,109 +37,42 @@ iree_status_t iree_hal_hexagon_mem_alloc_create(
   alloc->host_allocator = host_allocator;
   alloc->domain_id = domain_id;
   alloc->rpc_session_handle = rpc_session_handle;
-  alloc->kind = kind;
   alloc->size = size;
   alloc->ref_count = 1;
+  alloc->map_count = 0;
+  alloc->ptr_host = NULL;
+  alloc->fd = -1;
 
-  iree_status_t status = iree_make_status(
-      IREE_STATUS_UNIMPLEMENTED, "memory kind %d not implemented", kind);
-  switch (kind) {
-  case IREE_HAL_HEXAGON_MEM_KIND_HOST: {
-    void *buf = NULL;
-    status = iree_allocator_malloc(host_allocator, size, &buf);
-    if (!iree_status_is_ok(status)) {
-      break;
-    }
-    alloc->ptr.host = buf;
-    status = iree_ok_status();
-    break;
-  }
-
-  case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM: {
-    // According to the Hexagon SDK examples, allocating memory shared among ARM
-    // host and DSP needs to execute those steps:
-    // 1) host_ptr = rpcmem_alloc()
-    // 2) fd = rpcmem_to_fd(host_ptr)
-    // 3) fastrpc_mmap(host_ptr)
-    // 4) fd ---> DSP
-    // 5) on DSP: HAP_mmap_get(fd) (see hexagon_dsp_buffer_rpcmem_mmap())
-    // There is currently no complete understanding why the SDK is built this
-    // way. This is following the examples in the SDK.
-    // Using RPCMEM_DEFAULT_FLAGS results in cached and coherent memory
-    // according to
-    // Hexagon_SDK/6.3.0.0/docs/software/os/os_support_dsp.html#cache-management
-    if (size > INT_MAX) {
-      status =
-          iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                           "cannot allocate RPC memory bigger than INT_MAX");
-      break;
-    }
-    void *ptr_host =
-        rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS, (int)size);
-    if (!ptr_host) {
-      status =
-          iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED, "out of RPC memory");
-      break;
-    }
-    int fd = rpcmem_to_fd(ptr_host);
-    if (fd == -1) {
-      rpcmem_free(ptr_host);
-      status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                                "cannot get file descriptor for RPC memory");
-      break;
-    }
-    int dsp_err =
-        fastrpc_mmap(domain_id, fd, ptr_host, 0, size, FASTRPC_MAP_FD);
-    if (dsp_err != AEE_SUCCESS) {
-      rpcmem_free(ptr_host);
-      status = IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
-          dsp_err, "cannot map RPC memory on host side");
-      break;
-    }
-    long long dsp_vaddr = 0;
-    dsp_err =
-        hexagon_dsp_buffer_rpcmem_mmap(rpc_session_handle, fd, &dsp_vaddr);
-    if (dsp_err != AEE_SUCCESS) {
-      fastrpc_munmap(domain_id, fd, NULL, 0);
-      rpcmem_free(ptr_host);
-      status = IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
-          dsp_err, "cannot map RPC memory on DSP side");
-      break;
-    }
-    alloc->ptr.rpcmem.host = ptr_host;
-    alloc->ptr.rpcmem.fd = fd;
-    alloc->ptr.rpcmem.dsp_vaddr = dsp_vaddr;
-    status = iree_ok_status();
-    break;
-  }
-
-  case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP: {
-    if (size > UINT_MAX) {
-      status =
-          iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                           "cannot allocate DSP memory bigger than UINT_MAX");
-      break;
-    }
-    long long dsp_vaddr = 0;
-    int dsp_err =
-        hexagon_dsp_buffer_hap_malloc(rpc_session_handle, size, &dsp_vaddr);
-    if (dsp_err != AEE_SUCCESS) {
-      status = IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(dsp_err,
-                                                         "out of DSP memory");
-      break;
-    }
-    alloc->ptr.device_hap = dsp_vaddr;
-    status = iree_ok_status();
-    break;
-  }
-  }
-
-  if (iree_status_is_ok(status)) {
-    *out_alloc = alloc;
-  } else {
+  // According to the Hexagon SDK examples, allocating memory shared among ARM
+  // host and DSP needs to execute those steps:
+  // 1) host_ptr = rpcmem_alloc()
+  // 2) fd = rpcmem_to_fd(host_ptr)
+  // 3) fastrpc_mmap(host_ptr)
+  // 4) fd ---> DSP
+  // 5) on DSP: HAP_mmap_get(fd)
+  // There is currently no complete understanding why the SDK is built this
+  // way. This is following the examples in the SDK.
+  // Using RPCMEM_DEFAULT_FLAGS results in cached and coherent memory on the
+  // ARM side according to
+  // Hexagon_SDK/6.3.0.0/docs/software/os/os_support_dsp.html#cache-management
+  // During allocation, only step (1) is done. Mapping to DSP happens later,
+  // see _map() and _unmap() functions.
+  if (size > INT_MAX) {
     iree_allocator_free(host_allocator, alloc);
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "cannot allocate RPC memory bigger than INT_MAX");
   }
-  return status;
+  void *ptr_host =
+      rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS, (int)size);
+  if (!ptr_host) {
+    iree_allocator_free(host_allocator, alloc);
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "out of RPC memory");
+  }
+  alloc->ptr_host = ptr_host;
+
+  *out_alloc = alloc;
+  return iree_ok_status();
 }
 
 void iree_hal_hexagon_mem_alloc_retain(iree_hal_hexagon_mem_alloc_t *alloc) {
@@ -161,30 +85,23 @@ void iree_hal_hexagon_mem_alloc_release(iree_hal_hexagon_mem_alloc_t *alloc) {
     return;
   }
 
-  switch (alloc->kind) {
-  case IREE_HAL_HEXAGON_MEM_KIND_HOST:
-    iree_allocator_free(alloc->host_allocator, alloc->ptr.host);
-    alloc->ptr.host = NULL;
-    break;
-
-  case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
-    hexagon_dsp_buffer_rpcmem_munmap(alloc->rpc_session_handle,
-                                     alloc->ptr.rpcmem.fd);
-    fastrpc_munmap(alloc->domain_id, alloc->ptr.rpcmem.fd, NULL, 0);
-    rpcmem_free(alloc->ptr.rpcmem.host);
-    alloc->ptr.rpcmem.host = NULL;
-    alloc->ptr.rpcmem.fd = -1;
-    alloc->ptr.rpcmem.dsp_vaddr = 0;
-    break;
-
-  case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
-    hexagon_dsp_buffer_hap_free(alloc->rpc_session_handle,
-                                alloc->ptr.device_hap);
-    alloc->ptr.device_hap = 0;
-    break;
+  while (alloc->map_count > 0) {
+    if (!iree_status_is_ok(iree_hal_hexagon_mem_alloc_unmap(alloc))) {
+      break; // unmapping failed, it does not make sense to retry
+    }
   }
 
+  rpcmem_free(alloc->ptr_host);
+  alloc->ptr_host = NULL;
+  alloc->fd = -1;
+
   iree_allocator_free(alloc->host_allocator, alloc);
+}
+
+void *iree_hal_hexagon_mem_alloc_impl_ptr(iree_hal_hexagon_mem_alloc_t *alloc) {
+  // We need to return any pointer that can be used for identifying the memory
+  // allocation. The host pointer works fine for this.
+  return alloc->ptr_host;
 }
 
 iree_status_t
@@ -192,53 +109,72 @@ iree_hal_hexagon_mem_alloc_get_host_span(iree_hal_hexagon_mem_alloc_t *alloc,
                                          iree_byte_span_t *out_host_span) {
   IREE_ASSERT_ARGUMENT(alloc);
   IREE_ASSERT_ARGUMENT(out_host_span);
-  out_host_span->data = NULL;
-  out_host_span->data_length = 0;
-
-  switch (alloc->kind) {
-  case IREE_HAL_HEXAGON_MEM_KIND_HOST:
-    out_host_span->data = alloc->ptr.host;
-    out_host_span->data_length = alloc->size;
-    return iree_ok_status();
-  case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
-    out_host_span->data = alloc->ptr.rpcmem.host;
-    out_host_span->data_length = alloc->size;
-    return iree_ok_status();
-  case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
-    // no host pointer available
-    break;
-  }
-
-  return iree_make_status(IREE_STATUS_INCOMPATIBLE,
-                          "Hexagon memory kind %d does not have a host pointer",
-                          alloc->kind);
+  out_host_span->data = alloc->ptr_host;
+  out_host_span->data_length = alloc->size;
+  return iree_ok_status();
 }
 
 iree_status_t
-iree_hal_hexagon_mem_alloc_get_dsp_vaddr(iree_hal_hexagon_mem_alloc_t *alloc,
-                                         rpc_dsp_vaddr_t *out_dsp_vaddr) {
+iree_hal_hexagon_mem_alloc_map(iree_hal_hexagon_mem_alloc_t *alloc,
+                               int *out_fd) {
   IREE_ASSERT_ARGUMENT(alloc);
-  IREE_ASSERT_ARGUMENT(out_dsp_vaddr);
-  *out_dsp_vaddr = 0;
+  IREE_ASSERT_ARGUMENT(out_fd);
 
-  switch (alloc->kind) {
-  case IREE_HAL_HEXAGON_MEM_KIND_HOST:
-    // no DSP virtual address available
-    break;
-  case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
-    *out_dsp_vaddr = alloc->ptr.rpcmem.dsp_vaddr;
-    return iree_ok_status();
-  case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
-    *out_dsp_vaddr = alloc->ptr.device_hap;
-    return iree_ok_status();
+  if (alloc->map_count == 0) {
+    int fd = rpcmem_to_fd(alloc->ptr_host);
+    if (fd == -1) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "cannot get file descriptor for RPC memory");
+    }
+    int dsp_err = fastrpc_mmap(alloc->domain_id, fd, alloc->ptr_host, 0,
+                               alloc->size, FASTRPC_MAP_FD);
+    if (dsp_err != AEE_SUCCESS) {
+      return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
+          dsp_err, "cannot map RPC memory to DSP");
+    }
+    alloc->fd = fd;
   }
+  alloc->map_count++;
 
-  return iree_make_status(
-      IREE_STATUS_INCOMPATIBLE,
-      "Hexagon memory kind %d does not have a DSP virtual address",
-      alloc->kind);
+  *out_fd = alloc->fd;
+  return iree_ok_status();
 }
 
-void *iree_hal_hexagon_mem_alloc_impl_ptr(iree_hal_hexagon_mem_alloc_t *alloc) {
-  return alloc->ptr.impl_ptr;
+iree_status_t
+iree_hal_hexagon_mem_alloc_get_fd(iree_hal_hexagon_mem_alloc_t *alloc,
+                                  int *out_fd) {
+  IREE_ASSERT_ARGUMENT(alloc);
+  IREE_ASSERT_ARGUMENT(out_fd);
+
+  if (alloc->map_count == 0) {
+    return iree_make_status(
+        IREE_STATUS_NOT_FOUND,
+        "cannot get file descriptor for RPC memory not mapped to DSP");
+  }
+
+  *out_fd = alloc->fd;
+  return iree_ok_status();
+}
+
+iree_status_t
+iree_hal_hexagon_mem_alloc_unmap(iree_hal_hexagon_mem_alloc_t *alloc) {
+  IREE_ASSERT_ARGUMENT(alloc);
+
+  if (alloc->map_count == 0) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "cannot unmap RPC memory that is not mapped to DSP");
+  }
+
+  if (alloc->map_count == 1) {
+    int dsp_err = fastrpc_munmap(alloc->domain_id, alloc->fd, NULL, 0);
+    if (dsp_err != AEE_SUCCESS) {
+      return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
+          dsp_err, "cannot unmap RPC memory from DSP");
+    }
+    alloc->fd = -1;
+  }
+  alloc->map_count--;
+
+  return iree_ok_status();
 }

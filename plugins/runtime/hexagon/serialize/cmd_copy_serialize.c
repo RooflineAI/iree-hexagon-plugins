@@ -18,8 +18,8 @@ iree_hal_hexagon_cmd_copy_serialize_prep(iree_host_size_t *out_cmd_size) {
 iree_status_t iree_hal_hexagon_cmd_copy_serialize_exec(
     const iree_hal_buffer_ref_t *source_ref,
     const iree_hal_buffer_ref_t *target_ref,
-    iree_hal_hexagon_buffer_to_dsp_vaddr_t buffer_to_dsp_vaddr,
-    uint8_t *cmd_data, iree_host_size_t cmd_size) {
+    iree_hal_hexagon_get_buffer_fd_t get_buffer_fd, uint8_t *cmd_data,
+    iree_host_size_t cmd_size) {
 
   uint8_t *ptr = cmd_data;
   uint8_t *endptr = cmd_data + cmd_size;
@@ -29,26 +29,22 @@ iree_status_t iree_hal_hexagon_cmd_copy_serialize_exec(
   copy->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_COPY;
 
   // fill in source buffer
-  rpc_dsp_vaddr_t src_dsp_vaddr =
-      0; // stays at 0 if no buffer, means to use slot
+  int src_fd = -1; // stays at -1 if no buffer, means to use slot
   if (source_ref->buffer) {
-    IREE_RETURN_IF_ERROR(
-        buffer_to_dsp_vaddr(source_ref->buffer, &src_dsp_vaddr));
+    IREE_RETURN_IF_ERROR(get_buffer_fd(source_ref->buffer, &src_fd));
   }
   copy->src.slot = source_ref->buffer_slot;
-  copy->src.buffer_dsp_vaddr = src_dsp_vaddr;
+  copy->src.fd = src_fd;
   copy->src.offset = source_ref->offset;
   copy->src.length = source_ref->length;
 
   // fill in target buffer
-  rpc_dsp_vaddr_t trgt_dsp_vaddr =
-      0; // stays at 0 if no buffer, means to use slot
+  int trgt_fd = -1; // stays at -1 if no buffer, means to use slot
   if (target_ref->buffer) {
-    IREE_RETURN_IF_ERROR(
-        buffer_to_dsp_vaddr(target_ref->buffer, &trgt_dsp_vaddr));
+    IREE_RETURN_IF_ERROR(get_buffer_fd(target_ref->buffer, &trgt_fd));
   }
   copy->trgt.slot = target_ref->buffer_slot;
-  copy->trgt.buffer_dsp_vaddr = trgt_dsp_vaddr;
+  copy->trgt.fd = trgt_fd;
   copy->trgt.offset = target_ref->offset;
   copy->trgt.length = target_ref->length;
 

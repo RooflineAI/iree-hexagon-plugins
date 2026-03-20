@@ -19,5 +19,3 @@ ASSERT_T_EQ(remote_handle64, rpc_session_handle_t);
 ASSERT_T_EQ(int64, rpc_executable_handle_t);
 
 ASSERT_T_EQ(int64, rpc_command_buffer_handle_t);
-
-ASSERT_T_EQ(int64, rpc_dsp_vaddr_t);

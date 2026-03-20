@@ -25,7 +25,7 @@ TEST(CmdFillSerializeTest, SerializeDirectBufferWithFourBytePattern) {
 
   std::vector<uint8_t> buffer(cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_fill_serialize_exec(
-      pattern.size(), pattern.data(), &dest, hexagon_test_buffer_to_dsp_vaddr,
+      pattern.size(), pattern.data(), &dest, hexagon_test_get_buffer_fd,
       buffer.data(), buffer.size()));
 
   const auto *cmd_fill =
@@ -37,7 +37,7 @@ TEST(CmdFillSerializeTest, SerializeDirectBufferWithFourBytePattern) {
   }
 
   EXPECT_EQ(dest.buffer_slot, cmd_fill->trgt.slot);
-  EXPECT_EQ(0x420001, cmd_fill->trgt.buffer_dsp_vaddr);
+  EXPECT_EQ(HEXAGON_TEST_FAKE_FD(1), cmd_fill->trgt.fd);
   EXPECT_EQ(dest.offset, cmd_fill->trgt.offset);
   EXPECT_EQ(dest.length, cmd_fill->trgt.length);
 }
@@ -53,7 +53,7 @@ TEST(CmdFillSerializeTest, SerializeIndirectBufferWithSingleBytePattern) {
 
   std::vector<uint8_t> buffer(cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_fill_serialize_exec(
-      pattern.size(), pattern.data(), &dest, hexagon_test_buffer_to_dsp_vaddr,
+      pattern.size(), pattern.data(), &dest, hexagon_test_get_buffer_fd,
       buffer.data(), buffer.size()));
 
   const auto *cmd_fill =
@@ -63,7 +63,7 @@ TEST(CmdFillSerializeTest, SerializeIndirectBufferWithSingleBytePattern) {
   EXPECT_EQ(pattern[0], cmd_fill->pattern[0]);
 
   EXPECT_EQ(dest.buffer_slot, cmd_fill->trgt.slot);
-  EXPECT_EQ(0, cmd_fill->trgt.buffer_dsp_vaddr);
+  EXPECT_EQ(-1, cmd_fill->trgt.fd);
   EXPECT_EQ(dest.offset, cmd_fill->trgt.offset);
   EXPECT_EQ(dest.length, cmd_fill->trgt.length);
 }

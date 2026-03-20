@@ -21,7 +21,4 @@ typedef long long rpc_executable_handle_t;
 /// RPC command buffer handle
 typedef long long rpc_command_buffer_handle_t;
 
-/// DSP virtual memory address
-typedef long long rpc_dsp_vaddr_t;
-
 #endif // IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_RPC_TYPES_H_

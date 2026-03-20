@@ -7,7 +7,7 @@
 
 /// a buffer binding for a command buffer execution
 typedef struct hexagon_rt_arm_dsp_binding_s {
-  int64_t buffer_dsp_vaddr;
+  int32_t fd; ///< file descriptor of RPCmem allocation
   uint64_t offset;
   uint64_t length;
 } __attribute__((packed)) hexagon_rt_arm_dsp_binding_t;

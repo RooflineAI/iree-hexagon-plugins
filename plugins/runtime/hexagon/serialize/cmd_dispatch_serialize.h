@@ -32,8 +32,9 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_prep(
  * @param[in] bindings buffer bindings for the dispatch, either fixed buffers or
  *                     references to the binding table passed to command buffer
  *                     execution
- * @param[in] buffer_to_dsp_vaddr function for obtaining the DSP virtual address
- *                                from a buffer
+ * @param[in] get_buffer_fd function for obtaining the file descriptor for a
+ *                          mapped RPCmem (needs to be passed in here for
+ *                          decoupling unit test from actual HAL)
  * @param[out] cmd_data buffer filled with serialized data
  * @param[in] cmd_size size of buffer for serialized data
  * @return IREE status
@@ -44,7 +45,7 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
     const iree_hal_dispatch_config_t *config,
     const iree_const_byte_span_t *constants,
     const iree_hal_buffer_ref_list_t *bindings,
-    iree_hal_hexagon_buffer_to_dsp_vaddr_t buffer_to_dsp_vaddr,
-    uint8_t *cmd_data, iree_host_size_t cmd_size);
+    iree_hal_hexagon_get_buffer_fd_t get_buffer_fd, uint8_t *cmd_data,
+    iree_host_size_t cmd_size);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_CMD_DISPATCH_SERIALIZE_H_

@@ -47,8 +47,8 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
     const iree_hal_dispatch_config_t *config,
     const iree_const_byte_span_t *constants,
     const iree_hal_buffer_ref_list_t *bindings,
-    iree_hal_hexagon_buffer_to_dsp_vaddr_t buffer_to_dsp_vaddr,
-    uint8_t *cmd_data, iree_host_size_t cmd_size) {
+    iree_hal_hexagon_get_buffer_fd_t get_buffer_fd, uint8_t *cmd_data,
+    iree_host_size_t cmd_size) {
 
   // workgroup size Z uses a short type in IREE dispatches, check for overflow
   if (config->workgroup_size[2] > UINT16_MAX) {
@@ -100,13 +100,13 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
   // serialize bindings
   for (uint32_t b = 0; b < bindings->count; ++b) {
     const iree_hal_buffer_ref_t *binding = &bindings->values[b];
-    rpc_dsp_vaddr_t dsp_vaddr = 0; // stays at 0 if no buffer, means to use slot
+    int fd = -1; // stays at -1 if no buffer, means to use slot
     if (binding->buffer) {
-      IREE_RETURN_IF_ERROR(buffer_to_dsp_vaddr(binding->buffer, &dsp_vaddr));
+      IREE_RETURN_IF_ERROR(get_buffer_fd(binding->buffer, &fd));
     }
     SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_buf_ref_t, bndg)
     bndg->slot = binding->buffer_slot;
-    bndg->buffer_dsp_vaddr = dsp_vaddr;
+    bndg->fd = fd;
     bndg->offset = binding->offset;
     bndg->length = binding->length;
   }

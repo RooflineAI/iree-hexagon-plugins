@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #include "hexagon/arm_dsp/bindings.h"
-#include "hexagon/serialize/rpc_types.h"
+#include "hexagon/serialize/command_buffer_types.h"
 #include "iree/base/api.h"
 #include "rpc_types.h"
 #include "serialize.h"
@@ -25,9 +25,8 @@ iree_status_t iree_hal_hexagon_bindings_serialize_prep(
 
 iree_status_t iree_hal_hexagon_bindings_serialize_exec(
     const iree_hal_buffer_binding_table_t *binding_table,
-    iree_status_t (*buffer_to_dsp_vaddr)(iree_hal_buffer_t *buffer,
-                                         rpc_dsp_vaddr_t *out_dsp_vaddr),
-    uint8_t *bind_tab_data, iree_host_size_t bind_tab_size) {
+    iree_hal_hexagon_get_buffer_fd_t get_buffer_fd, uint8_t *bind_tab_data,
+    iree_host_size_t bind_tab_size) {
   uint8_t *ptr = bind_tab_data;
   uint8_t *endptr = bind_tab_data + bind_tab_size;
 
@@ -38,10 +37,10 @@ iree_status_t iree_hal_hexagon_bindings_serialize_exec(
   // serialize all binding entries
   for (iree_host_size_t i = 0; i < binding_table->count; ++i) {
     const iree_hal_buffer_binding_t *binding = &binding_table->bindings[i];
-    rpc_dsp_vaddr_t dsp_vaddr = 0;
-    IREE_RETURN_IF_ERROR(buffer_to_dsp_vaddr(binding->buffer, &dsp_vaddr));
+    int fd = -1;
+    IREE_RETURN_IF_ERROR(get_buffer_fd(binding->buffer, &fd));
     SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_binding_t, bndg)
-    bndg->buffer_dsp_vaddr = dsp_vaddr;
+    bndg->fd = fd;
     bndg->offset = binding->offset;
     bndg->length = binding->length;
   }

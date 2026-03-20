@@ -138,32 +138,6 @@ static void iree_hal_hexagon_allocator_query_statistics(
   });
 }
 
-static iree_status_t iree_hal_hexagon_allocator_select_mem_kind(
-    iree_hal_memory_type_t memory_type,
-    iree_hal_hexagon_mem_kind_t *out_mem_kind) {
-  // Memory does not need to be device-visible.
-  // -> Use host allocator memory. It is automatically cached and coherent, so
-  // no need to check for those flags.
-  if (!iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE)) {
-    *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_HOST;
-    return iree_ok_status();
-  }
-
-  // Memory does not need to be host-visble.
-  // -> Use device HAP_malloc memory.
-  if (!iree_any_bit_set(memory_type, IREE_HAL_MEMORY_TYPE_HOST_VISIBLE)) {
-    *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP;
-    return iree_ok_status();
-  }
-
-  // Memory needs to be host-visible and device-visible.
-  // -> Use RPC memory. mem_alloc.c uses RPCMEM_DEFAULT_FLAGS, which results in
-  // cached and coherent memory according to
-  // Hexagon_SDK/6.3.0.0/docs/software/os/os_support_dsp.html#cache-management
-  *out_mem_kind = IREE_HAL_HEXAGON_MEM_KIND_RPCMEM;
-  return iree_ok_status();
-}
-
 static iree_status_t iree_hal_hexagon_allocator_query_memory_heaps(
     iree_hal_allocator_t *IREE_RESTRICT base_allocator,
     iree_host_size_t capacity,
@@ -205,31 +179,11 @@ iree_hal_hexagon_allocator_query_buffer_compatibility(
   // We are now optimal.
   params->type &= ~IREE_HAL_MEMORY_TYPE_OPTIMAL;
 
-  // Compatibility depends on selected memory kind, so find memory kind first
-  // and fill compatibility based on selected kind. If there is no kind of
-  // memory for the requested type, there is no compatibility with anything.
-  iree_hal_hexagon_mem_kind_t mem_kind = 0;
-  if (iree_status_is_ok(iree_hal_hexagon_allocator_select_mem_kind(
-          params->type, &mem_kind))) {
-    switch (mem_kind) {
-    case IREE_HAL_HEXAGON_MEM_KIND_HOST:
-      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE;
-      // TODO: Add other things possible with host allocator memory.
-      break;
-    case IREE_HAL_HEXAGON_MEM_KIND_RPCMEM:
-      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH |
-                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER;
-      // TODO: Add other things possible with RPC memory.
-      break;
-    case IREE_HAL_HEXAGON_MEM_KIND_DEVICE_HAP:
-      compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
-                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH |
-                       IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER;
-      // TODO: Add other things possible with device HAP_malloc memory.
-      break;
-    }
-  }
+  // Add flags for about what is possible with RPC memory.
+  compatibility |= IREE_HAL_BUFFER_COMPATIBILITY_ALLOCATABLE |
+                   IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_DISPATCH |
+                   IREE_HAL_BUFFER_COMPATIBILITY_QUEUE_TRANSFER;
+  // TODO: Add other things possible with RPC memory.
 
   // Guard against the corner case where the requested buffer size is 0. The
   // application is unlikely to do anything when requesting a 0-byte buffer; but
@@ -295,19 +249,14 @@ static iree_status_t iree_hal_hexagon_allocator_allocate_buffer(
   iree_hal_memory_access_t allowed_access = compat_params.access;
   iree_hal_buffer_usage_t allowed_usage = compat_params.usage;
 
-  // Select kind of Hexagon memory based on memory type.
-  iree_hal_hexagon_mem_kind_t mem_kind = 0;
-  IREE_RETURN_IF_ERROR(iree_hal_hexagon_allocator_select_mem_kind(
-      compat_params.type, &mem_kind));
-
   iree_hal_hexagon_domain_id_t domain_id =
       iree_hal_hexagon_device_get_domain_id(allocator->device);
   rpc_session_handle_t rpc_session_handle =
       iree_hal_hexagon_device_get_rpc_session_handle(allocator->device);
   iree_hal_hexagon_mem_alloc_t *alloc = NULL;
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_mem_alloc_create(
-      allocator->host_allocator, domain_id, rpc_session_handle, mem_kind,
-      allocation_size, &alloc));
+      allocator->host_allocator, domain_id, rpc_session_handle, allocation_size,
+      &alloc));
 
   // Allocate an IREE buffer data structure and put the allocated memory into
   // it.

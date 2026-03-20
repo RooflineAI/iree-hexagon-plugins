@@ -917,6 +917,14 @@ static iree_status_t iree_hal_hexagon_device_queue_dispatch(
       executable, export_ordinal, config, constants, bindings, flags);
 }
 
+static void
+iree_hal_hexagon_device_helper_unmap(const iree_hal_buffer_binding_t *bindings,
+                                     iree_host_size_t binding_cnt) {
+  for (iree_host_size_t idx = 0; idx < binding_cnt; ++idx) {
+    iree_hal_hexagon_buffer_unmap_from_dsp(bindings[idx].buffer);
+  }
+}
+
 static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
     iree_hal_hexagon_device_t *device,
     iree_hal_command_buffer_t *command_buffer,
@@ -926,19 +934,40 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_command_buffer_get_rpc_handle(
       command_buffer, &rpc_command_buffer_handle));
 
+  // Map all buffers in the binding table to the DSP.
+  for (iree_host_size_t idx = 0; idx < binding_table.count; ++idx) {
+    int fd = -1;
+    iree_status_t status = iree_hal_hexagon_buffer_map_to_dsp(
+        binding_table.bindings[idx].buffer, &fd);
+    if (!iree_status_is_ok(status)) {
+      // went wrong for one buffer, unmap the ones already mapped
+      iree_hal_hexagon_device_helper_unmap(binding_table.bindings, idx);
+      return status;
+    }
+  }
+
   // Get size of serialized binding data.
   iree_host_size_t bind_tab_size = 0;
-  IREE_RETURN_IF_ERROR(
-      iree_hal_hexagon_bindings_serialize_prep(&binding_table, &bind_tab_size));
+  iree_status_t status =
+      iree_hal_hexagon_bindings_serialize_prep(&binding_table, &bind_tab_size);
+  if (!iree_status_is_ok(status)) {
+    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                         binding_table.count);
+    return status;
+  }
 
   // Allocate RPC memory buffer for serialized binding data.
   if (bind_tab_size > INT_MAX /* max size supported by rpcmem_alloc() */) {
+    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                         binding_table.count);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "serialized binding table too big");
   }
   uint8_t *bind_tab_data = rpcmem_alloc(
       RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS, (int)bind_tab_size);
   if (!bind_tab_data) {
+    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                         binding_table.count);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "out of RPC memory");
   }
@@ -946,11 +975,13 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
   // Serialize binding table to ARM/DSP data.
   iree_status_t status_serialize_exec =
       iree_hal_hexagon_bindings_serialize_exec(
-          &binding_table, iree_hal_hexagon_buffer_get_dsp_vaddr, bind_tab_data,
+          &binding_table, iree_hal_hexagon_buffer_get_fd_for_dsp, bind_tab_data,
           bind_tab_size);
 
   if (!iree_status_is_ok(status_serialize_exec)) {
     rpcmem_free(bind_tab_data);
+    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                         binding_table.count);
     return status_serialize_exec;
   }
 
@@ -963,6 +994,8 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
           &profiling_data_size);
   if (!iree_status_is_ok(status_profiling)) {
     rpcmem_free(bind_tab_data);
+    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                         binding_table.count);
     return status_profiling;
   }
 #endif
@@ -974,9 +1007,13 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       device->rpc_session_handle, rpc_command_buffer_handle, bind_tab_data,
       bind_tab_size, profiling_data, profiling_data_size);
   rpcmem_free(bind_tab_data);
+  iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                       binding_table.count);
 
   if (dsp_err != AEE_SUCCESS) {
     rpcmem_free(profiling_data);
+    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                         binding_table.count);
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
         dsp_err, "could not execute command buffer on DSP");
   }
@@ -988,6 +1025,8 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       bind_tab_size);
 
   rpcmem_free(bind_tab_data);
+  iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                       binding_table.count);
 
   if (dsp_err != AEE_SUCCESS) {
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
@@ -1001,6 +1040,8 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       &device->tracy_plot_context);
 
   rpcmem_free(profiling_data);
+  iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
+                                       binding_table.count);
 
   if (!iree_status_is_ok(status_exporting)) {
     return status_exporting;

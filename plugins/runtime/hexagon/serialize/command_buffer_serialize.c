@@ -6,9 +6,8 @@
 
 #include "command_buffer_types.h"
 #include "hexagon/arm_dsp/cmd_buf.h"
-#include "hexagon/serialize/rpc_types.h"
+#include "hexagon/serialize/command_buffer_types.h"
 #include "iree/base/api.h"
-#include "rpc_types.h"
 #include "serialize.h"
 
 iree_status_t iree_hal_hexagon_command_buffer_serialize_prep(
@@ -40,8 +39,6 @@ iree_status_t iree_hal_hexagon_command_buffer_serialize_prep(
 
 iree_status_t iree_hal_hexagon_command_buffer_serialize_exec(
     const iree_hal_hexagon_command_buffer_t *command_buffer,
-    iree_status_t (*buffer_to_dsp_vaddr)(iree_hal_buffer_t *buffer,
-                                         rpc_dsp_vaddr_t *out_dsp_vaddr),
     uint32_t num_entries, uint8_t *cmd_buf_data,
     iree_host_size_t cmd_buf_size) {
 

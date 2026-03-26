@@ -22,6 +22,7 @@ cc_library(
         ],
         "//conditions:default": [],
     }),
+    strip_include_prefix = "/plugins/runtime",
     deps = [
         "//plugins/runtime/hexagon/arm_dsp/pmu:hexagon_pmu_events",
     ],

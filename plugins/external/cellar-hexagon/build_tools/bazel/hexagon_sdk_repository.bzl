@@ -56,6 +56,28 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "qhl_hvx_headers",
+    hdrs = glob([
+        "libs/qfe/inc/**",
+        "libs/qhl_hvx/inc/**",
+    ]),
+    includes = [
+        "libs/qfe/inc",
+        "libs/qhl_hvx/inc",
+    ],
+)
+
+cc_library(
+    name = "hexagon_toolchain_bit_headers",
+    hdrs = glob([
+        "tools/HEXAGON_Tools/19.0.04/Tools/target/hexagon/include/c++/v1/__bit/**",
+    ]),
+    includes = [
+        "tools/HEXAGON_Tools/19.0.04/Tools/target/hexagon/include/c++/v1/__bit",
+    ],
+)
+
 cc_import(
     name = "cdsprpc_android_aarch64",
     hdrs = glob(["incs/**", "ipc/fastrpc/rpcmem/inc/**"]),

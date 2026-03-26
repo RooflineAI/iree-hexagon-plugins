@@ -15,6 +15,7 @@ cc_library(
         "hexagon_pmu.h",
         "hexagon_timer.h",
     ],
+    strip_include_prefix = "/plugins/runtime",
     deps = [
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
         "//plugins/runtime/hexagon/arm_dsp/pmu:hexagon_pmu_events",

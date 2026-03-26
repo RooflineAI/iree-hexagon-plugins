@@ -15,4 +15,5 @@ cc_library(
         "hexagon_pmu_events_ids.h",
         "hexagon_pmu_events_table.inc",
     ],
+    strip_include_prefix = "/plugins/runtime",
 )

@@ -1,0 +1,40 @@
+load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+td_library(
+    name = "CopyOpInterfaceTdFiles",
+    srcs = ["CopyOpInterface.td"],
+    includes = ["/qcom_hexagon_backend/include"],
+    deps = ["@llvm-project//mlir:OpBaseTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "CopyOpInterfaceIncGen",
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "CopyOpInterface.h.inc": ["-gen-op-interface-decls"],
+        "CopyOpInterface.cpp.inc": ["-gen-op-interface-defs"],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "CopyOpInterface.td",
+    deps = [":CopyOpInterfaceTdFiles"],
+)
+
+filegroup(
+    name = "CopyOpInterfaceHeader",
+    srcs = ["CopyOpInterface.h"],
+)
+
+cc_library(
+    name = "CopyOpInterface",
+    srcs = ["CopyOpInterface.cpp"],
+    hdrs = [":CopyOpInterfaceHeader"],
+    includes = ["../.."],
+    deps = [
+        ":CopyOpInterfaceIncGen",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+    ],
+)

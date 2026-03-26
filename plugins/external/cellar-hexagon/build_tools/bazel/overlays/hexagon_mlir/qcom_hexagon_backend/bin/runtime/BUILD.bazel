@@ -1,0 +1,65 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "runtime_lib",
+    srcs = [
+        "IntrinsicsHVX.c",
+        "UserDMA/RuntimeDMA.cc",
+        "UserDMA/UserDMA.cc",
+        "multithreading/AsyncRuntime.cpp",
+        "multithreading/HexagonCustomDefs.cpp",
+        "multithreading/HexagonThreadPool.cpp",
+        "multithreading/MemAlloc.cpp",
+        "multithreading/StringMap.cpp",
+        "profiler/lwp_handler.S",
+        "src/HexagonAPI.cpp",
+        "src/HexagonBuffer.cpp",
+        "src/HexagonBufferAlias.cpp",
+        "src/HexagonCAPI.cpp",
+        "src/HexKLAPI.cpp",
+        "src/VTCMPool.cpp",
+    ],
+    hdrs = [
+        "UserDMA/RingBuffer.h",
+        "UserDMA/UserDMA.h",
+        "UserDMA/UserDMADescriptors.h",
+        "UserDMA/UserDMAInstructions.h",
+        "UserDMA/UserDMARegisters.h",
+        "include/Attributes.h",
+        "include/BufferManager.h",
+        "include/HexagonAPI.h",
+        "include/HexagonBuffer.h",
+        "include/HexagonBufferAlias.h",
+        "include/HexagonCAPI.h",
+        "include/HexagonCommon.h",
+        "include/HexKLAPI.h",
+        "include/RuntimeDMA.h",
+        "include/VTCMPool.h",
+        "multithreading/AsyncRuntime.h",
+        "multithreading/HexagonThreadPool.h",
+        "multithreading/fake_includes/machine/endian.h",
+        "test/HexagonResources.h",
+    ],
+    # Note that the "fake_includes" pattern is copied from hexagon-mlir upstream
+    # Without it, some error during compilation is returned because of missing
+    # system headers in hexagon. Those definitions are instead in the
+    # hexagon_toolchain_bit_headers from the sdk that is added below.
+    # Check the CMakeLists.txt under Multithreading in hexagon-mlir to compare.
+    includes = [
+        "include",
+        "multithreading/fake_includes",
+    ],
+    target_compatible_with = [
+        "@patio_cellar_hexagon//constraints:cpu_hexagon",
+        "@patio_cellar_hexagon//constraints:os_qurt",
+    ],
+    deps = [
+        "@hexkl//:hexkl_micro_v79",
+        "@hexagon_sdk//:hexagon_toolchain_bit_headers",
+        "@hexagon_sdk//:qhl_hvx_headers",
+        "@hexagon_sdk//:qurt_headers",
+        "@llvm-project//mlir:LLVMSupportHeaders",
+    ],
+)

@@ -1,0 +1,28 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "HexagonCommon",
+    srcs = [
+        "Common.cpp",
+        "DMATransferUtil.cpp",
+    ],
+    copts = [
+        # hexagon-mlir upstream still uses deprecated IRRewriter::create APIs.
+        "-Wno-error=deprecated-declarations",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonCommonHeaders",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMCommonConversion",
+        "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:LinalgTransforms",
+        "@llvm-project//mlir:MemRefUtils",
+        "@llvm-project//mlir:Pass",
+    ],
+)

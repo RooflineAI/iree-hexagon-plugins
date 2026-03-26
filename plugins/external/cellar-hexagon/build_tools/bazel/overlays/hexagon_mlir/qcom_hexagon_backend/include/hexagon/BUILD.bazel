@@ -1,0 +1,279 @@
+load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "CommonHeaders",
+    srcs = [
+        "Common/Common.h",
+        "Common/DMATransferUtil.h",
+    ],
+)
+
+# The targets containing the include_prefix are expected to be imported in c files
+# while those that do not have it are helpers to build them
+
+cc_library(
+    name = "HexagonCommonHeaders",
+    hdrs = [":CommonHeaders"],
+    include_prefix = "hexagon-mlir",
+    strip_include_prefix = ".",
+)
+
+filegroup(
+    name = "HexKLHeaders",
+    srcs = glob(["Dialect/HexKL/IR/*.h"]),
+)
+
+cc_library(
+    name = "HexKLHeadersLib",
+    hdrs = [":HexKLHeaders"],
+    include_prefix = "hexagon-mlir",
+    strip_include_prefix = ".",
+    deps = [":HexKLTableGen"],
+)
+
+filegroup(
+    name = "HexagonMemHeaders",
+    srcs = glob(["Dialect/HexagonMem/IR/*.h"]),
+)
+
+cc_library(
+    name = "HexagonMemHeadersLib",
+    hdrs = [":HexagonMemHeaders"],
+    include_prefix = "hexagon-mlir",
+    strip_include_prefix = ".",
+    deps = [
+        ":HexagonMemTableGen",
+        "@hexagon-mlir//qcom_hexagon_backend/include/mlir/Interfaces:CopyOpInterface",
+    ],
+)
+
+filegroup(
+    name = "ConversionHeaders",
+    srcs = glob(["Conversion/**/*.h"]),
+)
+
+cc_library(
+    name = "ConversionHeadersLib",
+    hdrs = [":ConversionHeaders"],
+    include_prefix = "hexagon-mlir",
+    strip_include_prefix = ".",
+    deps = [
+        ":AffineToLLVMConversionPassIncGen",
+        ":DMAToLLVMConversionPassIncGen",
+        ":HexKLToLLVMConversionPassIncGen",
+        ":HexagonMemToLLVMConversionPassIncGen",
+        ":LinalgToLLVMConversionPassIncGen",
+    ],
+)
+
+filegroup(
+    name = "TransformsHeaders",
+    srcs = glob(["Transforms/*.h"]),
+)
+
+cc_library(
+    name = "TransformsHeadersLib",
+    hdrs = [":TransformsHeaders"],
+    include_prefix = "hexagon-mlir",
+    strip_include_prefix = ".",
+    deps = [":TransformsPassIncGen"],
+)
+
+td_library(
+    name = "HexKLTdFiles",
+    srcs = [
+        "Dialect/HexKL/IR/HexKLDialect.td",
+        "Dialect/HexKL/IR/HexKLOps.td",
+    ],
+    includes = ["/qcom_hexagon_backend/include"],
+    deps = [
+        "@llvm-project//mlir:BuiltinDialectTdFiles",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:SideEffectInterfacesTdFiles",
+    ],
+)
+
+gentbl_cc_library(
+    name = "HexKLTableGen",
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Dialect/HexKL/IR/HexKLDialect.cpp.inc": [
+            "-gen-dialect-defs",
+            "-dialect=hexkl",
+        ],
+        "Dialect/HexKL/IR/HexKLDialect.h.inc": [
+            "-gen-dialect-decls",
+            "-dialect=hexkl",
+        ],
+        "Dialect/HexKL/IR/HexKLOps.cpp.inc": [
+            "-gen-op-defs",
+        ],
+        "Dialect/HexKL/IR/HexKLOps.h.inc": [
+            "-gen-op-decls",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Dialect/HexKL/IR/HexKLOps.td",
+    deps = [":HexKLTdFiles"],
+)
+
+td_library(
+    name = "HexagonMemTdFiles",
+    srcs = [
+        "Dialect/HexagonMem/IR/HexagonMemDialect.td",
+        "Dialect/HexagonMem/IR/HexagonMemOps.td",
+        "Dialect/HexagonMem/IR/HexagonMemTypes.td",
+    ],
+    includes = ["/qcom_hexagon_backend/include"],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/mlir/Interfaces:CopyOpInterfaceTdFiles",
+        "@llvm-project//mlir:AttrTdFiles",
+        "@llvm-project//mlir:BuiltinDialectTdFiles",
+        "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",
+        "@llvm-project//mlir:MemRefOpsTdFiles",
+        "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:SideEffectInterfacesTdFiles",
+    ],
+)
+
+gentbl_cc_library(
+    name = "HexagonMemTableGen",
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Dialect/HexagonMem/IR/HexagonMemAttrs.cpp.inc": [
+            "-gen-attrdef-defs",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemAttrs.h.inc": [
+            "-gen-attrdef-decls",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemDialect.cpp.inc": [
+            "-gen-dialect-defs",
+            "-dialect=hexagonmem",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemDialect.h.inc": [
+            "-gen-dialect-decls",
+            "-dialect=hexagonmem",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemEnums.cpp.inc": [
+            "-gen-enum-defs",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemEnums.h.inc": [
+            "-gen-enum-decls",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemOps.cpp.inc": [
+            "-gen-op-defs",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemOps.h.inc": [
+            "-gen-op-decls",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemTypes.cpp.inc": [
+            "-gen-typedef-defs",
+        ],
+        "Dialect/HexagonMem/IR/HexagonMemTypes.h.inc": [
+            "-gen-typedef-decls",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Dialect/HexagonMem/IR/HexagonMemOps.td",
+    deps = [":HexagonMemTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "TransformsPassIncGen",
+    includes = ["/qcom_hexagon_backend/include"],
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Transforms/Passes.h.inc": [
+            "-gen-pass-decls",
+            "--name",
+            "Transforms",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Transforms/Passes.td",
+    deps = ["@llvm-project//mlir:PassBaseTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "AffineToLLVMConversionPassIncGen",
+    includes = ["/qcom_hexagon_backend/include"],
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Conversion/AffineToLLVM/Passes.h.inc": [
+            "-gen-pass-decls",
+            "--name",
+            "AffineToLLVM",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Conversion/AffineToLLVM/Passes.td",
+    deps = ["@llvm-project//mlir:PassBaseTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "LinalgToLLVMConversionPassIncGen",
+    includes = ["/qcom_hexagon_backend/include"],
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Conversion/LinalgToLLVM/Passes.h.inc": [
+            "-gen-pass-decls",
+            "--name",
+            "LinalgToLLVM",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Conversion/LinalgToLLVM/Passes.td",
+    deps = ["@llvm-project//mlir:PassBaseTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "DMAToLLVMConversionPassIncGen",
+    includes = ["/qcom_hexagon_backend/include"],
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Conversion/DMAToLLVM/Passes.h.inc": [
+            "-gen-pass-decls",
+            "--name",
+            "DMAToLLVM",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Conversion/DMAToLLVM/Passes.td",
+    deps = ["@llvm-project//mlir:PassBaseTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "HexagonMemToLLVMConversionPassIncGen",
+    includes = ["/qcom_hexagon_backend/include"],
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Conversion/HexagonMemToLLVM/Passes.h.inc": [
+            "-gen-pass-decls",
+            "--name",
+            "HexagonMemToLLVM",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Conversion/HexagonMemToLLVM/Passes.td",
+    deps = ["@llvm-project//mlir:PassBaseTdFiles"],
+)
+
+gentbl_cc_library(
+    name = "HexKLToLLVMConversionPassIncGen",
+    includes = ["/qcom_hexagon_backend/include"],
+    strip_include_prefix = "/qcom_hexagon_backend/include",
+    tbl_outs = {
+        "Conversion/HexKLToLLVM/Passes.h.inc": [
+            "-gen-pass-decls",
+            "--name",
+            "HexKLToLLVM",
+        ],
+    },
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Conversion/HexKLToLLVM/Passes.td",
+    deps = ["@llvm-project//mlir:PassBaseTdFiles"],
+)

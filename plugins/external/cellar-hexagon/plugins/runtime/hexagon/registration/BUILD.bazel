@@ -1,0 +1,23 @@
+# Copyright 2025 RooflineAI GmbH
+
+load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cellar_hexagon_plugin_library(
+    name = "DriverModuleLib",
+    srcs = ["driver_module.c"],
+    hdrs = ["driver_module.h"],
+    hdr_deps = {
+        "IreeBase": "@iree//runtime/src/iree/base",
+        "IreeInternalFlags": "@iree//runtime/src/iree/base/internal:flags",
+        "IreeHal": "@iree//runtime/src/iree/hal",
+    },
+    deps = [
+        "//plugins/runtime/hexagon",
+    ],
+)

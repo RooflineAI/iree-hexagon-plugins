@@ -1,0 +1,137 @@
+# Copyright 2025 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_gentbl_cc_library")
+load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonEncodingExternalModels",
+    srcs = [
+        "HexagonEncodingExternalModels.cpp",
+    ],
+    hdrs = [
+        "HexagonEncodingExternalModels.h",
+    ],
+    hdr_deps = {
+        "IREECodegenDialect": "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
+        "IREECodegenUtils": "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/Utils",
+        "IREEExternalModels": "@iree//compiler/src/iree/compiler/Codegen/ExternalInterfaces:ExternalModels",
+        "IREEGeneralCodegenUtils": "@iree//compiler/src/iree/compiler/Codegen/Utils",
+        "IREEEncodingIR": "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
+        "IREEEncodingUtils": "@iree//compiler/src/iree/compiler/Dialect/Encoding/Utils",
+        "LlvmSupport": "@llvm-project//llvm:Support",
+        "MlirIR": "@llvm-project//mlir:IR",
+    },
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonEncodingIR",
+    ],
+)
+
+iree_gentbl_cc_library(
+    name = "PassesIncGen",
+    strip_include_prefix = "/plugins/compiler",
+    tbl_outs = [
+        (
+            ["--gen-pass-decls"],
+            "Passes.h.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "Passes.td",
+    deps = ["@llvm-project//mlir:PassBaseTdFiles"],
+)
+
+cellar_hexagon_plugin_library(
+    name = "CodeGen",
+    srcs = [
+        "HexagonLowerExecutableTarget.cpp",
+        "Passes.cpp",
+    ],
+    hdrs = [
+        "Passes.h",
+    ],
+    hdr_deps = {
+        "IREECodegenCommon": "@iree//compiler/src/iree/compiler/Codegen/Common",
+        "IREETransformDialectInterpreterPass": "@iree//compiler/src/iree/compiler/Codegen/Common:TransformDialectInterpreterPass",
+        "IREECommonCPUPasses": "@iree//compiler/src/iree/compiler/Codegen/Common/CPU:CommonCPUPasses",
+        "IREECPUDialect": "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
+        "IREECodegenDialect": "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
+        "IREEPartitionableLoops": "@iree//compiler/src/iree/compiler/Codegen/Interfaces:PartitionableLoopsInterface",
+        "IREELLVMCPU": "@iree//compiler/src/iree/compiler/Codegen/LLVMCPU",
+        "IREECodegenUtils": "@iree//compiler/src/iree/compiler/Codegen/Utils",
+        "IREEHALIR": "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
+        "IREEHALDialect": "@iree//compiler/src/iree/compiler/Dialect/HAL/IR:HALDialect",
+        "IREELinalgExtIR": "@iree//compiler/src/iree/compiler/Dialect/LinalgExt/IR",
+        "IREELinalgExtTransforms": "@iree//compiler/src/iree/compiler/Dialect/LinalgExt/Transforms",
+        "IREELinalgExtUtils": "@iree//compiler/src/iree/compiler/Dialect/LinalgExt/Utils",
+        "IREEUtilIR": "@iree//compiler/src/iree/compiler/Dialect/Util/IR",
+        "IREEUtilTransforms": "@iree//compiler/src/iree/compiler/Dialect/Util/Transforms",
+        "IREECompilerUtils": "@iree//compiler/src/iree/compiler/Utils",
+        "IREELinalgTransformDialect": "@iree//llvm-external-projects/iree-dialects:IREELinalgTransformDialect",
+        "IREELinalgTransformDialectPasses": "@iree//llvm-external-projects/iree-dialects:IREELinalgTransformDialectPasses",
+        "LlvmSupport": "@llvm-project//llvm:Support",
+        "MlirAffineDialect": "@llvm-project//mlir:AffineDialect",
+        "MlirAffineToStandard": "@llvm-project//mlir:AffineToStandard",
+        "MlirAffineTransforms": "@llvm-project//mlir:AffineTransforms",
+        "MlirArithToArmSME": "@llvm-project//mlir:ArithToArmSME",
+        "MlirArithTransforms": "@llvm-project//mlir:ArithTransforms",
+        "MlirArmSMEToLLVM": "@llvm-project//mlir:ArmSMEToLLVM",
+        "MlirArmSMEToSCF": "@llvm-project//mlir:ArmSMEToSCF",
+        "MlirArmSMETransforms": "@llvm-project//mlir:ArmSMETransforms",
+        "MlirBufferizationDialect": "@llvm-project//mlir:BufferizationDialect",
+        "MlirComplexToStandard": "@llvm-project//mlir:ComplexToStandard",
+        "MlirConvertToLLVM": "@llvm-project//mlir:ConvertToLLVM",
+        "MlirDialectUtils": "@llvm-project//mlir:DialectUtils",
+        "MlirFuncDialect": "@llvm-project//mlir:FuncDialect",
+        "MlirFunctionInterfaces": "@llvm-project//mlir:FunctionInterfaces",
+        "MlirIR": "@llvm-project//mlir:IR",
+        "MlirLLVMDialect": "@llvm-project//mlir:LLVMDialect",
+        "MlirLinalgDialect": "@llvm-project//mlir:LinalgDialect",
+        "MlirLinalgTransforms": "@llvm-project//mlir:LinalgTransforms",
+        "MlirMemRefTransforms": "@llvm-project//mlir:MemRefTransforms",
+        "MlirPDLDialect": "@llvm-project//mlir:PDLDialect",
+        "MlirPDLInterpDialect": "@llvm-project//mlir:PDLInterpDialect",
+        "MlirPass": "@llvm-project//mlir:Pass",
+        "MlirReconcileUnrealizedCasts": "@llvm-project//mlir:ReconcileUnrealizedCasts",
+        "MlirSCFDialect": "@llvm-project//mlir:SCFDialect",
+        "MlirSCFToControlFlow": "@llvm-project//mlir:SCFToControlFlow",
+        "MlirTensorDialect": "@llvm-project//mlir:TensorDialect",
+        "MlirTransformDialect": "@llvm-project//mlir:TransformDialect",
+        "MlirTransforms": "@llvm-project//mlir:Transforms",
+        "MlirVectorDialect": "@llvm-project//mlir:VectorDialect",
+        "MlirVectorToArmSME": "@llvm-project//mlir:VectorToArmSME",
+        "MlirVectorToLLVM": "@llvm-project//mlir:VectorToLLVM",
+        "MlirVectorTransforms": "@llvm-project//mlir:VectorTransforms",
+    },
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        ":PassesIncGen",
+    ],
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonLinkerTool",
+    srcs = [
+        "HexagonLinkerTool.cpp",
+    ],
+    hdrs = [
+        "HexagonLinkerTool.h",
+    ],
+    hdr_deps = {
+        "LLVMCPULinkerTool": "@iree//compiler/plugins/target/LLVMCPU:LinkerTool",
+        "IREECompilerUtils": "@iree//compiler/src/iree/compiler/Utils",
+        "LlvmCore": "@llvm-project//llvm:Core",
+        "LlvmSupport": "@llvm-project//llvm:Support",
+    },
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)

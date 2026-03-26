@@ -1,0 +1,54 @@
+# Copyright 2025 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
+
+package(
+    default_visibility = ["//visibility:public"],
+)
+
+RPATH_LINKOPTS = select({
+    "@platforms//os:linux": ["-Wl,-rpath,$ORIGIN"],
+    "@platforms//os:osx": ["-Wl,-rpath,@loader_path"],
+    "//conditions:default": [],
+})
+
+filegroup(
+    name = "IREECompilerLib",
+    srcs = select({
+        "@platforms//os:osx": [
+            "@iree//lib:libIREECompilerUnshielded_dylib",
+        ],
+        "//conditions:default": [
+            "@iree//lib:libIREECompilerUnshielded_so",
+        ],
+    }),
+)
+
+cc_import(
+    name = "IREECompilerLibImport",
+    shared_library = ":IREECompilerLib",
+)
+
+cc_binary(
+    name = "cellar_hexagon_compiler_plugin",
+    srcs = [],
+    linkopts = RPATH_LINKOPTS,
+    linkshared = True,
+    deps = [
+        ":IREECompilerLibImport",
+        "//plugins/compiler/cellar-hexagon:registration",
+        "//plugins/compiler/cellar-hexagon/CodeGen",
+        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
+        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonLinkerTool",
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonEncodingIR",
+        "@llvm-project//llvm:HexagonAsmParser",
+        "@llvm-project//llvm:HexagonCodeGen",
+        "@llvm-project//llvm:HexagonDisassembler",
+        "@llvm-project//llvm:HexagonInfo",
+        "@llvm-project//llvm:HexagonUtilsAndDesc",
+    ],
+)

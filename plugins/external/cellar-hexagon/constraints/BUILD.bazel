@@ -1,0 +1,14 @@
+package(default_visibility = ["//visibility:public"])
+
+# The platform package does not provide constraint definitions for Hexagon CPU
+# and its QURT OS, so define those here.
+
+constraint_value(
+    name = "cpu_hexagon",
+    constraint_setting = "@platforms//cpu:cpu",
+)
+
+constraint_value(
+    name = "os_qurt",
+    constraint_setting = "@platforms//os:os",
+)

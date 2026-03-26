@@ -1,0 +1,74 @@
+"""
+This file provides a rule to download the free-to-download version of the
+Hexagon SDK.
+"""
+
+def _hexagon_sdk_repository_impl(repository_ctx):
+    repository_ctx.download_and_extract(
+        url = "https://github.com/snapdragon-toolchain/hexagon-sdk/releases/download/v6.4.0.2/hexagon-sdk-v6.4.0.2-amd64-lnx.tar.xz",
+        sha256 = "b4a57a774795cf12da19a777a5d306e970905bf9758a4c4765e5e4593428ae0b",
+        stripPrefix = "6.4.0.2",
+    )
+    repository_ctx.file(
+        "BUILD.bazel",
+        content = """
+package(default_visibility = ["//visibility:public"])
+
+# This defines a target for one specific file - the Hexagon clang binary - in
+# the Hexagon SDK. This can be used as an anchor to construct paths to other
+# files and directories in the SDK. For example, the Hexagon toolchain uses this
+# to define paths to include directories, libs, ...
+filegroup(
+    name = "hexagon_clang",
+    srcs = ["tools/HEXAGON_Tools/19.0.04/Tools/bin/hexagon-clang"],
+)
+
+# Single file target to the QAIC interface generator tool.
+filegroup(
+    name = "qaic",
+    srcs = ["ipc/fastrpc/qaic/bin/qaic"],
+)
+
+# All files in the inc subdir, used by QAIC
+filegroup(
+    name = "incs_tree",
+    srcs = glob(["incs/**", "ipc/fastrpc/rpcmem/inc/**"]),
+)
+
+# This file group refers to all files in the SDK. It can be used as a dependency
+# for rules that depend on the entire Hexagon SDK. For example, the Hexagon
+# toochain uses this to amke sure all Hexagon SDK files are in the sandbox
+# when compiling for Hexagon.
+filegroup(
+    name = "sdk_tree",
+    srcs = glob(["**"]),
+)
+
+cc_library(
+    name = "qurt_headers",
+    hdrs = glob([
+        "rtos/qurt/computev79/include/qurt/**",
+        "rtos/qurt/computev79/include/posix/**",
+    ]),
+    includes = [
+        "rtos/qurt/computev79/include/qurt",
+        "rtos/qurt/computev79/include/posix",
+    ],
+)
+
+cc_import(
+    name = "cdsprpc_android_aarch64",
+    hdrs = glob(["incs/**", "ipc/fastrpc/rpcmem/inc/**"]),
+    shared_library = "ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so",
+    includes = [
+        "external/_main~cellar_hexagon_repos~hexagon_sdk/incs",
+        "external/_main~cellar_hexagon_repos~hexagon_sdk/incs/stddef",
+        "external/_main~cellar_hexagon_repos~hexagon_sdk/ipc/fastrpc/rpcmem/inc",
+    ],
+)
+""",
+    )
+
+hexagon_sdk_repository = repository_rule(
+    implementation = _hexagon_sdk_repository_impl,
+)

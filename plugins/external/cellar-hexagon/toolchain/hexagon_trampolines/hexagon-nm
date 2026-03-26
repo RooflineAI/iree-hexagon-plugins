@@ -1,0 +1,2 @@
+#! /bin/sh
+exec external/_main~cellar_hexagon_repos~hexagon_sdk/tools/HEXAGON_Tools/19.0.04/Tools/bin/hexagon-nm "$@"

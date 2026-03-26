@@ -1,0 +1,105 @@
+load("@aspect_rules_py//py:defs.bzl", "py_binary", "py_library")
+load("@rules_cc//cc/toolchains:cc_toolchain.bzl", "cc_toolchain")
+load(":aarch64_android_toolchain_config.bzl", "aarch64_android_toolchain_config")
+load(":hexagon_toolchain_config.bzl", "hexagon_toolchain_config")
+
+package(default_visibility = ["//visibility:public"])
+
+# An empty filegroup used for required toolchain file attributes
+filegroup(name = "empty")
+
+##### aarch64 Android #####
+
+# Instantiate the aarch64 Android configuration (provides CcToolchainConfigInfo)
+aarch64_android_toolchain_config(
+    name = "aarch64_android_config",
+)
+
+# Define the aarch Android cc_toolchain using the config
+cc_toolchain(
+    name = "cc_aarch64_android_toolchain",
+    all_files = ":empty",
+    compiler_files = ":empty",
+    dwp_files = ":empty",
+    linker_files = ":empty",
+    objcopy_files = ":empty",
+    strip_files = ":empty",
+    supports_param_files = 0,
+    toolchain_config = ":aarch64_android_config",
+    toolchain_identifier = "aarch64-android",
+)
+
+# aarch64 Android toolchain definition
+toolchain(
+    name = "aarch64_android_toolchain",
+    target_compatible_with = [
+        "@platforms//os:android",
+        "@platforms//cpu:aarch64",
+    ],
+    toolchain = ":cc_aarch64_android_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+##### Hexagon #####
+
+# Instantiate the hexagon configuration (provides CcToolchainConfigInfo)
+hexagon_toolchain_config(
+    name = "hexagon_config",
+    mv = "79",
+)
+
+filegroup(
+    name = "hexagon_sdk_files",
+    srcs = ["@hexagon_sdk//:sdk_tree"],
+)
+
+filegroup(
+    name = "hexagon_toolchain_files",
+    srcs = [
+        "hexagon_sdk_files",
+        "hexagon_trampolines/clang",
+        "hexagon_trampolines/hexagon-ar",
+        "hexagon_trampolines/hexagon-nm",
+        "hexagon_trampolines/hexagon-objdump",
+        "hexagon_trampolines/hexagon-strip",
+        "hexagon_trampolines/link",
+    ],
+)
+
+# Define the cc_toolchain using the config
+cc_toolchain(
+    name = "cc_hexagon_toolchain",
+    all_files = ":hexagon_toolchain_files",
+    ar_files = ":hexagon_toolchain_files",
+    compiler_files = ":hexagon_toolchain_files",
+    dwp_files = ":empty",
+    linker_files = ":hexagon_toolchain_files",
+    objcopy_files = ":hexagon_toolchain_files",
+    strip_files = ":hexagon_toolchain_files",
+    supports_param_files = 0,
+    toolchain_config = ":hexagon_config",
+    toolchain_identifier = "hexagon",
+)
+
+# hexagon toolchain definition
+toolchain(
+    name = "hexagon_toolchain",
+    target_compatible_with = [
+        "@patio_cellar_hexagon//constraints:os_qurt",
+        "@patio_cellar_hexagon//constraints:cpu_hexagon",
+    ],
+    toolchain = ":cc_hexagon_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
+py_binary(
+    name = "generate",
+    srcs = ["hexagon_trampolines/generate.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+py_library(
+    name = "gazelle_toolchain",
+    srcs = ["hexagon_trampolines/generate.py"],
+    visibility = ["//:__subpackages__"],
+)

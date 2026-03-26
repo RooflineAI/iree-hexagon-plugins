@@ -1,0 +1,155 @@
+# Copyright 2025 RooflineAI GmbH
+
+load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "aarch64_android_platform_alias")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
+load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+RPATH_LINKOPTS = select({
+    "@platforms//os:linux": ["-Wl,-rpath,$ORIGIN"],
+    "@platforms//os:osx": ["-Wl,-rpath,@loader_path"],
+    "//conditions:default": [],
+})
+
+config_setting(
+    name = "hexagon_runtime_enabled",
+    constraint_values = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:android",
+    ],
+)
+
+cellar_hexagon_plugin_library(
+    name = "hexagon",
+    srcs = [
+        "allocator.c",
+        "allocator.h",
+        "buffer.c",
+        "buffer.h",
+        "channel.c",
+        "channel.h",
+        "command_buffer.c",
+        "command_buffer.h",
+        "device.c",
+        "device.h",
+        "driver.c",
+        "driver.h",
+        "event.c",
+        "event.h",
+        "executable.c",
+        "executable.h",
+        "executable_cache.c",
+        "executable_cache.h",
+        "mem_alloc.c",
+        "mem_alloc.h",
+        "profiling.c",
+        "profiling.h",
+        "rpc_types.c",
+        "semaphore.c",
+        "semaphore.h",
+        "utils.c",
+        "utils.h",
+    ],
+    hdrs = [
+        "api.h",
+    ],
+    defines = select({
+        "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+            "IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1",
+        ],
+        "//conditions:default": [],
+    }),
+    hdr_deps = {
+        "IreeBase": "@iree//runtime/src/iree/base",
+        "IreeBaseInternal": "@iree//runtime/src/iree/base/internal",
+        "IreeEventPool": "@iree//runtime/src/iree/base/internal:event_pool",
+        "IreeHal": "@iree//runtime/src/iree/hal",
+        "IreeFileTransfer": "@iree//runtime/src/iree/hal/utils:file_transfer",
+        "IreeFiles": "@iree//runtime/src/iree/hal/utils:files",
+        "IreeQueueEmulation": "@iree//runtime/src/iree/hal/utils:queue_emulation",
+        "IreeQueueHostCallEmulation": "@iree//runtime/src/iree/hal/utils:queue_host_call_emulation",
+        "IreeResourceSet": "@iree//runtime/src/iree/hal/utils:resource_set",
+        "IreeSemaphoreBase": "@iree//runtime/src/iree/hal/utils:semaphore_base",
+    },
+    strip_include_prefix = "/plugins/runtime",
+    deps = [
+        "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
+        "//plugins/runtime/hexagon/interface:hexagon_dsp_stub_lib",
+        "//plugins/runtime/hexagon/serialize:serialize_plugin",
+    ],
+)
+
+cc_binary(
+    name = "cellar_hexagon_runtime_plugin",
+    srcs = [],
+    features = ["allow_all_undefined_symbols"],
+    linkopts = RPATH_LINKOPTS,
+    linkshared = True,
+    target_compatible_with = select({
+        ":hexagon_runtime_enabled": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":hexagon",
+        "//plugins/runtime/hexagon/registration:DriverModuleLib",
+    ],
+)
+
+pkg_files(
+    name = "hexagon_runtime_plugin_files",
+    srcs = [":cellar_hexagon_runtime_plugin"],
+    prefix = "lib",
+)
+
+pkg_files(
+    name = "hexagon_runtime_bin_files",
+    srcs = [
+        "@iree//tools:iree-benchmark-module",
+        "@iree//tools:iree-run-module",
+    ],
+    prefix = "bin",
+)
+
+pkg_files(
+    name = "hexagon_runtime_lib_files",
+    srcs = ["@android_ndk_detect//:libcxx_shared"],
+    prefix = "lib",
+)
+
+pkg_files(
+    name = "hexagon_runtime_hexagon_lib_files",
+    srcs = ["//plugins/runtime/hexagon/dsp:hexagon_dsp_skel_out"],
+    prefix = "lib/hexagon",
+)
+
+pkg_zip(
+    name = "hexagon_runtime",
+    srcs = [
+        ":hexagon_runtime_bin_files",
+        ":hexagon_runtime_hexagon_lib_files",
+        ":hexagon_runtime_lib_files",
+        ":hexagon_runtime_plugin_files",
+    ],
+    package_dir = ".",
+    visibility = ["//visibility:public"],
+)
+
+# Provide a platform alias for Android aarch64 here for integration tests
+# that run onLinux x86_64, but need the Hexagon runtime package built for
+# Android aarch64 to push it to an Android phone and run it there.
+aarch64_android_platform_alias(
+    name = "hexagon_runtime_aarch64_android",
+    actual = ":hexagon_runtime",
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)

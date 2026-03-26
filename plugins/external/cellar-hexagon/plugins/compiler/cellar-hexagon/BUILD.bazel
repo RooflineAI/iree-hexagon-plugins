@@ -1,0 +1,54 @@
+# Copyright 2025 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+cellar_hexagon_plugin_library(
+    name = "registration",
+    srcs = [
+        "HexagonTarget.cpp",
+    ],
+    hdrs = [],
+    hdr_deps = {
+        "LLVMCPUPlugin": "@iree//compiler/plugins/target/LLVMCPU",
+        "LLVMTargetOptions": "@iree//compiler/plugins/target/LLVMCPU:LLVMTargetOptions",
+        "LLVMCPULinkerTool": "@iree//compiler/plugins/target/LLVMCPU:LinkerTool",
+        "IREECPUDialect": "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
+        "IREECodegenUtils": "@iree//compiler/src/iree/compiler/Codegen/Utils",
+        "IREEEncodingIR": "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
+        "IREEHALTarget": "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
+        "IREEPluginAPI": "@iree//compiler/src/iree/compiler/PluginAPI",
+        "IREECompilerUtils": "@iree//compiler/src/iree/compiler/Utils",
+        "LlvmBitWriter": "@llvm-project//llvm:BitWriter",
+        "LlvmCore": "@llvm-project//llvm:Core",
+        "LlvmMC": "@llvm-project//llvm:MC",
+        "LlvmPasses": "@llvm-project//llvm:Passes",
+        "LlvmSupport": "@llvm-project//llvm:Support",
+        "LlvmTarget": "@llvm-project//llvm:Target",
+        "LlvmTargetParser": "@llvm-project//llvm:TargetParser",
+        "LlvmTransformUtils": "@llvm-project//llvm:TransformUtils",
+        "MlirBuiltinToLLVMIRTranslation": "@llvm-project//mlir:BuiltinToLLVMIRTranslation",
+        "MlirIR": "@llvm-project//mlir:IR",
+        "MlirLLVMDialect": "@llvm-project//mlir:LLVMDialect",
+        "MlirLLVMToLLVMIRTranslation": "@llvm-project//mlir:LLVMToLLVMIRTranslation",
+        "MlirParser": "@llvm-project//mlir:Parser",
+        "MlirPass": "@llvm-project//mlir:Pass",
+        "MlirSupport": "@llvm-project//mlir:Support",
+        "MlirToLLVMIRTranslation": "@llvm-project//mlir:ToLLVMIRTranslation",
+    },
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        "//plugins/compiler/cellar-hexagon/CodeGen",
+        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
+        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonLinkerTool",
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonEncodingIR",
+    ],
+)

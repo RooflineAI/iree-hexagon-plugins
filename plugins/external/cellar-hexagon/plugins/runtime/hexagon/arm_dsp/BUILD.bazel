@@ -1,0 +1,28 @@
+# Copyright 2025 RooflineAI GmbH
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cc_library(
+    name = "hexagon_arm_dsp",
+    srcs = [],
+    hdrs = [
+        "bindings.h",
+        "cmd_buf.h",
+        "profiling.h",
+    ],
+    defines = select({
+        "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//plugins/runtime/hexagon/arm_dsp/pmu:hexagon_pmu_events",
+    ],
+)

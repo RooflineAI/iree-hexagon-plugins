@@ -1,0 +1,15 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "HexKLBufferizationInterfaces",
+    srcs = ["BufferizableOpInterfaceImpl.cpp"],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLTransformsHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
+        "@llvm-project//mlir:BufferizationDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
+)

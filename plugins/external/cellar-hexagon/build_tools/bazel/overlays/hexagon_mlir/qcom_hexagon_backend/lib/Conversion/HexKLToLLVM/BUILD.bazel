@@ -1,0 +1,31 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "HexKLToLLVM",
+    srcs = [
+        "HexKLExternalFnNames.cpp",
+        "HexKLToLLVMPass.cpp",
+    ],
+    copts = [
+        # hexagon-mlir still uses deprecated IRRewriter::create APIs.
+        "-Wno-error=deprecated-declarations",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMCommonConversion",
+        "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:MemRefDialect",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:Transforms",
+    ],
+)

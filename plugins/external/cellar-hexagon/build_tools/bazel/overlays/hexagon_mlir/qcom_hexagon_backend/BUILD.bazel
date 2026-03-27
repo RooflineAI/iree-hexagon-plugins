@@ -44,14 +44,24 @@ cc_library(
         ":HexagonCodegenHeaders",
         ":HexagonDialects",
         ":HexagonPassesIncGen",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Conversion/HexKLToLLVM:HexKLToLLVM",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Transforms:MatmulToHexKLTransform",
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
     ],
 )
 
 cc_library(
+    name = "HexKLBufferization",
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/Transforms:HexKLBufferizationInterfaces",
+    ],
+)
+
+cc_library(
     name = "HexagonBackend",
     deps = [
+        ":HexKLBufferization",
         ":HexKLToLLVMCodegen",
     ],
 )

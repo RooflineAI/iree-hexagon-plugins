@@ -35,6 +35,18 @@ cc_library(
 )
 
 filegroup(
+    name = "HexKLTransformsHeaders",
+    srcs = glob(["Dialect/HexKL/Transforms/*.h"]),
+)
+
+cc_library(
+    name = "HexKLTransformsHeadersLib",
+    hdrs = [":HexKLTransformsHeaders"],
+    include_prefix = "hexagon-mlir",
+    strip_include_prefix = ".",
+)
+
+filegroup(
     name = "HexagonMemHeaders",
     srcs = glob(["Dialect/HexagonMem/IR/*.h"]),
 )

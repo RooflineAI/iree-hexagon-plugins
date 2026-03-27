@@ -151,7 +151,7 @@ iree_hal_hexagon_executable_destroy(iree_hal_executable_t *base_executable) {
   // TODO(hexagon): release any implementation resources.
   if (executable->so_file_path) {
     unlink(executable->so_file_path);
-    free(executable->so_file_path);
+    iree_allocator_free(host_allocator, executable->so_file_path);
   }
 
   iree_allocator_free(host_allocator, executable);

@@ -212,7 +212,7 @@ static iree_status_t iree_hal_hexagon_emit_tracy_zones(
     --stack_size;
   }
 
-  free(stack);
+  iree_allocator_free(host_allocator, stack);
   return iree_ok_status();
 }
 
@@ -442,12 +442,12 @@ iree_status_t iree_hal_hexagon_export_profiling_data(
     if (view_count > 0) {
       iree_status_t emit_status = iree_hal_hexagon_emit_tracy_zones(
           host_allocator, *tracy_context_id, views, view_count);
-      free(views);
+      iree_allocator_free(host_allocator, views);
       if (!iree_status_is_ok(emit_status)) {
         return emit_status;
       }
     } else {
-      free(views);
+      iree_allocator_free(host_allocator, views);
     }
   }
 

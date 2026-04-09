@@ -4,8 +4,8 @@
 
 #include "hexagon/api.h"
 #include "iree/base/api.h"
-#include "iree/base/internal/flags.h"
 #include "iree/base/string_view.h"
+#include "iree/base/tooling/flags.h"
 
 IREE_FLAG_LIST(
     string, hexagon_pmu_events,

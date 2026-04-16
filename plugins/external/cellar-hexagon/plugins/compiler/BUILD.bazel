@@ -45,10 +45,5 @@ cc_binary(
         "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
         "//plugins/compiler/cellar-hexagon/CodeGen:HexagonLinkerTool",
         "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonEncodingIR",
-        "@llvm-project//llvm:HexagonAsmParser",
-        "@llvm-project//llvm:HexagonCodeGen",
-        "@llvm-project//llvm:HexagonDisassembler",
-        "@llvm-project//llvm:HexagonInfo",
-        "@llvm-project//llvm:HexagonUtilsAndDesc",
     ],
 )

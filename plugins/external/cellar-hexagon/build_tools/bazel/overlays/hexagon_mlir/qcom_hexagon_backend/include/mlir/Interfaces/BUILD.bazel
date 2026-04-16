@@ -1,5 +1,5 @@
 load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@patio_cellar_hexagon//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -27,13 +27,15 @@ filegroup(
     srcs = ["CopyOpInterface.h"],
 )
 
-cc_library(
+hexagon_mlir_overlay_library(
     name = "CopyOpInterface",
     srcs = ["CopyOpInterface.cpp"],
     hdrs = [":CopyOpInterfaceHeader"],
     includes = ["../.."],
     deps = [
         ":CopyOpInterfaceIncGen",
+    ],
+    hdr_deps = [
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
     ],

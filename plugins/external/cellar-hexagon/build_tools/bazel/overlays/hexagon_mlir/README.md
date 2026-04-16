@@ -37,10 +37,45 @@ Overlay path precedence is "overlay wins":
   - Overlay provides a copy of the deprecated 
     code at:
     `qcom_hexagon_backend/include/mlir/Interfaces/`
-- Deprecated API warnings in upstream `DMATransferUtil.cpp`:
-  - Current snapshot emits deprecation warnings that may be promoted to errors.
-  - Overlay uses a local `copts` relaxation on `HexagonCommon` to keep the
-    integration buildable without patching upstream source.
+- Upstream warning suppressions carried in the overlay:
+  - Current LLVM emits deprecation warnings for several
+    `hexagon-mlir` libraries because upstream uses deprecated
+    `IRRewriter::create` APIs.
+  - Overlay silences `-Wdeprecated-declarations` locally in:
+    `qcom_hexagon_backend/lib/Common`,
+    `qcom_hexagon_backend/lib/Transforms`, and the
+    `qcom_hexagon_backend/lib/Conversion/*ToLLVM` libraries.
+  - Overlay also silences `-Wunused-but-set-variable` locally in
+    `qcom_hexagon_backend/lib/Transforms`.
+
+## Dependency model
+
+- Source-bearing overlay libraries use
+  `@patio_cellar_hexagon//build_tools/bazel:hexagon_mlir_overlay_library`.
+- That macro separates:
+  - `deps`: real implementation dependencies that should participate in linking
+  - `hdr_deps`: compile-time-only LLVM/MLIR/IREE dependencies wrapped with
+    `cc_headers_only`
+- The Hexagon compiler plugin should reuse common
+  LLVM/MLIR/IREE implementation already provided by
+  `libIREECompilerUnshielded.so` instead of re-linking those libraries into the
+  plugin `.so`.
+- When extending the overlay, prefer putting generic LLVM/MLIR libraries in
+  `hdr_deps` and reserve `deps` for:
+  - other `@hexagon-mlir//qcom_hexagon_backend/...` implementation libraries
+  - Hexagon-specific implementation that must actually link
+  - generated code targets such as `gentbl_cc_library` outputs when they are
+    consumed as sources/providers and not just as forwarded headers
+
+## Platform split
+
+- Most overlay targets under `qcom_hexagon_backend/include` and
+  `qcom_hexagon_backend/lib` are compiler-side MLIR/LLVM libraries. They are
+  expected to build for the host toolchain, not for the Hexagon/QURT device
+  toolchain.
+- Only device/runtime pieces such as
+  `@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib` are meant to be
+  built with `--platforms=//platform:hexagon`.
 
 ## How to extend this overlay
 

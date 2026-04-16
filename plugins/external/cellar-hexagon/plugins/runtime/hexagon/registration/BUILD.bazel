@@ -12,11 +12,11 @@ cellar_hexagon_plugin_library(
     name = "DriverModuleLib",
     srcs = ["driver_module.c"],
     hdrs = ["driver_module.h"],
-    hdr_deps = {
-        "IreeBase": "@iree//runtime/src/iree/base",
-        "IreeInternalFlags": "@iree//runtime/src/iree/base/tooling:flags",
-        "IreeHal": "@iree//runtime/src/iree/hal",
-    },
+    hdr_deps = [
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/base/tooling:flags",
+        "@iree//runtime/src/iree/hal",
+    ],
     deps = [
         "//plugins/runtime/hexagon",
     ],

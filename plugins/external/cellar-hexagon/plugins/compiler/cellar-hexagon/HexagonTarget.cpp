@@ -131,8 +131,12 @@ static void initializeHexagonTarget() {
     LLVMInitializeHexagonTarget();
     LLVMInitializeHexagonTargetMC();
     LLVMInitializeHexagonAsmPrinter();
-    LLVMInitializeHexagonAsmParser();
-    LLVMInitializeHexagonDisassembler();
+    // These two symbols are not currently needed. If they became necessary
+    // though, they are not provided by the compiler object this plugin is being
+    // dynamically loaded into, so they would need to be added to the plugin
+    // itself.
+    // LLVMInitializeHexagonAsmParser();
+    // LLVMInitializeHexagonDisassembler();
   });
 }
 

@@ -2,66 +2,33 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
-# Please add stable targets combining those from subdirectories here
-
+# Hexagon runtime archive.
 alias(
     name = "runtime_lib",
     actual = "@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib",
 )
 
+# Core Hexagon dialect/common implementation libraries required by registration
+# and pass construction.
 cc_library(
-    name = "HexagonDialects",
+    name = "HexagonDialectLibs",
     deps = [
         "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
         "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/Transforms:HexKLTransforms",
         "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexagonMem/IR:HexagonMem",
     ],
 )
 
+# Lowering/codegen support consumed by the plugin's CodeGen library.
 cc_library(
-    name = "HexagonPassesIncGen",
+    name = "HexagonLoweringSupport",
     deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:AffineToLLVMConversionPassIncGen",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:DMAToLLVMConversionPassIncGen",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLToLLVMConversionPassIncGen",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemToLLVMConversionPassIncGen",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:LinalgToLLVMConversionPassIncGen",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:TransformsPassIncGen",
-    ],
-)
-
-cc_library(
-    name = "HexagonCodegenHeaders",
-    deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:TransformsHeadersLib",
-    ],
-)
-
-cc_library(
-    name = "HexKLToLLVMCodegen",
-    deps = [
-        ":HexagonCodegenHeaders",
-        ":HexagonDialects",
-        ":HexagonPassesIncGen",
+        ":HexagonDialectLibs",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Conversion/DMAToLLVM:DMAToLLVM",
         "@hexagon-mlir//qcom_hexagon_backend/lib/Conversion/HexKLToLLVM:HexKLToLLVM",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Transforms:MatmulToHexKLTransform",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
-    ],
-)
-
-cc_library(
-    name = "HexKLBufferization",
-    deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/Transforms:HexKLBufferizationInterfaces",
-    ],
-)
-
-cc_library(
-    name = "HexagonBackend",
-    deps = [
-        ":HexKLBufferization",
-        ":HexKLToLLVMCodegen",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM:HexagonMemToLLVM",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Conversion/LinalgToLLVM:LinalgToLLVM",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Transforms:Transforms",
     ],
 )

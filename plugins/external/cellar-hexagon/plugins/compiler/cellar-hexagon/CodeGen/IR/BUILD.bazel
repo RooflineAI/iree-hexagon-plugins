@@ -81,12 +81,12 @@ cellar_hexagon_plugin_library(
         "HexagonEncodingDialect.h",
         "HexagonEncodingDialect.h.inc",
     ],
-    hdr_deps = {
-        "LlvmSupport": "@llvm-project//llvm:Support",
-        "MlirDialect": "@llvm-project//mlir:Dialect",
-        "MlirIR": "@llvm-project//mlir:IR",
-        "MlirSupport": "@llvm-project//mlir:Support",
-    },
+    hdr_deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Dialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":HexagonEncodingAttrsGen",

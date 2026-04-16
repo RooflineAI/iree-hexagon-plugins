@@ -1,8 +1,8 @@
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@patio_cellar_hexagon//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
 
 package(default_visibility = ["//visibility:public"])
 
-cc_library(
+hexagon_mlir_overlay_library(
     name = "runtime_lib",
     srcs = [
         "IntrinsicsHVX.c",
@@ -13,7 +13,6 @@ cc_library(
         "multithreading/HexagonThreadPool.cpp",
         "multithreading/MemAlloc.cpp",
         "multithreading/StringMap.cpp",
-        "profiler/lwp_handler.S",
         "src/HexKLAPI.cpp",
         "src/HexagonAPI.cpp",
         "src/HexagonBuffer.cpp",
@@ -42,6 +41,9 @@ cc_library(
         "multithreading/fake_includes/machine/endian.h",
         "test/HexagonResources.h",
     ],
+    hdr_deps = [
+        "@llvm-project//mlir:LLVMSupportHeaders",
+    ],
     # Note that the "fake_includes" pattern is copied from hexagon-mlir upstream
     # Without it, some error during compilation is returned because of missing
     # system headers in hexagon. Those definitions are instead in the
@@ -60,6 +62,5 @@ cc_library(
         "@hexagon_sdk//:qhl_hvx_headers",
         "@hexagon_sdk//:qurt_headers",
         "@hexkl//:hexkl_micro_v79",
-        "@llvm-project//mlir:LLVMSupportHeaders",
     ],
 )

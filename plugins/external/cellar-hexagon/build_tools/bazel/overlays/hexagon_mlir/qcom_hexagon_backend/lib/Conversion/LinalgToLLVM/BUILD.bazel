@@ -3,28 +3,30 @@ load("@patio_cellar_hexagon//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_
 package(default_visibility = ["//visibility:public"])
 
 hexagon_mlir_overlay_library(
-    name = "HexagonCommon",
+    name = "LinalgToLLVM",
     srcs = [
         "Common.cpp",
-        "DMATransferUtil.cpp",
+        "HexmemCpyToDMA.cpp",
+        "VTCMTilingOptions.cpp",
     ],
     copts = [
-        # hexagon-mlir upstream still uses deprecated IRRewriter::create APIs.
+        # hexagon-mlir still uses deprecated IRRewriter::create APIs.
         "-Wno-deprecated-declarations",
     ],
     deps = [
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonCommonHeaders",
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexagonMem/IR:HexagonMem",
     ],
     hdr_deps = [
+        "@llvm-project//llvm:Support",
         "@llvm-project//mlir:ArithDialect",
-        "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:LLVMCommonConversion",
-        "@llvm-project//mlir:LLVMDialect",
         "@llvm-project//mlir:LinalgTransforms",
+        "@llvm-project//mlir:MemRefDialect",
         "@llvm-project//mlir:MemRefUtils",
         "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:SCFDialect",
     ],
 )

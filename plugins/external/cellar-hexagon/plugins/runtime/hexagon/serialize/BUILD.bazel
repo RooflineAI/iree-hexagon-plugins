@@ -37,11 +37,11 @@ cellar_hexagon_plugin_library(
     copts = [
         "-Wswitch-enum",
     ],
-    hdr_deps = {
-        "IreeBase": "@iree//runtime/src/iree/base",
-        "IreeHal": "@iree//runtime/src/iree/hal",
-        "IreeResourceSet": "@iree//runtime/src/iree/hal/utils:resource_set",
-    },
+    hdr_deps = [
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/hal",
+        "@iree//runtime/src/iree/hal/utils:resource_set",
+    ],
     includes = [
         ".",
         "../..",

@@ -6,39 +6,26 @@
 
 #include "malloc_free.h"
 
+#include "hexagon/dsp/vtcm_pool.h"
+
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "HAP_farf.h"
-#include "HAP_mem.h"
 
 void *hexagon_runtime_malloc(int64_t size) {
-  // Avoid relying on target-specific malloc(0) behavior.
-  if (size == 0) {
-    size = 1;
-  }
   if (size < 0 || (uint64_t)size > UINT_MAX) {
     FARF(ERROR, "HEXAGON-RUNTIME-ERROR: malloc failed for invalid size=%lld",
          (long long)size);
     return NULL;
   }
-
-  void *ptr = NULL;
-  int err = HAP_malloc((unsigned int)size, &ptr);
-  if (err != 0 || !ptr) {
-    FARF(ERROR,
-         "HEXAGON-RUNTIME-ERROR: HAP_malloc failed for size=%lld (err=0x%x, "
-         "ptr=%p)",
-         (long long)size, err, ptr);
-    return NULL;
-  }
-  return ptr;
+  return hexagon_dsp_vtcm_pool_allocate(size);
 }
 
 void hexagon_runtime_free(void *ptr) {
   if (!ptr) {
     return;
   }
-  HAP_free(ptr);
+  hexagon_dsp_vtcm_pool_free(ptr);
 }

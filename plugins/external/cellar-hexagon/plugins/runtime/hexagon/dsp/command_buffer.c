@@ -251,6 +251,11 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   if (err != AEE_SUCCESS) {
     return err;
   }
+  const iree_hal_executable_environment_v0_t *environment = NULL;
+  err = hexagon_dsp_executable_get_environment(executable_handle, &environment);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
 
   // Allocate buffer for nested arrays in dispatch state.
   // The dispatch state contains some pointers, which are arrays semantically.
@@ -357,9 +362,6 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   profiler_measurement_start_extra_info(profiling_header, profiling_records,
                                         KERNEL, func_name);
 
-  HEXAGON_ALIGNAS(16)
-  iree_hal_executable_environment_v0_t environment = {0};
-
   // for now, run all workgroups sequentially
   for (uint16_t wg_id_z = 0; wg_id_z < dispatch_state.workgroup_count_z;
        ++wg_id_z) {
@@ -380,7 +382,8 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
             .local_memory_size = 0,
         };
 
-        dispatch_func(&environment, &dispatch_state, &workgroup_state);
+        // call dispatch function
+        dispatch_func(environment, &dispatch_state, &workgroup_state);
       }
     }
   }

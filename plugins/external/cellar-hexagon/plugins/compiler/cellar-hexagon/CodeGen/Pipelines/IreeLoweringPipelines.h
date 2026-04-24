@@ -61,6 +61,19 @@ void addHexagonLinalgExtTileAndVectorizePipeline(
     mlir::OpPassManager &funcPassManager,
     const HexagonPipelineOptions &pipelineOpt);
 
+//------------------------------------------------------------------------------
+// Helper functions
+//------------------------------------------------------------------------------
+// These helper functions are made public for now for experimental purposes
+void addHexagonVariantFinalizationPasses(
+    mlir::OpPassManager &variantPassManager);
+
+void addHexagonLowerToLLVMPasses(mlir::OpPassManager &modulePassManager);
+
+void addHexagonTileAndDistributePasses(
+    mlir::OpPassManager &funcPassManager,
+    const HexagonPipelineOptions &pipelineOpt);
+
 } // namespace mlir::iree_compiler::cellar_hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_

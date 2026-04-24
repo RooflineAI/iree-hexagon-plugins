@@ -9,6 +9,8 @@
 // TODO: Remove, keep, modify or whatever:
 // This is the description of the CPUEncodingExternalModels.cpp file that this
 // one is modeled after
+// This file is likely to get scrapped in the future!
+
 //===- CPUEncodingExternalModels.cpp --------------------------------------===//
 //
 // This file implements the following interfaces for CPU backends and the VMVX

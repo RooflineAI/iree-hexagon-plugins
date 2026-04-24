@@ -12,7 +12,6 @@
 #include "cellar-hexagon/CodeGen/Pipelines/HexagonMlirPipeline.h"
 #include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
-#include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "iree/compiler/Dialect/Util/Transforms/Passes.h"
 #include "iree/compiler/Utils/PassUtils.h"
 #include "mlir/Pass/PassManager.h"
@@ -47,12 +46,6 @@ static llvm::cl::opt<bool> clHexagonUseHexagonMlirLinalgLowering(
     llvm::cl::desc("Replace IREE's lowering by hexagon mlir's completely."),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool> clHexagonEnableRuntimeImportProvider(
-    "iree-hexagon-enable-runtime-import-provider",
-    llvm::cl::desc("Enable HAL import-table based runtime symbol resolution "
-                   "for Hexagon DMA/HexKL/HexagonMem symbols."),
-    llvm::cl::init(false));
-
 bool isHexKLMatmulLoweringEnabled() {
   return clHexagonEnableHexKLMatmulLowering;
 }
@@ -63,27 +56,11 @@ bool isHexagonMlirLinalgLoweringEnabled() {
   return clHexagonUseHexagonMlirLinalgLowering;
 }
 
-bool isHexagonRuntimeImportProviderEnabled() {
-  return clHexagonEnableRuntimeImportProvider;
-}
-
-namespace {
-
-void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
-  variantPassManager.addPass(createReconcileTranslationInfoPass());
-  variantPassManager.addPass(createCSEPass());
-  variantPassManager.addPass(createResolveWorkgroupCountHintsPass());
-  variantPassManager.addPass(createIREECodegenLowerAffinePass());
-  variantPassManager.addPass(IREE::Util::createDropCompilerHintsPass());
-}
-
 TranslationRoute getTranslationRoute() {
   return isHexagonMlirLinalgLoweringEnabled()
              ? TranslationRoute::HexagonMlirPath
              : TranslationRoute::IreePath;
 }
-
-} // namespace
 
 void buildHexagonTranslationPassPipeline(
     OpPassManager &variantPassManager,

@@ -13,12 +13,6 @@ include "mlir/Pass/PassBase.td"
 // Hexagon Codegen passes (keep alphabetical)
 //------------------------------------------------------------------------------
 
-// TODO: Decide if we want to do this from the target instead
-def EmbedHexKLLinkObjectsPass :
-    Pass<"iree-hexagon-embed-hexkl-link-objects", "mlir::ModuleOp"> {
-  let summary = "Attach required HexKL static archives as hal.executable objects";
-}
-
 def FoldDispatchOutputStagingPass :
     InterfacePass<"iree-hexagon-fold-dispatch-output-staging",
                   "mlir::FunctionOpInterface"> {
@@ -73,19 +67,12 @@ def HexagonSelectLoweringStrategyPass :
   }];
 }
 
-def MarkHexKLStaticImportsPass :
-    Pass<"iree-hexagon-mark-hexkl-static-imports", "mlir::ModuleOp"> {
-  let summary = [{"Mark HexKL runtime llvm.func declarations as hal.import.static.
-      This avoids IREE's 'RewriteExternCallOpToDynamicImportCallOp' rewriting hexagon function calls to HAL import thunks."
-  }];
-}
-
-def MarkHexagonRuntimeStaticImportsPass :
-    Pass<"iree-hexagon-mark-runtime-static-imports", "mlir::ModuleOp"> {
+def MarkHexagonNativeRuntimeLinksPass :
+    Pass<"iree-hexagon-mark-native-runtime-links", "mlir::ModuleOp"> {
   let summary = [{
-      Mark Hexagon runtime llvm.func declarations as hal.import.static.
-      Covers Hexagon DMA/HexagonMem runtime APIs to avoid
-      dynamic import-thunk rewriting for symbols expected to resolve at link time.
+      Tag Hexagon DMA/HexagonMem/HexKL runtime llvm.func declarations that
+      should remain native unresolved externs and be resolved by the DSP
+      dynamic loader instead of the HAL import ABI.
   }];
 }
 
@@ -97,12 +84,6 @@ def PromoteDMATagAllocToStackPass :
       (memref.alloc memref<1xi32>) to stack (memref.alloca), and drop the
       matching dealloc.
   }];
-}
-
-def StripEncodingFromHexKLMatmulPass :
-    InterfacePass<"iree-hexagon-strip-encoding-from-hexkl-matmul",
-                  "mlir::FunctionOpInterface"> {
-  let summary = "Strip and restore IREE encodings around hexkl.matmul tensor ops";
 }
 
 #endif // ROOF_CELLAR_CODEGEN_HEXAGON_PASSES

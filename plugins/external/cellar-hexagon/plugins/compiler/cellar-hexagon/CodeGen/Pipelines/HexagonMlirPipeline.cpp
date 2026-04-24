@@ -8,11 +8,11 @@
 // from hexagon-mlir passes.
 
 #include "cellar-hexagon/CodeGen/Pipelines/HexagonMlirPipeline.h"
+#include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
 #include "cellar-hexagon/CodeGen/Pipelines/Bufferization.h"
 #include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 #include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
-#include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
 #include "hexagon/Conversion/DMAToLLVM/Passes.h"
 #include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
 #include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
@@ -56,8 +56,6 @@ llvm::cl::opt<HexagonTilingPipeline> clHexagonTilingPipeline(
 
 void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   auto &pm = variantPassManager.nest<ModuleOp>();
-  const bool enableRuntimeImportProvider =
-      isHexagonRuntimeImportProviderEnabled();
   const bool enableCollapseAddressSpace = true;
   const bool enableHexagonRoutines = false;
 
@@ -82,13 +80,9 @@ void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   pm.addPass(hexagonmem::createHexagonMemToLLVMPass());
   pm.addPass(Hexagon::createDMAToLLVMPass());
   pm.addPass(hexkl::createHexKLToLLVMPass());
-  // When statically linking, runtime calls are marked as static imports. In
-  // runtime import-provider mode these must remain dynamic imports so import
-  // ordinals and runtime import tables are emitted when lowering to llvm.
-  if (!enableRuntimeImportProvider) {
-    pm.addPass(createMarkHexagonRuntimeStaticImportsPass());
-    pm.addPass(createMarkHexKLStaticImportsPass());
-  }
+  // Hexagon DMA/HexKL/HexagonMem runtime symbols are always kept as native
+  // unresolved externs and resolved by the DSP loader.
+  pm.addPass(createMarkHexagonNativeRuntimeLinksPass());
 
   // Must run after function lowering and before memref finalization.
   // The collapse pass rewrites ptr<addrspace> in descriptors/calls to default
@@ -116,8 +110,6 @@ void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
 void buildHexagonMlirTranslationRoute(
     OpPassManager &variantPassManager,
     const HexagonPipelineOptions &pipelineOpt) {
-  const bool enableRuntimeImportProvider =
-      isHexagonRuntimeImportProviderEnabled();
   const bool useIREETilingPipeline =
       clHexagonTilingPipeline == HexagonTilingPipeline::IREE;
   // Note that hexagon-mlir passes are working on module ops, while iree's are
@@ -442,10 +434,6 @@ void buildHexagonMlirTranslationRoute(
     //     setIndexBitwidth(ConvertIndexToLLVMPassOptions{})));
 
     // pm.addPass(createConvertAsyncToLLVMPass());
-
-    if (!enableRuntimeImportProvider) {
-      pm.addPass(createEmbedHexKLLinkObjectsPass());
-    }
   }
 }
 

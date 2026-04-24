@@ -52,6 +52,16 @@ int hexagon_dsp_executable_get_dispatch_func(
     iree_hal_executable_dispatch_v0_t *out_dispatch_func);
 
 /**
+ * @brief get initialized executable environment
+ * @param[in] executable_handle handle of the executable
+ * @param[out] out_environment initialized HAL executable environment
+ * @retval AEE_SUCCESS for success
+ */
+int hexagon_dsp_executable_get_environment(
+    int64 executable_handle,
+    const iree_hal_executable_environment_v0_t **out_environment);
+
+/**
  * @brief Get the dispatch function.
  *
  * The export table may omit names to save binary size. When unavailable,

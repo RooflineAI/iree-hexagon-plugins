@@ -20,6 +20,7 @@
 #include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
 #include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "hexagon/Transforms/Transforms.h"
+
 #include "iree-dialects/Dialect/LinalgTransform/Passes.h"
 #include "iree/compiler/Codegen/Common/CPU/Passes.h"
 #include "iree/compiler/Codegen/Common/PassUtils.h"
@@ -28,6 +29,7 @@
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.h"
 #include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "iree/compiler/Dialect/LinalgExt/Transforms/Passes.h"
+#include "iree/compiler/Dialect/Util/Transforms/Passes.h"
 #include "iree/compiler/Utils/PassUtils.h"
 #include "mlir/Conversion/ComplexToStandard/ComplexToStandard.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
@@ -571,10 +573,15 @@ void addHexagonDefaultPassPipeline(OpPassManager &funcPassManager,
   }
 }
 
-void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
-  const bool enableRuntimeImportProvider =
-      isHexagonRuntimeImportProviderEnabled();
+void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
+  variantPassManager.addPass(createReconcileTranslationInfoPass());
+  variantPassManager.addPass(createCSEPass());
+  variantPassManager.addPass(createResolveWorkgroupCountHintsPass());
+  variantPassManager.addPass(createIREECodegenLowerAffinePass());
+  variantPassManager.addPass(IREE::Util::createDropCompilerHintsPass());
+}
 
+void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
   FunctionLikeNest(modulePassManager)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 
@@ -667,16 +674,11 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
     // Lower Hexagon dialect ops with their dedicated converters first.
     modulePassManager.addPass(mlir::hexkl::createHexKLToLLVMPass());
     modulePassManager.addPass(mlir::hexagonmem::createHexagonMemToLLVMPass());
-    // Keep core Hexagon runtime alloc/free calls statically linked even when
-    // the runtime import provider is enabled so the dynamic-import bridge is
-    // only exercised for HexKL microkernels.
-    if (!enableRuntimeImportProvider) {
-      modulePassManager.addPass(createMarkHexagonRuntimeStaticImportsPass());
-      modulePassManager.addPass(createMarkHexKLStaticImportsPass());
-    }
     modulePassManager.addPass(createCanonicalizerPass());
     modulePassManager.addPass(createCSEPass());
   }
+
+  modulePassManager.addPass(createMarkHexagonNativeRuntimeLinksPass());
 
   modulePassManager.addPass(createReconcileUnrealizedCastsPass());
 

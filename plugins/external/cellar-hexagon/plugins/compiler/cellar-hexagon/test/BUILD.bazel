@@ -33,8 +33,6 @@ iree_lit_test_suite(
             "codegen/transforms/promote_dma_tag_alloc_to_stack.mlir",
             "target/executable_generation_and_dumping.mlir",
             "target/plugin_registration.mlir",
-            "target/query_function_generation_and_visibility.mlir",
-            # target/shared_objects_have_correct_type.mlir tested separately (Linux-only).
             "target/target_attribute_embedding.mlir",
             "integration/32x32_matmul.mlir",
             "integration/4x4_matmul.mlir",
@@ -50,7 +48,10 @@ iree_lit_test_suite(
             "integration/*.mlir",
         ],
         exclude = [
-            # Tested separately with target_compatible_with restriction.
+            # Tested separately with target_compatible_with restriction because
+            # they invoke `readelf`, which is only available on Linux.
+            "target/native_runtime_linking_keeps_undefined_symbols.mlir",
+            "target/query_function_generation_and_visibility.mlir",
             "target/shared_objects_have_correct_type.mlir",
         ],
     ),
@@ -58,7 +59,23 @@ iree_lit_test_suite(
     tools = _COMMON_TOOLS,
 )
 
-# This test uses `readelf` which is only available on Linux.
+# These tests use `readelf`, which is only available on Linux in our CI
+iree_lit_test(
+    name = "target/native_runtime_linking_keeps_undefined_symbols.mlir.test",
+    cfg = "//:lit.cfg.py",
+    target_compatible_with = ["@platforms//os:linux"],
+    test_file = "target/native_runtime_linking_keeps_undefined_symbols.mlir",
+    tools = _COMMON_TOOLS,
+)
+
+iree_lit_test(
+    name = "target/query_function_generation_and_visibility.mlir.test",
+    cfg = "//:lit.cfg.py",
+    target_compatible_with = ["@platforms//os:linux"],
+    test_file = "target/query_function_generation_and_visibility.mlir",
+    tools = _COMMON_TOOLS,
+)
+
 iree_lit_test(
     name = "target/shared_objects_have_correct_type.mlir.test",
     cfg = "//:lit.cfg.py",

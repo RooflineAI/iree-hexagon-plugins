@@ -14,7 +14,8 @@ namespace mlir::iree_compiler::cellar_hexagon::target::linking {
 std::unique_ptr<mlir::iree_compiler::IREE::HAL::LinkerTool>
 createHexagonLinkerTool(
     const llvm::Triple &targetTriple,
-    mlir::iree_compiler::IREE::HAL::LLVMTargetOptions &targetOptions);
+    mlir::iree_compiler::IREE::HAL::LLVMTargetOptions &targetOptions,
+    bool allowNativeUndefinedSymbols = false);
 
 } // namespace mlir::iree_compiler::cellar_hexagon::target::linking
 

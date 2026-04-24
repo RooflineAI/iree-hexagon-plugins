@@ -96,6 +96,7 @@ cellar_hexagon_plugin_library(
     deps = [
         ":HexagonLLVMTarget",
         ":HexagonOptions",
+        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
         "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
     ],
 )

@@ -20,7 +20,11 @@ namespace HAL = mlir::iree_compiler::IREE::HAL;
 
 class HexagonLinkerTool : public HAL::LinkerTool {
 public:
-  using HAL::LinkerTool::LinkerTool;
+  HexagonLinkerTool(const llvm::Triple &targetTriple,
+                    HAL::LLVMTargetOptions &targetOptions,
+                    bool allowNativeUndefinedSymbols)
+      : HAL::LinkerTool(targetTriple, targetOptions),
+        allowNativeUndefinedSymbols(allowNativeUndefinedSymbols) {}
 
   std::string getLinkerToolPath() const {
     // Try to use the tool specified for this configuration from the serializer
@@ -77,6 +81,9 @@ public:
     if (toolPath.find("hexagon-clang") != std::variant_npos) {
       flags.push_back(toolPath);
       flags.push_back("-shared");
+      if (allowNativeUndefinedSymbols) {
+        flags.push_back("-Wl,--unresolved-symbols=ignore-all");
+      }
     } else {
       // Other linkers attempt not to use any dependencies on the sdk instead
       flags.push_back(toolPath);
@@ -133,6 +140,13 @@ public:
       // segment 1” error.
       flags.push_back("-z");
       flags.push_back("separate-loadable-segments");
+
+      if (allowNativeUndefinedSymbols) {
+        // Native DSP runtime linking expects selected runtime symbols to remain
+        // unresolved in the kernel .so and be bound by the DSP loader against
+        // libhexagon_dsp_skel.so at load time.
+        flags.push_back("--unresolved-symbols=ignore-all");
+      }
     }
 
     flags.push_back("-o");
@@ -160,12 +174,17 @@ public:
     }
     return artifacts;
   }
+
+private:
+  bool allowNativeUndefinedSymbols;
 };
 
 std::unique_ptr<HAL::LinkerTool>
 createHexagonLinkerTool(const llvm::Triple &targetTriple,
-                        HAL::LLVMTargetOptions &targetOptions) {
-  return std::make_unique<HexagonLinkerTool>(targetTriple, targetOptions);
+                        HAL::LLVMTargetOptions &targetOptions,
+                        bool allowNativeUndefinedSymbols) {
+  return std::make_unique<HexagonLinkerTool>(targetTriple, targetOptions,
+                                             allowNativeUndefinedSymbols);
 }
 
 } // namespace mlir::iree_compiler::cellar_hexagon::target::linking

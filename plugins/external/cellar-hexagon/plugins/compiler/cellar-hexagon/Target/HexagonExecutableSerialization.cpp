@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "cellar-hexagon/Target/HexagonExecutableSerialization.h"
+#include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 
 #include <cstdio>
 #include <optional>
@@ -150,8 +151,9 @@ static void buildExecutableMetadata(const LLVMTarget &target,
   // in target.sanitizerKind. For simplicity, let's not add any for now.
   libraryBuilder.setSanitizerKind(LibraryBuilder::SanitizerKind::NONE);
 
-  // Declare dynamically imported functions (currently unused by Hexagon, so
-  // this has not been checked).
+  // Declare dynamically imported functions if present. Hexagon currently
+  // expects runtime/helper symbols to be resolved via native DSP linking, so
+  // imports here are unexpected.
   auto importsAttrName =
       mlir::StringAttr::get(variantOp.getContext(), "hal.executable.imports");
   if (auto importsAttr =
@@ -334,9 +336,14 @@ static std::optional<Artifacts> linkArtifacts(
   LLVMTargetOptions linkerOptions;
   linkerOptions.target.copy(llvmIreeTarget);
   linkerOptions.embeddedLinkerPath = options.linker;
+  // Allow undefined symbols that will be resolved from the runtime when the
+  // variant is tagged.
+  const bool allowNativeUndefinedSymbols =
+      variantOp->hasAttr(codegen::kNativeRuntimeLinkVariantAttrName);
 
   auto linkerTool = mlir::iree_compiler::cellar_hexagon::target::linking::
-      createHexagonLinkerTool(targetMachine.getTargetTriple(), linkerOptions);
+      createHexagonLinkerTool(targetMachine.getTargetTriple(), linkerOptions,
+                              allowNativeUndefinedSymbols);
 
   auto linkedArtifactsOption =
       linkerTool->linkDynamicLibrary(libraryName, objectFiles);
@@ -350,11 +357,6 @@ static std::optional<Artifacts> linkArtifacts(
 
 } // namespace
 
-// Here we are creating our output .vmfb that should contain:
-// .so, constants.bin and .fb
-// For more info, check here:
-// https://linear.app/roofline/document/luis-meeting-notes-fec2bd974e4a
-//
 // Takes charge of translating to LLVMIR, calling the LLVM hexagon
 // target, linking the files and calling the emitFile passes to finally
 // create the executable.

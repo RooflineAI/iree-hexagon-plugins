@@ -85,21 +85,8 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
         mlir::hexagon::createReduceContractionRankPass());
     modulePassManager.addNestedPass<func::FuncOp>(
         mlir::hexagon::createMatmulToHexKLPass());
-    // We either disable data tiling, or remove the encoding to ensure there are
-    // no conflicts in the pipeline
-    // modulePassManager.addNestedPass<func::FuncOp>(
-    //     createStripEncodingFromHexKLMatmulPass());
-
-    // Hardcoded link to hexagon dependencies for now. This will probably be
-    // removed in the future or handled in a different way.
-    // TODO: This should probably be managed from the target instead of in a
-    // pass, move to hexagonTarget later on, at the same time the executable
-    // target is created and possibly gated through a flag. The only advantage
-    // of having it here is controlling whether to link or not based on the
-    // operations, but it seems a bit ridiculous in my opinion.
-    if (!isHexagonRuntimeImportProviderEnabled()) {
-      modulePassManager.addPass(createEmbedHexKLLinkObjectsPass());
-    }
+    // Must disable data tiling, or remove the encoding to ensure there are
+    // no conflicts in the pipeline when creating hexkl.matmul calls.
   }
 
   FunctionLikeNest(modulePassManager)

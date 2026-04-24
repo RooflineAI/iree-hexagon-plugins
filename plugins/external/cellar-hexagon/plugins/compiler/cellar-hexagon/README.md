@@ -28,6 +28,27 @@ The main compiler-side flow is:
 8. `HexagonLinkerTool` is used during linking/serialization to produce the
    shared object embedded in the VMFB.
 
+## Linking of functions from Hexagon-mlir
+
+There are multiple ways of linking external functions in IREE:
+- Re-signature the call to match the HAL ABI calling convention (e.g., packs
+args into a struct).
+This would also be the options when calling other functions compiled through IREE.
+Function can be linked at dynamically during runtime execution.
+   - Callee attribute in codegen: hal.import.bitcode
+   - Codegen pattern: RewriteCallOpABI + RewriteFuncOpABI
+- Leave for the static linker and embed the result into the generated vmfb.
+   - Callee attribute in codegen: hal.import.static
+   - Codegen pattern: skipped in codegen, managed during serialization.
+- Convert into a dynamic import for the runtime without rewriting the ABI.
+   - Callee attribute in codegen: currently a custom marker
+   - Codegen pattern: skipped in codegen
+
+All three of these options have been implemented and tested in experimental branches
+and the third one is the one currently implemented in the code.
+This is only done for a hardcoded set of symbols from DMA/HexKL/HexagonMem and for
+some generic symbols used by the lowering (`malloc`, `free`, `memrefCopy`).
+
 ## Code Relationships
 
 ### `Target/`

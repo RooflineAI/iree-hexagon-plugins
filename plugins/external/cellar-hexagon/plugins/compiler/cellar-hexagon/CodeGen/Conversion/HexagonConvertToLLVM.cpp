@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
+#include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 #include "cellar-hexagon/CodeGen/Passes.h"
 
 #include "iree/compiler/Codegen/Common/PassUtils.h"
@@ -849,6 +850,13 @@ struct RewriteExternCallOpToDynamicImportCallOp
           "import logic");
     }
 
+    if (calleeOp && calleeOp->hasAttr(kNativeRuntimeLinkAttrName)) {
+      return rewriter.notifyMatchFailure(
+          callOp,
+          "callee is tagged for native DSP runtime linking; skipping HAL "
+          "import rewrite");
+    }
+
     // If the function is marked as statically linked we don't touch it. That'll
     // let it fall through to the linker stage where it can be picked up either
     // from the runtime build (in the case of us producing static libraries) or
@@ -890,83 +898,6 @@ struct RewriteExternCallOpToDynamicImportCallOp
   }
   HALDispatchABI &abi;
   LLVMTypeConverter &typeConverter;
-};
-
-/// Hoists fixed-size stack slots used to marshal dynamic import parameters into
-/// the function entry block. On Hexagon these allocas otherwise end up inside
-/// tiled loop nests and can exhaust the small DSP worker stack.
-/// This pattern matches the expected output from
-/// HALDispatchABI::packIntoParameterStruct for dynamic imports. Note that it
-/// should be possible to fix that pattern instead of applying this patch too,
-/// but that requires more copy pasting of LLVMCPU functionality.
-struct HoistDynamicImportParameterAlloca
-    : public OpRewritePattern<LLVM::AllocaOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(LLVM::AllocaOp allocaOp,
-                                PatternRewriter &rewriter) const override {
-    auto funcOp = allocaOp->getParentOfType<LLVM::LLVMFuncOp>();
-    if (!funcOp) {
-      return failure();
-    }
-    Block &entryBlock = funcOp.getBody().front();
-    if (allocaOp->getBlock() == &entryBlock) {
-      return failure();
-    }
-
-    auto structType = dyn_cast<LLVM::LLVMStructType>(allocaOp.getElemType());
-    if (!structType || structType.isIdentified()) {
-      return failure();
-    }
-
-    auto arraySizeOp =
-        allocaOp.getArraySize().getDefiningOp<LLVM::ConstantOp>();
-    IntegerAttr arraySizeAttr =
-        arraySizeOp ? dyn_cast<IntegerAttr>(arraySizeOp.getValue())
-                    : IntegerAttr();
-    if (!arraySizeAttr || arraySizeAttr.getInt() != 1) {
-      return failure();
-    }
-
-    bool sawStore = false;
-    bool sawCall = false;
-    for (Operation *user : allocaOp->getUsers()) {
-      if (isa<LLVM::StoreOp>(user)) {
-        sawStore = true;
-        continue;
-      }
-      if (isa<LLVM::LoadOp>(user)) {
-        continue;
-      }
-      if (isa<LLVM::CallOp>(user)) {
-        sawCall = true;
-        continue;
-      }
-      return failure();
-    }
-    if (!sawStore || !sawCall) {
-      return failure();
-    }
-
-    Operation *insertPt = &entryBlock.front();
-    while (isa_and_nonnull<LLVM::AllocaOp>(insertPt)) {
-      insertPt = insertPt->getNextNode();
-    }
-    if (insertPt) {
-      rewriter.setInsertionPoint(insertPt);
-    } else {
-      rewriter.setInsertionPointToEnd(&entryBlock);
-    }
-
-    auto one = LLVM::ConstantOp::create(
-        rewriter, allocaOp.getLoc(), rewriter.getI64Type(),
-        IntegerAttr::get(rewriter.getI64Type(), 1));
-    auto hoistedAlloca = LLVM::AllocaOp::create(
-        rewriter, allocaOp.getLoc(), allocaOp.getType(), allocaOp.getElemType(),
-        one, allocaOp.getAlignment().value_or(0));
-    rewriter.replaceOp(allocaOp, hoistedAlloca.getResult());
-    return success();
-  }
 };
 
 class HexagonConvertToLLVMPass
@@ -1167,6 +1098,15 @@ void HexagonConvertToLLVMPass::runOnOperation() {
     return signalPassFailure();
   }
 
+  // Helper externs such as free/memrefCopy are introduced during phase 2
+  // memref finalization. Canonicalize and tag them here so the later import
+  // rewrite can leave them as native unresolved references.
+  for (auto funcOp : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
+    if (failed(renameAndTagNativeRuntimeLinkedFunc(moduleOp, funcOp))) {
+      return signalPassFailure();
+    }
+  }
+
   // Rewrite any extern calls emitted to dynamic library imports.
   {
     RewritePatternSet patterns(&getContext());
@@ -1177,18 +1117,7 @@ void HexagonConvertToLLVMPass::runOnOperation() {
     }
   }
 
-  // Target-specific post conversion patterns for Hexagon.
-
-  /// Hoist fixed-size stack slots used to marshal dynamic import parameters
-  /// into the function entry block. On Hexagon these allocas otherwise end up
-  /// inside tiled loop nests and can exhaust the small DSP worker stack.
-  {
-    RewritePatternSet patterns(&getContext());
-    patterns.insert<HoistDynamicImportParameterAlloca>(&getContext());
-    if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
-      return signalPassFailure();
-    }
-  }
+  // No target-specific post conversion patterns for Hexagon.
 }
 
 std::unique_ptr<OperationPass<ModuleOp>>

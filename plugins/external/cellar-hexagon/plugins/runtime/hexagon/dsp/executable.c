@@ -1,18 +1,14 @@
 // Copyright 2025 RooflineAI GmbH
 
 #include "executable.h"
+#include "import_provider.h"
 
 #include <dlfcn.h>
 #include <stdlib.h>
-
-// This define is needed by executable_library.h to compile for Hexagon.
-#define static_assert _Static_assert
-
-#include "iree/hal/local/executable_library.h"
+#include <string.h>
 
 #include "AEEStdErr.h"
 #include "HAP_farf.h"
-#include "hexagon_dsp.h"
 
 /// data about a loaded executable
 typedef struct hexagon_dsp_executable_s {
@@ -37,6 +33,8 @@ typedef struct hexagon_dsp_executable_s {
     const iree_hal_executable_library_header_t **header;
     const iree_hal_executable_library_v0_t *v0;
   } library;
+  /// executable environment passed to dispatches
+  iree_hal_executable_environment_v0_t environment;
 } hexagon_dsp_executable_t;
 
 /// set up executable data structure, used inside hexagon_dsp_executable_load()
@@ -51,6 +49,13 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
   // open shared library
   executable->shlib = dlopen(executable->name, RTLD_NOW);
   if (!executable->shlib) {
+    const char *loadError = dlerror();
+    FARF(ERROR,
+         "HEXAGON-RUNTIME-ERROR: failed to dlopen kernel '%s': %s. "
+         "Ensure libhexagon_dsp_skel.so exports the required "
+         "DMA/HexKL/HexagonMem symbols.",
+         executable->name ? executable->name : "(null)",
+         loadError ? loadError : "(no loader error message)");
     return AEE_EUNABLETOLOAD;
   }
 
@@ -64,8 +69,7 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
   // query library version
   executable->library.header =
       (const iree_hal_executable_library_header_t **)executable->query_func(
-          IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST,
-          /* environment */ NULL);
+          IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST, &executable->environment);
   if (!executable->library.header) {
     return AEE_EUNSUPPORTED;
   }
@@ -79,6 +83,16 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
   }
   if (header->sanitizer != IREE_HAL_EXECUTABLE_LIBRARY_SANITIZER_NONE) {
     return AEE_ECLASSNOTSUPPORT;
+  }
+
+  int err = hexagon_dsp_import_provider_initialize(
+      &executable->library.v0->imports, &executable->environment);
+  if (err != AEE_SUCCESS) {
+    FARF(ERROR,
+         "HEXAGON-RUNTIME-ERROR: failed to initialize import provider for '%s' "
+         "(error=0x%x)",
+         executable->name ? executable->name : "(null)", err);
+    return err;
   }
 
   return AEE_SUCCESS;
@@ -110,6 +124,7 @@ int hexagon_dsp_executable_close(remote_handle64 rpc_handle,
                                  int64 executable_handle) {
   hexagon_dsp_executable_t *executable =
       (hexagon_dsp_executable_t *)executable_handle;
+  hexagon_dsp_import_provider_deinitialize(&executable->environment);
   // close shared library, free resources
   if (executable->shlib) {
     dlclose(executable->shlib);
@@ -133,6 +148,18 @@ int hexagon_dsp_executable_get_dispatch_func(
   }
 
   *out_dispatch_func = exports->ptrs[export_ordinal];
+  return AEE_SUCCESS;
+}
+
+int hexagon_dsp_executable_get_environment(
+    int64 executable_handle,
+    const iree_hal_executable_environment_v0_t **out_environment) {
+  if (!out_environment) {
+    return AEE_EBADPARM;
+  }
+  hexagon_dsp_executable_t *executable =
+      (hexagon_dsp_executable_t *)executable_handle;
+  *out_environment = &executable->environment;
   return AEE_SUCCESS;
 }
 

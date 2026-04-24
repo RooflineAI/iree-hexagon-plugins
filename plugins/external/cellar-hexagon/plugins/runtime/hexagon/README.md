@@ -19,6 +19,12 @@ implements most interfaces needed by a HAL driver.
 - `arm_dsp`: headers for data structures shared between ARM host and DSP, see
              also README.md in this dir
 
+## Executable Imports
+
+Hexagon DMA/HexKL/HexagonMem symbols and the generic helper symbols used by the
+lowering (`malloc`, `free`, `memrefCopy`) are resolved natively by the DSP
+dynamic loader from `libhexagon_dsp_skel.so`.
+
 ## Building
 
 The Hexagon SDK contains x86_64 binaries. The target device is an Android phone

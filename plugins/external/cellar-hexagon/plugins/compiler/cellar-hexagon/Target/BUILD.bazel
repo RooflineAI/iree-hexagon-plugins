@@ -98,6 +98,7 @@ cellar_hexagon_plugin_library(
         ":HexagonOptions",
         "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
         "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
+        "@iree//compiler/plugins/target/LLVMCPU:LLVMIRPasses",
     ],
 )
 

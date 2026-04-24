@@ -14,6 +14,7 @@
 
 #include "cellar-hexagon/Target/HexagonLLVMTarget.h"
 #include "cellar-hexagon/Target/Linking/HexagonLinkerTool.h"
+#include "compiler/plugins/target/LLVMCPU/LLVMIRPasses.h"
 #include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
 #include "compiler/plugins/target/LLVMCPU/LibraryBuilder.h"
 #include "compiler/plugins/target/LLVMCPU/LinkerTool.h"
@@ -424,6 +425,17 @@ mlir::LogicalResult serializeHexagonExecutable(
     dumpLLVMModuleToPath(serializationOptions.dumpIntermediatesPath,
                          serializationOptions.dumpBaseName, variantOp.getName(),
                          *llvmModule);
+  }
+
+  // Run the LLVM IR middle-end optimization pipeline before instruction
+  // selection using the target's configured LLVM optimizer level. For the
+  // current Hexagon target construction this is O2 by default.
+  // This call is driven by llvmIreeTarget.optimizerOptLevel (which also affects
+  // previous passes)
+  if (failed(HAL::runLLVMIRPasses(llvmIreeTarget, targetMachine.get(),
+                                  llvmModule.get()))) {
+    return variantOp.emitOpError()
+           << "failed to run LLVM IR optimization passes for Hexagon";
   }
 
   // Dump assembly

@@ -13,10 +13,10 @@
 #include "hexagon/arm_dsp/profiling.h"
 #include "hexagon/dsp/align.h"
 #include "hexagon/dsp/executable.h"
+#include "hexagon/dsp/executable_library.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/profiling.h"
 #include "hexagon_dsp.h"
-#include "iree/hal/local/executable_library.h"
 #include "qurt.h"
 
 /// data about a command buffer

@@ -6,10 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-// This define is needed by executable_library.h to compile for Hexagon.
-#define static_assert _Static_assert
-
-#include "iree/hal/local/executable_library.h"
+#include "hexagon/dsp/executable_library.h"
 
 #include "hexagon_dsp.h"
 

@@ -12,6 +12,11 @@ typedef struct hexagon_dsp_private_s {
   unsigned char dummy;
 } hexagon_dsp_private_t;
 
+static inline hexagon_dsp_private_t *
+hexagon_dsp_get_priv(remote_handle64 rpc_handle) {
+  return (hexagon_dsp_private_t *)rpc_handle;
+}
+
 /**
  * @brief Open DSP RPC session.
  * @param[in] uri URI of the DSP RPC session,
@@ -37,7 +42,8 @@ int hexagon_dsp_open(const char *uri, remote_handle64 *rpc_handle) {
  * @return AEE_SUCCESS for success, should always succeed
  */
 int hexagon_dsp_close(remote_handle64 rpc_handle) {
-  hexagon_dsp_private_t *priv = (hexagon_dsp_private_t *)rpc_handle;
+  hexagon_dsp_private_t *priv = hexagon_dsp_get_priv(rpc_handle);
+
   // free management data structure
   free(priv);
   return AEE_SUCCESS;

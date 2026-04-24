@@ -9,12 +9,7 @@
 
 #include <stdint.h>
 
-// This define is needed by executable_library.h to compile for Hexagon.
-#ifndef static_assert
-#define static_assert _Static_assert
-#endif
-
-#include "iree/hal/local/executable_library.h"
+#include "hexagon/dsp/executable_library.h"
 
 // Resolves helper executable imports from `imports` and initializes
 // `environment`. Any allocated import storage is owned through the environment

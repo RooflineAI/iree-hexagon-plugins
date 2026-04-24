@@ -41,9 +41,10 @@ cc_binary(
     deps = [
         ":IREECompilerLibImport",
         "//plugins/compiler/cellar-hexagon:registration",
-        "//plugins/compiler/cellar-hexagon/CodeGen",
         "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
-        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonLinkerTool",
-        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
+        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/Target:HexagonSession",
+        "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
     ],
 )

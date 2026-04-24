@@ -15,10 +15,10 @@ package(
 cellar_hexagon_plugin_library(
     name = "HexagonEncodingExternalModels",
     srcs = [
-        "HexagonEncodingExternalModels.cpp",
+        "Encoding/HexagonEncodingExternalModels.cpp",
     ],
     hdrs = [
-        "HexagonEncodingExternalModels.h",
+        "Encoding/HexagonEncodingExternalModels.h",
     ],
     hdr_deps = [
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
@@ -32,7 +32,7 @@ cellar_hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
-        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
     ],
 )
 
@@ -51,16 +51,40 @@ iree_gentbl_cc_library(
 )
 
 cellar_hexagon_plugin_library(
-    name = "CodeGen",
+    name = "codegen",
     srcs = [
-        "HexagonLowerExecutableTarget.cpp",
+        "Conversion/HexagonConvertToLLVM.cpp",
+        "Conversion/MarkHexKLStaticImports.cpp",
+        "Conversion/MarkHexagonRuntimeStaticImports.cpp",
         "Passes.cpp",
+        "Pipelines/Bufferization.cpp",
+        "Pipelines/ConfigurationPipeline.cpp",
+        "Pipelines/HexagonLowerExecutableTarget.cpp",
+        "Pipelines/HexagonMlirPipeline.cpp",
+        "Pipelines/IreeLoweringPipelines.cpp",
+        "Pipelines/LinkingPipeline.cpp",
+        "Pipelines/TranslationPipeline.cpp",
+        "Strategy/HexagonSelectLoweringStrategy.cpp",
+        "Strategy/KernelDispatch.cpp",
+        "Transforms/EmbedHexKLLinkObjects.cpp",
+        "Transforms/FoldDispatchOutputStaging.cpp",
+        "Transforms/PromoteDMATagAllocToStack.cpp",
+        "Transforms/StripEncodingFromHexKLMatmul.cpp",
     ],
     hdrs = [
+        "Conversion/HexagonConvertToLLVM.h",
         "Passes.h",
+        "Pipelines/Bufferization.h",
+        "Pipelines/ConfigurationPipeline.h",
+        "Pipelines/HexagonMlirPipeline.h",
+        "Pipelines/IreeLoweringPipelines.h",
+        "Pipelines/LinkingPipeline.h",
+        "Pipelines/TranslationPipeline.h",
+        "Strategy/KernelDispatch.h",
     ],
     hdr_deps = [
         "@iree//compiler/src/iree/compiler/Codegen/Common",
+        "@iree//compiler/src/iree/compiler/Codegen/Transforms",
         "@iree//compiler/src/iree/compiler/Codegen/Common:TransformDialectInterpreterPass",
         "@iree//compiler/src/iree/compiler/Codegen/Common/CPU:CommonCPUPasses",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
@@ -68,6 +92,7 @@ cellar_hexagon_plugin_library(
         "@iree//compiler/src/iree/compiler/Codegen/Interfaces:PartitionableLoopsInterface",
         "@iree//compiler/src/iree/compiler/Codegen/LLVMCPU",
         "@iree//compiler/src/iree/compiler/Codegen/Utils",
+        "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR:HALDialect",
         "@iree//compiler/src/iree/compiler/Dialect/LinalgExt/IR",
@@ -81,13 +106,11 @@ cellar_hexagon_plugin_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:AffineDialect",
         "@llvm-project//mlir:AffineToStandard",
-        "@llvm-project//mlir:AffineTransforms",
         "@llvm-project//mlir:ArithToArmSME",
-        "@llvm-project//mlir:ArithTransforms",
         "@llvm-project//mlir:ArmSMEToLLVM",
         "@llvm-project//mlir:ArmSMEToSCF",
-        "@llvm-project//mlir:ArmSMETransforms",
         "@llvm-project//mlir:BufferizationDialect",
+        "@llvm-project//mlir:BufferizationPipelines",
         "@llvm-project//mlir:ComplexToStandard",
         "@llvm-project//mlir:ConvertToLLVM",
         "@llvm-project//mlir:DialectUtils",
@@ -96,17 +119,18 @@ cellar_hexagon_plugin_library(
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:LLVMDialect",
         "@llvm-project//mlir:LinalgDialect",
-        "@llvm-project//mlir:LinalgTransforms",
+        "@llvm-project//mlir:MemRefDialect",
         "@llvm-project//mlir:MemRefTransforms",
         "@llvm-project//mlir:PDLDialect",
         "@llvm-project//mlir:PDLInterpDialect",
         "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:QuantTransforms",
         "@llvm-project//mlir:ReconcileUnrealizedCasts",
         "@llvm-project//mlir:SCFDialect",
         "@llvm-project//mlir:SCFToControlFlow",
         "@llvm-project//mlir:TensorDialect",
+        "@llvm-project//mlir:TilingInterface",
         "@llvm-project//mlir:TransformDialect",
-        "@llvm-project//mlir:Transforms",
         "@llvm-project//mlir:VectorDialect",
         "@llvm-project//mlir:VectorToArmSME",
         "@llvm-project//mlir:VectorToLLVM",
@@ -122,22 +146,4 @@ cellar_hexagon_plugin_library(
         "@llvm-project//mlir:BufferizationToMemRef",
         "@llvm-project//mlir:QuantTransforms",
     ],
-)
-
-cellar_hexagon_plugin_library(
-    name = "HexagonLinkerTool",
-    srcs = [
-        "HexagonLinkerTool.cpp",
-    ],
-    hdrs = [
-        "HexagonLinkerTool.h",
-    ],
-    hdr_deps = [
-        "@iree//compiler/plugins/target/LLVMCPU:LinkerTool",
-        "@iree//compiler/src/iree/compiler/Utils",
-        "@llvm-project//llvm:Core",
-        "@llvm-project//llvm:Support",
-    ],
-    strip_include_prefix = "/plugins/compiler",
-    deps = [],
 )

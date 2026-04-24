@@ -1,0 +1,158 @@
+# Copyright 2025 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonOptions",
+    srcs = [
+        "HexagonOptions.cpp",
+    ],
+    hdrs = [
+        "HexagonOptions.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Utils",
+        "@llvm-project//llvm:Support",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonLLVMTarget",
+    srcs = [
+        "HexagonLLVMTarget.cpp",
+    ],
+    hdrs = [
+        "HexagonLLVMTarget.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/plugins/target/LLVMCPU:LLVMTargetOptions",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//llvm:Target",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        ":HexagonOptions",
+    ],
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonTargetDevice",
+    srcs = [
+        "HexagonTargetDevice.cpp",
+    ],
+    hdrs = [
+        "HexagonTargetDevice.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Support",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        ":HexagonOptions",
+    ],
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonExecutableSerialization",
+    srcs = [
+        "HexagonExecutableSerialization.cpp",
+    ],
+    hdrs = [
+        "HexagonExecutableSerialization.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/plugins/target/LLVMCPU",
+        "@iree//compiler/plugins/target/LLVMCPU:LLVMTargetOptions",
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
+        "@iree//compiler/src/iree/compiler/Utils",
+        "@llvm-project//llvm:BitWriter",
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:MC",
+        "@llvm-project//llvm:Passes",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//llvm:Target",
+        "@llvm-project//llvm:TransformUtils",
+        "@llvm-project//mlir:BuiltinToLLVMIRTranslation",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:LLVMToLLVMIRTranslation",
+        "@llvm-project//mlir:ToLLVMIRTranslation",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        ":HexagonLLVMTarget",
+        ":HexagonOptions",
+        "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
+    ],
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonTargetBackend",
+    srcs = [
+        "HexagonTargetBackend.cpp",
+    ],
+    hdrs = [
+        "HexagonTargetBackend.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
+        "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
+        "@llvm-project//mlir:BuiltinToLLVMIRTranslation",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:LLVMToLLVMIRTranslation",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        ":HexagonExecutableSerialization",
+        ":HexagonLLVMTarget",
+        ":HexagonOptions",
+        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
+        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+    ],
+)
+
+cellar_hexagon_plugin_library(
+    name = "HexagonSession",
+    srcs = [
+        "HexagonSession.cpp",
+    ],
+    hdrs = [
+        "HexagonSession.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
+        "@iree//compiler/src/iree/compiler/PluginAPI",
+        "@iree//compiler/src/iree/compiler/Utils",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        ":HexagonOptions",
+        ":HexagonTargetBackend",
+        ":HexagonTargetDevice",
+        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
+        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
+        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+        "@hexagon-mlir//qcom_hexagon_backend:HexagonDialectLibs",
+        # These dependencies are not present in the base iree-compile binary,
+        # so they need to be added with the dynamic plugin.
+        "@llvm-project//mlir:ArithTransforms",
+        "@llvm-project//mlir:MemRefTransforms",
+        "@llvm-project//mlir:SCFTransforms",
+    ],
+)

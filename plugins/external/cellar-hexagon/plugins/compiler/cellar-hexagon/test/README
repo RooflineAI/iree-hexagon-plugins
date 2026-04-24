@@ -1,0 +1,6 @@
+# Hexagon plugin testing
+
+This plugin's testing infrastructure contains:
+- `target`: contains tests for plugin loading, target wiring, dumping, and serialized executable artifacts.
+- `codegen/*`: contains tests for Hexagon codegen behavior, split by encoding, strategy, pipelines, and standalone transforms.
+- `integration`: contains tests using `iree-compile` and testing full execution of the compilation without error. Note that, despite the name, these tests are not checking for correctness of the generated code, but correct generation and lowering of operations through the passes (remember mlir's verifiers!). True integration tests that test execution together with the runtime do not belong here.

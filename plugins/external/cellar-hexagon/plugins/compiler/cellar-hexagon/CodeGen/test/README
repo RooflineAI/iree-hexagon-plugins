@@ -1,5 +1,0 @@
-# Hexagon plugin testing
-
-This plugin's testing infrastructure contains:
-- `unit`: contains tests limited to a few passes. Note that, currently, most passes are part of LLVMCPUTarget and they are therefore testing the correct plumbing of the new target backend instead of the pass itself. The selected passes allow testing proper use of the hooks into IREE.
-- `integration`: contains tests using `iree-compile` and testing full execution of the compilation without error. Note that, despite the name, these tests are not checking for correctness of the generated code, but correct generation and lowering of operations through the passes (remember mlir's verifiers!). True integration tests that test execution together with the runtime do not belong here.

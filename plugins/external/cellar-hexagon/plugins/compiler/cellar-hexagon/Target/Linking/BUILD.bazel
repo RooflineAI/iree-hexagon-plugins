@@ -12,16 +12,19 @@ package(
 )
 
 cellar_hexagon_plugin_library(
-    name = "registration",
+    name = "HexagonLinkerTool",
     srcs = [
-        "PluginRegistration.cpp",
+        "HexagonLinkerTool.cpp",
     ],
-    hdrs = [],
+    hdrs = [
+        "HexagonLinkerTool.h",
+    ],
     hdr_deps = [
-        "@iree//compiler/src/iree/compiler/PluginAPI",
+        "@iree//compiler/plugins/target/LLVMCPU:LinkerTool",
+        "@iree//compiler/src/iree/compiler/Utils",
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:Support",
     ],
     strip_include_prefix = "/plugins/compiler",
-    deps = [
-        "//plugins/compiler/cellar-hexagon/Target:HexagonSession",
-    ],
+    deps = [],
 )

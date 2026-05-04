@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+import pytest
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
 
@@ -39,20 +40,13 @@ def exported_symbols(path: Path) -> set[str]:
     return result
 
 
-def main(args: list[str]) -> int:
-    if len(args) != 1:
-        print(f"usage: {sys.argv[0]} <runtime_so>", file=sys.stderr)
-        return 2
-
-    runtime_so = Path(args[0])
+def test_dsp_runtime_exports(runtime_so: Path) -> None:
     exported = exported_symbols(runtime_so)
-    missing = [symbol for symbol in SYMBOLS if symbol not in exported]
-    if missing:
-        for symbol in missing:
-            print(f"missing exported DSP runtime symbol: {symbol}", file=sys.stderr)
-        return 1
-    return 0
+    # ignore additional symbols
+    exported &= set(SYMBOLS)
+    assert sorted(exported) == sorted(SYMBOLS), "missing exported DSP runtime symbols"
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    args = sys.argv[1:]
+    sys.exit(pytest.main([__file__, "-vv"] + args))

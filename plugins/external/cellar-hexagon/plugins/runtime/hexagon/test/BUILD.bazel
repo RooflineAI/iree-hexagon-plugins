@@ -9,12 +9,19 @@ package(
 )
 
 py_test(
-    name = "dsp_runtime_exports_test",
-    srcs = ["check_dsp_runtime_exports.py"],
-    args = ["$(location //plugins/runtime/hexagon/dsp:hexagon_dsp_skel_cross)"],
+    name = "test_dsp_runtime_exports",
+    srcs = [
+        "conftest.py",
+        "test_dsp_runtime_exports.py",
+    ],
+    args = [
+        "--runtime-so",
+        "$(location //plugins/runtime/hexagon/dsp:hexagon_dsp_skel_cross)",
+    ],
     data = ["//plugins/runtime/hexagon/dsp:hexagon_dsp_skel_cross"],
     deps = [
         "@pypi//pyelftools",
+        "@pypi//pytest",
     ],
 )
 

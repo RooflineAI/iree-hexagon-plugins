@@ -11,6 +11,10 @@
 #include "iree/base/status.h"
 #include "rpc_types.h"
 
+/** alignment (in bytes) of all Hexagon memory allocations (e.g. used for
+ * buffers passed to dispatches), supposed to match size of vector register */
+#define IREE_HAL_HEXAGON_MEM_ALLOC_ALIGN (128)
+
 /// A {Qualcomm Hexagon} memory allocation.
 typedef struct iree_hal_hexagon_mem_alloc_s iree_hal_hexagon_mem_alloc_t;
 

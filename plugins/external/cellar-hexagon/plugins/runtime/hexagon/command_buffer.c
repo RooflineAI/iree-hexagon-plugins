@@ -452,6 +452,10 @@ static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
                             pattern_length);
   }
 
+  // normalize target buffer reference (turn subspan buffer ref into actual
+  // allocated Hexagon buffer ref)
+  IREE_RETURN_IF_ERROR(iree_hal_buffer_ref_normalize(&target_ref));
+
   // get size of serialized fill command
   iree_host_size_t cmd_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_cmd_fill_serialize_prep(&cmd_size));
@@ -537,6 +541,11 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
   // device-visible but may reside on either the host or device.
   // Note that either buffer may be a reference to a binding table slot in
   // which case it will be provided during submission to a queue.
+
+  // normalize buffer references (turn subspan buffer refs into actual
+  // allocated Hexagon buffer refs)
+  IREE_RETURN_IF_ERROR(iree_hal_buffer_ref_normalize(&source_ref));
+  IREE_RETURN_IF_ERROR(iree_hal_buffer_ref_normalize(&target_ref));
 
   // get size of serialized copy command
   iree_host_size_t cmd_size = 0;
@@ -636,8 +645,11 @@ static void
 iree_hal_hexagon_command_buffer_helper_unmap(const iree_hal_buffer_ref_t *refs,
                                              iree_host_size_t count) {
   for (iree_host_size_t idx = 0; idx < count; ++idx) {
-    if (refs[idx].buffer) {
-      iree_hal_hexagon_buffer_unmap_from_dsp(refs[idx].buffer);
+    iree_hal_buffer_ref_t normalized_buffer_ref = refs[idx];
+    if (iree_status_is_ok(
+            iree_hal_buffer_ref_normalize(&normalized_buffer_ref)) &&
+        normalized_buffer_ref.buffer) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(normalized_buffer_ref.buffer);
     }
   }
 }
@@ -685,6 +697,10 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
         "non-Hexagon executables are not supported on Hexagon");
   }
 
+  // Note: We cannot normalize buffer references in-place up-front here, because
+  // the references passed to us here are const. So we have to normalize on the
+  // fly where we use each reference.
+
   // get size of serialized dispatch command
   iree_host_size_t cmd_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_cmd_dispatch_serialize_prep(
@@ -703,6 +719,14 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
 
   // map direct buffers (if any) to DSP
   for (iree_host_size_t idx = 0; idx < bindings.count; ++idx) {
+    iree_hal_buffer_ref_t normalized_buffer_ref = bindings.values[idx];
+    iree_status_t status_map =
+        iree_hal_buffer_ref_normalize(&normalized_buffer_ref);
+    if (!iree_status_is_ok(status_map)) {
+      iree_hal_hexagon_command_buffer_helper_unmap(bindings.values, idx);
+      iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);
+      return status_map;
+    }
     if (!bindings.values[idx].buffer) {
       continue;
     }

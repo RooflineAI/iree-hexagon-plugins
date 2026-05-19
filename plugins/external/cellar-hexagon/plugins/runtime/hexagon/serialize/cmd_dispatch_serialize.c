@@ -99,16 +99,17 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
 
   // serialize bindings
   for (uint32_t b = 0; b < bindings->count; ++b) {
-    const iree_hal_buffer_ref_t *binding = &bindings->values[b];
+    iree_hal_buffer_ref_t normalized_binding = bindings->values[b];
+    IREE_RETURN_IF_ERROR(iree_hal_buffer_ref_normalize(&normalized_binding));
     int fd = -1; // stays at -1 if no buffer, means to use slot
-    if (binding->buffer) {
-      IREE_RETURN_IF_ERROR(get_buffer_fd(binding->buffer, &fd));
+    if (normalized_binding.buffer) {
+      IREE_RETURN_IF_ERROR(get_buffer_fd(normalized_binding.buffer, &fd));
     }
     SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_buf_ref_t, bndg)
-    bndg->slot = binding->buffer_slot;
+    bndg->slot = normalized_binding.buffer_slot;
     bndg->fd = fd;
-    bndg->offset = binding->offset;
-    bndg->length = binding->length;
+    bndg->offset = normalized_binding.offset;
+    bndg->length = normalized_binding.length;
   }
 
   return iree_ok_status();

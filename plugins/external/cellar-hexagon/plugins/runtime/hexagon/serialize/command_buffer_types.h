@@ -3,6 +3,8 @@
 #ifndef IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_COMMAND_BUFFER_TYPES_H_
 #define IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_COMMAND_BUFFER_TYPES_H_
 
+#include <stdint.h>
+
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 #include "iree/hal/utils/resource_set.h"

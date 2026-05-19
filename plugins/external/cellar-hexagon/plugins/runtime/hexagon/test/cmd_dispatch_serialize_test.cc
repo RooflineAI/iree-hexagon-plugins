@@ -31,13 +31,16 @@ TEST(CmdDispatchSerializeTest, Serialize) {
       reinterpret_cast<const uint8_t *>(constant_values.data()),
       constant_values.size() * sizeof(uint32_t));
 
-  std::array<iree_hal_buffer_ref_t, 3> binding_values = {
+  std::array<iree_hal_buffer_ref_t, 4> binding_values = {
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/1, /*offset=*/32,
                                         /*length=*/64),
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/2, /*offset=*/96,
                                         /*length=*/128),
-      iree_hal_make_buffer_ref(&hexagon_test_direct_buffers[0], /*offset=*/160,
+      iree_hal_make_buffer_ref(&hexagon_test_direct_subspan_buffer0,
+                               /*offset=*/160,
                                /*length=*/64),
+      iree_hal_make_buffer_ref(&hexagon_test_direct_buffer1, /*offset=*/180,
+                               /*length=*/32),
   };
   iree_hal_buffer_ref_list_t bindings = {binding_values.size(),
                                          binding_values.data()};
@@ -86,8 +89,13 @@ TEST(CmdDispatchSerializeTest, Serialize) {
         reinterpret_cast<const hexagon_rt_arm_dsp_buf_ref_t *>(cursor);
     cursor += sizeof(*binding);
     EXPECT_EQ(binding_values[i].buffer_slot, binding->slot);
-    EXPECT_EQ(i == 2 ? HEXAGON_TEST_FAKE_FD(0) : -1, binding->fd);
-    EXPECT_EQ(binding_values[i].offset, binding->offset);
+    EXPECT_EQ(i == 2   ? HEXAGON_TEST_DIRECT_SUBSPAN_BUFFER0_FD
+              : i == 3 ? HEXAGON_TEST_DIRECT_BUFFER1_FD
+                       : -1,
+              binding->fd);
+    EXPECT_EQ((i == 2 ? HEXAGON_TEST_DIRECT_SUBSPAN_BUFFER0_OFFSET : 0) +
+                  binding_values[i].offset,
+              binding->offset);
     EXPECT_EQ(binding_values[i].length, binding->length);
   }
 

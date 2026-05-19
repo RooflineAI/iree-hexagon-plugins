@@ -43,9 +43,9 @@ TEST(BindingsSerializeTest, MultipleBindings) {
   // Test input data: binding table with three different entries.
 
   std::array<iree_hal_buffer_binding_t, 3> bindings = {
-      {{&hexagon_test_direct_buffers[0], 0, 32},
-       {&hexagon_test_direct_buffers[1], 64, 96},
-       {&hexagon_test_direct_buffers[2], 256, 16}}};
+      {{&hexagon_test_direct_buffer0, 0, 32},
+       {&hexagon_test_direct_buffer1, 64, 96},
+       {&hexagon_test_direct_buffer2, 256, 16}}};
 
   iree_hal_buffer_binding_table_t binding_table = {};
   binding_table.count = bindings.size();
@@ -73,13 +73,18 @@ TEST(BindingsSerializeTest, MultipleBindings) {
       reinterpret_cast<const hexagon_rt_arm_dsp_binding_tab_t *>(buffer.data());
   EXPECT_EQ(bindings.size(), header->num_entries);
 
+  static const int expected_fds[] = {
+      HEXAGON_TEST_DIRECT_BUFFER0_FD,
+      HEXAGON_TEST_DIRECT_BUFFER1_FD,
+      HEXAGON_TEST_DIRECT_BUFFER2_FD,
+  };
   const uint8_t *cursor = buffer.data() + sizeof(*header);
   for (size_t i = 0; i < bindings.size(); ++i) {
     const auto *binding =
         reinterpret_cast<const hexagon_rt_arm_dsp_binding_t *>(cursor);
     cursor += sizeof(*binding);
 
-    EXPECT_EQ(HEXAGON_TEST_FAKE_FD(i), binding->fd);
+    EXPECT_EQ(expected_fds[i], binding->fd);
     EXPECT_EQ(bindings[i].offset, binding->offset);
     EXPECT_EQ(bindings[i].length, binding->length);
   }

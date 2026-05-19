@@ -955,7 +955,10 @@ static void
 iree_hal_hexagon_device_helper_unmap(const iree_hal_buffer_binding_t *bindings,
                                      iree_host_size_t binding_cnt) {
   for (iree_host_size_t idx = 0; idx < binding_cnt; ++idx) {
-    iree_hal_hexagon_buffer_unmap_from_dsp(bindings[idx].buffer);
+    iree_hal_buffer_binding_t binding = bindings[idx];
+    if (iree_status_is_ok(iree_hal_buffer_binding_normalize(&binding))) {
+      iree_hal_hexagon_buffer_unmap_from_dsp(binding.buffer);
+    }
   }
 }
 
@@ -968,11 +971,18 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_command_buffer_get_rpc_handle(
       command_buffer, &rpc_command_buffer_handle));
 
+  // Note: We cannot normalize buffer bindings in-place up-front here, because
+  // the bindings passed to us here are const. So we have to normalize on the
+  // fly where we use each binding.
+
   // Map all buffers in the binding table to the DSP.
   for (iree_host_size_t idx = 0; idx < binding_table.count; ++idx) {
     int fd = -1;
-    iree_status_t status = iree_hal_hexagon_buffer_map_to_dsp(
-        binding_table.bindings[idx].buffer, &fd);
+    iree_hal_buffer_binding_t binding = binding_table.bindings[idx];
+    iree_status_t status = iree_hal_buffer_binding_normalize(&binding);
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_hexagon_buffer_map_to_dsp(binding.buffer, &fd);
+    }
     if (!iree_status_is_ok(status)) {
       // went wrong for one buffer, unmap the ones already mapped
       iree_hal_hexagon_device_helper_unmap(binding_table.bindings, idx);

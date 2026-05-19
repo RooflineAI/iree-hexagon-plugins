@@ -46,7 +46,7 @@ TEST(CommandBufferSerializeTest, EmptyCommandBuffer) {
 }
 
 TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
-  // Pre-serialize a fill, a dispatch, a barrier, and a copy and check they are
+  // Pre-serialize a fill, a dispatch, a barrier, and a copy and check those are
   // concatenated into the final command buffer.
   struct SerializedEntry {
     std::vector<uint8_t> storage;
@@ -69,7 +69,7 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
   // Fill entry.
   const std::array<uint8_t, 4> fill_pattern = {0x10, 0x20, 0x30, 0x40};
   iree_hal_buffer_ref_t fill_dest = iree_hal_make_buffer_ref(
-      &hexagon_test_direct_buffers[0], /*offset=*/16, /*length=*/48);
+      &hexagon_test_direct_buffer0, /*offset=*/16, /*length=*/48);
   iree_host_size_t fill_cmd_size = 0;
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_fill_serialize_prep(&fill_cmd_size));
   auto fill_entry = make_entry(fill_cmd_size);
@@ -88,7 +88,7 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
   std::array<iree_hal_buffer_ref_t, 2> dispatch_bindings = {
       iree_hal_make_indirect_buffer_ref(/*buffer_slot=*/6, /*offset=*/0,
                                         /*length=*/128),
-      iree_hal_make_buffer_ref(&hexagon_test_direct_buffers[0], /*offset=*/64,
+      iree_hal_make_buffer_ref(&hexagon_test_direct_buffer0, /*offset=*/64,
                                /*length=*/32),
   };
   iree_hal_buffer_ref_list_t dispatch_binding_list = {dispatch_bindings.size(),
@@ -114,7 +114,7 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
   iree_hal_buffer_ref_t copy_src = iree_hal_make_indirect_buffer_ref(
       /*buffer_slot=*/11, /*offset=*/32, /*length=*/96);
   iree_hal_buffer_ref_t copy_dest = iree_hal_make_buffer_ref(
-      &hexagon_test_direct_buffers[1], /*offset=*/48, /*length=*/96);
+      &hexagon_test_direct_subspan_buffer0, /*offset=*/48, /*length=*/96);
   iree_host_size_t copy_cmd_size = 0;
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_copy_serialize_prep(&copy_cmd_size));
   auto copy_entry = make_entry(copy_cmd_size);

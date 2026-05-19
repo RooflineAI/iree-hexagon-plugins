@@ -36,13 +36,15 @@ iree_status_t iree_hal_hexagon_bindings_serialize_exec(
 
   // serialize all binding entries
   for (iree_host_size_t i = 0; i < binding_table->count; ++i) {
-    const iree_hal_buffer_binding_t *binding = &binding_table->bindings[i];
+    iree_hal_buffer_binding_t normalized_binding = binding_table->bindings[i];
+    IREE_RETURN_IF_ERROR(
+        iree_hal_buffer_binding_normalize(&normalized_binding));
     int fd = -1;
-    IREE_RETURN_IF_ERROR(get_buffer_fd(binding->buffer, &fd));
+    IREE_RETURN_IF_ERROR(get_buffer_fd(normalized_binding.buffer, &fd));
     SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_binding_t, bndg)
     bndg->fd = fd;
-    bndg->offset = binding->offset;
-    bndg->length = binding->length;
+    bndg->offset = normalized_binding.offset;
+    bndg->length = normalized_binding.length;
   }
 
   return iree_ok_status();

@@ -24,6 +24,10 @@ iree_status_t iree_hal_hexagon_cmd_fill_serialize_exec(
   uint8_t *ptr = cmd_data;
   uint8_t *endptr = cmd_data + cmd_size;
 
+  // normalize target buffer reference
+  iree_hal_buffer_ref_t normalized_target_ref = *target_ref;
+  IREE_RETURN_IF_ERROR(iree_hal_buffer_ref_normalize(&normalized_target_ref));
+
   // serialize fill command
   SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_cmd_fill_t, fill)
   fill->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_FILL;
@@ -42,14 +46,13 @@ iree_status_t iree_hal_hexagon_cmd_fill_serialize_exec(
 
   // fill in target buffer
   int fd = -1; // stays at -1 if no buffer, means to use slot
-  if (target_ref->buffer) {
-    IREE_RETURN_IF_ERROR(get_buffer_fd(target_ref->buffer, &fd));
+  if (normalized_target_ref.buffer) {
+    IREE_RETURN_IF_ERROR(get_buffer_fd(normalized_target_ref.buffer, &fd));
   }
-  fill->trgt.slot = target_ref->buffer_slot;
+  fill->trgt.slot = normalized_target_ref.buffer_slot;
   fill->trgt.fd = fd;
-  fill->trgt.offset = target_ref->offset;
+  fill->trgt.offset = normalized_target_ref.offset;
   fill->trgt.length = target_ref->length;
 
-  return iree_ok_status();
   return iree_ok_status();
 }

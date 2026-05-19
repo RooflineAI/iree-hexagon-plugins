@@ -114,7 +114,6 @@ iree_hal_hexagon_buffer_get_fd_for_dsp(iree_hal_buffer_t *base_buffer,
 
 iree_status_t
 iree_hal_hexagon_buffer_unmap_from_dsp(iree_hal_buffer_t *base_buffer) {
-
   if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
     return iree_make_status(IREE_STATUS_INCOMPATIBLE,
                             "non-Hexagon buffers cannot be unmapped from DSP");
@@ -170,7 +169,7 @@ static iree_status_t iree_hal_hexagon_buffer_map_range(
   // transfer + dealloc on umap). Try not to use that.
 
   // On Hexagon, there is currently no need to do an actual mapping - either the
-  // memory is mapped ot host already (host memory and RPC memory) or it is not
+  // memory is mapped to host already (host memory and RPC memory) or it is not
   // possible to map the memory to host (device memory).
 
   // Get host span - if available.

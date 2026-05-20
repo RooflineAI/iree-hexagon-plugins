@@ -7,7 +7,7 @@
 
 // RUN: iree-compile %s \
 // RUN:   --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-backends=hexagon \
+// RUN:   --iree-hal-target-device=hexagon \
 // RUN:   --iree-hexagon-v=79 \
 // RUN:   --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN:   --iree-hal-dump-executable-binaries-to=%t \

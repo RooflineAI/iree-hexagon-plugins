@@ -3,9 +3,8 @@
 // Check that we generate a mmtd4d operation and that the matmul does not get lowered as a linalg.generic
 
 // RUN: rm -f %t.vmfb
-// RUN: iree-compile %s --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN --iree-hal-target-backends=hexagon \
+// RUN: iree-compile %s --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN --iree-hal-target-device=hexagon \
 // RUN: --iree-opt-data-tiling=true \
-// RUN: --iree-hal-target-backends=hexagon \
 // RUN: --iree-hexagon-v=79 \
 // RUN: --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN: --mlir-print-ir-after=iree-codegen-materialize-device-encoding \

@@ -6,7 +6,7 @@
 // RUN: rm -rf %t
 // RUN: mkdir %t
 // RUN: iree-opt --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-backends=hexagon \
+// RUN:   --iree-hal-target-device=hexagon \
 // RUN:   --iree-hal-dump-executable-intermediates-to=%t \
 // RUN:   --iree-hal-dump-executable-binaries-to=%t \
 // RUN:   --pass-pipeline='builtin.module(iree-hal-transformation-pipeline)' \

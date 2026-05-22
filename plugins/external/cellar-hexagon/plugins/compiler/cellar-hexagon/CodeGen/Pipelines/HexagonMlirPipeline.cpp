@@ -332,7 +332,7 @@ void buildHexagonMlirTranslationRoute(
 
       // This is wrapping IREE's custom wrapper around bufferization for
       // Hexagon. Note that it is only meant to run on functions.
-      addHexagonBufferizePasses(pm.nest<func::FuncOp>());
+      addHexagonBufferizePassesForHexagonMlir(pm.nest<func::FuncOp>());
 
       if (enableDoubleBuffering) {
         pm.addNestedPass<func::FuncOp>(

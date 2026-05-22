@@ -15,6 +15,9 @@ namespace mlir::iree_compiler::cellar_hexagon::codegen {
 
 void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager);
 
+void addHexagonBufferizePassesForHexagonMlir(
+    mlir::OpPassManager &funcPassManager);
+
 } // namespace mlir::iree_compiler::cellar_hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_BUFFERIZATION_H_

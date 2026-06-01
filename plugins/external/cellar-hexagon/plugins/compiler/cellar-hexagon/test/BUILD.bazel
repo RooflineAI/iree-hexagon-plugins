@@ -23,6 +23,7 @@ _COMMON_TOOLS = [
 
 iree_lit_test_suite(
     name = "lit",
+    timeout = "short",
     srcs = enforce_glob(
         [
             "codegen/encoding/encoder_and_materializer_registration.mlir",
@@ -62,6 +63,7 @@ iree_lit_test_suite(
 # These tests use `readelf`, which is only available on Linux in our CI
 iree_lit_test(
     name = "target/native_runtime_linking_keeps_undefined_symbols.mlir.test",
+    timeout = "short",
     cfg = "//:lit.cfg.py",
     target_compatible_with = ["@platforms//os:linux"],
     test_file = "target/native_runtime_linking_keeps_undefined_symbols.mlir",
@@ -70,6 +72,7 @@ iree_lit_test(
 
 iree_lit_test(
     name = "target/query_function_generation_and_visibility.mlir.test",
+    timeout = "short",
     cfg = "//:lit.cfg.py",
     target_compatible_with = ["@platforms//os:linux"],
     test_file = "target/query_function_generation_and_visibility.mlir",
@@ -78,6 +81,7 @@ iree_lit_test(
 
 iree_lit_test(
     name = "target/shared_objects_have_correct_type.mlir.test",
+    timeout = "short",
     cfg = "//:lit.cfg.py",
     target_compatible_with = ["@platforms//os:linux"],
     test_file = "target/shared_objects_have_correct_type.mlir",

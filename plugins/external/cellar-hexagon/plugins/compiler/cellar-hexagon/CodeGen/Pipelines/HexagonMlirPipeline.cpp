@@ -54,6 +54,12 @@ llvm::cl::opt<HexagonTilingPipeline> clHexagonTilingPipeline(
                                 "Use IREE tiling/distribution passes.")),
     llvm::cl::init(HexagonTilingPipeline::HexagonMlir));
 
+llvm::cl::opt<bool> clHexagonEnableHexKLMatmulLowering(
+    "iree-hexagon-enable-hexkl-matmul-lowering",
+    llvm::cl::desc("Enable matmul lowering through the HexKL pipeline "
+                   "(linalg.matmul -> hexkl.matmul -> LLVM calls)."),
+    llvm::cl::init(false));
+
 void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   auto &pm = variantPassManager.nest<ModuleOp>();
   const bool enableCollapseAddressSpace = true;
@@ -115,7 +121,7 @@ void buildHexagonMlirTranslationRoute(
   // Note that hexagon-mlir passes are working on module ops, while iree's are
   // working on hal ops
   auto puntBuffer = true;
-  auto enableHexKL = isHexKLMatmulLoweringEnabled();
+  auto enableHexKL = clHexagonEnableHexKLMatmulLowering == true;
   auto enableConvTiling = false;
   auto returnValueOptimization = false;
   auto enableSCFThreading = false;

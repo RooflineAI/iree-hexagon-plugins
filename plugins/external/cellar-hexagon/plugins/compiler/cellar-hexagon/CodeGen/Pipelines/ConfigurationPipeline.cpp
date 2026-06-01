@@ -75,20 +75,6 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
   // removed, along with the corresponding passes
   modulePassManager.addPass(createMaterializeUserConfigsPass());
 
-  // If reusing hexagon-mlir's lowering pipeline, this is done later down the
-  // pipeline. Otherwise have to do it this early to avoid LLVMCPU copied
-  // functionality start taking decisions based on the operation types.
-  if (isHexKLMatmulLoweringEnabled() && !isHexagonMlirLinalgLoweringEnabled()) {
-    // Here we reduced batched_matmuls with dimensionality 1 to matmul ops,
-    // before converting matmul ops to hexkl calls
-    modulePassManager.addNestedPass<func::FuncOp>(
-        mlir::hexagon::createReduceContractionRankPass());
-    modulePassManager.addNestedPass<func::FuncOp>(
-        mlir::hexagon::createMatmulToHexKLPass());
-    // Must disable data tiling, or remove the encoding to ensure there are
-    // no conflicts in the pipeline when creating hexkl.matmul calls.
-  }
-
   FunctionLikeNest(modulePassManager)
       .addPass(createMaterializeDeviceEncodingPass)
       .addPass(createCPUPropagateDataLayoutPass)

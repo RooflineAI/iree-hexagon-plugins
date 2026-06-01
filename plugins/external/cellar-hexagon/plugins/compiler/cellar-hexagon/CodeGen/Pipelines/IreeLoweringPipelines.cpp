@@ -16,7 +16,6 @@
 #include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
 #include "cellar-hexagon/CodeGen/Pipelines/Bufferization.h"
 #include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
-#include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
 #include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
 #include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "hexagon/Transforms/Transforms.h"
@@ -563,14 +562,6 @@ void addHexagonDefaultPassPipeline(OpPassManager &funcPassManager,
       IREE::CPU::TilingLevel::VectorCommonParallelTiles));
 
   addHexagonBufferizePasses(funcPassManager);
-
-  // Keep decompose here (post-bufferization): the pass expects memref-based
-  // hexkl.matmul operands and will crash on tensor-form ops.
-  if (isHexKLMatmulLoweringEnabled()) {
-    funcPassManager.addPass(mlir::hexagon::createDecomposeHexKLMatmulPass());
-    funcPassManager.addPass(createCanonicalizerPass());
-    funcPassManager.addPass(createCSEPass());
-  }
 }
 
 void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
@@ -669,14 +660,6 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
   // that runs hexagon-mlir optimizations first
   modulePassManager.addPass(
       createHexagonConvertToLLVMPass(clHexagonEnableReassociateFpReductions));
-
-  if (isHexKLMatmulLoweringEnabled()) {
-    // Lower Hexagon dialect ops with their dedicated converters first.
-    modulePassManager.addPass(mlir::hexkl::createHexKLToLLVMPass());
-    modulePassManager.addPass(mlir::hexagonmem::createHexagonMemToLLVMPass());
-    modulePassManager.addPass(createCanonicalizerPass());
-    modulePassManager.addPass(createCSEPass());
-  }
 
   modulePassManager.addPass(createMarkHexagonNativeRuntimeLinksPass());
 

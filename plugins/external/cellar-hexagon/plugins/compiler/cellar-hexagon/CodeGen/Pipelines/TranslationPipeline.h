@@ -18,7 +18,6 @@ void buildHexagonTranslationPassPipeline(
     mlir::OpPassManager &passManager,
     const HexagonPipelineOptions &pipelineOptions = HexagonPipelineOptions{});
 
-bool isHexKLMatmulLoweringEnabled();
 bool isHexagonVTCMTilingEnabled();
 bool isHexagonMlirLinalgLoweringEnabled();
 

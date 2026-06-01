@@ -29,12 +29,6 @@ enum class TranslationRoute {
   HexagonMlirPath,
 };
 
-static llvm::cl::opt<bool> clHexagonEnableHexKLMatmulLowering(
-    "iree-hexagon-enable-hexkl-matmul-lowering",
-    llvm::cl::desc("Enable matmul lowering through the HexKL pipeline "
-                   "(linalg.matmul -> hexkl.matmul -> LLVM calls)."),
-    llvm::cl::init(false));
-
 static llvm::cl::opt<bool> clHexagonEnableVTCMTiling(
     "iree-hexagon-enable-vtcm-tiling",
     llvm::cl::desc("Enable Hexagon VTCM tiling before bufferization in the "
@@ -45,10 +39,6 @@ static llvm::cl::opt<bool> clHexagonUseHexagonMlirLinalgLowering(
     "iree-hexagon-use-hexagon-mlir-linalg-lowering",
     llvm::cl::desc("Replace IREE's lowering by hexagon mlir's completely."),
     llvm::cl::init(false));
-
-bool isHexKLMatmulLoweringEnabled() {
-  return clHexagonEnableHexKLMatmulLowering;
-}
 
 bool isHexagonVTCMTilingEnabled() { return clHexagonEnableVTCMTiling; }
 

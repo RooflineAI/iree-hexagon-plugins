@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "memref_copy.h"
-#include "malloc_free.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -83,24 +82,47 @@ static int hexagon_unpack_dynamic_memref(const void *unrankedMemrefPtr,
   return 1;
 }
 
+// Recursive N-dimensional copy kernel.
+//
+// At the innermost dimension (current_dim == rank - 1), when both source and
+// destination have unit stride (contiguous elements), the entire inner row is
+// copied with a single bulk memcpy.
+//
+// Outer dimensions loop and recurse regardless of stride
+//
+// Recursion depth equals the tensor rank.
+static void copy_nd(const char *srcBase, char *dstBase, int64_t rank,
+                    int64_t dim, const int64_t *sizes,
+                    const int64_t *srcStrides, const int64_t *dstStrides,
+                    int64_t elemSize) {
+  if (dim == rank - 1) {
+    // Innermost dimension.
+    int64_t n = sizes[dim];
+    if (srcStrides[dim] == 1 && dstStrides[dim] == 1) {
+      memcpy(dstBase, srcBase, (size_t)(n * elemSize));
+    } else {
+      for (int64_t i = 0; i < n; ++i) {
+        memcpy(dstBase + i * dstStrides[dim] * elemSize,
+               srcBase + i * srcStrides[dim] * elemSize, (size_t)elemSize);
+      }
+    }
+    return;
+  }
+  for (int64_t i = 0; i < sizes[dim]; ++i) {
+    copy_nd(srcBase + i * srcStrides[dim] * elemSize,
+            dstBase + i * dstStrides[dim] * elemSize, rank, dim + 1, sizes,
+            srcStrides, dstStrides, elemSize);
+  }
+}
+
 void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
                                  void *dstUnranked) {
   hexagon_dynamic_memref_t src;
   hexagon_dynamic_memref_t dst;
   if (!hexagon_unpack_dynamic_memref(srcUnranked, &src) ||
-      !hexagon_unpack_dynamic_memref(dstUnranked, &dst)) {
+      !hexagon_unpack_dynamic_memref(dstUnranked, &dst) ||
+      src.rank != dst.rank) {
     return;
-  }
-
-  if (src.rank != dst.rank) {
-    return;
-  }
-
-  // Handle empty shapes -> nothing to copy.
-  for (int64_t dim = 0; dim < src.rank; ++dim) {
-    if (src.sizes[dim] == 0) {
-      return;
-    }
   }
 
   char *srcPtr = src.data + src.offset * elemSize;
@@ -111,50 +133,12 @@ void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
     return;
   }
 
-  int64_t rank = src.rank;
-  size_t bytes = (size_t)rank * sizeof(int64_t);
-  int64_t *indices = (int64_t *)hexagon_runtime_malloc((int64_t)bytes);
-  int64_t *srcStrides = (int64_t *)hexagon_runtime_malloc((int64_t)bytes);
-  int64_t *dstStrides = (int64_t *)hexagon_runtime_malloc((int64_t)bytes);
-  if (!indices || !srcStrides || !dstStrides) {
-    hexagon_runtime_free(indices);
-    hexagon_runtime_free(srcStrides);
-    hexagon_runtime_free(dstStrides);
-    return;
-  }
-
-  // Initialize multidimensional index and byte-scaled strides.
-  for (int64_t dim = 0; dim < rank; ++dim) {
-    indices[dim] = 0;
-    srcStrides[dim] = src.strides[dim] * elemSize;
-    dstStrides[dim] = dst.strides[dim] * elemSize;
-  }
-
-  int64_t readIndex = 0;
-  int64_t writeIndex = 0;
-  for (;;) {
-    memcpy(dstPtr + writeIndex, srcPtr + readIndex, (size_t)elemSize);
-
-    // Increment inner-most dimension and carry as needed.
-    for (int64_t axis = rank - 1; axis >= 0; --axis) {
-      int64_t newIndex = ++indices[axis];
-      readIndex += srcStrides[axis];
-      writeIndex += dstStrides[axis];
-
-      if (src.sizes[axis] != newIndex) {
-        break;
-      }
-      if (axis == 0) {
-        hexagon_runtime_free(indices);
-        hexagon_runtime_free(srcStrides);
-        hexagon_runtime_free(dstStrides);
-        return;
-      }
-
-      // Carry to outer dimension: reset current axis and undo linear advance.
-      indices[axis] = 0;
-      readIndex -= src.sizes[axis] * srcStrides[axis];
-      writeIndex -= dst.sizes[axis] * dstStrides[axis];
+  for (int64_t dim = 0; dim < src.rank; ++dim) {
+    if (src.sizes[dim] == 0) {
+      return;
     }
   }
+
+  copy_nd(srcPtr, dstPtr, src.rank, 0, src.sizes, src.strides, dst.strides,
+          elemSize);
 }

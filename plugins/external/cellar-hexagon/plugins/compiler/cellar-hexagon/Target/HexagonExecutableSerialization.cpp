@@ -109,6 +109,7 @@ static void dumpAssemblyFromLLVMModule(HAL::ExecutableVariantOp variantOp,
   llvm::raw_svector_ostream asmStream(asmDataStorage);
   llvm::legacy::PassManager asmPassManager;
   auto asmModule = llvm::CloneModule(llvmModule);
+  targetMachine.Options.MCOptions.AsmVerbose = true;
   if (targetMachine.addPassesToEmitFile(asmPassManager, asmStream, nullptr,
                                         llvm::CodeGenFileType::AssemblyFile)) {
     variantOp.emitOpError()
@@ -436,6 +437,13 @@ mlir::LogicalResult serializeHexagonExecutable(
                                   llvmModule.get()))) {
     return variantOp.emitOpError()
            << "failed to run LLVM IR optimization passes for Hexagon";
+  }
+
+  if (!serializationOptions.dumpIntermediatesPath.empty()) {
+    dumpLLVMModuleToPath(serializationOptions.dumpIntermediatesPath,
+                         serializationOptions.dumpBaseName,
+                         llvm::StringRef(variantOp.getName().str() + ".opt"),
+                         *llvmModule);
   }
 
   // Dump assembly

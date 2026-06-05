@@ -59,35 +59,44 @@ cc_library(
     name = "hexkl_headers",
     hdrs = glob(["hexkl_addon/include/**"]),
     includes = [
-        "external/_main~cellar_hexagon_repos~hexkl/hexkl_addon/include",
+        "hexkl_addon/include",
     ],
 )
 
 cc_import(
-    name = "hexkl_micro_v73",
-    hdrs = glob(["hexkl_addon/include/**"]),
-    includes = [
-        "external/_main~cellar_hexagon_repos~hexkl/hexkl_addon/include",
-    ],
+    name = "hexkl_micro_v73_archive",
     static_library = "hexkl_addon/lib/hexagon_toolv19_v73/libhexkl_micro.a",
 )
 
-cc_import(
-    name = "hexkl_micro_v75",
+cc_library(
+    name = "hexkl_micro_v73",
     hdrs = glob(["hexkl_addon/include/**"]),
-    includes = [
-        "external/_main~cellar_hexagon_repos~hexkl/hexkl_addon/include",
-    ],
-    static_library = "hexkl_addon/lib/hexagon_toolv19_v75/libhexkl_micro.a",
+    includes = ["hexkl_addon/include"],
+    deps = [":hexkl_micro_v73_archive"],
 )
 
 cc_import(
+    name = "hexkl_micro_v75_archive",
+    static_library = "hexkl_addon/lib/hexagon_toolv19_v75/libhexkl_micro.a",
+)
+
+cc_library(
+    name = "hexkl_micro_v75",
+    hdrs = glob(["hexkl_addon/include/**"]),
+    includes = ["hexkl_addon/include"],
+    deps = [":hexkl_micro_v75_archive"],
+)
+
+cc_import(
+    name = "hexkl_micro_v79_archive",
+    static_library = "hexkl_addon/lib/hexagon_toolv19_v79/libhexkl_micro.a",
+)
+
+cc_library(
     name = "hexkl_micro_v79",
     hdrs = glob(["hexkl_addon/include/**"]),
-    includes = [
-        "external/_main~cellar_hexagon_repos~hexkl/hexkl_addon/include",
-    ],
-    static_library = "hexkl_addon/lib/hexagon_toolv19_v79/libhexkl_micro.a",
+    includes = ["hexkl_addon/include"],
+    deps = [":hexkl_micro_v79_archive"],
 )
 
 alias(

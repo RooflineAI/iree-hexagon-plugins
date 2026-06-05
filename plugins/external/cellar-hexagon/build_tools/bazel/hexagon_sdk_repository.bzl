@@ -9,6 +9,7 @@ def _hexagon_sdk_repository_impl(repository_ctx):
         sha256 = "b4a57a774795cf12da19a777a5d306e970905bf9758a4c4765e5e4593428ae0b",
         stripPrefix = "6.4.0.2",
     )
+    repo_name = repository_ctx.name
     repository_ctx.file(
         "BUILD.bazel",
         content = """
@@ -83,12 +84,12 @@ cc_import(
     hdrs = glob(["incs/**", "ipc/fastrpc/rpcmem/inc/**"]),
     shared_library = "ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so",
     includes = [
-        "external/_main~cellar_hexagon_repos~hexagon_sdk/incs",
-        "external/_main~cellar_hexagon_repos~hexagon_sdk/incs/stddef",
-        "external/_main~cellar_hexagon_repos~hexagon_sdk/ipc/fastrpc/rpcmem/inc",
+        "external/{repo_name}/incs",
+        "external/{repo_name}/incs/stddef",
+        "external/{repo_name}/ipc/fastrpc/rpcmem/inc",
     ],
 )
-""",
+""".format(repo_name = repo_name),
     )
 
 hexagon_sdk_repository = repository_rule(

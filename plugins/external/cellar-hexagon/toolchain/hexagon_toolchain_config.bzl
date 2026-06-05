@@ -37,8 +37,12 @@ def _hexagon_toolchain_config_impl(ctx):
     hexagon_clang = ctx.file.hexagon_clang.path
     hexagon_tools_dir = paths.dirname(paths.dirname(hexagon_clang))
 
+    # Derive the SDK root from the hexagon_clang path to avoid hardcoding the
+    # canonical repo name (which changes across Bazel major versions).
+    # hexagon_clang path: external/<repo>/tools/HEXAGON_Tools/.../bin/hexagon-clang
+    hexagon_sdk_root = hexagon_clang.split("/tools/HEXAGON_Tools/")[0]
     hexagon_sdk_include_directories = [
-        paths.join("external/_main~cellar_hexagon_repos~hexagon_sdk", rel_dir.replace("vXX", "v" + ctx.attr.mv))
+        paths.join(hexagon_sdk_root, rel_dir.replace("vXX", "v" + ctx.attr.mv))
         for rel_dir in HEXAGON_SDK_RELATIVE_INCLUDE_DIRS
     ]
 

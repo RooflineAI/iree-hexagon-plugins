@@ -16,21 +16,9 @@ RPATH_LINKOPTS = select({
     "//conditions:default": [],
 })
 
-filegroup(
-    name = "IREECompilerLib",
-    srcs = select({
-        "@platforms//os:osx": [
-            "@iree//lib:libIREECompilerUnshielded_dylib",
-        ],
-        "//conditions:default": [
-            "@iree//lib:libIREECompilerUnshielded_so",
-        ],
-    }),
-)
-
 cc_import(
     name = "IREECompilerLibImport",
-    shared_library = ":IREECompilerLib",
+    shared_library = "@iree//lib:IREECompilerUnshielded",
 )
 
 cc_binary(

@@ -1,6 +1,10 @@
 # Copyright 2025 RooflineAI GmbH
 
-load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "aarch64_android_platform_alias")
+load(
+    "@roof_mlir//:build_tools/bazel/platform_aliases.bzl",
+    "aarch64_android_platform_alias",
+    "aarch64_android_tracy_platform_alias",
+)
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
@@ -147,6 +151,19 @@ pkg_zip(
 # Android aarch64 to push it to an Android phone and run it there.
 aarch64_android_platform_alias(
     name = "hexagon_runtime_aarch64_android",
+    actual = ":hexagon_runtime",
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+# The runtime package built with IREE tracing set to tracy (profiling enabled).
+# Points at :hexagon_runtime so the produced runfile is hexagon_runtime.zip (the
+# fixed path roof_adb.get_hexagon_runtime() resolves); the transition applies the
+# tracy config to its contents. Used by the Hexagon profiling smoke test.
+aarch64_android_tracy_platform_alias(
+    name = "hexagon_runtime_aarch64_android_tracy",
     actual = ":hexagon_runtime",
     target_compatible_with = select({
         "@android_ndk_detect//:android_ndk_available": [],

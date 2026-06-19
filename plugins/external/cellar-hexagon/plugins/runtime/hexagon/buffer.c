@@ -187,7 +187,6 @@ static iree_status_t iree_hal_hexagon_buffer_map_range(
   // Return a mapping to the requested part of the buffer.
   mapping->contents = iree_make_byte_span(host_span.data + local_byte_offset,
                                           local_byte_length);
-  mapping->buffer = base_buffer;
   return iree_ok_status();
 }
 

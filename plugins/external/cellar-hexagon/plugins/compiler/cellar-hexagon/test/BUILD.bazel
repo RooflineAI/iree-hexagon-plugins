@@ -13,7 +13,7 @@ package(
 
 _COMMON_TOOLS = [
     "//plugins/compiler:cellar_hexagon_compiler_plugin",
-    "//plugins/compiler:IREECompilerLib",
+    "@iree//lib:IREECompilerUnshielded",
     "@iree//compiler/bindings/python:iree-compile",
     "@iree//compiler/bindings/python:iree-opt",
     "@llvm-project//lld:ld.lld",

@@ -133,17 +133,16 @@ void addHexagonTileAndDistributePasses(
   if (pipelineOpt.disableDistribution) {
     return;
   }
-  if (clHexagonTileDispatchUsingForall) {
-    funcPassManager.addPass(
-        createTileAndDistributeToWorkgroupsUsingForallOpPass());
-    funcPassManager.addPass(createBufferizeDispatchTensorLoadStorePass());
-    funcPassManager.addPass(createCombineResultLayoutTransformationPass());
-  } else {
-    funcPassManager.addPass(createTileAndDistributeToWorkgroupsPass());
-    funcPassManager.addPass(createCSEPass());
-    funcPassManager.addPass(createConvertToDestinationPassingStylePass());
-    funcPassManager.addPass(createFoldAffineMinInDistributedLoopsPass());
-  }
+  // IREE #23756 removed the non-forall TileAndDistributeToWorkgroups pass and
+  // ConvertToDestinationPassingStyle; the scf.forall tile-and-distribute path
+  // (already our default, clHexagonTileDispatchUsingForall=true) is now the
+  // only supported lowering, so always take it. The flag is retained for CLI
+  // compatibility but no longer selects an alternative path.
+  (void)clHexagonTileDispatchUsingForall;
+  funcPassManager.addPass(
+      createTileAndDistributeToWorkgroupsUsingForallOpPass());
+  funcPassManager.addPass(createBufferizeDispatchTensorLoadStorePass());
+  funcPassManager.addPass(createCombineResultLayoutTransformationPass());
   funcPassManager.addPass(createConfigTrackingCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
   funcPassManager.addPass(createFuseTensorPadWithConsumerPass());

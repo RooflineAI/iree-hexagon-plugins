@@ -24,6 +24,8 @@ const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
     set.insert(mlir::hexagonmem::getAllocFnName());
     set.insert(mlir::hexagonmem::getDeallocFnName());
     set.insert(mlir::hexagonmem::getCopyFnName());
+    set.insert("hexagon_runtime_profiling_zone_begin");
+    set.insert("hexagon_runtime_profiling_zone_end");
     return set;
   }();
   return names;

@@ -26,11 +26,14 @@ iree_lit_test_suite(
     timeout = "short",
     srcs = enforce_glob(
         [
+            "codegen/conversion/lower_profiling_markers.mlir",
             "codegen/encoding/encoder_and_materializer_registration.mlir",
+            "codegen/encoding/profiling_marker_ops.mlir",
             "codegen/pipelines/hexagon_lower_executable_target.mlir",
             "codegen/strategy/hexagon_select_lowering_strategy.mlir",
             "codegen/strategy/hexagon_select_lowering_strategy_study.mlir",
             "codegen/transforms/fold_dispatch_output_staging.mlir",
+            "codegen/transforms/insert_profiling_markers.mlir",
             "codegen/transforms/promote_dma_tag_alloc_to_stack.mlir",
             "target/executable_generation_and_dumping.mlir",
             "target/plugin_registration.mlir",
@@ -41,6 +44,7 @@ iree_lit_test_suite(
             "integration/encoding_resolver_generated_attribute.mlir",
         ],
         include = [
+            "codegen/conversion/*.mlir",
             "codegen/encoding/*.mlir",
             "codegen/pipelines/*.mlir",
             "codegen/strategy/*.mlir",

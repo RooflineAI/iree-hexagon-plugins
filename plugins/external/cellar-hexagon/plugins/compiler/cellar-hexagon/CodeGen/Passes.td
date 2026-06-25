@@ -67,6 +67,22 @@ def HexagonSelectLoweringStrategyPass :
   }];
 }
 
+def InsertProfilingMarkersPass :
+    InterfacePass<"iree-hexagon-insert-profiling-markers",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Insert Hexagon DSP profiling marker ops around selected high-level
+      operations.
+  }];
+}
+
+def LowerProfilingMarkersPass :
+    Pass<"iree-hexagon-lower-profiling-markers", "mlir::ModuleOp"> {
+  let summary = [{
+      Lower Hexagon DSP profiling marker ops to native runtime calls.
+  }];
+}
+
 def MarkHexagonNativeRuntimeLinksPass :
     Pass<"iree-hexagon-mark-native-runtime-links", "mlir::ModuleOp"> {
   let summary = [{

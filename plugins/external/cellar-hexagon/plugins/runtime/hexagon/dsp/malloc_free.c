@@ -6,6 +6,8 @@
 
 #include "malloc_free.h"
 
+#include "hexagon/arm_dsp/profiling.h"
+#include "hexagon/dsp/profiling.h"
 #include "hexagon/dsp/vtcm_pool.h"
 
 #include <limits.h>
@@ -20,12 +22,20 @@ void *hexagon_runtime_malloc(int64_t size) {
          (long long)size);
     return NULL;
   }
-  return hexagon_dsp_vtcm_pool_allocate(size);
+
+  hexagon_runtime_profiling_zone_begin(MEMORY_MANAGEMENT, "kernel_allocation");
+  void *res = hexagon_dsp_vtcm_pool_allocate(size);
+  hexagon_runtime_profiling_zone_end();
+
+  return res;
 }
 
 void hexagon_runtime_free(void *ptr) {
   if (!ptr) {
     return;
   }
+
+  hexagon_runtime_profiling_zone_begin(MEMORY_MANAGEMENT, "kernel_free");
   hexagon_dsp_vtcm_pool_free(ptr);
+  hexagon_runtime_profiling_zone_end();
 }

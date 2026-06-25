@@ -183,8 +183,9 @@ flag) of numeric event IDs (decimal or hex, e.g. `0x0003`). Up to 8 events are
 used; if fewer are provided, the remaining counters keep the runtime defaults.
 The numeric event IDs are listed an explained in [hexagon_pmu_events_table.inc](arm_dsp/pmu/hexagon_pmu_events_table.inc).
 
-These pmu events are displayed in a different plot and are only registered for `KERNEL` zones in the DSP.
-Other zones currently do not have any PMU information.
+These pmu events are displayed in a different plot and are only registered for
+`KERNEL` zones and generated-code `MARKER` zones in the DSP.
+Other zones currently do not have any PMU information plotted.
 These values values are extracted at the beginning and end of the zone and are not interpolated,
 therefore they remain constant over the duration of their corresponding zone.
 

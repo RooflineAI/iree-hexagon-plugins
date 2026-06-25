@@ -54,4 +54,34 @@ void profiler_measurement_start_extra_info(hexagon_rt_prof_header_t *header,
 void profiler_measurement_finish_and_record(hexagon_rt_prof_header_t *header,
                                             hexagon_rt_prof_record_t *records);
 
+/**
+ * @brief Sets the active profiling context used by runtime symbols called from
+ * dispatch code.
+ */
+void profiler_set_active_context(hexagon_rt_prof_header_t *header,
+                                 hexagon_rt_prof_record_t *records);
+
+/**
+ * @brief Clears the active dispatch profiling context.
+ */
+void profiler_clear_active_context(void);
+
+/**
+ * @brief Starts a profiling zone using the active dispatch profiling context.
+ *
+ * This is intended for generated code. It is a no-op when no active profiling
+ * context is set.
+ */
+void hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
+                                          const char *extra_info);
+
+/**
+ * @brief Finishes the most recent profiling zone in the active dispatch
+ * profiling context.
+ *
+ * This is intended for generated code. It is a no-op when no active profiling
+ * context is set.
+ */
+void hexagon_runtime_profiling_zone_end(void);
+
 #endif // IREE_HAL_DRIVERS_HEXAGON_DSP_PROFILING_H_

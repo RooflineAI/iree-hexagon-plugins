@@ -55,6 +55,7 @@ cellar_hexagon_plugin_library(
     srcs = [
         "Conversion/HexagonConvertToLLVM.cpp",
         "Conversion/HexagonRuntimeLinking.cpp",
+        "Conversion/LowerProfilingMarkers.cpp",
         "Conversion/MarkHexagonNativeRuntimeLinks.cpp",
         "Passes.cpp",
         "Pipelines/Bufferization.cpp",
@@ -67,6 +68,7 @@ cellar_hexagon_plugin_library(
         "Strategy/HexagonSelectLoweringStrategy.cpp",
         "Strategy/KernelDispatch.cpp",
         "Transforms/FoldDispatchOutputStaging.cpp",
+        "Transforms/InsertProfilingMarkers.cpp",
         "Transforms/PromoteDMATagAllocToStack.cpp",
     ],
     hdrs = [
@@ -138,6 +140,7 @@ cellar_hexagon_plugin_library(
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":PassesIncGen",
+        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
         # These dependencies are not present in the base iree-compile binary,
         # so they need to be added with the dynamic plugin

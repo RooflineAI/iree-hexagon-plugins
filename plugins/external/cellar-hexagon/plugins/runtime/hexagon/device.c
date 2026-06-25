@@ -52,6 +52,7 @@ IREE_API_EXPORT void iree_hal_hexagon_device_options_initialize(
   // not be used as multiple devices may be configured within the process or the
   // hosting application may be authored in python/etc that does not use a flags
   // mechanism accessible here.
+  out_options->profiling_extra_records_per_dispatch = 256;
 }
 
 static iree_status_t iree_hal_hexagon_device_options_verify(
@@ -682,7 +683,8 @@ static iree_status_t iree_hal_hexagon_device_create_command_buffer(
   return iree_hal_hexagon_command_buffer_create(
       iree_hal_device_allocator(base_device), mode, command_categories,
       queue_affinity, binding_capacity, device->host_allocator,
-      device->rpc_session_handle, &device->block_pool, out_command_buffer);
+      device->rpc_session_handle, &device->block_pool,
+      device->options.profiling_extra_records_per_dispatch, out_command_buffer);
 }
 
 static iree_status_t iree_hal_hexagon_device_create_event(

@@ -22,12 +22,14 @@ iree_td_library(
     srcs = [
         "HexagonEncodingAttrs.td",
         "HexagonEncodingDialect.td",
+        "HexagonEncodingOps.td",
     ],
     includes = ["/plugins/compiler"],
     deps = [
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:td_files",
         "@llvm-project//mlir:DialectUtilsTdFiles",
         "@llvm-project//mlir:OpBaseTdFiles",
+        "@llvm-project//mlir:SideEffectInterfacesTdFiles",
     ],
 )
 
@@ -46,6 +48,24 @@ iree_gentbl_cc_library(
     ],
     tblgen = "@llvm-project//mlir:mlir-tblgen",
     td_file = "HexagonEncodingDialect.td",
+    deps = [":hexagon_encoding_td_files"],
+)
+
+iree_gentbl_cc_library(
+    name = "HexagonEncodingOpsGen",
+    strip_include_prefix = "/plugins/compiler",
+    tbl_outs = [
+        (
+            ["--gen-op-decls"],
+            "HexagonEncodingOps.h.inc",
+        ),
+        (
+            ["--gen-op-defs"],
+            "HexagonEncodingOps.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "HexagonEncodingOps.td",
     deps = [":hexagon_encoding_td_files"],
 )
 
@@ -74,22 +94,29 @@ cellar_hexagon_plugin_library(
         "HexagonEncodingAttrs.cpp.inc",
         "HexagonEncodingDialect.cpp",
         "HexagonEncodingDialect.cpp.inc",
+        "HexagonEncodingOps.cpp",
+        "HexagonEncodingOps.cpp.inc",
     ],
     hdrs = [
         "HexagonEncodingAttrs.h",
         "HexagonEncodingAttrs.h.inc",
         "HexagonEncodingDialect.h",
         "HexagonEncodingDialect.h.inc",
+        "HexagonEncodingOps.h",
+        "HexagonEncodingOps.h.inc",
     ],
     hdr_deps = [
         "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:BytecodeOpInterface",
         "@llvm-project//mlir:Dialect",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:SideEffectInterfaces",
         "@llvm-project//mlir:Support",
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":HexagonEncodingAttrsGen",
         ":HexagonEncodingDialectGen",
+        ":HexagonEncodingOpsGen",
     ],
 )

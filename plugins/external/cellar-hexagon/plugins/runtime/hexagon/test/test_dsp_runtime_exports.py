@@ -17,6 +17,8 @@ SYMBOLS = [
     "hexagon_runtime_malloc",
     "hexagon_runtime_free",
     "hexagon_runtime_memref_copy",
+    "hexagon_runtime_profiling_zone_begin",
+    "hexagon_runtime_profiling_zone_end",
     "hexkl_matmul_f16f16_f32",
     "hexkl_micro_hmx_config_size",
     "hexkl_micro_hmx_mm_f16",

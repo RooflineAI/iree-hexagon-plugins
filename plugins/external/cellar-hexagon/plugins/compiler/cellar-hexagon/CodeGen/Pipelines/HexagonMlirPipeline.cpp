@@ -42,7 +42,7 @@ enum class HexagonTilingPipeline {
   IREE = 1,
 };
 
-// TOOD: Also experimental flag, think about this later
+// TODO: Also experimental flag, think about this later
 llvm::cl::opt<HexagonTilingPipeline> clHexagonTilingPipeline(
     "iree-hexagon-tiling-pipeline",
     llvm::cl::desc("Select which tiling passes are used in the Hexagon "
@@ -60,6 +60,12 @@ llvm::cl::opt<bool> clHexagonEnableHexKLMatmulLowering(
                    "(linalg.matmul -> hexkl.matmul -> LLVM calls)."),
     llvm::cl::init(false));
 
+llvm::cl::opt<bool> clHexagonEnableProfilingMarkers(
+    "iree-hexagon-enable-profiling-markers",
+    llvm::cl::desc("Insert DSP profiling marker zones around selected Hexagon "
+                   "kernel operations."),
+    llvm::cl::init(false));
+
 void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   auto &pm = variantPassManager.nest<ModuleOp>();
   const bool enableCollapseAddressSpace = true;
@@ -71,29 +77,31 @@ void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   //   finalization out;
   // - phase 2 lowers the deferred pieces after address-space normalization.
   //
-  // LLVMCPU does not need this split because it does not interleave Hexagon's
-  // address-space collapsing with a custom HAL conversion pass. In this
-  // hybrid Hexagon pipeline we must guarantee:
+  // LLVMCPU does not need this split because it does not interleave
+  // Hexagon's address-space collapsing with a custom HAL conversion pass.
+  // In this hybrid Hexagon pipeline we must guarantee:
   //   phase1 -> collapse-address-space -> phase2
-  // so dealloc lowering emits @free with ptr in the default address space and
-  // binding subspans stay memref-typed while DMA/memref users are still
+  // so dealloc lowering emits @free with ptr in the default address space
+  // and binding subspans stay memref-typed while DMA/memref users are still
   // alive.
   pm.addPass(createHexagonConvertToLLVMPassPhase1(
       /*reassociateFpReductions=*/false));
 
   // These passes are self contained within functions are have no standard
-  // lowering. Therefore, they can run in tadem with iree's standard lowering.
+  // lowering. Therefore, they can run in tadem with iree's standard
+  // lowering.
   pm.addPass(hexagonmem::createHexagonMemToLLVMPass());
   pm.addPass(Hexagon::createDMAToLLVMPass());
   pm.addPass(hexkl::createHexKLToLLVMPass());
+  pm.addPass(createLowerProfilingMarkersPass());
   // Hexagon DMA/HexKL/HexagonMem runtime symbols are always kept as native
   // unresolved externs and resolved by the DSP loader.
   pm.addPass(createMarkHexagonNativeRuntimeLinksPass());
 
   // Must run after function lowering and before memref finalization.
-  // The collapse pass rewrites ptr<addrspace> in descriptors/calls to default
-  // address space so finalize-memref-to-llvm can lower deallocs without
-  // producing @free(ptr<nonzero>).
+  // The collapse pass rewrites ptr<addrspace> in descriptors/calls to
+  // default address space so finalize-memref-to-llvm can lower deallocs
+  // without producing @free(ptr<nonzero>).
   if (enableCollapseAddressSpace) {
     pm.addPass(Hexagon::createCollapseAddressSpacePass());
     pm.addPass(createReconcileUnrealizedCastsPass());
@@ -111,15 +119,15 @@ void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
     pm.addPass(Hexagon::createHexagonLLVMEnableHexagonRoutinesPass());
 }
 
-// TODO: Remember to come back to this, I am only testing stuff here for now.
-// This is just dirty copy pasted code from hexagon-mlir
+// TODO: Remember to come back to this, I am only testing stuff here for
+// now. This is just dirty copy pasted code from hexagon-mlir
 void buildHexagonMlirTranslationRoute(
     OpPassManager &variantPassManager,
     const HexagonPipelineOptions &pipelineOpt) {
   const bool useIREETilingPipeline =
       clHexagonTilingPipeline == HexagonTilingPipeline::IREE;
-  // Note that hexagon-mlir passes are working on module ops, while iree's are
-  // working on hal ops
+  // Note that hexagon-mlir passes are working on module ops, while iree's
+  // are working on hal ops
   auto puntBuffer = true;
   auto enableHexKL = clHexagonEnableHexKLMatmulLowering == true;
   auto enableConvTiling = false;
@@ -196,21 +204,23 @@ void buildHexagonMlirTranslationRoute(
     pm.addPass(createCSEPass());
 
     if (useIREETilingPipeline) {
-      // Run IREE's dispatch tiling while lowering configs are still available
-      // on the linalg ops. This is structurally different from the later
-      // Hexagon tiler: TileAndDistributeToWorkgroupsUsingForallOpPass rewrites
-      // the dispatch around workgroup-sized destination tiles and fuses
+      // Run IREE's dispatch tiling while lowering configs are still
+      // available on the linalg ops. This is structurally different from
+      // the later Hexagon tiler:
+      // TileAndDistributeToWorkgroupsUsingForallOpPass rewrites the
+      // dispatch around workgroup-sized destination tiles and fuses
       // producer work into those tiles, which sinks many full-size
       // intermediate tensor.empty values into tile-local empties
       // (e.g. tensor<1x64x128xf32>) that later bufferize to much smaller
-      // temporaries. HexagonTilingPass, in contrast, tiles each linalg op in
-      // isolation for vectorization and preserves the original full tensor
-      // result as loop-carried state updated via extract_slice/insert_slice, so
-      // the logical intermediate object does not shrink even though each loop
-      // iteration only touches a tile.
+      // temporaries. HexagonTilingPass, in contrast, tiles each linalg op
+      // in isolation for vectorization and preserves the original full
+      // tensor result as loop-carried state updated via
+      // extract_slice/insert_slice, so the logical intermediate object does
+      // not shrink even though each loop iteration only touches a tile.
       addHexagonTileAndDistributePasses(pm.nest<func::FuncOp>(), pipelineOpt);
-      // ReconcileTranslationInfo cannot resolve result-valued scf.forall ops.
-      // Lower the distributed forall form before variant-level reconciliation.
+      // ReconcileTranslationInfo cannot resolve result-valued scf.forall
+      // ops. Lower the distributed forall form before variant-level
+      // reconciliation.
       pm.addNestedPass<func::FuncOp>(createForallToForPass());
     }
   }
@@ -264,13 +274,14 @@ void buildHexagonMlirTranslationRoute(
       pm.addNestedPass<func::FuncOp>(Hexagon::createVTCMTilingPass(
           setVTCMTiling(Hexagon::VTCMTilingOptions{})));
       pm.addPass(createCanonicalizerPass());
-      // Remove output staging alloc_tensor(copy, memory_space=0) introduced by
-      // VTCM tiling before IREE comprehensive bufferization.
-      // VTCM tiling introduces copies from tensors allocated in memory_space=0
-      // (DDR) to #hal.descriptor_type<storage_buffer> which is also DDR. The
-      // root issue is that hexagon-mlir memory-related passes conflict with
-      // iree's types. Removing HAL descriptors is not enough here, since we are
-      // actually dealing with a iree_tensor_ext.dispatch.tensor.store operation
+      // Remove output staging alloc_tensor(copy, memory_space=0) introduced
+      // by VTCM tiling before IREE comprehensive bufferization. VTCM tiling
+      // introduces copies from tensors allocated in memory_space=0 (DDR) to
+      // #hal.descriptor_type<storage_buffer> which is also DDR. The root
+      // issue is that hexagon-mlir memory-related passes conflict with
+      // iree's types. Removing HAL descriptors is not enough here, since we
+      // are actually dealing with a iree_tensor_ext.dispatch.tensor.store
+      // operation
       pm.addNestedPass<func::FuncOp>(createFoldDispatchOutputStagingPass());
     }
 
@@ -353,12 +364,13 @@ void buildHexagonMlirTranslationRoute(
 
       // The functionality of this pass overlaps with what
       // addHexagonBufferizePass is doing. Both of them want to manage
-      // deallocations. It looks like hexagon-mlir is dealing with buffer here
-      // and all of this might overlap with iree's comprehensive bufferize,
-      // since a decomposition of the passes is what is needed (double buffering
-      // happens before and after bufferization in two phases, while
-      // comprehensveBufferize skips directly to memref.dealloc. Maybe I can
-      // introduce buffer operations instead? Check!)
+      // deallocations. It looks like hexagon-mlir is dealing with buffer
+      // here and all of this might overlap with iree's comprehensive
+      // bufferize, since a decomposition of the passes is what is needed
+      // (double buffering happens before and after bufferization in two
+      // phases, while comprehensveBufferize skips directly to
+      // memref.dealloc. Maybe I can introduce buffer operations instead?
+      // Check!)
       bufferization::buildBufferDeallocationPipeline(
           pm, bufferization::BufferDeallocationPipelineOptions{});
 
@@ -375,17 +387,20 @@ void buildHexagonMlirTranslationRoute(
 
     // Hexagon-mlir's convertToHexagonmemPass expects integer memory spaces;
     // strip HAL descriptor memory-space attrs (strings) before
-    // ConvertToHexagonmem. I am assuming that they are not needed anymore. Note
-    // that this is not unique to hexagon, and the LLVMCPU normal backend also
-    // does this before lowering to llvm through standard mlir passes. The only
-    // open question is whether this removal is too early right now. Since this
-    // pipeline is reusing hexagon-mlir as is, this should not be problematic
-    // though.
+    // ConvertToHexagonmem. I am assuming that they are not needed anymore.
+    // Note that this is not unique to hexagon, and the LLVMCPU normal
+    // backend also does this before lowering to llvm through standard mlir
+    // passes. The only open question is whether this removal is too early
+    // right now. Since this pipeline is reusing hexagon-mlir as is, this
+    // should not be problematic though.
     pm.addNestedPass<func::FuncOp>(
         createEraseHALDescriptorTypeFromMemRefPass());
 
     if (enableConvertToHexagonmem)
       pm.addNestedPass<func::FuncOp>(Hexagon::createConvertToHexagonmemPass());
+
+    if (clHexagonEnableProfilingMarkers)
+      pm.addNestedPass<func::FuncOp>(createInsertProfilingMarkersPass());
 
     // Decompose hexkl.matmul to micro ops
     if (enableHexKL)
@@ -396,10 +411,11 @@ void buildHexagonMlirTranslationRoute(
     if (enableHexagonmemCopyToDMA)
       pm.addNestedPass<func::FuncOp>(Hexagon::createHexmemCpyToDMAPass());
     // HexmemCpyToDMA materializes short-lived DMA tag buffers as
-    // `memref.alloc : memref<1xi32>` + `memref.dealloc`. These tags only carry
-    // the dma token between `dma_start` and `dma_wait`, so keeping them on heap
-    // introduces unnecessary malloc/free imports in the LLVM stage. Promote
-    // just those DMA tag allocations to stack and drop their deallocs.
+    // `memref.alloc : memref<1xi32>` + `memref.dealloc`. These tags only
+    // carry the dma token between `dma_start` and `dma_wait`, so keeping
+    // them on heap introduces unnecessary malloc/free imports in the LLVM
+    // stage. Promote just those DMA tag allocations to stack and drop their
+    // deallocs.
     pm.addNestedPass<func::FuncOp>(createPromoteDMATagAllocToStackPass());
     // Hoist the newly introduced allocas out of loops
     pm.addNestedPass<func::FuncOp>(createHoistStaticallyBoundAllocationsPass());
@@ -413,8 +429,8 @@ void buildHexagonMlirTranslationRoute(
 
     pm.addNestedPass<func::FuncOp>(createConvertVectorToSCFPass());
 
-    // This is not a pass from hexagon-mlir, but it does help quite a bit with
-    // debugging
+    // This is not a pass from hexagon-mlir, but it does help quite a bit
+    // with debugging
     pm.addNestedPass<func::FuncOp>(createLLVMCPUCheckIRBeforeLLVMConversionPass(
         LLVMCPUCheckIRBeforeLLVMConversionPassOptions{
             isHexagonFailOnOutOfBoundsStackAllocationEnabled()}));
@@ -432,9 +448,9 @@ void buildHexagonMlirTranslationRoute(
 
     pm.addPass(Hexagon::createFastInversePass());
 
-    // Here is where the hexagon-mlir usually calls standard mlir lowerings to
-    // LLVM. These are currently removed in favour of iree ones that manage ABI
-    // and function signatures adapted to the runtime
+    // Here is where the hexagon-mlir usually calls standard mlir lowerings
+    // to LLVM. These are currently removed in favour of iree ones that
+    // manage ABI and function signatures adapted to the runtime
     // pm.addPass(createConvertVectorToLLVMPass());
     // pm.addPass(createConvertIndexToLLVMPass(
     //     setIndexBitwidth(ConvertIndexToLLVMPassOptions{})));

@@ -37,6 +37,7 @@ static const hexagon_pmu_counters_ids_t default_ids = {
   HEXAGON_PROFILING_ZONE(COPY, "Copy")                                         \
   HEXAGON_PROFILING_ZONE(FILL, "Fill")                                         \
   HEXAGON_PROFILING_ZONE(MEMORY_MANAGEMENT, "Mem Management")                  \
+  HEXAGON_PROFILING_ZONE(MARKER, "Marker")                                     \
   HEXAGON_PROFILING_ZONE(UNKNOWN, "Unknown")
 
 typedef enum iree_hal_hexagon_profiling_zone_types_s {
@@ -60,11 +61,16 @@ zone_to_string(iree_hal_hexagon_profiling_zone_types_t type) {
 
 typedef struct hexagon_rt_prof_header_s {
   hexagon_pmu_counters_ids_t pmu_event_ids;
+  // Capacity of the records array following this header.
   uint32_t num_records;
   uint32_t started_records;
   uint32_t completed_records;
   uint32_t dropped_records;
   uint64_t start_cmd_buffer_exec_cpu_time;
+  // DSP-side bookkeeping for overflowed begin/end pairs. Overflowed records are
+  // not written to the records array, but matching ends still need to be
+  // consumed before closing the next real record.
+  uint32_t dropped_open_records;
   // Followed by num_records hexagon_rt_prof_record_t
 } __attribute__((packed)) hexagon_rt_prof_header_t;
 

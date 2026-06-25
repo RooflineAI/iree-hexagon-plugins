@@ -660,6 +660,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
   modulePassManager.addPass(
       createHexagonConvertToLLVMPass(clHexagonEnableReassociateFpReductions));
 
+  modulePassManager.addPass(createLowerProfilingMarkersPass());
   modulePassManager.addPass(createMarkHexagonNativeRuntimeLinksPass());
 
   modulePassManager.addPass(createReconcileUnrealizedCastsPass());

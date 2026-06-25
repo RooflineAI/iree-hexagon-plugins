@@ -1,6 +1,7 @@
 // Copyright 2025 RooflineAI GmbH
 
 #include "hexagon/profiling.h"
+
 #include "iree/base/status.h"
 
 #if !defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
@@ -91,6 +92,8 @@ static uint32_t iree_hal_hexagon_zone_color_xbgr(uint32_t zone_type) {
     return 0xdde2ddu;
   case MEMORY_MANAGEMENT:
     return 0xdde2ddu;
+  case MARKER:
+    return 0x9ac7b7u;
   case UNKNOWN:
   default:
     return 0xA97E90u;
@@ -295,7 +298,7 @@ iree_status_t iree_hal_hexagon_alloc_and_init_profiling_data(
       (iree_hal_hexagon_command_buffer_t *)command_buffer;
 
   *profiling_data_size = sizeof(hexagon_rt_prof_header_t) +
-                         hexagon_command_buffer->profiling_entries *
+                         hexagon_command_buffer->profiling_record_capacity *
                              sizeof(hexagon_rt_prof_record_t);
   if (*profiling_data_size >
       INT_MAX /* max size supported by rpcmem_alloc() */) {
@@ -315,7 +318,7 @@ iree_status_t iree_hal_hexagon_alloc_and_init_profiling_data(
   hexagon_rt_prof_header_t *header =
       (hexagon_rt_prof_header_t *)*profiling_data;
 
-  header->num_records = hexagon_command_buffer->profiling_entries;
+  header->num_records = hexagon_command_buffer->profiling_record_capacity;
   uint32_t count = device_options ? device_options->pmu_event_ids_count : 0;
   for (uint32_t i = 0; i < HEXAGON_PMU_COUNTERS; ++i) {
     header->pmu_event_ids.ids[i] =
@@ -330,23 +333,12 @@ iree_status_t iree_hal_hexagon_export_profiling_data(
     iree_allocator_t host_allocator, uint8_t *profiling_data,
     uint8_t *tracy_context_id, iree_tracing_context_t **tracy_plot_context) {
   hexagon_rt_prof_header_t *header = (hexagon_rt_prof_header_t *)profiling_data;
-  if (header->completed_records != header->num_records ||
-      header->num_records != header->started_records) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "ERROR: Mismatch in the number of completed, started and "
-        "expected records "
-        "during profiling: %d, %d, %d\n",
-        header->completed_records, header->started_records,
-        header->num_records);
-  }
   if (header->dropped_records > 0) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "ERROR: Did not allocate enough records for all the profiling "
-        "markers in the code and dropped %d markers. Please increase the "
-        "number of allocated records during command buffer creation.\n",
-        header->dropped_records);
+    fprintf(stderr,
+            "WARNING: Profiling record capacity was exhausted; dropped %u "
+            "markers. Increase profiling_extra_records_per_dispatch for more "
+            "complete traces.\n",
+            (unsigned int)header->dropped_records);
   }
   if (header->completed_records == 0) {
     fprintf(stderr, "WARNING: No records were completed during profiling, "
@@ -354,7 +346,9 @@ iree_status_t iree_hal_hexagon_export_profiling_data(
     return iree_ok_status();
   }
 
-  uint32_t count = header->completed_records;
+  uint32_t count = header->started_records < header->num_records
+                       ? header->started_records
+                       : header->num_records;
 
   uint8_t *records_base = (uint8_t *)header + sizeof(hexagon_rt_prof_header_t);
   hexagon_rt_prof_record_t *records = (hexagon_rt_prof_record_t *)records_base;
@@ -408,6 +402,8 @@ iree_status_t iree_hal_hexagon_export_profiling_data(
   // zones
   for (uint32_t i = 0; i < count; ++i) {
     const hexagon_rt_prof_record_t *record = &records[i];
+    if (!record->record_completed)
+      continue;
     if (record->zone_type != KERNEL)
       continue;
 

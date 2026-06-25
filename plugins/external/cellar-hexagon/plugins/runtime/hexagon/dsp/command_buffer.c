@@ -708,12 +708,14 @@ int hexagon_dsp_command_buffer_execute_profiling(
 
   profiler_measurement_start(profiling_header, profiling_records,
                              DSP_EXECUTION);
+  profiler_set_active_context(profiling_header, profiling_records);
 
   int err = hexa_cmd_buf_exec_buf(command_buffer->cmd_buf_data,
                                   command_buffer->cmd_buf_size,
                                   binding_table_data, binding_table_size,
                                   profiling_header, profiling_records);
 
+  profiler_clear_active_context();
   profiler_measurement_finish_and_record(profiling_header, profiling_records);
 
   return err;

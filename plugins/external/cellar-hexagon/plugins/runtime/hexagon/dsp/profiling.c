@@ -32,11 +32,32 @@ void inline profiler_measurement_start_extra_info(
   return;
 }
 
+void profiler_set_active_context(hexagon_rt_prof_header_t *header,
+                                 hexagon_rt_prof_record_t *records) {
+  (void)header;
+  (void)records;
+  return;
+}
+
+void profiler_clear_active_context(void) { return; }
+
+void hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
+                                          const char *extra_info) {
+  (void)zone_type;
+  (void)extra_info;
+  return;
+}
+
+void hexagon_runtime_profiling_zone_end(void) { return; }
+
 #else
 
 #include "HAP_farf.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/pmu/hexagon_timer.h"
+
+static hexagon_rt_prof_header_t *active_profiling_header = NULL;
+static hexagon_rt_prof_record_t *active_profiling_records = NULL;
 
 void profiler_measurement_start_extra_info(hexagon_rt_prof_header_t *header,
                                            hexagon_rt_prof_record_t *records,
@@ -50,9 +71,11 @@ void profiler_measurement_start_extra_info(hexagon_rt_prof_header_t *header,
 
   if (header->started_records >= header->num_records) {
     ++header->dropped_records;
+    ++header->dropped_open_records;
     FARF(RUNTIME_HIGH,
-         "HEXAGON-RUNTIME-ERROR: Not enough profiling records allocated for "
-         "measurements");
+         "HEXAGON-RUNTIME-WARNING: Not enough profiling records allocated for "
+         "measurements, dropping profiling marker");
+    return;
   }
 
   hexagon_rt_prof_record_t *record = &records[header->started_records];
@@ -78,21 +101,59 @@ void profiler_measurement_start(hexagon_rt_prof_header_t *header,
 
 void profiler_measurement_finish_and_record(hexagon_rt_prof_header_t *header,
                                             hexagon_rt_prof_record_t *records) {
-  if (header && records &&
-      header->completed_records < header->started_records) {
-    for (int i = header->started_records - 1; i >= 0; --i) {
-      if (!records[i].record_completed) {
-        records[i].stop_timer_ticks_timestamp = read_timer();
-        hexagon_pmu_read(&records[i].stop_pmu_registers_stamp);
-        records[i].record_completed = 1;
-        ++header->completed_records;
-        break;
-      }
-    }
-  } else {
-    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: Mismatch between "
-                       "profiler_measurement_ start and finish");
+  if (!header || !records) {
+    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: Unexpected null pointer during "
+                       "profiling finish, ignoring profiling marker");
+    return;
   }
+
+  if (header->dropped_open_records > 0) {
+    --header->dropped_open_records;
+    return;
+  }
+
+  if (header->completed_records < header->started_records) {
+    for (int i = header->started_records - 1; i >= 0; --i) {
+      if (records[i].record_completed)
+        continue;
+      records[i].stop_timer_ticks_timestamp = read_timer();
+      hexagon_pmu_read(&records[i].stop_pmu_registers_stamp);
+      records[i].record_completed = 1;
+      ++header->completed_records;
+      return;
+    }
+  }
+
+  FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: Mismatch between "
+                     "profiler_measurement_start and finish");
+}
+
+void profiler_set_active_context(hexagon_rt_prof_header_t *header,
+                                 hexagon_rt_prof_record_t *records) {
+  active_profiling_header = header;
+  active_profiling_records = records;
+}
+
+void profiler_clear_active_context(void) {
+  active_profiling_header = NULL;
+  active_profiling_records = NULL;
+}
+
+void hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
+                                          const char *extra_info) {
+  if (!active_profiling_header || !active_profiling_records) {
+    return;
+  }
+  profiler_measurement_start_extra_info(
+      active_profiling_header, active_profiling_records, zone_type, extra_info);
+}
+
+void hexagon_runtime_profiling_zone_end(void) {
+  if (!active_profiling_header || !active_profiling_records) {
+    return;
+  }
+  profiler_measurement_finish_and_record(active_profiling_header,
+                                         active_profiling_records);
 }
 
 #endif

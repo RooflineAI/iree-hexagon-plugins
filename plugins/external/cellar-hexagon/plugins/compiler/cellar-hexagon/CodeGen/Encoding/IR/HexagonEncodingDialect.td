@@ -17,14 +17,13 @@ def IREEHexagonEncoding_Dialect : Dialect {
   let name = "iree_hexagon";
   let summary = "Roofline Hexagon encoding helpers.";
   let description = [{
-    A lightweight dialect that currently only hosts attributes used to describe
-    encoding information for the custom Hexagon backend.
-    This may be expanded to become a more complex dialect in the future.
-    If so, please update the name!
+    A lightweight dialect that hosts attributes and helper operations used by
+    the custom Hexagon backend.
   }];
   let cppNamespace = "::mlir::iree_compiler::IREE::Hexagon";
   let extraClassDeclaration = [{
     void registerAttributes();
+    void registerOperations();
   }];
 
   let useDefaultAttributePrinterParser = 1;

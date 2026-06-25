@@ -12,6 +12,7 @@
 #include "cellar-hexagon/CodeGen/Pipelines/LinkingPipeline.h"
 #include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
+#include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "mlir/Pass/PassRegistry.h"
 

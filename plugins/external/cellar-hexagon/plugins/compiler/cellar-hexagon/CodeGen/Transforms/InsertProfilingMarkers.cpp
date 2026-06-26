@@ -56,29 +56,28 @@ bool isOuterMostOpWithoutHexagonMemOps(Operation *op) {
   return containsHexagonMemOp(parent) && !containsHexagonMemOp(op);
 }
 
-void insertMarkerBegin(IRRewriter &rewriter, Location loc,
-                       StringRef extraInfo) {
-  OperationState beginState(
-      loc, IREE::Hexagon::ProfilingBeginOp::getOperationName());
-  beginState.addAttribute("zone_type",
-                          rewriter.getI32IntegerAttr(kMarkerZoneType));
-  beginState.addAttribute("extra_info", rewriter.getStringAttr(extraInfo));
-  rewriter.create(beginState);
+Value insertMarkerBegin(IRRewriter &rewriter, Location loc,
+                        StringRef extraInfo) {
+  auto recordType =
+      IREE::Hexagon::ProfilingRecordType::get(rewriter.getContext());
+  return IREE::Hexagon::ProfilingBeginOp::create(
+             rewriter, loc, recordType,
+             rewriter.getI32IntegerAttr(kMarkerZoneType),
+             rewriter.getStringAttr(extraInfo))
+      .getRecord();
 }
 
-void insertMarkerEnd(IRRewriter &rewriter, Location loc) {
-  OperationState endState(loc,
-                          IREE::Hexagon::ProfilingEndOp::getOperationName());
-  rewriter.create(endState);
+void insertMarkerEnd(IRRewriter &rewriter, Location loc, Value record) {
+  IREE::Hexagon::ProfilingEndOp::create(rewriter, loc, record);
 }
 
 void wrapOpWithMarker(IRRewriter &rewriter, Operation *op,
                       StringRef extraInfo) {
   rewriter.setInsertionPoint(op);
-  insertMarkerBegin(rewriter, op->getLoc(), extraInfo);
+  Value record = insertMarkerBegin(rewriter, op->getLoc(), extraInfo);
 
   rewriter.setInsertionPointAfter(op);
-  insertMarkerEnd(rewriter, op->getLoc());
+  insertMarkerEnd(rewriter, op->getLoc(), record);
 }
 
 struct InsertProfilingMarkersPass final

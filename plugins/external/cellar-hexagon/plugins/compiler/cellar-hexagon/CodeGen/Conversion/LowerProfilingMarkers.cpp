@@ -97,9 +97,9 @@ struct LowerProfilingMarkersPass final
     auto ptrType = LLVM::LLVMPointerType::get(ctx);
 
     FailureOr<LLVM::LLVMFuncOp> beginFn = LLVM::lookupOrCreateFn(
-        builder, moduleOp, kProfilingZoneBeginFn, {i32Type, ptrType}, voidType);
+        builder, moduleOp, kProfilingZoneBeginFn, {i32Type, ptrType}, ptrType);
     FailureOr<LLVM::LLVMFuncOp> endFn = LLVM::lookupOrCreateFn(
-        builder, moduleOp, kProfilingZoneEndFn, {}, voidType);
+        builder, moduleOp, kProfilingZoneEndFn, {ptrType}, voidType);
     if (failed(beginFn) || failed(endFn))
       return signalPassFailure();
 
@@ -118,10 +118,16 @@ struct LowerProfilingMarkersPass final
                              .getResult();
         Value extraInfoPtr = getOrCreateCStringPtr(moduleOp, builder, loc,
                                                    extraInfo, stringGlobals);
-        LLVM::CallOp::create(builder, loc, beginFn.value(),
-                             ValueRange{zoneType, extraInfoPtr});
+        auto callOp = LLVM::CallOp::create(builder, loc, beginFn.value(),
+                                           ValueRange{zoneType, extraInfoPtr});
+        // Rewire the record uses (i.e. the matching profiling.end) to the
+        // lowered call result. This replaces the typed profiling_record value
+        // with an `!llvm.ptr`, so the end markers must read their operand
+        // generically rather than through the typed accessor below.
+        beginOp.getRecord().replaceAllUsesWith(callOp.getResult());
       } else {
-        LLVM::CallOp::create(builder, loc, endFn.value(), ValueRange{});
+        LLVM::CallOp::create(builder, loc, endFn.value(),
+                             ValueRange{marker->getOperand(0)});
       }
 
       marker->erase();

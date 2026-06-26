@@ -2,53 +2,54 @@
 
 #include "hexagon/dsp/profiling.h"
 #include "hexagon/arm_dsp/profiling.h"
+#include "qurt_atomic_ops.h"
 #include <string.h>
 
 #if !defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
 
-void inline profiler_measurement_start(hexagon_rt_prof_header_t *header,
-                                       hexagon_rt_prof_record_t *records,
-                                       uint32_t zone_type) {
+void profiler_context_init(hexagon_rt_prof_header_t *header,
+                           hexagon_rt_prof_record_t *records,
+                           hexagon_rt_prof_context_t *out_prof_context) {
   (void)header;
   (void)records;
-  (void)zone_type;
-  return;
+  (void)out_prof_context;
 }
 
-void inline profiler_measurement_finish_and_record(
-    hexagon_rt_prof_header_t *header, hexagon_rt_prof_record_t *records) {
-  (void)header;
-  (void)records;
-  return;
+void profiler_context_deinit(hexagon_rt_prof_context_t *prof_context) {
+  (void)prof_context;
 }
 
-void inline profiler_measurement_start_extra_info(
-    hexagon_rt_prof_header_t *header, hexagon_rt_prof_record_t *records,
-    uint32_t zone_type, const char *extra_info) {
-  (void)header;
-  (void)records;
+inline hexagon_rt_prof_record_t *
+profiler_measurement_start(hexagon_rt_prof_context_t *prof_context,
+                           uint32_t zone_type, const char *extra_info) {
+  (void)prof_context;
   (void)zone_type;
   (void)extra_info;
-  return;
+  return NULL;
 }
 
-void profiler_set_active_context(hexagon_rt_prof_header_t *header,
-                                 hexagon_rt_prof_record_t *records) {
-  (void)header;
-  (void)records;
-  return;
+inline void
+profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record) {
+  (void)record;
 }
 
-void profiler_clear_active_context(void) { return; }
+void profiler_set_active_context(hexagon_rt_prof_context_t *prof_context) {
+  (void)prof_context;
+}
 
-void hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
-                                          const char *extra_info) {
+void profiler_clear_active_context(void) {}
+
+hexagon_rt_prof_record_t *
+hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
+                                     const char *extra_info) {
   (void)zone_type;
   (void)extra_info;
-  return;
+  return NULL;
 }
 
-void hexagon_runtime_profiling_zone_end(void) { return; }
+void hexagon_runtime_profiling_zone_end(hexagon_rt_prof_record_t *record) {
+  (void)record;
+};
 
 #else
 
@@ -56,32 +57,110 @@ void hexagon_runtime_profiling_zone_end(void) { return; }
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/pmu/hexagon_timer.h"
 
-static hexagon_rt_prof_header_t *active_profiling_header = NULL;
-static hexagon_rt_prof_record_t *active_profiling_records = NULL;
+void profiler_context_init(hexagon_rt_prof_header_t *header,
+                           hexagon_rt_prof_record_t *records,
+                           hexagon_rt_prof_context_t *out_prof_context) {
+  if (!header || !records || !out_prof_context) {
+    FARF(RUNTIME_HIGH,
+         "HEXAGON-RUNTIME-ERROR: NULL pointer in profiler_context_init");
+    return;
+  }
 
-void profiler_measurement_start_extra_info(hexagon_rt_prof_header_t *header,
-                                           hexagon_rt_prof_record_t *records,
-                                           uint32_t zone_type,
-                                           const char *extra_info) {
-  if (!header || !records) {
+  // Keep the pointers to the main data structres.
+  out_prof_context->header = header;
+  out_prof_context->records = records;
+
+  // Set up atomic counters that get modified in multithreaded environment.
+  qurt_atomic_set(&out_prof_context->next_record_idx, 0);
+  qurt_atomic_set(&out_prof_context->dropped_records, 0);
+}
+
+void profiler_context_deinit(hexagon_rt_prof_context_t *prof_context) {
+  if (!prof_context) {
+    FARF(RUNTIME_HIGH,
+         "HEXAGON-RUNTIME-ERROR: NULL pointer in profiler_context_deinit");
+    return;
+  }
+
+  // Copy the atomic counter into the header structure shared with ARM host.
+  // There is no qurt_atomic_read(), so read directly.
+  prof_context->header->started_records = prof_context->next_record_idx;
+  prof_context->header->dropped_records = prof_context->dropped_records;
+
+  // Count completed records, because the ARM host side is expecting this
+  // information.
+  // FIXME: Do we need this information on the ARM host side? Can we count it
+  // on the ARM host side instead? (ROO-1670)
+  uint32_t completed = 0;
+  for (uint32_t i = 0; i < prof_context->header->started_records; ++i) {
+    if (prof_context->records[i].record_completed) {
+      ++completed;
+    }
+  }
+  prof_context->header->completed_records = completed;
+
+  // Invalidate the context
+  prof_context->header = NULL;
+  prof_context->records = NULL;
+}
+
+/**
+ * @brief Obtain next unused profiling record from the context.
+ *        Emit an error to the log if out of records.
+ * @param prof_context The profiling context data structure to which to add the
+ *                     profiling record.
+ * @return pointer to profiling record or NULL if out of records
+ */
+static hexagon_rt_prof_record_t *
+profiler_context_get_fresh_record(hexagon_rt_prof_context_t *prof_context) {
+  // Do a fast pre-check if we are not already out of records.
+  // There is no qurt_atomic_read(), so read directly.
+  if (prof_context->next_record_idx < prof_context->header->num_records) {
+    // Acquire a record by atomically incrementing the next index.
+    unsigned new_next_idx =
+        qurt_atomic_inc_return(&prof_context->next_record_idx);
+    // The incremented index is returned. This means we allocated the index
+    // before.
+    unsigned idx = new_next_idx - 1;
+    // Our index is still within the range of the records.
+    // -> We acquired a record. Return it.
+    if (idx < prof_context->header->num_records) {
+      return &prof_context->records[idx];
+    }
+    // The index is beyond the end of the records. This means a race happened
+    // and we lost. We did not get a record. There are no more records. Undo
+    // the increment we just did. Note that this decrement will never make
+    // the atomic next_idx go below num_records, so this is safe.
+    qurt_atomic_dec(&prof_context->next_record_idx);
+  }
+
+  // We did not get a record. So we need to drop the measurement. Count this,
+  // print and error and do not return a record pointer.
+  qurt_atomic_inc(&prof_context->dropped_records);
+  FARF(RUNTIME_HIGH,
+       "HEXAGON-RUNTIME-ERROR: Not enough profiling records allocated for "
+       "measurements");
+  return NULL;
+}
+
+hexagon_rt_prof_record_t *
+profiler_measurement_start(hexagon_rt_prof_context_t *prof_context,
+                           uint32_t zone_type, const char *extra_info) {
+  if (!prof_context) {
     FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: Unexpected null pointer during "
                        "profiling, ignoring profiling marker");
-    return;
+    return NULL;
   }
 
-  if (header->started_records >= header->num_records) {
-    ++header->dropped_records;
-    ++header->dropped_open_records;
-    FARF(RUNTIME_HIGH,
-         "HEXAGON-RUNTIME-WARNING: Not enough profiling records allocated for "
-         "measurements, dropping profiling marker");
-    return;
+  hexagon_rt_prof_record_t *record =
+      profiler_context_get_fresh_record(prof_context);
+  if (!prof_context) {
+    return NULL;
   }
 
-  hexagon_rt_prof_record_t *record = &records[header->started_records];
   record->zone_type = zone_type;
   record->start_timer_ticks_timestamp = read_timer();
-  hexagon_pmu_read(&records[header->started_records].start_pmu_registers_stamp);
+  hexagon_pmu_read(&record->start_pmu_registers_stamp);
   // The null terminators are not needed since everything is initialized to 0
   // already. Keeping them anyway, in case that changes in the future
   if (extra_info) {
@@ -90,70 +169,44 @@ void profiler_measurement_start_extra_info(hexagon_rt_prof_header_t *header,
   } else {
     record->extra_info[0] = '\0';
   }
-  ++header->started_records;
+
+  return record;
 }
 
-void profiler_measurement_start(hexagon_rt_prof_header_t *header,
-                                hexagon_rt_prof_record_t *records,
-                                uint32_t zone_type) {
-  profiler_measurement_start_extra_info(header, records, zone_type, NULL);
-}
-
-void profiler_measurement_finish_and_record(hexagon_rt_prof_header_t *header,
-                                            hexagon_rt_prof_record_t *records) {
-  if (!header || !records) {
-    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: Unexpected null pointer during "
-                       "profiling finish, ignoring profiling marker");
+void profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record) {
+  if (!record) {
     return;
   }
-
-  if (header->dropped_open_records > 0) {
-    --header->dropped_open_records;
+  if (record->record_completed) {
+    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: profiler_measurement_finish "
+                       "called on a finished record");
     return;
   }
+  record->stop_timer_ticks_timestamp = read_timer();
+  hexagon_pmu_read(&record->stop_pmu_registers_stamp);
+  record->record_completed = 1;
+}
 
-  if (header->completed_records < header->started_records) {
-    for (int i = header->started_records - 1; i >= 0; --i) {
-      if (records[i].record_completed)
-        continue;
-      records[i].stop_timer_ticks_timestamp = read_timer();
-      hexagon_pmu_read(&records[i].stop_pmu_registers_stamp);
-      records[i].record_completed = 1;
-      ++header->completed_records;
-      return;
-    }
+static hexagon_rt_prof_context_t *active_profiling_context = NULL;
+
+void profiler_set_active_context(hexagon_rt_prof_context_t *prof_context) {
+  active_profiling_context = prof_context;
+}
+
+void profiler_clear_active_context(void) { active_profiling_context = NULL; }
+
+hexagon_rt_prof_record_t *
+hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
+                                     const char *extra_info) {
+  if (!active_profiling_context) {
+    return NULL;
   }
-
-  FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: Mismatch between "
-                     "profiler_measurement_start and finish");
+  return profiler_measurement_start(active_profiling_context, zone_type,
+                                    extra_info);
 }
 
-void profiler_set_active_context(hexagon_rt_prof_header_t *header,
-                                 hexagon_rt_prof_record_t *records) {
-  active_profiling_header = header;
-  active_profiling_records = records;
-}
-
-void profiler_clear_active_context(void) {
-  active_profiling_header = NULL;
-  active_profiling_records = NULL;
-}
-
-void hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
-                                          const char *extra_info) {
-  if (!active_profiling_header || !active_profiling_records) {
-    return;
-  }
-  profiler_measurement_start_extra_info(
-      active_profiling_header, active_profiling_records, zone_type, extra_info);
-}
-
-void hexagon_runtime_profiling_zone_end(void) {
-  if (!active_profiling_header || !active_profiling_records) {
-    return;
-  }
-  profiler_measurement_finish_and_record(active_profiling_header,
-                                         active_profiling_records);
+void hexagon_runtime_profiling_zone_end(hexagon_rt_prof_record_t *record) {
+  profiler_measurement_finish_and_record(record);
 }
 
 #endif

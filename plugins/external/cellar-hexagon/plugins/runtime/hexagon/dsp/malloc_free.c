@@ -23,9 +23,10 @@ void *hexagon_runtime_malloc(int64_t size) {
     return NULL;
   }
 
-  hexagon_runtime_profiling_zone_begin(MEMORY_MANAGEMENT, "kernel_allocation");
+  hexagon_rt_prof_record_t *prof_rec = hexagon_runtime_profiling_zone_begin(
+      MEMORY_MANAGEMENT, "kernel_allocation");
   void *res = hexagon_dsp_vtcm_pool_allocate(size);
-  hexagon_runtime_profiling_zone_end();
+  hexagon_runtime_profiling_zone_end(prof_rec);
 
   return res;
 }
@@ -35,7 +36,8 @@ void hexagon_runtime_free(void *ptr) {
     return;
   }
 
-  hexagon_runtime_profiling_zone_begin(MEMORY_MANAGEMENT, "kernel_free");
+  hexagon_rt_prof_record_t *prof_rec =
+      hexagon_runtime_profiling_zone_begin(MEMORY_MANAGEMENT, "kernel_free");
   hexagon_dsp_vtcm_pool_free(ptr);
-  hexagon_runtime_profiling_zone_end();
+  hexagon_runtime_profiling_zone_end(prof_rec);
 }

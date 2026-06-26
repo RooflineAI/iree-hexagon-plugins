@@ -120,13 +120,14 @@ static void copy_nd(const char *srcBase, char *dstBase, int64_t rank,
 
 void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
                                  void *dstUnranked) {
-  hexagon_runtime_profiling_zone_begin(MEMORY_MANAGEMENT, "memref_copy");
+  hexagon_rt_prof_record_t *prof_rec =
+      hexagon_runtime_profiling_zone_begin(MEMORY_MANAGEMENT, "memref_copy");
   hexagon_dynamic_memref_t src;
   hexagon_dynamic_memref_t dst;
   if (!hexagon_unpack_dynamic_memref(srcUnranked, &src) ||
       !hexagon_unpack_dynamic_memref(dstUnranked, &dst) ||
       src.rank != dst.rank) {
-    hexagon_runtime_profiling_zone_end();
+    hexagon_runtime_profiling_zone_end(prof_rec);
     return;
   }
 
@@ -135,13 +136,13 @@ void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
 
   if (src.rank == 0) {
     memcpy(dstPtr, srcPtr, (size_t)elemSize);
-    hexagon_runtime_profiling_zone_end();
+    hexagon_runtime_profiling_zone_end(prof_rec);
     return;
   }
 
   for (int64_t dim = 0; dim < src.rank; ++dim) {
     if (src.sizes[dim] == 0) {
-      hexagon_runtime_profiling_zone_end();
+      hexagon_runtime_profiling_zone_end(prof_rec);
       return;
     }
   }
@@ -149,5 +150,5 @@ void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
   copy_nd(srcPtr, dstPtr, src.rank, 0, src.sizes, src.strides, dst.strides,
           elemSize);
 
-  hexagon_runtime_profiling_zone_end();
+  hexagon_runtime_profiling_zone_end(prof_rec);
 }

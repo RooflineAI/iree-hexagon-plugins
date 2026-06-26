@@ -8,6 +8,7 @@
 #define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGOPS_H
 
 #include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.h"
+#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingTypes.h"
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"

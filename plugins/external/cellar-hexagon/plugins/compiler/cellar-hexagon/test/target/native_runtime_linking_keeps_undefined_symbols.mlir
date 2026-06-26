@@ -51,8 +51,8 @@ hal.executable public @test {
       llvm.func @hexagon_runtime_malloc(i64) -> !llvm.ptr attributes {cellar_hexagon.native_runtime_link}
       llvm.func @hexagon_runtime_free(!llvm.ptr) attributes {cellar_hexagon.native_runtime_link}
       llvm.func @hexagon_runtime_memref_copy(i64, !llvm.ptr, !llvm.ptr) attributes {cellar_hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_profiling_zone_begin(i32, !llvm.ptr) attributes {cellar_hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_profiling_zone_end() attributes {cellar_hexagon.native_runtime_link}
+      llvm.func @hexagon_runtime_profiling_zone_begin(i32, !llvm.ptr) -> !llvm.ptr attributes {cellar_hexagon.native_runtime_link}
+      llvm.func @hexagon_runtime_profiling_zone_end(!llvm.ptr) attributes {cellar_hexagon.native_runtime_link}
 
       llvm.func @export(%arg0: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}, %arg1: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}, %arg2: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}) -> i32 {
         %c0_i32 = llvm.mlir.constant(0 : i32) : i32
@@ -64,8 +64,8 @@ hal.executable public @test {
         llvm.call @hexagon_runtime_memref_copy(%c4_i64, %null, %null) : (i64, !llvm.ptr, !llvm.ptr) -> ()
         llvm.call @hexagon_runtime_free(%tmp) : (!llvm.ptr) -> ()
         llvm.call @hexagon_runtime_dma_wait(%c0_i32) : (i32) -> ()
-        llvm.call @hexagon_runtime_profiling_zone_begin(%c0_i32, %null) : (i32, !llvm.ptr) -> ()
-        llvm.call @hexagon_runtime_profiling_zone_end() : () -> ()
+        %record = llvm.call @hexagon_runtime_profiling_zone_begin(%c0_i32, %null) : (i32, !llvm.ptr) -> (!llvm.ptr)
+        llvm.call @hexagon_runtime_profiling_zone_end(%record) : (!llvm.ptr) -> ()
         %result = llvm.call @hexkl_matmul_f16f16_f32(%c4_i64, %c4_i64, %c4_i64, %buf, %null, %null) : (i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32
         llvm.return %result : i32
       }

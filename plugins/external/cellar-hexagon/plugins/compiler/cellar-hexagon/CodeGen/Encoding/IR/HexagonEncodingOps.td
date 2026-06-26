@@ -8,6 +8,7 @@
 #define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGOPS
 
 include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.td"
+include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingTypes.td"
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
@@ -35,7 +36,9 @@ def IREEHexagon_ProfilingBeginOp :
       OptionalAttr<StrAttr>:$extra_info
   );
 
-  let assemblyFormat = "attr-dict";
+  let results = (outs IREEHexagon_ProfilingRecordType:$record);
+
+  let assemblyFormat = "attr-dict `:` type($record)";
 }
 
 def IREEHexagon_ProfilingEndOp :
@@ -43,10 +46,13 @@ def IREEHexagon_ProfilingEndOp :
   let summary = "End a Hexagon DSP profiling marker zone";
   let description = [{
     Marks the end of a generated profiling zone. The operation lowers to
-    `hexagon_runtime_profiling_zone_end`.
+    `hexagon_runtime_profiling_zone_end`. The `record` operand is the value
+    produced by the corresponding `profiling.begin` operation.
   }];
 
-  let assemblyFormat = "attr-dict";
+  let arguments = (ins IREEHexagon_ProfilingRecordType:$record);
+
+  let assemblyFormat = "$record attr-dict `:` type($record)";
 }
 
 #endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGOPS

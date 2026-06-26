@@ -15,16 +15,16 @@ func.func @insert_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
 }
 
 // CHECK-LABEL: func.func @insert_markers(
-// CHECK: iree_hexagon.profiling.begin {extra_info = "hexagonmem.alloc", zone_type = 7 : i32}
+// CHECK: %[[ALLOC_REC:.*]] = iree_hexagon.profiling.begin {extra_info = "hexagonmem.alloc", zone_type = 7 : i32} : !iree_hexagon.profiling_record
 // CHECK-NEXT: hexagonmem.alloc
-// CHECK-NEXT: iree_hexagon.profiling.end
-// CHECK: iree_hexagon.profiling.begin {extra_info = "hexagonmem.copy", zone_type = 7 : i32}
+// CHECK-NEXT: iree_hexagon.profiling.end %[[ALLOC_REC]] : !iree_hexagon.profiling_record
+// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiling.begin {extra_info = "hexagonmem.copy", zone_type = 7 : i32} : !iree_hexagon.profiling_record
 // CHECK-NEXT: hexagonmem.copy
-// CHECK-NEXT: iree_hexagon.profiling.end
-// CHECK: iree_hexagon.profiling.begin {extra_info = "compute.inner_loop", zone_type = 7 : i32}
+// CHECK-NEXT: iree_hexagon.profiling.end %[[COPY_REC]] : !iree_hexagon.profiling_record
+// CHECK: %[[LOOP_REC:.*]] = iree_hexagon.profiling.begin {extra_info = "compute.inner_loop", zone_type = 7 : i32} : !iree_hexagon.profiling_record
 // CHECK-NEXT: scf.for
 // CHECK: }
-// CHECK-NEXT: iree_hexagon.profiling.end
+// CHECK-NEXT: iree_hexagon.profiling.end %[[LOOP_REC]] : !iree_hexagon.profiling_record
 
 func.func @nested_loop_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
   %c0 = arith.constant 0 : index
@@ -44,10 +44,10 @@ func.func @nested_loop_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
 // CHECK-LABEL: func.func @nested_loop_markers(
 // CHECK-NOT: iree_hexagon.profiling.begin {extra_info = "compute.inner_loop"
 // CHECK: scf.for
-// CHECK: iree_hexagon.profiling.begin {extra_info = "hexagonmem.copy", zone_type = 7 : i32}
+// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiling.begin {extra_info = "hexagonmem.copy", zone_type = 7 : i32} : !iree_hexagon.profiling_record
 // CHECK-NEXT: hexagonmem.copy
-// CHECK-NEXT: iree_hexagon.profiling.end
-// CHECK-NEXT: iree_hexagon.profiling.begin {extra_info = "compute.inner_loop", zone_type = 7 : i32}
+// CHECK-NEXT: iree_hexagon.profiling.end %[[COPY_REC]] : !iree_hexagon.profiling_record
+// CHECK-NEXT: %[[LOOP_REC:.*]] = iree_hexagon.profiling.begin {extra_info = "compute.inner_loop", zone_type = 7 : i32} : !iree_hexagon.profiling_record
 // CHECK-NEXT: scf.for
 // CHECK-NOT: iree_hexagon.profiling.begin
 // CHECK: scf.for
@@ -55,4 +55,4 @@ func.func @nested_loop_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
 // CHECK: arith.addi
 // CHECK: }
 // CHECK-NEXT: }
-// CHECK-NEXT: iree_hexagon.profiling.end
+// CHECK-NEXT: iree_hexagon.profiling.end %[[LOOP_REC]] : !iree_hexagon.profiling_record

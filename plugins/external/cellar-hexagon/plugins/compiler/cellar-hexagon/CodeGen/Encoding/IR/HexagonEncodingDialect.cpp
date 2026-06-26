@@ -16,6 +16,7 @@ namespace mlir::iree_compiler::IREE::Hexagon {
 void IREEHexagonEncodingDialect::initialize() {
   registerAttributes();
   registerOperations();
+  registerTypes();
 }
 
 } // namespace mlir::iree_compiler::IREE::Hexagon

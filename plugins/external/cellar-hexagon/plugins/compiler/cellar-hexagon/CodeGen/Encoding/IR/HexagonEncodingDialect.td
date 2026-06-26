@@ -24,9 +24,11 @@ def IREEHexagonEncoding_Dialect : Dialect {
   let extraClassDeclaration = [{
     void registerAttributes();
     void registerOperations();
+    void registerTypes();
   }];
 
   let useDefaultAttributePrinterParser = 1;
+  let useDefaultTypePrinterParser = 1;
 }
 
 #endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGDIALECT

@@ -226,9 +226,7 @@ static void hexa_cmd_buf_unmap(const int *mapped_fds, uint32_t mapped_fds_cnt) {
  *                data, updated by amount of processed data
  * @param[in] bind_tab binding_table
  * @param[in] bind_tab_num_ent number of entries in binding table
- * @param[in] profiling_header profiling records header, null when tracing is
- * disabled
- * @param[in] profiling_records profiling records base, null when tracing is
+ * @param[in] prof_context profiling context, NULL when tracing is
  * disabled
  * @retval AEE_SUCCESS for success
  */
@@ -236,8 +234,7 @@ static int
 hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
                            const hexagon_rt_arm_dsp_binding_t *bind_tab,
                            uint32_t bind_tab_num_ent,
-                           hexagon_rt_prof_header_t *profiling_header,
-                           hexagon_rt_prof_record_t *profiling_records) {
+                           hexagon_rt_prof_context_t *prof_context) {
   READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
                   hexagon_rt_arm_dsp_cmd_dispatch_t, cmd_dispatch)
   int64_t executable_handle = cmd_dispatch->executable_handle;
@@ -336,8 +333,8 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
     mapped_fds[idx_buf_ref] = res_buf.fd;
   }
 
-  profiler_measurement_start(profiling_header, profiling_records,
-                             MEMORY_MANAGEMENT);
+  hexagon_rt_prof_record_t *prof_invalidate_record =
+      profiler_measurement_start(prof_context, MEMORY_MANAGEMENT, NULL);
   // invalidate cache of buffers
   for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
     err = qurt_mem_cache_clean((qurt_addr_t)binding_ptrs[idx_buf_ref],
@@ -351,7 +348,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
     }
   }
 
-  profiler_measurement_finish_and_record(profiling_header, profiling_records);
+  profiler_measurement_finish_and_record(prof_invalidate_record);
 
   // Note that this function is also called when profiling is disabled, but it
   // is not very expensive. We do not care if it fails either.
@@ -359,8 +356,8 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   hexagon_dsp_executable_get_dispatch_func_name(executable_handle,
                                                 export_ordinal, &func_name);
 
-  profiler_measurement_start_extra_info(profiling_header, profiling_records,
-                                        KERNEL, func_name);
+  hexagon_rt_prof_record_t *prof_dispatch_record =
+      profiler_measurement_start(prof_context, KERNEL, func_name);
 
   // for now, run all workgroups sequentially
   for (uint16_t wg_id_z = 0; wg_id_z < dispatch_state.workgroup_count_z;
@@ -388,10 +385,10 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
     }
   }
 
-  profiler_measurement_finish_and_record(profiling_header, profiling_records);
+  profiler_measurement_finish_and_record(prof_dispatch_record);
 
-  profiler_measurement_start(profiling_header, profiling_records,
-                             MEMORY_MANAGEMENT);
+  hexagon_rt_prof_record_t *prof_flush_record =
+      profiler_measurement_start(prof_context, MEMORY_MANAGEMENT, NULL);
 
   // flush cache of buffers
   for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
@@ -409,7 +406,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
   HAP_free(dispatch_arrays);
 
-  profiler_measurement_finish_and_record(profiling_header, profiling_records);
+  profiler_measurement_finish_and_record(prof_flush_record);
 
   return AEE_SUCCESS;
 }
@@ -545,13 +542,13 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
  * @param[in] cmd_buf_size size of serialized command buffer data
  * @param[in] bind_tab_data pointer to serialized binding table data
  * @param[in] bind_tab_size size of serialized binding table data
+ * @param[in] prof_context profiling context if tracing enabled, NULL otherwise
  * @retval AEE_SUCCESS for success
  */
-static int
-hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
-                      const uint8_t *bind_tab_data, int bind_tab_size,
-                      hexagon_rt_prof_header_t *profiling_header_pointer,
-                      hexagon_rt_prof_record_t *profiling_records) {
+static int hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
+                                 const uint8_t *bind_tab_data,
+                                 int bind_tab_size,
+                                 hexagon_rt_prof_context_t *prof_context) {
   // Set up binding table for access by index.
   // This is possible because serialized data is just header followed by array.
   READ_SERIALIZED(bind_tab_data, bind_tab_size,
@@ -572,13 +569,12 @@ hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
     switch ((hexagon_rt_arm_dsp_cmd_type_enum_t)cmd_base->cmd_type) {
 
     case HEXAGON_RT_ARM_DSP_CMD_DISPATCH: {
-      profiler_measurement_start(profiling_header_pointer, profiling_records,
-                                 DISPATCH);
-      int err = hexa_cmd_buf_exec_dispatch(
-          &cmd_buf_data, &cmd_buf_size, bind_tab, bind_tab_num_ent,
-          profiling_header_pointer, profiling_records);
-      profiler_measurement_finish_and_record(profiling_header_pointer,
-                                             profiling_records);
+      hexagon_rt_prof_record_t *prof_record =
+          profiler_measurement_start(prof_context, DISPATCH, NULL);
+      int err =
+          hexa_cmd_buf_exec_dispatch(&cmd_buf_data, &cmd_buf_size, bind_tab,
+                                     bind_tab_num_ent, prof_context);
+      profiler_measurement_finish_and_record(prof_record);
       if (err != AEE_SUCCESS) {
         return err;
       }
@@ -586,11 +582,10 @@ hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
     }
 
     case HEXAGON_RT_ARM_DSP_CMD_BARRIER: {
-      profiler_measurement_start(profiling_header_pointer, profiling_records,
-                                 BARRIER);
+      hexagon_rt_prof_record_t *prof_record =
+          profiler_measurement_start(prof_context, BARRIER, NULL);
       int err = hexa_cmd_buf_exec_barrier(&cmd_buf_data, &cmd_buf_size);
-      profiler_measurement_finish_and_record(profiling_header_pointer,
-                                             profiling_records);
+      profiler_measurement_finish_and_record(prof_record);
       if (err != AEE_SUCCESS) {
         return err;
       }
@@ -598,12 +593,11 @@ hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
     }
 
     case HEXAGON_RT_ARM_DSP_CMD_COPY: {
-      profiler_measurement_start(profiling_header_pointer, profiling_records,
-                                 COPY);
+      hexagon_rt_prof_record_t *prof_record =
+          profiler_measurement_start(prof_context, COPY, NULL);
       int err = hexa_cmd_buf_exec_copy(&cmd_buf_data, &cmd_buf_size, bind_tab,
                                        bind_tab_num_ent);
-      profiler_measurement_finish_and_record(profiling_header_pointer,
-                                             profiling_records);
+      profiler_measurement_finish_and_record(prof_record);
       if (err != AEE_SUCCESS) {
         return err;
       }
@@ -611,12 +605,11 @@ hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
     }
 
     case HEXAGON_RT_ARM_DSP_CMD_FILL: {
-      profiler_measurement_start(profiling_header_pointer, profiling_records,
-                                 FILL);
+      hexagon_rt_prof_record_t *prof_record =
+          profiler_measurement_start(prof_context, FILL, NULL);
       int err = hexa_cmd_buf_exec_fill(&cmd_buf_data, &cmd_buf_size, bind_tab,
                                        bind_tab_num_ent);
-      profiler_measurement_finish_and_record(profiling_header_pointer,
-                                             profiling_records);
+      profiler_measurement_finish_and_record(prof_record);
       if (err != AEE_SUCCESS) {
         return err;
       }
@@ -650,9 +643,9 @@ int hexagon_dsp_command_buffer_execute(remote_handle64 rpc_handle,
                                        int binding_table_size) {
   hexagon_dsp_command_buffer_t *command_buffer =
       (hexagon_dsp_command_buffer_t *)command_buffer_handle;
-  int err = hexa_cmd_buf_exec_buf(
-      command_buffer->cmd_buf_data, command_buffer->cmd_buf_size,
-      binding_table_data, binding_table_size, NULL, NULL);
+  int err = hexa_cmd_buf_exec_buf(command_buffer->cmd_buf_data,
+                                  command_buffer->cmd_buf_size,
+                                  binding_table_data, binding_table_size, NULL);
   return err;
 }
 
@@ -706,17 +699,21 @@ int hexagon_dsp_command_buffer_execute_profiling(
   hexagon_pmu_configure(&profiling_header->pmu_event_ids);
   qurt_pmu_enable(1);
 
-  profiler_measurement_start(profiling_header, profiling_records,
-                             DSP_EXECUTION);
-  profiler_set_active_context(profiling_header, profiling_records);
+  hexagon_rt_prof_context_t prof_context;
+  profiler_context_init(profiling_header, profiling_records, &prof_context);
+  profiler_set_active_context(&prof_context);
 
-  int err = hexa_cmd_buf_exec_buf(command_buffer->cmd_buf_data,
-                                  command_buffer->cmd_buf_size,
-                                  binding_table_data, binding_table_size,
-                                  profiling_header, profiling_records);
+  hexagon_rt_prof_record_t *prof_record =
+      profiler_measurement_start(&prof_context, DSP_EXECUTION, NULL);
+
+  int err = hexa_cmd_buf_exec_buf(
+      command_buffer->cmd_buf_data, command_buffer->cmd_buf_size,
+      binding_table_data, binding_table_size, &prof_context);
+
+  profiler_measurement_finish_and_record(prof_record);
 
   profiler_clear_active_context();
-  profiler_measurement_finish_and_record(profiling_header, profiling_records);
+  profiler_context_deinit(&prof_context);
 
   return err;
 }

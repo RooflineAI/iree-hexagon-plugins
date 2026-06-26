@@ -23,6 +23,7 @@ iree_td_library(
         "HexagonEncodingAttrs.td",
         "HexagonEncodingDialect.td",
         "HexagonEncodingOps.td",
+        "HexagonEncodingTypes.td",
     ],
     includes = ["/plugins/compiler"],
     deps = [
@@ -70,6 +71,24 @@ iree_gentbl_cc_library(
 )
 
 iree_gentbl_cc_library(
+    name = "HexagonEncodingTypesGen",
+    strip_include_prefix = "/plugins/compiler",
+    tbl_outs = [
+        (
+            ["--gen-typedef-decls"],
+            "HexagonEncodingTypes.h.inc",
+        ),
+        (
+            ["--gen-typedef-defs"],
+            "HexagonEncodingTypes.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "HexagonEncodingTypes.td",
+    deps = [":hexagon_encoding_td_files"],
+)
+
+iree_gentbl_cc_library(
     name = "HexagonEncodingAttrsGen",
     strip_include_prefix = "/plugins/compiler",
     tbl_outs = [
@@ -96,6 +115,8 @@ cellar_hexagon_plugin_library(
         "HexagonEncodingDialect.cpp.inc",
         "HexagonEncodingOps.cpp",
         "HexagonEncodingOps.cpp.inc",
+        "HexagonEncodingTypes.cpp",
+        "HexagonEncodingTypes.cpp.inc",
     ],
     hdrs = [
         "HexagonEncodingAttrs.h",
@@ -104,6 +125,8 @@ cellar_hexagon_plugin_library(
         "HexagonEncodingDialect.h.inc",
         "HexagonEncodingOps.h",
         "HexagonEncodingOps.h.inc",
+        "HexagonEncodingTypes.h",
+        "HexagonEncodingTypes.h.inc",
     ],
     hdr_deps = [
         "@llvm-project//llvm:Support",
@@ -118,5 +141,6 @@ cellar_hexagon_plugin_library(
         ":HexagonEncodingAttrsGen",
         ":HexagonEncodingDialectGen",
         ":HexagonEncodingOpsGen",
+        ":HexagonEncodingTypesGen",
     ],
 )

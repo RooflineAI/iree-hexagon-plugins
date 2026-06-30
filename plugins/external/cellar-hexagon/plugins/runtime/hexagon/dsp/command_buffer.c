@@ -15,6 +15,7 @@
 #include "hexagon/dsp/executable.h"
 #include "hexagon/dsp/executable_library.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
+#include "hexagon/dsp/power_mode.h"
 #include "hexagon/dsp/profiling.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"

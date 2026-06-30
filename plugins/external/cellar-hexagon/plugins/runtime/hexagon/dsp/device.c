@@ -3,13 +3,12 @@
 #include <stdlib.h>
 
 #include "AEEStdErr.h"
+#include "hexagon/dsp/power_mode.h"
 #include "hexagon_dsp.h"
 
 /// Private data of Hexagon DSP RPC session.
 typedef struct hexagon_dsp_private_s {
-  // Nothing required here for now.
-  // Cannot be empty, because of undefined behavior of malloc(0).
-  unsigned char dummy;
+  void *power_context;
 } hexagon_dsp_private_t;
 
 static inline hexagon_dsp_private_t *
@@ -31,6 +30,13 @@ int hexagon_dsp_open(const char *uri, remote_handle64 *rpc_handle) {
   if (!priv) {
     return AEE_ENOMEMORY;
   }
+
+  int rc = hexagon_dsp_power_state_apply_max_performance(&priv->power_context);
+  if (rc != AEE_SUCCESS) {
+    free(priv);
+    return rc;
+  }
+
   // return pointer to RPC session data structure as handle
   *rpc_handle = (remote_handle64)priv;
   return AEE_SUCCESS;
@@ -43,6 +49,8 @@ int hexagon_dsp_open(const char *uri, remote_handle64 *rpc_handle) {
  */
 int hexagon_dsp_close(remote_handle64 rpc_handle) {
   hexagon_dsp_private_t *priv = hexagon_dsp_get_priv(rpc_handle);
+
+  hexagon_dsp_power_state_cleanup(priv->power_context);
 
   // free management data structure
   free(priv);

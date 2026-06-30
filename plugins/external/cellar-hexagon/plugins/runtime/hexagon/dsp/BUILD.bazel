@@ -30,6 +30,12 @@ cc_library(
         "profiling.h",
         "vtcm_pool.h",
     ],
+    defines = select({
+        ":hexagon_playground_profiling_enabled": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+        ],
+        "//conditions:default": [],
+    }),
     includes = ["../.."],
     target_compatible_with = [
         "@patio_cellar_hexagon//constraints:cpu_hexagon",
@@ -44,6 +50,13 @@ cc_library(
     # to bind them from libhexagon_dsp_skel.so. Force-link this library so the
     # skeleton exports the entry points even when it does not reference them.
     alwayslink = True,
+)
+
+config_setting(
+    name = "hexagon_playground_profiling_enabled",
+    define_values = {
+        "hexagon_playground_profiling": "true",
+    },
 )
 
 cc_binary(

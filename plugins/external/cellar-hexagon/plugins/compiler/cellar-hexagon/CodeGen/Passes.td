@@ -23,6 +23,23 @@ def FoldDispatchOutputStagingPass :
   }];
 }
 
+def HexagonVTCMTilingPass :
+    InterfacePass<"iree-hexagon-vtcm-tiling",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Apply Hexagon config-driven VTCM staging and tiling to a dispatch.
+  }];
+}
+
+def HexagonLowerVTCMStagingPass :
+    InterfacePass<"iree-hexagon-lower-vtcm-staging",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Lower iree_hexagon VTCM staging ops to bufferization.alloc_tensor,
+      preserving copies and materializing VTCM allocations.
+  }];
+}
+
 def HexagonConvertToLLVMPass :
     Pass<"iree-hexagon-convert-to-llvm", "mlir::ModuleOp"> {
   let summary =
@@ -62,8 +79,7 @@ def HexagonLowerExecutableTargetPass :
 def HexagonSelectLoweringStrategyPass :
     Pass<"iree-hexagon-select-lowering-strategy", "mlir::ModuleOp"> {
   let summary = [{
-      Select lowering configs and translation_info for Hexagon dispatches
-      without reusing LLVMCPU's full KernelDispatch policy.
+      Select lowering configs and translation_info for Hexagon dispatches.
   }];
 }
 

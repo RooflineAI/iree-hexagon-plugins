@@ -31,7 +31,7 @@ cc_binary(
         "//plugins/compiler/cellar-hexagon:registration",
         "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
         "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
-        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
         "//plugins/compiler/cellar-hexagon/Target:HexagonSession",
         "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
     ],

@@ -4,15 +4,14 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
 #include "cellar-hexagon/CodeGen/Passes.h"
 
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.h"
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingOps.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringMap.h"
 
 namespace mlir::iree_compiler::cellar_hexagon::codegen {
@@ -73,8 +72,7 @@ Value getOrCreateCStringPtr(ModuleOp moduleOp, OpBuilder &builder, Location loc,
 struct LowerProfilingMarkersPass final
     : public impl::LowerProfilingMarkersPassBase<LowerProfilingMarkersPass> {
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry
-        .insert<IREE::Hexagon::IREEHexagonEncodingDialect, LLVM::LLVMDialect>();
+    registry.insert<IREE::Hexagon::IREEHexagonDialect, LLVM::LLVMDialect>();
   }
 
   void runOnOperation() override {

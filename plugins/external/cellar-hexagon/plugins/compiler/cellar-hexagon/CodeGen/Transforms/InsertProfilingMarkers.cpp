@@ -6,8 +6,8 @@
 
 #include "cellar-hexagon/CodeGen/Passes.h"
 
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.h"
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingOps.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
@@ -83,7 +83,7 @@ void wrapOpWithMarker(IRRewriter &rewriter, Operation *op,
 struct InsertProfilingMarkersPass final
     : public impl::InsertProfilingMarkersPassBase<InsertProfilingMarkersPass> {
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<IREE::Hexagon::IREEHexagonEncodingDialect,
+    registry.insert<IREE::Hexagon::IREEHexagonDialect,
                     mlir::hexagonmem::HexagonMemDialect>();
   }
 

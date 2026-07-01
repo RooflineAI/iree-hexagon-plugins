@@ -32,7 +32,7 @@ cellar_hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
-        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
     ],
 )
 
@@ -67,8 +67,17 @@ cellar_hexagon_plugin_library(
         "Pipelines/TranslationPipeline.cpp",
         "Strategy/HexagonSelectLoweringStrategy.cpp",
         "Strategy/KernelDispatch.cpp",
+        "Strategy/KernelDispatchEncoding.cpp",
+        "Strategy/KernelDispatchEncoding.h",
+        "Strategy/KernelDispatchHeuristics.cpp",
+        "Strategy/KernelDispatchHeuristics.h",
+        "Strategy/KernelDispatchPropagation.cpp",
+        "Strategy/KernelDispatchPropagation.h",
+        "Strategy/KernelDispatchTypes.h",
         "Transforms/FoldDispatchOutputStaging.cpp",
+        "Transforms/HexagonVTCMTiling.cpp",
         "Transforms/InsertProfilingMarkers.cpp",
+        "Transforms/LowerVTCMStaging.cpp",
         "Transforms/PromoteDMATagAllocToStack.cpp",
     ],
     hdrs = [
@@ -118,8 +127,10 @@ cellar_hexagon_plugin_library(
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:FunctionInterfaces",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:IndexingMapOpInterface",
         "@llvm-project//mlir:LLVMDialect",
         "@llvm-project//mlir:LinalgDialect",
+        "@llvm-project//mlir:LinalgTransforms",
         "@llvm-project//mlir:MemRefDialect",
         "@llvm-project//mlir:MemRefTransforms",
         "@llvm-project//mlir:PDLDialect",
@@ -130,7 +141,9 @@ cellar_hexagon_plugin_library(
         "@llvm-project//mlir:SCFDialect",
         "@llvm-project//mlir:SCFToControlFlow",
         "@llvm-project//mlir:TensorDialect",
+        "@llvm-project//mlir:TensorTransforms",
         "@llvm-project//mlir:TilingInterface",
+        "@llvm-project//mlir:TransformUtils",
         "@llvm-project//mlir:TransformDialect",
         "@llvm-project//mlir:VectorDialect",
         "@llvm-project//mlir:VectorToArmSME",
@@ -140,7 +153,7 @@ cellar_hexagon_plugin_library(
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":PassesIncGen",
-        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
         # These dependencies are not present in the base iree-compile binary,
         # so they need to be added with the dynamic plugin

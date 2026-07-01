@@ -125,7 +125,7 @@ cellar_hexagon_plugin_library(
         ":HexagonLLVMTarget",
         ":HexagonOptions",
         "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
-        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
     ],
 )
 
@@ -149,7 +149,7 @@ cellar_hexagon_plugin_library(
         ":HexagonTargetDevice",
         "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
         "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
-        "//plugins/compiler/cellar-hexagon/CodeGen/Encoding/IR:HexagonEncodingIR",
+        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonDialectLibs",
         # These dependencies are not present in the base iree-compile binary,
         # so they need to be added with the dynamic plugin.

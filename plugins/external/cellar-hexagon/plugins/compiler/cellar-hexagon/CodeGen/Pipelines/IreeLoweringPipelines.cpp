@@ -13,15 +13,17 @@
 // curious.
 
 #include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
+
 #include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
 #include "cellar-hexagon/CodeGen/Pipelines/Bufferization.h"
 #include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+
+#include "hexagon/Conversion/DMAToLLVM/Passes.h"
+#include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
 #include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
 #include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "hexagon/Transforms/Transforms.h"
-
 #include "iree-dialects/Dialect/LinalgTransform/Passes.h"
-#include "iree/compiler/Codegen/Common/CPU/Passes.h"
 #include "iree/compiler/Codegen/Common/PassUtils.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
@@ -105,10 +107,11 @@ static llvm::cl::opt<bool> clHexagonEnableVectorContractCustomKernels(
                    "LLVMCPUMmt4dVectorLowering pass."),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool> clHexagonTileDispatchUsingForall(
-    "iree-hexagon-tile-dispatch-using-forall",
-    llvm::cl::desc("Enable tile and distribute to workgroups using scf.forall"),
-    llvm::cl::init(true));
+static llvm::cl::opt<bool> clHexagonEnableProfilingMarkers(
+    "iree-hexagon-enable-profiling-markers",
+    llvm::cl::desc("Insert DSP profiling marker zones around selected Hexagon "
+                   "kernel operations."),
+    llvm::cl::init(false));
 
 bool isHexagonFailOnOutOfBoundsStackAllocationEnabled() {
   return clHexagonFailOnOutOfBoundsStackAllocation;
@@ -121,8 +124,7 @@ void buildHexagonIreeTranslationRoute(
   OpPassManager &modulePassManager = variantPassManager.nest<ModuleOp>();
   modulePassManager.addPass(createLowerExecutableUsingTransformDialectPass());
   FunctionLikeNest(modulePassManager)
-      .addPass(createHexagonLowerExecutableTargetPass)
-      .addPass(createVerifyWorkgroupDistributionPass);
+      .addPass(createHexagonLowerExecutableTargetPass);
   if (clHexagonPatchFuncOps) {
     modulePassManager.addPass(createPatchFuncOpsPass());
   }
@@ -130,15 +132,6 @@ void buildHexagonIreeTranslationRoute(
 
 void addHexagonTileAndDistributePasses(
     OpPassManager &funcPassManager, const HexagonPipelineOptions &pipelineOpt) {
-  if (pipelineOpt.disableDistribution) {
-    return;
-  }
-  // IREE #23756 removed the non-forall TileAndDistributeToWorkgroups pass and
-  // ConvertToDestinationPassingStyle; the scf.forall tile-and-distribute path
-  // (already our default, clHexagonTileDispatchUsingForall=true) is now the
-  // only supported lowering, so always take it. The flag is retained for CLI
-  // compatibility but no longer selects an alternative path.
-  (void)clHexagonTileDispatchUsingForall;
   funcPassManager.addPass(
       createTileAndDistributeToWorkgroupsUsingForallOpPass());
   funcPassManager.addPass(createBufferizeDispatchTensorLoadStorePass());
@@ -199,7 +192,13 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
   // only.
   funcPassManager.addPass(createLLVMCPUTilePass(
       IREE::CPU::TilingLevel::VectorCommonParallelTiles, /*skipRootOp=*/false));
-  funcPassManager.addPass(createLLVMCPUPeelPass());
+  // This is a divergence from the LLVMCPU pipeline. We do not want to peel
+  // operations outside of workgroups since we are not using workgroups. This
+  // would fully unroll copy operations in all cases, which crashes the LLVM
+  // backend because of the code size explosion. Therefore, we only enable
+  // peeling optionally.
+  if (pipelineOpt.enablePeeling)
+    funcPassManager.addPass(createLLVMCPUPeelPass());
   {
     GenericVectorizationPassOptions options;
     options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
@@ -247,23 +246,21 @@ void addHexagonMultiTilingExpertPassPipeline(
     OpPassManager &funcPassManager,
     IREE::Codegen::LoweringConfigAttrInterface loweringConfig,
     const HexagonPipelineOptions &pipelineOpt) {
-  // TODO: I still need a way to combine VTCM tiling into this multilevel tiling
-  // here.
+  addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
 
   if (isHexagonVTCMTilingEnabled()) {
-    // Align with hexagon-mlir staging by normalizing tensor shapes before VTCM
-    // tiling. This helps avoid generating tiny loop-carried tensors that are
-    // copied back to default memory space inside the same loop.
+    // This dispatch-wide tiling runs before the LLVMCPU-derived tiling
+    // passes so VTCM staging is the outer tensor tiling level.
+    // It currently does not combine with workgroup level tiling properly.
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
+    // Remove unit dims, as done in hexagon-mlir
     funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
-    funcPassManager.addPass(mlir::hexagon::createVTCMTilingPass());
+    funcPassManager.addPass(createHexagonVTCMTilingPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
     funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
   }
-
-  addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
 
   for (int i : IREE::CPU::getTilingLevelsAsInts()) {
     if (!loweringConfig.hasTilingLevel(i)) {
@@ -319,11 +316,6 @@ void addHexagonMultiTilingExpertPassPipeline(
 
   {
     funcPassManager.addPass(createTensorToVectorVectorizePadPass());
-    if (pipelineOpt.decomposePackUnPackOps) {
-      funcPassManager.addPass(createDecomposePackUnPackOpsPass());
-      funcPassManager.addPass(createConfigTrackingCanonicalizerPass());
-      funcPassManager.addPass(createCSEPass());
-    }
     funcPassManager.addPass(createLLVMCPUTileToVectorSizePass());
 
     GenericVectorizationPassOptions options;
@@ -338,11 +330,39 @@ void addHexagonMultiTilingExpertPassPipeline(
     }
   }
 
+  if (isHexagonVTCMTilingEnabled()) {
+    // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
+    // emitted as fusion barriers into real bufferization.alloc_tensor ops.
+    // This must happen after all tiling passes have run.
+    funcPassManager.addPass(createHexagonLowerVTCMStagingPass());
+  }
+
   addHexagonBufferizePasses(funcPassManager);
 
   // Run IREE specific passes before vector lowering expert.
   funcPassManager.addPass(createPropagateDispatchSizeBoundsPass());
   funcPassManager.addPass(createRemoveSingleIterationLoopPass());
+
+  if (isHexagonVTCMTilingEnabled()) {
+    // Without removing the HAL descriptors, hexagon-mlir crashes.
+    // It is assumed that IREE passes do not need them anymore from this point
+    // on.
+    funcPassManager.addPass(createEraseHALDescriptorTypeFromMemRefPass());
+    funcPassManager.addPass(hexagon::createConvertToHexagonmemPass());
+    if (clHexagonEnableProfilingMarkers)
+      funcPassManager.addPass(createInsertProfilingMarkersPass());
+    funcPassManager.addPass(hexagon::createHexmemCpyToDMAPass());
+    // HexmemCpyToDMA materializes short-lived DMA tag buffers as
+    // `memref.alloc : memref<1xi32>` + `memref.dealloc`. These tags only carry
+    // the dma token between `dma_start` and `dma_wait`, so keeping them on heap
+    // introduces unnecessary malloc/free imports in the LLVM stage. Promote
+    // just those DMA tag allocations to stack and drop their deallocs.
+    funcPassManager.addPass(createPromoteDMATagAllocToStackPass());
+    // Hoist the newly introduced allocas out of loops
+    funcPassManager.addPass(createHoistStaticallyBoundAllocationsPass());
+    funcPassManager.addPass(createCSEPass());
+    funcPassManager.addPass(createCanonicalizerPass());
+  }
 
   {
     HexagonVectorLoweringPassOptions options;
@@ -474,9 +494,6 @@ void addHexagonDataTilingPipeline(OpPassManager &funcPassManager,
 
   funcPassManager.addPass(createLLVMCPUTilePass(
       IREE::CPU::TilingLevel::VectorCommonParallelTiles, /*skipRootOp=*/false));
-  if (pipelineOpt.decomposePackUnPackOps) {
-    funcPassManager.addPass(createDecomposePackUnPackOpsPass());
-  }
 
   {
     GenericVectorizationPassOptions options;
@@ -653,20 +670,49 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       .addPredicatedPass(clHexagonInstrumentMemoryAccesses,
                          createInstrumentMemoryAccessesPass);
 
-  // TODO: hexagon-mlir defines lowering for math operations (like tan or tanh).
-  // IREE also does this. I should try to check which one of the two is more
-  // efficient. This can be done by putting a flag before the convertToLLVM pass
-  // that runs hexagon-mlir optimizations first
-  modulePassManager.addPass(
-      createHexagonConvertToLLVMPass(clHexagonEnableReassociateFpReductions));
+  // Split of conversion done for LLVMCPU:
+  // - phase 1 performs HAL ABI + func/vector/index/cf conversion,
+  //   but keeps hal.interface.binding.subspan + memref
+  //   finalization out;
+  // - phase 2 lowers the deferred pieces after address-space normalization.
+  //
+  // LLVMCPU does not need this split because it does not interleave
+  // Hexagon's address-space collapsing with its custom HAL conversion pass.
+  // In this hybrid Hexagon pipeline we must guarantee:
+  //   phase1 -> collapse-address-space -> phase2
+  // so dealloc lowering emits @free with ptr in the default address space
+  // and binding subspans stay memref-typed while DMA/memref users are still
+  // alive.
+  modulePassManager.addPass(createHexagonConvertToLLVMPassPhase1(
+      /*reassociateFpReductions=*/false));
+  // These passes run on custom ops that have no standard
+  // lowering. Therefore, they can run in tadem with iree's standard
+  // lowering.
+  modulePassManager.addPass(hexagonmem::createHexagonMemToLLVMPass());
+  modulePassManager.addPass(hexagon::createDMAToLLVMPass());
+  modulePassManager.addPass(hexkl::createHexKLToLLVMPass());
+  // Hexagon DMA/HexKL/HexagonMem runtime symbols are always kept as native
+  // unresolved externs and resolved by the DSP loader.
+  modulePassManager.addPass(createMarkHexagonNativeRuntimeLinksPass());
+  // Must run after function lowering and before memref finalization.
+  // The collapse pass rewrites ptr<addrspace> in descriptors/calls to
+  // default address space so finalize-memref-to-llvm can lower deallocs
+  // correctly
+  modulePassManager.addPass(hexagon::createCollapseAddressSpacePass());
+  modulePassManager.addPass(createReconcileUnrealizedCastsPass());
+  // Complete conversion after address-space normalization.
+  modulePassManager.addPass(createHexagonConvertToLLVMPassPhase2(
+      /*reassociateFpReductions=*/false));
+  modulePassManager.addPass(createCanonicalizerPass());
+  modulePassManager.addPass(createCSEPass());
+  modulePassManager.addPass(createReconcileUnrealizedCastsPass());
 
   modulePassManager.addPass(createLowerProfilingMarkersPass());
   modulePassManager.addPass(createMarkHexagonNativeRuntimeLinksPass());
-
   modulePassManager.addPass(createReconcileUnrealizedCastsPass());
 
-  // We rely on MLIR symbol visibility being correct after this point and need
-  // to mirror the LLVM linkage that was assigned during conversion.
+  // We rely on MLIR symbol visibility being correct after this point and
+  // need to mirror the LLVM linkage that was assigned during conversion.
   modulePassManager.addPass(createLLVMCPUSynchronizeSymbolVisibilityPass());
 
   modulePassManager.addPass(createCanonicalizerPass());

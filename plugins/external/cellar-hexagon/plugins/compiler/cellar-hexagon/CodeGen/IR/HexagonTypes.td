@@ -4,10 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGTYPES
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGTYPES
+#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES
+#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES
 
-include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.td"
+include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 
 //===----------------------------------------------------------------------===//
@@ -15,7 +15,7 @@ include "mlir/IR/AttrTypeBase.td"
 //===----------------------------------------------------------------------===//
 
 def IREEHexagon_ProfilingRecordType :
-    TypeDef<IREEHexagonEncoding_Dialect, "ProfilingRecord"> {
+    TypeDef<IREEHexagon_Dialect, "ProfilingRecord"> {
   let mnemonic = "profiling_record";
   let summary = "Handle to an in-flight Hexagon profiling record";
   let description = [{
@@ -25,4 +25,4 @@ def IREEHexagon_ProfilingRecordType :
   }];
 }
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGTYPES
+#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES

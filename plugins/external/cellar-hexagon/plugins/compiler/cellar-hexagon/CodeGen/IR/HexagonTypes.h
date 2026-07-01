@@ -4,19 +4,19 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGTYPES_H
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGTYPES_H
+#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES_H
+#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES_H
 
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Types.h"
 
 namespace mlir::iree_compiler::IREE::Hexagon {
 
-class IREEHexagonEncodingDialect;
+class IREEHexagonDialect;
 
 } // namespace mlir::iree_compiler::IREE::Hexagon
 
 #define GET_TYPEDEF_CLASSES
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingTypes.h.inc"
+#include "cellar-hexagon/CodeGen/IR/HexagonTypes.h.inc"
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGTYPES_H
+#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES_H

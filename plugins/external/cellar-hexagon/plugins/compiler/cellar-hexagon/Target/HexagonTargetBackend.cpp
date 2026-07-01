@@ -6,11 +6,8 @@
 
 #include "cellar-hexagon/Target/HexagonTargetBackend.h"
 
-#include <optional>
-#include <string>
-
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingAttrs.h"
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
 #include "cellar-hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
 #include "cellar-hexagon/CodeGen/Pipelines/LinkingPipeline.h"
 #include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
@@ -25,6 +22,9 @@
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+
+#include <optional>
+#include <string>
 
 namespace mlir::iree_compiler::cellar_hexagon::target {
 namespace IREE = mlir::iree_compiler::IREE;
@@ -88,9 +88,9 @@ public:
   }
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<
-        LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonEncodingDialect,
-        mlir::hexkl::HexKLDialect, mlir::hexagonmem::HexagonMemDialect>();
+    registry.insert<LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonDialect,
+                    mlir::hexkl::HexKLDialect,
+                    mlir::hexagonmem::HexagonMemDialect>();
     registerBuiltinDialectTranslation(registry);
     registerLLVMDialectTranslation(registry);
   }

@@ -6,10 +6,10 @@
 
 #include "cellar-hexagon/Target/HexagonLLVMTarget.h"
 
+#include "llvm/Support/TargetSelect.h"
+
 #include <mutex>
 #include <string>
-
-#include "llvm/Support/TargetSelect.h"
 
 namespace mlir::iree_compiler::cellar_hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;

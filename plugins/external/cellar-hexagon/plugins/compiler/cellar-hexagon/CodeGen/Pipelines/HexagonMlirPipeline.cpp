@@ -60,12 +60,6 @@ llvm::cl::opt<bool> clHexagonEnableHexKLMatmulLowering(
                    "(linalg.matmul -> hexkl.matmul -> LLVM calls)."),
     llvm::cl::init(false));
 
-llvm::cl::opt<bool> clHexagonEnableProfilingMarkers(
-    "iree-hexagon-enable-profiling-markers",
-    llvm::cl::desc("Insert DSP profiling marker zones around selected Hexagon "
-                   "kernel operations."),
-    llvm::cl::init(false));
-
 void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   auto &pm = variantPassManager.nest<ModuleOp>();
   const bool enableCollapseAddressSpace = true;
@@ -398,9 +392,6 @@ void buildHexagonMlirTranslationRoute(
 
     if (enableConvertToHexagonmem)
       pm.addNestedPass<func::FuncOp>(Hexagon::createConvertToHexagonmemPass());
-
-    if (clHexagonEnableProfilingMarkers)
-      pm.addNestedPass<func::FuncOp>(createInsertProfilingMarkersPass());
 
     // Decompose hexkl.matmul to micro ops
     if (enableHexKL)

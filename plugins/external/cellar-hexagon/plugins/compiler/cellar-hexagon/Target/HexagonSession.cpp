@@ -7,11 +7,12 @@
 #include "cellar-hexagon/Target/HexagonSession.h"
 
 #include "cellar-hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
 #include "cellar-hexagon/CodeGen/Passes.h"
 #include "cellar-hexagon/Target/HexagonOptions.h"
 #include "cellar-hexagon/Target/HexagonTargetBackend.h"
 #include "cellar-hexagon/Target/HexagonTargetDevice.h"
+
 #include "hexagon/Dialect/HexKL/Transforms/BufferizableOpInterfaceImpl.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
@@ -41,7 +42,7 @@ struct HexagonSession
   // does not work, so this is an alternative. Not sure about the difference.
   void onRegisterDialects(mlir::DialectRegistry &registry) override {
     // MLIR hooks
-    registry.insert<IREE::Hexagon::IREEHexagonEncodingDialect,
+    registry.insert<IREE::Hexagon::IREEHexagonDialect,
                     mlir::hexagonmem::HexagonMemDialect>();
 
     // Hexagon-mlir hooks

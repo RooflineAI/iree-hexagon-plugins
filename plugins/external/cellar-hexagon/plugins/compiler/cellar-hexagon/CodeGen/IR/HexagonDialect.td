@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGDIALECT
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGDIALECT
+#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT
 
 include "mlir/IR/AttrTypeBase.td"
 
@@ -13,12 +13,13 @@ include "mlir/IR/AttrTypeBase.td"
 // Dialect definition.
 //===----------------------------------------------------------------------===//
 
-def IREEHexagonEncoding_Dialect : Dialect {
+def IREEHexagon_Dialect : Dialect {
   let name = "iree_hexagon";
   let summary = "Roofline Hexagon encoding helpers.";
   let description = [{
-    A lightweight dialect that hosts attributes and helper operations used by
-    the custom Hexagon backend.
+    A lightweight dialect that hosts attributes and operations used by
+    the custom Hexagon backend. It includes, for example, memory-staging
+    information for VTCM management.
   }];
   let cppNamespace = "::mlir::iree_compiler::IREE::Hexagon";
   let extraClassDeclaration = [{
@@ -31,4 +32,4 @@ def IREEHexagonEncoding_Dialect : Dialect {
   let useDefaultTypePrinterParser = 1;
 }
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENCODINGDIALECT
+#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT

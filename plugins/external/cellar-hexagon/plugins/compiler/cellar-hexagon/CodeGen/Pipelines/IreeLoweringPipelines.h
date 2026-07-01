@@ -17,17 +17,9 @@ namespace mlir::iree_compiler::cellar_hexagon::codegen {
 
 bool isHexagonFailOnOutOfBoundsStackAllocationEnabled();
 
+/// Entry point for the iree-based pipeline
 void buildHexagonIreeTranslationRoute(
     mlir::OpPassManager &variantPassManager,
-    const HexagonPipelineOptions &pipelineOpt);
-
-//===---------------------------------------------------------------------===//
-// Reused helpers
-//===---------------------------------------------------------------------===//
-void addHexagonLowerToLLVMPasses(mlir::OpPassManager &modulePassManager);
-
-void addHexagonTileAndDistributePasses(
-    mlir::OpPassManager &funcPassManager,
     const HexagonPipelineOptions &pipelineOpt);
 
 //===---------------------------------------------------------------------===//

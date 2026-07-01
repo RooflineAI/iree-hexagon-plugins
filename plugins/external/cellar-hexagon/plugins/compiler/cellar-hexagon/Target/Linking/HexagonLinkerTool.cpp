@@ -6,12 +6,12 @@
 
 #include "cellar-hexagon/Target/Linking/HexagonLinkerTool.h"
 
-#include <string>
-#include <variant>
-
 #include "iree/compiler/Utils/ToolUtils.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/Function.h"
+
+#include <string>
+#include <variant>
 
 #define DEBUG_TYPE "llvm-linker"
 

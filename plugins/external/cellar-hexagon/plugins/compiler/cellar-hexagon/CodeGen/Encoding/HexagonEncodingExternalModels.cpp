@@ -44,8 +44,8 @@
 //===---------------------------------------------------------------------===//
 
 #include "cellar-hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingAttrs.h"
-#include "cellar-hexagon/CodeGen/Encoding/IR/HexagonEncodingDialect.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
 
 #include "iree/compiler/Codegen/Dialect/Codegen/Utils/Utils.h"
 #include "iree/compiler/Codegen/ExternalInterfaces/Utils.h"
@@ -380,7 +380,7 @@ struct HexagonSerializableAttr
 
 void registerHexagonEncodingExternalModels(DialectRegistry &registry) {
   registry.addExtension(
-      +[](MLIRContext *ctx, Hexagon::IREEHexagonEncodingDialect *dialect) {
+      +[](MLIRContext *ctx, Hexagon::IREEHexagonDialect *dialect) {
         (void)dialect;
         Hexagon::HexagonEncodingResolverAttr::attachInterface<
             HexagonPackedLayoutMaterializerAttr, HexagonLayoutMaterializerAttr,

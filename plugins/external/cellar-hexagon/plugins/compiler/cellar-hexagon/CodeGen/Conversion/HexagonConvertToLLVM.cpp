@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
+
 #include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 #include "cellar-hexagon/CodeGen/Passes.h"
 
@@ -1048,8 +1049,15 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   vector::populateVectorRankReducingFMAPattern(patterns);
   vector::populateVectorInsertExtractStridedSliceTransforms(patterns);
   vector::populateVectorStepLoweringPatterns(patterns);
+  // TODO: Revisit this in the future when performance becomes relevant
+  // LLVMCPU uses data type alignment. Non ideal vector memory
+  // access patterns when specifying this alignment for this backend (the llvm
+  // backend needs to be a lot more conservative when it comes to unaligned
+  // accesses) have been observed. In theory, tiling should guarantee proper
+  // alignment. Nevertheless, there are some dispatches, like "slow copies" into
+  // padded buffers that will fail when using vector alignment here.
   populateVectorToLLVMConversionPatterns(typeConverter, patterns,
-                                         reassociateFpReductions);
+                                         reassociateFpReductions, false, false);
   // vector::populateVectorFromElementsLoweringPatterns(patterns);
   // vector::populateVectorToElementsLoweringPatterns(patterns);
   vector::populateVectorFromElementsUnrollPatterns(patterns);
@@ -1125,8 +1133,10 @@ createHexagonConvertToLLVMPass(bool reassociateFpReductions) {
   return createHexagonConvertToLLVMPassPhase2(reassociateFpReductions);
 }
 
-// TODO: I really want to make this cleaner in some way. This is currently ugly
-// as hell.
+// TODO: This is currently split into two phases to make it compatible
+// with passes from hexagon-mlir. Nevertheless, nothing is stopping us from
+// merging both phases into a single one and make this cleaner. To be done
+// later.
 std::unique_ptr<OperationPass<ModuleOp>>
 createHexagonConvertToLLVMPassPhase1(bool reassociateFpReductions) {
   HexagonConvertToLLVMPassOptions options;

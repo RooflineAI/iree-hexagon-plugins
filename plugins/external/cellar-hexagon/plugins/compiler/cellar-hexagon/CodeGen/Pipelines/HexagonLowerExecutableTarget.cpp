@@ -11,6 +11,8 @@
 #include "cellar-hexagon/CodeGen/Passes.h"
 #include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 
+#include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
+#include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Utils/CPUUtils.h"
 #include "iree/compiler/Codegen/Utils/Utils.h"
@@ -44,6 +46,8 @@ public:
     registry.insert<IREE::HAL::HALDialect,
                     IREE::LinalgExt::IREELinalgExtDialect,
                     bufferization::BufferizationDialect,
+                    mlir::hexagonmem::HexagonMemDialect,
+                    mlir::hexkl::HexKLDialect,
                     linalg::LinalgDialect,
                     LLVM::LLVMDialect,
                     pdl::PDLDialect,
@@ -60,15 +64,11 @@ public:
 
 static IREE::Codegen::LoweringConfigAttrInterface
 getRootLoweringConfig(mlir::FunctionOpInterface funcOp) {
-  llvm::SmallVector<mlir::Operation *> computeOps = getComputeOps(funcOp);
-  for (mlir::Operation *op : computeOps) {
-    IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
-        getLoweringConfig(op);
-    if (loweringConfig && loweringConfig.hasWorkgroupTilingLevel()) {
-      return loweringConfig;
-    }
+  auto rootOp = getRootOperation(getComputeOps(funcOp));
+  if (failed(rootOp) || !rootOp.value()) {
+    return nullptr;
   }
-  return nullptr;
+  return getLoweringConfig(rootOp.value());
 }
 
 void HexagonLowerExecutableTargetPass::runOnOperation() {
@@ -88,18 +88,12 @@ void HexagonLowerExecutableTargetPass::runOnOperation() {
   }
 
   HexagonPipelineOptions pipelineOpts;
-  IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
-      getRootLoweringConfig(funcOp);
-  if (loweringConfig &&
-      llvm::all_of(loweringConfig.getWorkgroupTileSizes(),
-                   [](int64_t tileSize) { return tileSize == 0; })) {
-    pipelineOpts.disableDistribution = true;
-  }
-  pipelineOpts.decomposePackUnPackOps =
-      isOptEnabled(funcOp, getEnableDecompositionStr());
   pipelineOpts.enablePeeling = isOptEnabled(funcOp, getEnableLoopPeelingStr());
 
   mlir::OpPassManager passManager(mlir::func::FuncOp::getOperationName());
+  // TODO: we are currently reusing attributes from the LLVMCPU lowering
+  // pipeline to mark what pipeline should be used for Hexagon. This should be
+  // changed to use custom attributes for Hexagon.
   switch (translationInfo.getDispatchLoweringPassPipeline()) {
   case IREE::Codegen::DispatchLoweringPassPipeline::None:
     return;
@@ -113,14 +107,16 @@ void HexagonLowerExecutableTargetPass::runOnOperation() {
     break;
 
   case IREE::Codegen::DispatchLoweringPassPipeline::CPUDoubleTilingExpert:
-    if (!loweringConfig) {
-      funcOp.emitOpError("expected a valid lowering_config for the selected "
-                         "CPUDoubleTilingExpert pipeline");
-      return signalPassFailure();
+    if (auto loweringConfig = getRootLoweringConfig(funcOp)) {
+      addHexagonMultiTilingExpertPassPipeline(passManager, loweringConfig,
+                                              pipelineOpts);
+      break;
     }
-    addHexagonMultiTilingExpertPassPipeline(passManager, loweringConfig,
-                                            pipelineOpts);
-    break;
+    funcOp.emitWarning()
+        << "selected CPUDoubleTilingExpert pipeline requires a root "
+           "lowering_config, but no compute root with lowering_config was "
+           "found";
+    return signalPassFailure();
 
   // For now I am just assuming that we use im2col and forget about special
   // pipelines for convolutions

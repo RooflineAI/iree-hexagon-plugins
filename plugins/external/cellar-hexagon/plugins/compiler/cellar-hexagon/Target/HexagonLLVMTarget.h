@@ -8,6 +8,7 @@
 #define ROOF_HEXAGON_HAL_HEXAGONLLVMTARGET_H_
 
 #include "cellar-hexagon/Target/HexagonOptions.h"
+
 #include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
 
 namespace mlir::iree_compiler::cellar_hexagon::target {

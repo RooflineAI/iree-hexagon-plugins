@@ -6,19 +6,13 @@
 
 #include "cellar-hexagon/CodeGen/Pipelines/Bufferization.h"
 
-#include "cellar-hexagon/CodeGen/Passes.h"
-
-#include <limits>
-#include <optional>
-
 #include "hexagon/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
-#include "iree/compiler/Codegen/Transforms/Transforms.h"
-#include "iree/compiler/Dialect/Util/IR/UtilTypes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Transforms/Passes.h"
+
+#include <optional>
 
 // This file is based on
 // third-party/iree/compiler/src/iree/compiler/Codegen/Common/CPU/Passes.cpp,
@@ -48,7 +42,14 @@ void addHexagonBufferizePassesCommon(mlir::OpPassManager &funcPassManager) {
 
 void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager) {
   addHexagonBufferizePassesCommon(funcPassManager);
-  funcPassManager.addPass(mlir::bufferization::createBufferHoistingPass());
+
+  // Convert dynamic memref.alloc ops to static ones before
+  // ConvertToHexagonmemPass, which only accepts fully static VTCM memrefs.
+  // Remainder/partial tiles produce dynamic-sized allocs after bufferization;
+  // this pass uses IntegerRangeAnalysis to find upper bounds and replaces each
+  // with a static alloc + memref.subview.
+  funcPassManager.addPass(createPadDynamicAllocPass());
+  funcPassManager.addPass(mlir::bufferization::createBufferLoopHoistingPass());
   funcPassManager.addPass(
       mlir::bufferization::createOwnershipBasedBufferDeallocationPass());
   funcPassManager.addPass(

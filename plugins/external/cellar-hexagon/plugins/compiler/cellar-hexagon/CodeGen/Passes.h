@@ -19,11 +19,9 @@ namespace mlir::iree_compiler::cellar_hexagon::codegen {
 
 // Similar to the LLVMCPUPipelineOptions struct, but simplified for Hexagon
 struct HexagonPipelineOptions {
-  bool disableDistribution = false;
-  bool decomposePackUnPackOps = true;
   bool useConfiguredVectorSizes = true;
   bool enablePeeling = false;
-  bool enableVectorMasking = false;
+  bool enableVectorMasking = true;
 };
 
 struct HexagonVectorLoweringPassOptions {

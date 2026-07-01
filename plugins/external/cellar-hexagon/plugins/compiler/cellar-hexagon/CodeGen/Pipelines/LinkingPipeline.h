@@ -9,10 +9,10 @@
 #ifndef ROOF_HEXAGON_CODEGEN_LINKINGPIPELINE_H_
 #define ROOF_HEXAGON_CODEGEN_LINKINGPIPELINE_H_
 
+#include "mlir/Pass/PassManager.h"
+
 #include <optional>
 #include <string>
-
-#include "mlir/Pass/PassManager.h"
 
 namespace mlir::iree_compiler::cellar_hexagon::codegen {
 

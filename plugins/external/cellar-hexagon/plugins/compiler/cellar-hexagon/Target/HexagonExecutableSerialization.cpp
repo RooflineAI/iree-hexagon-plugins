@@ -7,11 +7,6 @@
 #include "cellar-hexagon/Target/HexagonExecutableSerialization.h"
 #include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 
-#include <cstdio>
-#include <optional>
-#include <string>
-#include <vector>
-
 #include "cellar-hexagon/Target/HexagonLLVMTarget.h"
 #include "cellar-hexagon/Target/Linking/HexagonLinkerTool.h"
 #include "compiler/plugins/target/LLVMCPU/LLVMIRPasses.h"
@@ -21,9 +16,6 @@
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Location.h"
-#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -35,6 +27,10 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+
+#include <optional>
+#include <string>
+#include <vector>
 
 // TODO: There is a lot of code that is calling on functions from the
 // LLVMCPUTarget plugin, especially during linking. This also includes other

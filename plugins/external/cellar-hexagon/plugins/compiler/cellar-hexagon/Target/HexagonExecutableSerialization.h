@@ -8,6 +8,7 @@
 #define ROOF_HEXAGON_HAL_HEXAGONEXECUTABLESERIALIZATION_H_
 
 #include "cellar-hexagon/Target/HexagonOptions.h"
+
 #include "iree/compiler/Dialect/HAL/Target/TargetBackend.h"
 
 namespace mlir::iree_compiler::cellar_hexagon::target {

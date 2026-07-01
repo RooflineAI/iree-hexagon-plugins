@@ -7,9 +7,9 @@
 #ifndef ROOF_HEXAGON_HAL_HEXAGONOPTIONS_H_
 #define ROOF_HEXAGON_HAL_HEXAGONOPTIONS_H_
 
-#include <string>
-
 #include "iree/compiler/Utils/OptionUtils.h"
+
+#include <string>
 
 namespace mlir::iree_compiler::cellar_hexagon::target {
 

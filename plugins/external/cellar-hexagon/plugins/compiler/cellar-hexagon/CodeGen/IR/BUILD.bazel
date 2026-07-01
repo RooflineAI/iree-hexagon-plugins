@@ -18,12 +18,12 @@ package(
 )
 
 iree_td_library(
-    name = "hexagon_encoding_td_files",
+    name = "hexagon_td_files",
     srcs = [
-        "HexagonEncodingAttrs.td",
-        "HexagonEncodingDialect.td",
-        "HexagonEncodingOps.td",
-        "HexagonEncodingTypes.td",
+        "HexagonAttrs.td",
+        "HexagonDialect.td",
+        "HexagonOps.td",
+        "HexagonTypes.td",
     ],
     includes = ["/plugins/compiler"],
     deps = [
@@ -35,98 +35,98 @@ iree_td_library(
 )
 
 iree_gentbl_cc_library(
-    name = "HexagonEncodingDialectGen",
+    name = "HexagonDialectGen",
     strip_include_prefix = "/plugins/compiler",
     tbl_outs = [
         (
             ["--gen-dialect-decls"],
-            "HexagonEncodingDialect.h.inc",
+            "HexagonDialect.h.inc",
         ),
         (
             ["--gen-dialect-defs"],
-            "HexagonEncodingDialect.cpp.inc",
+            "HexagonDialect.cpp.inc",
         ),
     ],
     tblgen = "@llvm-project//mlir:mlir-tblgen",
-    td_file = "HexagonEncodingDialect.td",
-    deps = [":hexagon_encoding_td_files"],
+    td_file = "HexagonDialect.td",
+    deps = [":hexagon_td_files"],
 )
 
 iree_gentbl_cc_library(
-    name = "HexagonEncodingOpsGen",
-    strip_include_prefix = "/plugins/compiler",
-    tbl_outs = [
-        (
-            ["--gen-op-decls"],
-            "HexagonEncodingOps.h.inc",
-        ),
-        (
-            ["--gen-op-defs"],
-            "HexagonEncodingOps.cpp.inc",
-        ),
-    ],
-    tblgen = "@llvm-project//mlir:mlir-tblgen",
-    td_file = "HexagonEncodingOps.td",
-    deps = [":hexagon_encoding_td_files"],
-)
-
-iree_gentbl_cc_library(
-    name = "HexagonEncodingTypesGen",
-    strip_include_prefix = "/plugins/compiler",
-    tbl_outs = [
-        (
-            ["--gen-typedef-decls"],
-            "HexagonEncodingTypes.h.inc",
-        ),
-        (
-            ["--gen-typedef-defs"],
-            "HexagonEncodingTypes.cpp.inc",
-        ),
-    ],
-    tblgen = "@llvm-project//mlir:mlir-tblgen",
-    td_file = "HexagonEncodingTypes.td",
-    deps = [":hexagon_encoding_td_files"],
-)
-
-iree_gentbl_cc_library(
-    name = "HexagonEncodingAttrsGen",
+    name = "HexagonAttrsGen",
     strip_include_prefix = "/plugins/compiler",
     tbl_outs = [
         (
             ["--gen-attrdef-decls"],
-            "HexagonEncodingAttrs.h.inc",
+            "HexagonAttrs.h.inc",
         ),
         (
             ["--gen-attrdef-defs"],
-            "HexagonEncodingAttrs.cpp.inc",
+            "HexagonAttrs.cpp.inc",
         ),
     ],
     tblgen = "@llvm-project//mlir:mlir-tblgen",
-    td_file = "HexagonEncodingAttrs.td",
-    deps = [":hexagon_encoding_td_files"],
+    td_file = "HexagonAttrs.td",
+    deps = [":hexagon_td_files"],
+)
+
+iree_gentbl_cc_library(
+    name = "HexagonTypesGen",
+    strip_include_prefix = "/plugins/compiler",
+    tbl_outs = [
+        (
+            ["--gen-typedef-decls"],
+            "HexagonTypes.h.inc",
+        ),
+        (
+            ["--gen-typedef-defs"],
+            "HexagonTypes.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "HexagonTypes.td",
+    deps = [":hexagon_td_files"],
+)
+
+iree_gentbl_cc_library(
+    name = "HexagonOpsGen",
+    strip_include_prefix = "/plugins/compiler",
+    tbl_outs = [
+        (
+            ["--gen-op-decls"],
+            "HexagonOps.h.inc",
+        ),
+        (
+            ["--gen-op-defs"],
+            "HexagonOps.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "HexagonOps.td",
+    deps = [":hexagon_td_files"],
 )
 
 cellar_hexagon_plugin_library(
-    name = "HexagonEncodingIR",
+    name = "HexagonIR",
     srcs = [
-        "HexagonEncodingAttrs.cpp",
-        "HexagonEncodingAttrs.cpp.inc",
-        "HexagonEncodingDialect.cpp",
-        "HexagonEncodingDialect.cpp.inc",
-        "HexagonEncodingOps.cpp",
-        "HexagonEncodingOps.cpp.inc",
-        "HexagonEncodingTypes.cpp",
-        "HexagonEncodingTypes.cpp.inc",
+        "HexagonAttrs.cpp",
+        "HexagonAttrs.cpp.inc",
+        "HexagonDialect.cpp",
+        "HexagonDialect.cpp.inc",
+        "HexagonOps.cpp",
+        "HexagonOps.cpp.inc",
+        "HexagonTypes.cpp",
+        "HexagonTypes.cpp.inc",
     ],
     hdrs = [
-        "HexagonEncodingAttrs.h",
-        "HexagonEncodingAttrs.h.inc",
-        "HexagonEncodingDialect.h",
-        "HexagonEncodingDialect.h.inc",
-        "HexagonEncodingOps.h",
-        "HexagonEncodingOps.h.inc",
-        "HexagonEncodingTypes.h",
-        "HexagonEncodingTypes.h.inc",
+        "HexagonAttrs.h",
+        "HexagonAttrs.h.inc",
+        "HexagonDialect.h",
+        "HexagonDialect.h.inc",
+        "HexagonOps.h",
+        "HexagonOps.h.inc",
+        "HexagonTypes.h",
+        "HexagonTypes.h.inc",
     ],
     hdr_deps = [
         "@llvm-project//llvm:Support",
@@ -138,9 +138,9 @@ cellar_hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
-        ":HexagonEncodingAttrsGen",
-        ":HexagonEncodingDialectGen",
-        ":HexagonEncodingOpsGen",
-        ":HexagonEncodingTypesGen",
+        ":HexagonAttrsGen",
+        ":HexagonDialectGen",
+        ":HexagonOpsGen",
+        ":HexagonTypesGen",
     ],
 )

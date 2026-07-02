@@ -232,14 +232,15 @@ iree_hal_hexagon_rebase_prof_timestamps(hexagon_rt_prof_header_t *header,
   const uint64_t cpu_duration_ns =
       iree_tracing_time() - header->start_cmd_buffer_exec_cpu_time;
 
-  if (header->num_records < 1 || header->completed_records < 1 ||
-      records[0].zone_type != DSP_EXECUTION) {
+  if (header->num_records < 1 || header->started_records < 1 ||
+      !records[0].record_completed || records[0].zone_type != DSP_EXECUTION) {
     fprintf(stderr,
             "WARNING: Profiling records missing entry indicating total "
             "execution time of command buffer execution from dsp timer.\n "
-            "Records expected: %d, Records completed: %d Record type: %d\n",
-            header->num_records, header->completed_records,
-            records[0].zone_type);
+            "Records expected: %d, Records started: %d, Record completed %d, "
+            "Record type: %d\n",
+            header->num_records, header->started_records,
+            records[0].record_completed, records[0].zone_type);
   }
 
   const double dsp_ticks_to_ns = 1000. / tick_timer_freq_MHz;
@@ -269,24 +270,31 @@ iree_hal_hexagon_rebase_prof_timestamps(hexagon_rt_prof_header_t *header,
   // gpu zone
   header->start_cmd_buffer_exec_cpu_time = cpu_timestamp_anchor;
 
-  // Rebase all timestamps
-  if (count > 0) {
-    const int64_t base_ticks = (int64_t)records[0].start_timer_ticks_timestamp;
-    for (uint32_t i = 0; i < count; ++i) {
-      hexagon_rt_prof_record_t *record = &records[i];
-      if (!record->record_completed)
-        continue;
-      const int64_t start_ticks = (int64_t)record->start_timer_ticks_timestamp;
-      const int64_t end_ticks = (int64_t)record->stop_timer_ticks_timestamp;
-      const int64_t start_offset_ns =
-          (double)(start_ticks - base_ticks) * dsp_ticks_to_ns;
-      const int64_t end_offset_ns =
-          (double)(end_ticks - base_ticks) * dsp_ticks_to_ns;
-      record->start_timer_ticks_timestamp =
-          cpu_timestamp_anchor + start_offset_ns;
-      record->stop_timer_ticks_timestamp = cpu_timestamp_anchor + end_offset_ns;
+  // Rebase all timestamps, also count incomplete records
+  const int64_t base_ticks = (int64_t)records[0].start_timer_ticks_timestamp;
+  uint32_t incomplete = 0;
+  for (uint32_t i = 0; i < count; ++i) {
+    hexagon_rt_prof_record_t *record = &records[i];
+    if (!record->record_completed) {
+      ++incomplete;
+      continue;
     }
+    const int64_t start_ticks = (int64_t)record->start_timer_ticks_timestamp;
+    const int64_t end_ticks = (int64_t)record->stop_timer_ticks_timestamp;
+    const int64_t start_offset_ns =
+        (double)(start_ticks - base_ticks) * dsp_ticks_to_ns;
+    const int64_t end_offset_ns =
+        (double)(end_ticks - base_ticks) * dsp_ticks_to_ns;
+    record->start_timer_ticks_timestamp =
+        cpu_timestamp_anchor + start_offset_ns;
+    record->stop_timer_ticks_timestamp = cpu_timestamp_anchor + end_offset_ns;
   }
+
+  if (incomplete > 0) {
+    fprintf(stderr, "WARNING: Ignoring %u incomplete profiling records.\n",
+            (unsigned int)incomplete);
+  }
+
   return iree_ok_status();
 }
 
@@ -340,8 +348,8 @@ iree_status_t iree_hal_hexagon_export_profiling_data(
             "complete traces.\n",
             (unsigned int)header->dropped_records);
   }
-  if (header->completed_records == 0) {
-    fprintf(stderr, "WARNING: No records were completed during profiling, "
+  if (header->started_records == 0) {
+    fprintf(stderr, "WARNING: No records were started during profiling, "
                     "skipping data export");
     return iree_ok_status();
   }

@@ -87,18 +87,6 @@ void profiler_context_deinit(hexagon_rt_prof_context_t *prof_context) {
   prof_context->header->started_records = prof_context->next_record_idx;
   prof_context->header->dropped_records = prof_context->dropped_records;
 
-  // Count completed records, because the ARM host side is expecting this
-  // information.
-  // FIXME: Do we need this information on the ARM host side? Can we count it
-  // on the ARM host side instead? (ROO-1670)
-  uint32_t completed = 0;
-  for (uint32_t i = 0; i < prof_context->header->started_records; ++i) {
-    if (prof_context->records[i].record_completed) {
-      ++completed;
-    }
-  }
-  prof_context->header->completed_records = completed;
-
   // Invalidate the context
   prof_context->header = NULL;
   prof_context->records = NULL;

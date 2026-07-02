@@ -64,7 +64,6 @@ typedef struct hexagon_rt_prof_header_s {
   // Capacity of the records array following this header.
   uint32_t num_records;
   uint32_t started_records;
-  uint32_t completed_records;
   uint32_t dropped_records;
   uint64_t start_cmd_buffer_exec_cpu_time;
   // DSP-side bookkeeping for overflowed begin/end pairs. Overflowed records are

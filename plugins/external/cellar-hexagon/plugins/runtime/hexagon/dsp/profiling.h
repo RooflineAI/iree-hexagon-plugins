@@ -92,9 +92,8 @@ profiler_measurement_start(hexagon_rt_prof_context_t *prof_context,
 /**
  * @brief Finishes the most recent in-flight profiling measurement.
  *
- * Writes the stop timestamp and PMU counters to the passed record, marks it
- * completed. Then increments header->completed_records.
- * Logs an error if the profiling record is already marked completed.
+ * Writes the stop timestamp and PMU counters to the passed record and marks it
+ * completed. Logs an error if the profiling record is already marked completed.
  * If NULL is passed, this becomes a no-op.
  *
  * @param record Profiling record being filled. May be NULL.

@@ -160,8 +160,9 @@ aarch64_android_platform_alias(
 
 # The runtime package built with IREE tracing set to tracy (profiling enabled).
 # Points at :hexagon_runtime so the produced runfile is hexagon_runtime.zip (the
-# fixed path roof_adb.get_hexagon_runtime() resolves); the transition applies the
-# tracy config to its contents. Used by the Hexagon profiling smoke test.
+# fixed path cellar_hexagon_rt.data_files.get_hexagon_runtime() resolves); the
+# transition applies the tracy config to its contents. Used by the Hexagon
+# profiling smoke test.
 aarch64_android_tracy_platform_alias(
     name = "hexagon_runtime_aarch64_android_tracy",
     actual = ":hexagon_runtime",

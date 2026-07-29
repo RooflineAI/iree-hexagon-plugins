@@ -1,7 +1,7 @@
 // Copyright 2026 RooflineAI GmbH
 
-#ifndef IREE_HAL_DRIVERS_HEXAGON_DSP_POWER_MODE_H_
-#define IREE_HAL_DRIVERS_HEXAGON_DSP_POWER_MODE_H_
+#ifndef HEXAGON_DSP_POWER_MODE_H
+#define HEXAGON_DSP_POWER_MODE_H
 
 /**
  * @brief Apply the session-scoped max-performance and HMX vote.
@@ -25,4 +25,4 @@ int hexagon_dsp_power_state_cleanup(void *power_context);
  */
 void hexagon_dsp_power_log_status(const char *stage);
 
-#endif // IREE_HAL_DRIVERS_HEXAGON_DSP_POWER_MODE_H_
+#endif // HEXAGON_DSP_POWER_MODE_H

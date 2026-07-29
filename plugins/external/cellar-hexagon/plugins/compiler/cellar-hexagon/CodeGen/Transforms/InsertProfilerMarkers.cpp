@@ -16,7 +16,7 @@
 namespace mlir::iree_compiler::cellar_hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
-#define GEN_PASS_DEF_INSERTPROFILINGMARKERSPASS
+#define GEN_PASS_DEF_INSERTPROFILERMARKERSPASS
 #include "cellar-hexagon/CodeGen/Passes.h.inc"
 
 namespace {
@@ -59,8 +59,8 @@ bool isOuterMostOpWithoutHexagonMemOps(Operation *op) {
 Value insertMarkerBegin(IRRewriter &rewriter, Location loc,
                         StringRef extraInfo) {
   auto recordType =
-      IREE::Hexagon::ProfilingRecordType::get(rewriter.getContext());
-  return IREE::Hexagon::ProfilingBeginOp::create(
+      IREE::Hexagon::ProfilerRecordType::get(rewriter.getContext());
+  return IREE::Hexagon::ProfilerBeginOp::create(
              rewriter, loc, recordType,
              rewriter.getI32IntegerAttr(kMarkerZoneType),
              rewriter.getStringAttr(extraInfo))
@@ -68,7 +68,7 @@ Value insertMarkerBegin(IRRewriter &rewriter, Location loc,
 }
 
 void insertMarkerEnd(IRRewriter &rewriter, Location loc, Value record) {
-  IREE::Hexagon::ProfilingEndOp::create(rewriter, loc, record);
+  IREE::Hexagon::ProfilerEndOp::create(rewriter, loc, record);
 }
 
 void wrapOpWithMarker(IRRewriter &rewriter, Operation *op,
@@ -80,8 +80,8 @@ void wrapOpWithMarker(IRRewriter &rewriter, Operation *op,
   insertMarkerEnd(rewriter, op->getLoc(), record);
 }
 
-struct InsertProfilingMarkersPass final
-    : public impl::InsertProfilingMarkersPassBase<InsertProfilingMarkersPass> {
+struct InsertProfilerMarkersPass final
+    : public impl::InsertProfilerMarkersPassBase<InsertProfilerMarkersPass> {
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<IREE::Hexagon::IREEHexagonDialect,
                     mlir::hexagonmem::HexagonMemDialect>();

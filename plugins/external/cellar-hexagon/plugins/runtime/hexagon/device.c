@@ -8,7 +8,7 @@
 #include "hexagon/command_buffer.h"
 #include "hexagon/event.h"
 #include "hexagon/executable_cache.h"
-#include "hexagon/profiling.h"
+#include "hexagon/profiler.h"
 #include "hexagon/semaphore.h"
 #include "hexagon/serialize/bindings_serialize.h"
 #include "hexagon/utils.h"
@@ -52,7 +52,7 @@ IREE_API_EXPORT void iree_hal_hexagon_device_options_initialize(
   // not be used as multiple devices may be configured within the process or the
   // hosting application may be authored in python/etc that does not use a flags
   // mechanism accessible here.
-  out_options->profiling_extra_records_per_dispatch = 256;
+  out_options->profiler_extra_records_per_dispatch = 256;
 }
 
 static iree_status_t iree_hal_hexagon_device_options_verify(
@@ -103,7 +103,7 @@ struct iree_hal_hexagon_device_t {
   // Topology information if this device is part of a multi-device topology.
   iree_hal_device_topology_info_t topology_info;
 
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
   // Cached tracy GPU context id.
   uint8_t tracy_context_id;
   iree_tracing_context_t *tracy_plot_context;
@@ -472,7 +472,7 @@ iree_status_t iree_hal_hexagon_device_create(
   device->options = *options; /// copy by value due to lifetime of options arg
   device->host_allocator = host_allocator;
 
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
   device->tracy_context_id = IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID;
   device->tracy_plot_context = NULL;
 #endif
@@ -505,7 +505,7 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
     hexagon_dsp_close(device->rpc_session_handle);
   }
 
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
   iree_tracing_context_free(device->tracy_plot_context);
 #endif
 
@@ -684,7 +684,7 @@ static iree_status_t iree_hal_hexagon_device_create_command_buffer(
       iree_hal_device_allocator(base_device), mode, command_categories,
       queue_affinity, binding_capacity, device->host_allocator,
       device->rpc_session_handle, &device->block_pool,
-      device->options.profiling_extra_records_per_dispatch, out_command_buffer);
+      device->options.profiler_extra_records_per_dispatch, out_command_buffer);
 }
 
 static iree_status_t iree_hal_hexagon_device_create_event(
@@ -1031,33 +1031,31 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
     return status_serialize_exec;
   }
 
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
-  uint8_t *profiling_data = NULL;
-  iree_host_size_t profiling_data_size = 0;
-  iree_status_t status_profiling =
-      iree_hal_hexagon_alloc_and_init_profiling_data(
-          command_buffer, &device->options, &profiling_data,
-          &profiling_data_size);
-  if (!iree_status_is_ok(status_profiling)) {
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
+  uint8_t *profiler_data = NULL;
+  iree_host_size_t profiler_data_size = 0;
+  iree_status_t status_profiler = iree_hal_hexagon_alloc_and_init_profiler_data(
+      command_buffer, &device->options, &profiler_data, &profiler_data_size);
+  if (!iree_status_is_ok(status_profiler)) {
     rpcmem_free(bind_tab_data);
     iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
                                          binding_table.count);
-    return status_profiling;
+    return status_profiler;
   }
 #endif
 
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
   IREE_TRACE_ZONE_BEGIN_NAMED(z0, "RPC call");
-  // Call RPC on DSP to execute the kernel with profiling
-  int dsp_err = hexagon_dsp_command_buffer_execute_profiling(
+  // Call RPC on DSP to execute the kernel with profiler
+  int dsp_err = hexagon_dsp_command_buffer_execute_profiler(
       device->rpc_session_handle, rpc_command_buffer_handle, bind_tab_data,
-      bind_tab_size, profiling_data, profiling_data_size);
+      bind_tab_size, profiler_data, profiler_data_size);
   rpcmem_free(bind_tab_data);
   iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
                                        binding_table.count);
 
   if (dsp_err != AEE_SUCCESS) {
-    rpcmem_free(profiling_data);
+    rpcmem_free(profiler_data);
     iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
                                          binding_table.count);
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
@@ -1080,12 +1078,12 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
   }
 #endif
 
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
-  iree_status_t status_exporting = iree_hal_hexagon_export_profiling_data(
-      device->host_allocator, profiling_data, &device->tracy_context_id,
+#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
+  iree_status_t status_exporting = iree_hal_hexagon_export_profiler_data(
+      device->host_allocator, profiler_data, &device->tracy_context_id,
       &device->tracy_plot_context);
 
-  rpcmem_free(profiling_data);
+  rpcmem_free(profiler_data);
   iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
                                        binding_table.count);
 

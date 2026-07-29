@@ -53,8 +53,8 @@ cellar_hexagon_plugin_library(
         "executable_cache.h",
         "mem_alloc.c",
         "mem_alloc.h",
-        "profiling.c",
-        "profiling.h",
+        "profiler.c",
+        "profiler.h",
         "rpc_types.c",
         "semaphore.c",
         "semaphore.h",
@@ -66,7 +66,7 @@ cellar_hexagon_plugin_library(
     ],
     defines = select({
         "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
-            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+            "IREE_HAL_HEXAGON_ENABLE_PROFILER",
             "IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1",
         ],
         "//conditions:default": [],
@@ -158,11 +158,11 @@ aarch64_android_platform_alias(
     }),
 )
 
-# The runtime package built with IREE tracing set to tracy (profiling enabled).
+# The runtime package built with IREE tracing set to tracy (profiler enabled).
 # Points at :hexagon_runtime so the produced runfile is hexagon_runtime.zip (the
 # fixed path cellar_hexagon_rt.data_files.get_hexagon_runtime() resolves); the
 # transition applies the tracy config to its contents. Used by the Hexagon
-# profiling smoke test.
+# profiler smoke test.
 aarch64_android_tracy_platform_alias(
     name = "hexagon_runtime_aarch64_android_tracy",
     actual = ":hexagon_runtime",

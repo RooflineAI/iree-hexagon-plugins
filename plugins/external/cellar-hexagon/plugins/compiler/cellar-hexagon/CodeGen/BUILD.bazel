@@ -55,7 +55,7 @@ cellar_hexagon_plugin_library(
     srcs = [
         "Conversion/HexagonConvertToLLVM.cpp",
         "Conversion/HexagonRuntimeLinking.cpp",
-        "Conversion/LowerProfilingMarkers.cpp",
+        "Conversion/LowerProfilerMarkers.cpp",
         "Conversion/MarkHexagonNativeRuntimeLinks.cpp",
         "Passes.cpp",
         "Pipelines/Bufferization.cpp",
@@ -76,7 +76,7 @@ cellar_hexagon_plugin_library(
         "Strategy/KernelDispatchTypes.h",
         "Transforms/FoldDispatchOutputStaging.cpp",
         "Transforms/HexagonVTCMTiling.cpp",
-        "Transforms/InsertProfilingMarkers.cpp",
+        "Transforms/InsertProfilerMarkers.cpp",
         "Transforms/LowerVTCMStaging.cpp",
         "Transforms/PromoteDMATagAllocToStack.cpp",
     ],

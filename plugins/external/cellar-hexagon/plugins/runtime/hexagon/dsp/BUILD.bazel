@@ -21,18 +21,18 @@ cc_library(
     srcs = [
         "malloc_free.c",
         "memref_copy.c",
-        "profiling.c",
+        "profiler.c",
         "vtcm_pool.cpp",
     ],
     hdrs = [
         "malloc_free.h",
         "memref_copy.h",
-        "profiling.h",
+        "profiler.h",
         "vtcm_pool.h",
     ],
     defines = select({
-        ":hexagon_playground_profiling_enabled": [
-            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+        ":hexagon_playground_profiler_enabled": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILER",
         ],
         "//conditions:default": [],
     }),
@@ -53,9 +53,9 @@ cc_library(
 )
 
 config_setting(
-    name = "hexagon_playground_profiling_enabled",
+    name = "hexagon_playground_profiler_enabled",
     define_values = {
-        "hexagon_playground_profiling": "true",
+        "hexagon_playground_profiler": "true",
     },
 )
 
@@ -80,7 +80,7 @@ cc_binary(
     ],
     defines = select({
         "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
-            "IREE_HAL_HEXAGON_ENABLE_PROFILING",
+            "IREE_HAL_HEXAGON_ENABLE_PROFILER",
         ],
         "//conditions:default": [],
     }),

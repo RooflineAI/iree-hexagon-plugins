@@ -1,11 +1,11 @@
 // Copyright 2025 RooflineAI GmbH
 
-#include "hexagon/dsp/profiling.h"
-#include "hexagon/arm_dsp/profiling.h"
+#include "hexagon/dsp/profiler.h"
+#include "hexagon/arm_dsp/profiler.h"
 #include "qurt_atomic_ops.h"
 #include <string.h>
 
-#if !defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+#if !defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
 
 void profiler_context_init(hexagon_rt_prof_header_t *header,
                            hexagon_rt_prof_record_t *records,
@@ -40,14 +40,14 @@ void profiler_set_active_context(hexagon_rt_prof_context_t *prof_context) {
 void profiler_clear_active_context(void) {}
 
 hexagon_rt_prof_record_t *
-hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
-                                     const char *extra_info) {
+hexagon_runtime_profiler_zone_begin(uint32_t zone_type,
+                                    const char *extra_info) {
   (void)zone_type;
   (void)extra_info;
   return NULL;
 }
 
-void hexagon_runtime_profiling_zone_end(hexagon_rt_prof_record_t *record) {
+void hexagon_runtime_profiler_zone_end(hexagon_rt_prof_record_t *record) {
   (void)record;
 };
 
@@ -93,11 +93,11 @@ void profiler_context_deinit(hexagon_rt_prof_context_t *prof_context) {
 }
 
 /**
- * @brief Obtain next unused profiling record from the context.
+ * @brief Obtain next unused profiler record from the context.
  *        Emit an error to the log if out of records.
- * @param prof_context The profiling context data structure to which to add the
- *                     profiling record.
- * @return pointer to profiling record or NULL if out of records
+ * @param prof_context The profiler context data structure to which to add the
+ *                     profiler record.
+ * @return pointer to profiler record or NULL if out of records
  */
 static hexagon_rt_prof_record_t *
 profiler_context_get_fresh_record(hexagon_rt_prof_context_t *prof_context) {
@@ -126,7 +126,7 @@ profiler_context_get_fresh_record(hexagon_rt_prof_context_t *prof_context) {
   // print and error and do not return a record pointer.
   qurt_atomic_inc(&prof_context->dropped_records);
   FARF(RUNTIME_HIGH,
-       "HEXAGON-RUNTIME-ERROR: Not enough profiling records allocated for "
+       "HEXAGON-RUNTIME-ERROR: Not enough profiler records allocated for "
        "measurements");
   return NULL;
 }
@@ -136,7 +136,7 @@ profiler_measurement_start(hexagon_rt_prof_context_t *prof_context,
                            uint32_t zone_type, const char *extra_info) {
   if (!prof_context) {
     FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: Unexpected null pointer during "
-                       "profiling, ignoring profiling marker");
+                       "profiler, ignoring profiler marker");
     return NULL;
   }
 
@@ -175,25 +175,25 @@ void profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record) {
   record->record_completed = 1;
 }
 
-static hexagon_rt_prof_context_t *active_profiling_context = NULL;
+static hexagon_rt_prof_context_t *active_profiler_context = NULL;
 
 void profiler_set_active_context(hexagon_rt_prof_context_t *prof_context) {
-  active_profiling_context = prof_context;
+  active_profiler_context = prof_context;
 }
 
-void profiler_clear_active_context(void) { active_profiling_context = NULL; }
+void profiler_clear_active_context(void) { active_profiler_context = NULL; }
 
 hexagon_rt_prof_record_t *
-hexagon_runtime_profiling_zone_begin(uint32_t zone_type,
-                                     const char *extra_info) {
-  if (!active_profiling_context) {
+hexagon_runtime_profiler_zone_begin(uint32_t zone_type,
+                                    const char *extra_info) {
+  if (!active_profiler_context) {
     return NULL;
   }
-  return profiler_measurement_start(active_profiling_context, zone_type,
+  return profiler_measurement_start(active_profiler_context, zone_type,
                                     extra_info);
 }
 
-void hexagon_runtime_profiling_zone_end(hexagon_rt_prof_record_t *record) {
+void hexagon_runtime_profiler_zone_end(hexagon_rt_prof_record_t *record) {
   profiler_measurement_finish_and_record(record);
 }
 

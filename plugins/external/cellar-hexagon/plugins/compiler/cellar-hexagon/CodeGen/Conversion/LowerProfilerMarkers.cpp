@@ -17,17 +17,17 @@
 namespace mlir::iree_compiler::cellar_hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
-#define GEN_PASS_DEF_LOWERPROFILINGMARKERSPASS
+#define GEN_PASS_DEF_LOWERPROFILERMARKERSPASS
 #include "cellar-hexagon/CodeGen/Passes.h.inc"
 
 namespace {
 
-constexpr llvm::StringLiteral kProfilingZoneBeginFn =
-    "hexagon_runtime_profiling_zone_begin";
-constexpr llvm::StringLiteral kProfilingZoneEndFn =
-    "hexagon_runtime_profiling_zone_end";
+constexpr llvm::StringLiteral kProfilerZoneBeginFn =
+    "hexagon_runtime_profiler_zone_begin";
+constexpr llvm::StringLiteral kProfilerZoneEndFn =
+    "hexagon_runtime_profiler_zone_end";
 constexpr llvm::StringLiteral kCStringGlobalPrefix =
-    "__hexagon_profiling_marker";
+    "__hexagon_profiler_marker";
 
 std::string getUniqueSymbolName(ModuleOp moduleOp, StringRef prefix) {
   unsigned counter = 0;
@@ -69,8 +69,8 @@ Value getOrCreateCStringPtr(ModuleOp moduleOp, OpBuilder &builder, Location loc,
       .getResult();
 }
 
-struct LowerProfilingMarkersPass final
-    : public impl::LowerProfilingMarkersPassBase<LowerProfilingMarkersPass> {
+struct LowerProfilerMarkersPass final
+    : public impl::LowerProfilerMarkersPassBase<LowerProfilerMarkersPass> {
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<IREE::Hexagon::IREEHexagonDialect, LLVM::LLVMDialect>();
   }
@@ -81,7 +81,7 @@ struct LowerProfilingMarkersPass final
     OpBuilder builder(ctx);
     llvm::SmallVector<Operation *> markers;
     moduleOp.walk([&](Operation *op) {
-      if (isa<IREE::Hexagon::ProfilingBeginOp, IREE::Hexagon::ProfilingEndOp>(
+      if (isa<IREE::Hexagon::ProfilerBeginOp, IREE::Hexagon::ProfilerEndOp>(
               op)) {
         markers.push_back(op);
       }
@@ -95,9 +95,9 @@ struct LowerProfilingMarkersPass final
     auto ptrType = LLVM::LLVMPointerType::get(ctx);
 
     FailureOr<LLVM::LLVMFuncOp> beginFn = LLVM::lookupOrCreateFn(
-        builder, moduleOp, kProfilingZoneBeginFn, {i32Type, ptrType}, ptrType);
+        builder, moduleOp, kProfilerZoneBeginFn, {i32Type, ptrType}, ptrType);
     FailureOr<LLVM::LLVMFuncOp> endFn = LLVM::lookupOrCreateFn(
-        builder, moduleOp, kProfilingZoneEndFn, {ptrType}, voidType);
+        builder, moduleOp, kProfilerZoneEndFn, {ptrType}, voidType);
     if (failed(beginFn) || failed(endFn))
       return signalPassFailure();
 
@@ -107,7 +107,7 @@ struct LowerProfilingMarkersPass final
       builder.setInsertionPoint(marker);
       Location loc = marker->getLoc();
 
-      if (auto beginOp = dyn_cast<IREE::Hexagon::ProfilingBeginOp>(marker)) {
+      if (auto beginOp = dyn_cast<IREE::Hexagon::ProfilerBeginOp>(marker)) {
         StringRef extraInfo = beginOp.getExtraInfo().value_or(StringRef{});
 
         Value zoneType = LLVM::ConstantOp::create(
@@ -118,8 +118,8 @@ struct LowerProfilingMarkersPass final
                                                    extraInfo, stringGlobals);
         auto callOp = LLVM::CallOp::create(builder, loc, beginFn.value(),
                                            ValueRange{zoneType, extraInfoPtr});
-        // Rewire the record uses (i.e. the matching profiling.end) to the
-        // lowered call result. This replaces the typed profiling_record value
+        // Rewire the record uses (i.e. the matching profiler.end) to the
+        // lowered call result. This replaces the typed profiler_record value
         // with an `!llvm.ptr`, so the end markers must read their operand
         // generically rather than through the typed accessor below.
         beginOp.getRecord().replaceAllUsesWith(callOp.getResult());

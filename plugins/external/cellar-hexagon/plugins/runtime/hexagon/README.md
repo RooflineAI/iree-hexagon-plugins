@@ -137,10 +137,10 @@ The following options are available:
 
 The DSP in the OnePlus 13 phone is a CDSP, so use `--device=hexagon://CDSP`.
 
-## Profiling
+## Profiler
 
-Hexagon currently has limited profiling support.
-The profiling consists of zone data registration on the DSP to export to the host (sampling supported on the host, but not the DSP!) through Tracy.
+Hexagon currently has limited profiler support.
+The profiler consists of zone data registration on the DSP to export to the host (sampling supported on the host, but not the DSP!) through Tracy.
 The execution time is currently implemented through linear mapping and timeline synchronization on command buffer execution dispatch and end.
 For this purpose, the RPC execution time is considered negligible.
 
@@ -158,7 +158,7 @@ adb shell unzip $DIRECTORY/hexagon_runtime.zip -d $DIRECTORY
 adb shell chmod +x $DIRECTORY/bin/iree-run-module
 adb shell "export DSP_LIBRARY_PATH=$DIRECTORY/farf && export IREE_DYNAMIC_HAL=hexagon=$DIRECTORY/lib/libcellar_hexagon_runtime_plugin.so && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
 ```
-On a different shell, retrieve the output from profiling:
+On a different shell, retrieve the output from profiler:
 ```sh
 ./roof-mlir/third-party/iree/third_party/tracy/capture/build/tracy-capture -o /tmp/capture.tracy
 ```
@@ -167,7 +167,7 @@ Or alternatively, open the Tracy UI and connect to the listed available client t
 
 ### PMU Event Selection
 
-Profiling supports configuration for Hexagon's PMU.
+Profiler supports configuration for Hexagon's PMU.
 This unit contains 8 performance counters that can extract information such as cache misses or committed instructions.
 The PMU configuration assumes that only one command buffer is executed at once and will output garbage otherwise.
 Events can be configured using an `iree-run-module` flag:

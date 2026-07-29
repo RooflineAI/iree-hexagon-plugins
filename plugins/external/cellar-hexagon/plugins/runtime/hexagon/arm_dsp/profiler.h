@@ -1,12 +1,12 @@
 // Copyright 2025 RooflineAI GmbH
 
-#ifndef IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_PROFILING_H_
-#define IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_PROFILING_H_
+#ifndef IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_PROFILER_H_
+#define IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_PROFILER_H_
 
 #include "hexagon/arm_dsp/pmu/hexagon_pmu_events_ids.h"
 #include <stdint.h>
 
-// Profiling buffer layout shared between ARM host and DSP.
+// Profiler buffer layout shared between ARM host and DSP.
 // ARM allocates/initializes; DSP writes records and updates the header.
 
 static const double tick_timer_freq_MHz = 19.2;
@@ -29,32 +29,32 @@ static const hexagon_pmu_counters_ids_t default_ids = {
     HEX_PMU_EVENT_VTCM_FIFO_FULL_CYCLES,
     HEX_PMU_EVENT_ANY_DU_REPLAY};
 
-#define HEXAGON_PROFILING_ZONES                                                \
-  HEXAGON_PROFILING_ZONE(DSP_EXECUTION, "DSP execution")                       \
-  HEXAGON_PROFILING_ZONE(DISPATCH, "Dispatch")                                 \
-  HEXAGON_PROFILING_ZONE(KERNEL, "Kernel")                                     \
-  HEXAGON_PROFILING_ZONE(BARRIER, "Barrier")                                   \
-  HEXAGON_PROFILING_ZONE(COPY, "Copy")                                         \
-  HEXAGON_PROFILING_ZONE(FILL, "Fill")                                         \
-  HEXAGON_PROFILING_ZONE(MEMORY_MANAGEMENT, "Mem Management")                  \
-  HEXAGON_PROFILING_ZONE(MARKER, "Marker")                                     \
-  HEXAGON_PROFILING_ZONE(UNKNOWN, "Unknown")
+#define HEXAGON_PROFILER_ZONES                                                 \
+  HEXAGON_PROFILER_ZONE(DSP_EXECUTION, "DSP execution")                        \
+  HEXAGON_PROFILER_ZONE(DISPATCH, "Dispatch")                                  \
+  HEXAGON_PROFILER_ZONE(KERNEL, "Kernel")                                      \
+  HEXAGON_PROFILER_ZONE(BARRIER, "Barrier")                                    \
+  HEXAGON_PROFILER_ZONE(COPY, "Copy")                                          \
+  HEXAGON_PROFILER_ZONE(FILL, "Fill")                                          \
+  HEXAGON_PROFILER_ZONE(MEMORY_MANAGEMENT, "Mem Management")                   \
+  HEXAGON_PROFILER_ZONE(MARKER, "Marker")                                      \
+  HEXAGON_PROFILER_ZONE(UNKNOWN, "Unknown")
 
-typedef enum iree_hal_hexagon_profiling_zone_types_s {
-#define HEXAGON_PROFILING_ZONE(id, name) id,
-  HEXAGON_PROFILING_ZONES
-#undef HEXAGON_PROFILING_ZONE
+typedef enum iree_hal_hexagon_profiler_zone_types_s {
+#define HEXAGON_PROFILER_ZONE(id, name) id,
+  HEXAGON_PROFILER_ZONES
+#undef HEXAGON_PROFILER_ZONE
       ZONES_COUNT
-} iree_hal_hexagon_profiling_zone_types_t;
+} iree_hal_hexagon_profiler_zone_types_t;
 
 static const char *const zone_names[ZONES_COUNT] = {
-#define HEXAGON_PROFILING_ZONE(id, name) name,
-    HEXAGON_PROFILING_ZONES
-#undef HEXAGON_PROFILING_ZONE
+#define HEXAGON_PROFILER_ZONE(id, name) name,
+    HEXAGON_PROFILER_ZONES
+#undef HEXAGON_PROFILER_ZONE
 };
 
 static inline const char *
-zone_to_string(iree_hal_hexagon_profiling_zone_types_t type) {
+zone_to_string(iree_hal_hexagon_profiler_zone_types_t type) {
   return (type >= 0 && type < ZONES_COUNT) ? zone_names[type]
                                            : "Invalid zone name";
 }
@@ -92,4 +92,4 @@ typedef struct hexagon_rt_prof_record_s {
   uint8_t _pad;
 } __attribute__((packed)) hexagon_rt_prof_record_t;
 
-#endif // IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_PROFILING_H_
+#endif // IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_PROFILER_H_

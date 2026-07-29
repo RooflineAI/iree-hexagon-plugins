@@ -48,11 +48,11 @@ typedef struct iree_hal_hexagon_command_buffer_t {
   iree_hal_resource_set_t *resource_set;
   /// command buffer on DSP side (valid if finalized, otherwise 0)
   rpc_command_buffer_handle_t rpc_command_buffer_handle;
-  // Profiling record capacity reserved for this command buffer execution.
-  uint32_t profiling_record_capacity;
-  // Extra profiling records reserved for generated dispatch-internal markers
+  // Profiler record capacity reserved for this command buffer execution.
+  uint32_t profiler_record_capacity;
+  // Extra profiler records reserved for generated dispatch-internal markers
   // for each recorded dispatch.
-  uint32_t profiling_extra_records_per_dispatch;
+  uint32_t profiler_extra_records_per_dispatch;
 } iree_hal_hexagon_command_buffer_t;
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_SERIALIZE_COMMAND_BUFFER_TYPES_H_

@@ -1,34 +1,34 @@
 // Copyright 2025 RooflineAI GmbH
 
-#include "hexagon/profiling.h"
+#include "hexagon/profiler.h"
 
 #include "iree/base/status.h"
 
-#if !defined(IREE_HAL_HEXAGON_ENABLE_PROFILING)
+#if !defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
 
-iree_status_t iree_hal_hexagon_alloc_and_init_profiling_data(
+iree_status_t iree_hal_hexagon_alloc_and_init_profiler_data(
     iree_hal_command_buffer_t *command_buffer,
     const iree_hal_hexagon_device_options_t *device_options,
-    uint8_t **profiling_data, iree_host_size_t *profiling_data_size) {
+    uint8_t **profiler_data, iree_host_size_t *profiler_data_size) {
   (void)command_buffer;
   (void)device_options;
-  (void)profiling_data;
-  (void)profiling_data_size;
+  (void)profiler_data;
+  (void)profiler_data_size;
   return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "profiling is not enabled in this build");
+                          "profiler is not enabled in this build");
 }
 
-iree_status_t iree_hal_hexagon_export_profiling_data(
-    iree_allocator_t host_allocator, uint8_t *profiling_data,
+iree_status_t iree_hal_hexagon_export_profiler_data(
+    iree_allocator_t host_allocator, uint8_t *profiler_data,
     uint8_t *tracy_context_id, iree_tracing_context_t **tracy_plot_context) {
-  (void)profiling_data;
+  (void)profiler_data;
   (void)tracy_context_id;
   (void)tracy_plot_context;
   return iree_make_status(IREE_STATUS_UNAVAILABLE,
-                          "profiling is not enabled in this build");
+                          "profiler is not enabled in this build");
 }
 
-#else // IREE_HAL_HEXAGON_ENABLE_PROFILING
+#else // IREE_HAL_HEXAGON_ENABLE_PROFILER
 
 #include <limits.h>
 #include <stdint.h>
@@ -36,7 +36,7 @@ iree_status_t iree_hal_hexagon_export_profiling_data(
 #include <stdlib.h>
 #include <string.h>
 
-#include "hexagon/arm_dsp/profiling.h"
+#include "hexagon/arm_dsp/profiler.h"
 #include "hexagon/serialize/command_buffer_types.h"
 #include "iree/base/tracing.h"
 
@@ -56,7 +56,7 @@ typedef struct hexagon_rt_prof_record_view_t {
   const char *extra_info;
 } hexagon_rt_prof_record_view_t;
 
-static int iree_hal_hexagon_compare_profiling_records_by_start_and_end(
+static int iree_hal_hexagon_compare_profiler_records_by_start_and_end(
     const void *lhs_ptr, const void *rhs_ptr) {
   const hexagon_rt_prof_record_view_t *lhs =
       (const hexagon_rt_prof_record_view_t *)lhs_ptr;
@@ -110,7 +110,7 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
   uint32_t max_zones = count;
   if (max_zones > IREE_HAL_HEXAGON_TRACY_MAX_ZONES) {
     fprintf(stderr,
-            "WARNING: Too many profiling records for tracy query ids (%u). "
+            "WARNING: Too many profiler records for tracy query ids (%u). "
             "Truncating to %u.\n",
             max_zones, (unsigned int)IREE_HAL_HEXAGON_TRACY_MAX_ZONES);
     max_zones = IREE_HAL_HEXAGON_TRACY_MAX_ZONES;
@@ -121,7 +121,7 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
                         (void **)&views);
   if (!views) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "out of host memory for profiling views");
+                            "out of host memory for profiler views");
   }
 
   uint32_t view_count = 0;
@@ -143,7 +143,7 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
 
   if (view_count > 0) {
     qsort(views, view_count, sizeof(*views),
-          iree_hal_hexagon_compare_profiling_records_by_start_and_end);
+          iree_hal_hexagon_compare_profiler_records_by_start_and_end);
 
     for (uint32_t i = 0; i < view_count; ++i) {
       views[i].query_begin = (uint16_t)(2 * i);
@@ -165,7 +165,7 @@ static iree_status_t iree_hal_hexagon_emit_tracy_zones(
                         (void **)&stack);
   if (!stack) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "out of host memory for profiling stack");
+                            "out of host memory for profiler stack");
   }
 
   uint32_t stack_size = 0;
@@ -187,7 +187,7 @@ static iree_status_t iree_hal_hexagon_emit_tracy_zones(
     // that it is still "active" (i.e. not ended yet)
 
     // Note that in tracy, query ids are supposed to represent timestamps,
-    // but this profiling currently combines two timestamps into a single
+    // but this profiler currently combines two timestamps into a single
     // record describing a zone. Additionally, the zones are defined after
     // execution so note that we are passing the timestamps stored in the
     // records during notification. Do not get confused with the begin and
@@ -235,7 +235,7 @@ iree_hal_hexagon_rebase_prof_timestamps(hexagon_rt_prof_header_t *header,
   if (header->num_records < 1 || header->started_records < 1 ||
       !records[0].record_completed || records[0].zone_type != DSP_EXECUTION) {
     fprintf(stderr,
-            "WARNING: Profiling records missing entry indicating total "
+            "WARNING: Profiler records missing entry indicating total "
             "execution time of command buffer execution from dsp timer.\n "
             "Records expected: %d, Records started: %d, Record completed %d, "
             "Record type: %d\n",
@@ -249,7 +249,7 @@ iree_hal_hexagon_rebase_prof_timestamps(hexagon_rt_prof_header_t *header,
                                      records[0].start_timer_ticks_timestamp;
   if (dsp_duration_ticks == 0) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "DSP records during profiling were not correctly "
+                            "DSP records during profiler were not correctly "
                             "updated");
   }
 
@@ -258,7 +258,7 @@ iree_hal_hexagon_rebase_prof_timestamps(hexagon_rt_prof_header_t *header,
   const uint64_t dsp_duration_ns = (double)dsp_duration_ticks * dsp_ticks_to_ns;
   if (dsp_duration_ns >= cpu_duration_ns) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Unexpected durations obtained during profiling");
+                            "Unexpected durations obtained during profiler");
   }
 
   uint64_t rpc_offset_estimation = (cpu_duration_ns - dsp_duration_ns) / 2;
@@ -291,42 +291,41 @@ iree_hal_hexagon_rebase_prof_timestamps(hexagon_rt_prof_header_t *header,
   }
 
   if (incomplete > 0) {
-    fprintf(stderr, "WARNING: Ignoring %u incomplete profiling records.\n",
+    fprintf(stderr, "WARNING: Ignoring %u incomplete profiler records.\n",
             (unsigned int)incomplete);
   }
 
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_hexagon_alloc_and_init_profiling_data(
+iree_status_t iree_hal_hexagon_alloc_and_init_profiler_data(
     iree_hal_command_buffer_t *command_buffer,
     const iree_hal_hexagon_device_options_t *device_options,
-    uint8_t **profiling_data, iree_host_size_t *profiling_data_size) {
+    uint8_t **profiler_data, iree_host_size_t *profiler_data_size) {
   iree_hal_hexagon_command_buffer_t *hexagon_command_buffer =
       (iree_hal_hexagon_command_buffer_t *)command_buffer;
 
-  *profiling_data_size = sizeof(hexagon_rt_prof_header_t) +
-                         hexagon_command_buffer->profiling_record_capacity *
-                             sizeof(hexagon_rt_prof_record_t);
-  if (*profiling_data_size >
+  *profiler_data_size = sizeof(hexagon_rt_prof_header_t) +
+                        hexagon_command_buffer->profiler_record_capacity *
+                            sizeof(hexagon_rt_prof_record_t);
+  if (*profiler_data_size >
       INT_MAX /* max size supported by rpcmem_alloc() */) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "profiling data structure too big");
+                            "profiler data structure too big");
   }
 
-  *profiling_data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS,
-                                 *profiling_data_size);
-  if (!*profiling_data) {
+  *profiler_data = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS,
+                                *profiler_data_size);
+  if (!*profiler_data) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "out of RPC memory");
   }
 
   // Initialize shared buffer.
-  memset(*profiling_data, 0, *profiling_data_size);
-  hexagon_rt_prof_header_t *header =
-      (hexagon_rt_prof_header_t *)*profiling_data;
+  memset(*profiler_data, 0, *profiler_data_size);
+  hexagon_rt_prof_header_t *header = (hexagon_rt_prof_header_t *)*profiler_data;
 
-  header->num_records = hexagon_command_buffer->profiling_record_capacity;
+  header->num_records = hexagon_command_buffer->profiler_record_capacity;
   uint32_t count = device_options ? device_options->pmu_event_ids_count : 0;
   for (uint32_t i = 0; i < HEXAGON_PMU_COUNTERS; ++i) {
     header->pmu_event_ids.ids[i] =
@@ -337,19 +336,19 @@ iree_status_t iree_hal_hexagon_alloc_and_init_profiling_data(
   return iree_ok_status();
 }
 
-iree_status_t iree_hal_hexagon_export_profiling_data(
-    iree_allocator_t host_allocator, uint8_t *profiling_data,
+iree_status_t iree_hal_hexagon_export_profiler_data(
+    iree_allocator_t host_allocator, uint8_t *profiler_data,
     uint8_t *tracy_context_id, iree_tracing_context_t **tracy_plot_context) {
-  hexagon_rt_prof_header_t *header = (hexagon_rt_prof_header_t *)profiling_data;
+  hexagon_rt_prof_header_t *header = (hexagon_rt_prof_header_t *)profiler_data;
   if (header->dropped_records > 0) {
     fprintf(stderr,
-            "WARNING: Profiling record capacity was exhausted; dropped %u "
-            "markers. Increase profiling_extra_records_per_dispatch for more "
+            "WARNING: Profiler record capacity was exhausted; dropped %u "
+            "markers. Increase profiler_extra_records_per_dispatch for more "
             "complete traces.\n",
             (unsigned int)header->dropped_records);
   }
   if (header->started_records == 0) {
-    fprintf(stderr, "WARNING: No records were started during profiling, "
+    fprintf(stderr, "WARNING: No records were started during profiler, "
                     "skipping data export");
     return iree_ok_status();
   }
@@ -458,4 +457,4 @@ iree_status_t iree_hal_hexagon_export_profiling_data(
   return iree_ok_status();
 }
 
-#endif // IREE_HAL_HEXAGON_ENABLE_PROFILING
+#endif // IREE_HAL_HEXAGON_ENABLE_PROFILER

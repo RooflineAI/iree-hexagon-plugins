@@ -35,9 +35,9 @@ typedef struct iree_hal_hexagon_device_options_t {
   /// PMU event IDs to configure for counters
   /// 0..IREE_HAL_HEXAGON_PMU_COUNTERS-1.
   uint32_t pmu_event_ids[IREE_HAL_HEXAGON_PMU_COUNTERS];
-  /// Extra profiling record capacity reserved for generated dispatch-internal
+  /// Extra profiler record capacity reserved for generated dispatch-internal
   /// markers per recorded dispatch.
-  uint32_t profiling_extra_records_per_dispatch;
+  uint32_t profiler_extra_records_per_dispatch;
   // note: This sdata structure is copied into the device data in
   // iree_hal_hexagon_device_create()
   // TODO(hexagon): options for initializing a device such as hardware

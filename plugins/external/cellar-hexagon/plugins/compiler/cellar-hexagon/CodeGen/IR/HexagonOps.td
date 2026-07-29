@@ -20,15 +20,15 @@ class IREEHexagon_Op<string mnemonic, list<Trait> traits = []> :
     Op<IREEHexagon_Dialect, mnemonic, traits>;
 
 //===----------------------------------------------------------------------===//
-// Profiling marker ops.
+// Profiler marker ops.
 //===----------------------------------------------------------------------===//
 
-def IREEHexagon_ProfilingBeginOp :
-    IREEHexagon_Op<"profiling.begin", [MemoryEffects<[MemWrite]>]> {
-  let summary = "Begin a Hexagon DSP profiling marker zone";
+def IREEHexagon_ProfilerBeginOp :
+    IREEHexagon_Op<"profiler.begin", [MemoryEffects<[MemWrite]>]> {
+  let summary = "Begin a Hexagon DSP profiler marker zone";
   let description = [{
-    Marks the beginning of a generated profiling zone. The operation lowers to
-    `hexagon_runtime_profiling_zone_begin`.
+    Marks the beginning of a generated profiler zone. The operation lowers to
+    `hexagon_runtime_profiler_zone_begin`.
   }];
 
   let arguments = (ins
@@ -36,21 +36,21 @@ def IREEHexagon_ProfilingBeginOp :
       OptionalAttr<StrAttr>:$extra_info
   );
 
-  let results = (outs IREEHexagon_ProfilingRecordType:$record);
+  let results = (outs IREEHexagon_ProfilerRecordType:$record);
 
   let assemblyFormat = "attr-dict `:` type($record)";
 }
 
-def IREEHexagon_ProfilingEndOp :
-    IREEHexagon_Op<"profiling.end", [MemoryEffects<[MemWrite]>]> {
-  let summary = "End a Hexagon DSP profiling marker zone";
+def IREEHexagon_ProfilerEndOp :
+    IREEHexagon_Op<"profiler.end", [MemoryEffects<[MemWrite]>]> {
+  let summary = "End a Hexagon DSP profiler marker zone";
   let description = [{
-    Marks the end of a generated profiling zone. The operation lowers to
-    `hexagon_runtime_profiling_zone_end`. The `record` operand is the value
-    produced by the corresponding `profiling.begin` operation.
+    Marks the end of a generated profiler zone. The operation lowers to
+    `hexagon_runtime_profiler_zone_end`. The `record` operand is the value
+    produced by the corresponding `profiler.begin` operation.
   }];
 
-  let arguments = (ins IREEHexagon_ProfilingRecordType:$record);
+  let arguments = (ins IREEHexagon_ProfilerRecordType:$record);
 
   let assemblyFormat = "$record attr-dict `:` type($record)";
 }

@@ -9,7 +9,7 @@
 
 IREE_FLAG_LIST(
     string, hexagon_pmu_events,
-    "Hexagon PMU events to configure for profiling. May be specified multiple\n"
+    "Hexagon PMU events to configure for profiler. May be specified multiple\n"
     "times or as a comma-separated list. Values must be numeric IDs (decimal "
     "or 0x...). Up to 8 entries are used.");
 

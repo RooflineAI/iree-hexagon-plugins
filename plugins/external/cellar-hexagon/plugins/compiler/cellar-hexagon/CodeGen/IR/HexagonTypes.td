@@ -11,17 +11,17 @@ include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 
 //===----------------------------------------------------------------------===//
-// Profiling record type.
+// Profiler record type.
 //===----------------------------------------------------------------------===//
 
-def IREEHexagon_ProfilingRecordType :
-    TypeDef<IREEHexagon_Dialect, "ProfilingRecord"> {
-  let mnemonic = "profiling_record";
-  let summary = "Handle to an in-flight Hexagon profiling record";
+def IREEHexagon_ProfilerRecordType :
+    TypeDef<IREEHexagon_Dialect, "ProfilerRecord"> {
+  let mnemonic = "profiler_record";
+  let summary = "Handle to an in-flight Hexagon profiler record";
   let description = [{
-    Opaque handle produced by `profiling.begin` and consumed by the matching
-    `profiling.end`. It threads the start of a profiling zone to its end. The
-    type lowers to an `!llvm.ptr` pointing at the runtime profiling record.
+    Opaque handle produced by `profiler.begin` and consumed by the matching
+    `profiler.end`. It threads the start of a profiler zone to its end. The
+    type lowers to an `!llvm.ptr` pointing at the runtime profiler record.
   }];
 }
 

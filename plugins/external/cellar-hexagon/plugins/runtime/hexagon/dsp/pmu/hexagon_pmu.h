@@ -4,7 +4,7 @@
 #define HEXAGON_PMU_H_
 
 #include "HAP_farf.h"
-#include "hexagon/arm_dsp/profiling.h"
+#include "hexagon/arm_dsp/profiler.h"
 #include "qurt_consts.h"
 #include "qurt_error.h"
 #include "qurt_pmu.h"

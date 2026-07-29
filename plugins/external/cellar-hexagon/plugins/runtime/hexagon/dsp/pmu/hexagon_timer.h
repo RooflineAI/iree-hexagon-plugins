@@ -1,7 +1,7 @@
 #ifndef HEXAGON_TIMER_H
 #define HEXAGON_TIMER_H
 
-#include "hexagon/arm_dsp/profiling.h"
+#include "hexagon/arm_dsp/profiler.h"
 #include <stdint.h>
 
 static inline uint64_t read_timer() {

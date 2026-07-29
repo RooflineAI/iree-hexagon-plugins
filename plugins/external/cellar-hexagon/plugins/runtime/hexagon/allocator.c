@@ -261,7 +261,7 @@ static iree_status_t iree_hal_hexagon_allocator_allocate_buffer(
   // Allocate an IREE buffer data structure and put the allocated memory into
   // it.
   iree_hal_buffer_t *buffer = NULL;
-  // This release callback takes care of profiling statistics
+  // This release callback takes care of profiler statistics
   iree_hal_buffer_release_callback_t release_callback = {
       .fn = iree_hal_hexagon_buffer_release_callback,
       .user_data = (void *)base_allocator,

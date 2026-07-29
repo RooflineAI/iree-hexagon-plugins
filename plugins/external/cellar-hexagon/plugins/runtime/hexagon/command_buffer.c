@@ -84,7 +84,7 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
     iree_hal_queue_affinity_t queue_affinity, iree_host_size_t binding_capacity,
     iree_allocator_t host_allocator, rpc_session_handle_t rpc_session_handle,
     iree_arena_block_pool_t *block_pool,
-    uint32_t profiling_extra_records_per_dispatch,
+    uint32_t profiler_extra_records_per_dispatch,
     iree_hal_command_buffer_t **out_command_buffer) {
   IREE_ASSERT_ARGUMENT(out_command_buffer);
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -106,9 +106,9 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
   command_buffer->rpc_session_handle = rpc_session_handle;
   // Starts at 1, because index 0 is used for the topmost record for
   // synchronization
-  command_buffer->profiling_record_capacity = 1;
-  command_buffer->profiling_extra_records_per_dispatch =
-      profiling_extra_records_per_dispatch;
+  command_buffer->profiler_record_capacity = 1;
+  command_buffer->profiler_extra_records_per_dispatch =
+      profiler_extra_records_per_dispatch;
 
   // TODO(hexagon): allocate any additional resources for managing command
   // buffer state. Some implementations may have their own command
@@ -196,7 +196,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_begin(
   // TODO(hexagon): if the implementation needs to route the begin to the
   // implementation it can be done here. Note that creation may happen much
   // earlier than recording and any expensive work should be deferred until this
-  // point to make profiling easier.
+  // point to make profiler easier.
 
   // Nothing needs to be done here for Hexagon.
   (void)command_buffer;
@@ -348,7 +348,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_execution_barrier(
 
   // append barrier command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_barrier_entry);
-  command_buffer->profiling_record_capacity++;
+  command_buffer->profiler_record_capacity++;
 
   return iree_ok_status();
 }
@@ -509,7 +509,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_fill_buffer(
 
   // append fill command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_fill_entry);
-  command_buffer->profiling_record_capacity++;
+  command_buffer->profiler_record_capacity++;
 
   return iree_ok_status();
 }
@@ -620,7 +620,7 @@ static iree_status_t iree_hal_hexagon_command_buffer_copy_buffer(
 
   // append copy command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_copy_entry);
-  command_buffer->profiling_record_capacity++;
+  command_buffer->profiler_record_capacity++;
 
   return iree_ok_status();
 }
@@ -768,8 +768,8 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   // append dispatch command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_dispatch_entry);
   // One for the dispatch, one for the kernel, two for cache management
-  command_buffer->profiling_record_capacity +=
-      4 + command_buffer->profiling_extra_records_per_dispatch;
+  command_buffer->profiler_record_capacity +=
+      4 + command_buffer->profiler_extra_records_per_dispatch;
 
   return iree_ok_status();
 }

@@ -10,13 +10,13 @@
 #include "HAP_mem.h"
 #include "hexagon/arm_dsp/bindings.h"
 #include "hexagon/arm_dsp/cmd_buf.h"
-#include "hexagon/arm_dsp/profiling.h"
+#include "hexagon/arm_dsp/profiler.h"
 #include "hexagon/dsp/align.h"
 #include "hexagon/dsp/executable.h"
 #include "hexagon/dsp/executable_library.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/power_mode.h"
-#include "hexagon/dsp/profiling.h"
+#include "hexagon/dsp/profiler.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"
 
@@ -227,7 +227,7 @@ static void hexa_cmd_buf_unmap(const int *mapped_fds, uint32_t mapped_fds_cnt) {
  *                data, updated by amount of processed data
  * @param[in] bind_tab binding_table
  * @param[in] bind_tab_num_ent number of entries in binding table
- * @param[in] prof_context profiling context, NULL when tracing is
+ * @param[in] prof_context profiler context, NULL when tracing is
  * disabled
  * @retval AEE_SUCCESS for success
  */
@@ -351,7 +351,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
 
   profiler_measurement_finish_and_record(prof_invalidate_record);
 
-  // Note that this function is also called when profiling is disabled, but it
+  // Note that this function is also called when profiler is disabled, but it
   // is not very expensive. We do not care if it fails either.
   const char *func_name = NULL;
   hexagon_dsp_executable_get_dispatch_func_name(executable_handle,
@@ -543,7 +543,7 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
  * @param[in] cmd_buf_size size of serialized command buffer data
  * @param[in] bind_tab_data pointer to serialized binding table data
  * @param[in] bind_tab_size size of serialized binding table data
- * @param[in] prof_context profiling context if tracing enabled, NULL otherwise
+ * @param[in] prof_context profiler context if tracing enabled, NULL otherwise
  * @retval AEE_SUCCESS for success
  */
 static int hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
@@ -651,14 +651,14 @@ int hexagon_dsp_command_buffer_execute(remote_handle64 rpc_handle,
 }
 
 /**
- * @brief Execute a command buffer while logging profiling information. The PMU
+ * @brief Execute a command buffer while logging profiler information. The PMU
  * counters are not isolated when executing multiple command buffers at once and
  * will output garbage!
  * This rpc is duplicated in order to manage how NULL is controlled without
  * relying on the RPC mechanism (crashes when passing NULL).
- * Additionally, profiling buffer sizing is manually incremented during command
+ * Additionally, profiler buffer sizing is manually incremented during command
  * buffer creation, while the actual number of measurement zones is defined on
- * the DSP side. Any change to the profiling must be reflected on both sides!
+ * the DSP side. Any change to the profiler must be reflected on both sides!
  * @param[in] rpc_handle handle of DSP RPC session
  * @param[in] command_buffer_handle handle of the command buffer
  * @param[in] binding_table_data serialized binding table used to resolve
@@ -670,10 +670,12 @@ int hexagon_dsp_command_buffer_execute(remote_handle64 rpc_handle,
  * (includes header and records)
  * @retval AEE_SUCCESS for success
  */
-int hexagon_dsp_command_buffer_execute_profiling(
-    remote_handle64 rpc_handle, int64 command_buffer_handle,
-    const uint8 *binding_table_data, int binding_table_size,
-    uint8 *performance_log_data, int performance_log_size) {
+int hexagon_dsp_command_buffer_execute_profiler(remote_handle64 rpc_handle,
+                                                int64 command_buffer_handle,
+                                                const uint8 *binding_table_data,
+                                                int binding_table_size,
+                                                uint8 *performance_log_data,
+                                                int performance_log_size) {
   hexagon_dsp_command_buffer_t *command_buffer =
       (hexagon_dsp_command_buffer_t *)command_buffer_handle;
 
@@ -685,23 +687,23 @@ int hexagon_dsp_command_buffer_execute_profiling(
   }
 
   READ_SERIALIZED_MUT(performance_log_data, performance_log_size,
-                      hexagon_rt_prof_header_t, profiling_header)
+                      hexagon_rt_prof_header_t, profiler_header)
 
   if (performance_log_size <
-      profiling_header->num_records * sizeof(hexagon_rt_prof_record_t)) {
+      profiler_header->num_records * sizeof(hexagon_rt_prof_record_t)) {
     return AEE_EINCOMPLETEITEM;
   }
-  hexagon_rt_prof_record_t *profiling_records =
+  hexagon_rt_prof_record_t *profiler_records =
       (hexagon_rt_prof_record_t *)performance_log_data;
 
   // Setting the PMU unit, note that this assumes only one command buffer is
   // being executed at once!
   qurt_pmu_enable(0); // Reset PMU registers
-  hexagon_pmu_configure(&profiling_header->pmu_event_ids);
+  hexagon_pmu_configure(&profiler_header->pmu_event_ids);
   qurt_pmu_enable(1);
 
   hexagon_rt_prof_context_t prof_context;
-  profiler_context_init(profiling_header, profiling_records, &prof_context);
+  profiler_context_init(profiler_header, profiler_records, &prof_context);
   profiler_set_active_context(&prof_context);
 
   hexagon_rt_prof_record_t *prof_record =

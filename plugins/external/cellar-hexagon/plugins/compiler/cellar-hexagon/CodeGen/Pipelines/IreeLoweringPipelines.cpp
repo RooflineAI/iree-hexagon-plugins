@@ -107,9 +107,9 @@ static llvm::cl::opt<bool> clHexagonEnableVectorContractCustomKernels(
                    "LLVMCPUMmt4dVectorLowering pass."),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool> clHexagonEnableProfilingMarkers(
-    "iree-hexagon-enable-profiling-markers",
-    llvm::cl::desc("Insert DSP profiling marker zones around selected Hexagon "
+static llvm::cl::opt<bool> clHexagonEnableProfilerMarkers(
+    "iree-hexagon-enable-profiler-markers",
+    llvm::cl::desc("Insert DSP profiler marker zones around selected Hexagon "
                    "kernel operations."),
     llvm::cl::init(false));
 
@@ -349,8 +349,8 @@ void addHexagonMultiTilingExpertPassPipeline(
     // on.
     funcPassManager.addPass(createEraseHALDescriptorTypeFromMemRefPass());
     funcPassManager.addPass(hexagon::createConvertToHexagonmemPass());
-    if (clHexagonEnableProfilingMarkers)
-      funcPassManager.addPass(createInsertProfilingMarkersPass());
+    if (clHexagonEnableProfilerMarkers)
+      funcPassManager.addPass(createInsertProfilerMarkersPass());
     funcPassManager.addPass(hexagon::createHexmemCpyToDMAPass());
     // HexmemCpyToDMA materializes short-lived DMA tag buffers as
     // `memref.alloc : memref<1xi32>` + `memref.dealloc`. These tags only carry
@@ -707,7 +707,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
   modulePassManager.addPass(createCSEPass());
   modulePassManager.addPass(createReconcileUnrealizedCastsPass());
 
-  modulePassManager.addPass(createLowerProfilingMarkersPass());
+  modulePassManager.addPass(createLowerProfilerMarkersPass());
   modulePassManager.addPass(createMarkHexagonNativeRuntimeLinksPass());
   modulePassManager.addPass(createReconcileUnrealizedCastsPass());
 

@@ -1,9 +1,10 @@
 // Copyright 2025 RooflineAI GmbH
 
-#ifndef HEXAGON_DSP_PROFILER_H
-#define HEXAGON_DSP_PROFILER_H
+#ifndef HEXAGON_DSP_RT_PROFILER_H
+#define HEXAGON_DSP_RT_PROFILER_H
 
 #include "hexagon/arm_dsp/profiler.h"
+#include "hexagon/dsp/rt/runtime_state_fwd_decl.h"
 #include <stdint.h>
 
 /**
@@ -101,21 +102,9 @@ profiler_measurement_start(hexagon_rt_prof_context_t *prof_context,
 void profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record);
 
 /**
- * @brief API using a globally active context.
- * FIXME: Phase out usage of this API and then delete it. (ROO-1669)
+ * @brief API called from inside dispatches.
  * @{
  */
-
-/**
- * @brief Sets the active profiler context used by runtime symbols called from
- * dispatch code.
- */
-void profiler_set_active_context(hexagon_rt_prof_context_t *prof_ctx);
-
-/**
- * @brief Clears the active dispatch profiler context.
- */
-void profiler_clear_active_context(void);
 
 /**
  * @brief Starts a profiler zone using the active dispatch profiler context.
@@ -123,16 +112,19 @@ void profiler_clear_active_context(void);
  * This is intended for generated code. It is a no-op when no active profiler
  * context is set.
  *
+ * @param runtime_state The runtime state data structure from which to get the
+ *                      profiler context data structure. May be NULL.
  * @param zone_type Zone identifier to associate with this record.
  * @param extra_info Additional information (string) to be copied into the
  *                   record. Supports up to 63 characters and longer strings
  *                   will be truncated. May be NULL if no extra information
  *                   is present.
- * @return profiler record being filled, NULL if no record available or no
- *         context active
+ * @return profiler record being filled, NULL if no runtime_state or no record
+ *         storage space available
  */
 hexagon_rt_prof_record_t *
-hexagon_runtime_profiler_zone_begin(uint32_t zone_type, const char *extra_info);
+hexagon_runtime_profiler_zone_begin(hexagon_rt_state_t *runtime_state,
+                                    uint32_t zone_type, const char *extra_info);
 
 /**
  * @brief Finishes the passed profiler zone in the active dispatch
@@ -149,4 +141,4 @@ void hexagon_runtime_profiler_zone_end(hexagon_rt_prof_record_t *record);
  * @}
  */
 
-#endif // HEXAGON_DSP_PROFILER_H
+#endif // HEXAGON_DSP_RT_PROFILER_H

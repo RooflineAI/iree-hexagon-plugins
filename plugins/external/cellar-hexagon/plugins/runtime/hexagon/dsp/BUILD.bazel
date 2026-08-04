@@ -2,7 +2,6 @@ load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_import.bzl", "cc_import")
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -15,50 +14,6 @@ cc_import(
     static_library = "@hexagon_sdk//:rtos/qurt/computev68/lib/libqurt.a",
 )
 
-# This target is separate from hexagon_dsp_skel to be used in external dependencies
-cc_library(
-    name = "hexagon_rt_library",
-    srcs = [
-        "malloc_free.c",
-        "memref_copy.c",
-        "profiler.c",
-        "vtcm_pool.cpp",
-    ],
-    hdrs = [
-        "malloc_free.h",
-        "memref_copy.h",
-        "profiler.h",
-        "vtcm_pool.h",
-    ],
-    defines = select({
-        ":hexagon_playground_profiler_enabled": [
-            "IREE_HAL_HEXAGON_ENABLE_PROFILER",
-        ],
-        "//conditions:default": [],
-    }),
-    includes = ["../.."],
-    target_compatible_with = [
-        "@patio_cellar_hexagon//constraints:cpu_hexagon",
-        "@patio_cellar_hexagon//constraints:os_qurt",
-    ],
-    deps = [
-        "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
-        "//plugins/runtime/hexagon/dsp/pmu:hexagon_pmu_helpers",
-        "@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib",
-    ],
-    # Kernels leave these runtime symbols unresolved and expect the DSP loader
-    # to bind them from libhexagon_dsp_skel.so. Force-link this library so the
-    # skeleton exports the entry points even when it does not reference them.
-    alwayslink = True,
-)
-
-config_setting(
-    name = "hexagon_playground_profiler_enabled",
-    define_values = {
-        "hexagon_playground_profiler": "true",
-    },
-)
-
 cc_binary(
     name = "hexagon_dsp_skel",
     srcs = [
@@ -68,7 +23,6 @@ cc_binary(
         "device.c",
         "executable.c",
         "executable.h",
-        "executable_library.h",
         "import_provider.c",
         "import_provider.h",
         "power_mode.c",
@@ -93,8 +47,8 @@ cc_binary(
     deps = [
         ":qurt_lib",
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
-        "//plugins/runtime/hexagon/dsp:hexagon_rt_library",
         "//plugins/runtime/hexagon/dsp/pmu:hexagon_pmu_helpers",
+        "//plugins/runtime/hexagon/dsp/rt:hexagon_rt_library",
         "//plugins/runtime/hexagon/interface:hexagon_dsp_skel_hdr_lib",
         "@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib",
         "@iree//runtime/src/iree/hal/local:executable_library",

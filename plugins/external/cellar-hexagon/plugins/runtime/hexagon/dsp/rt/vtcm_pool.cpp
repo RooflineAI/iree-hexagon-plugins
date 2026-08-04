@@ -1,6 +1,6 @@
 // Copyright 2025 RooflineAI GmbH
 
-#include "hexagon/dsp/vtcm_pool.h"
+#include "hexagon/dsp/rt/vtcm_pool.h"
 
 #include <stdlib.h>
 #include <unordered_map>

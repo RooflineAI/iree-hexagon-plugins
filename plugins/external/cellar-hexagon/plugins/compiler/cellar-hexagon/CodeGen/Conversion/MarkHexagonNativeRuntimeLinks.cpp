@@ -7,9 +7,11 @@
 #include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 #include "cellar-hexagon/CodeGen/Passes.h"
 
+#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace IREE = mlir::iree_compiler::IREE;
 
 #define GEN_PASS_DEF_MARKHEXAGONNATIVERUNTIMELINKSPASS
 #include "cellar-hexagon/CodeGen/Passes.h.inc"
@@ -20,7 +22,8 @@ struct MarkHexagonNativeRuntimeLinksPass
     : public impl::MarkHexagonNativeRuntimeLinksPassBase<
           MarkHexagonNativeRuntimeLinksPass> {
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::LLVM::LLVMDialect>();
+    registry
+        .insert<mlir::LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonDialect>();
   }
 
   void runOnOperation() override {

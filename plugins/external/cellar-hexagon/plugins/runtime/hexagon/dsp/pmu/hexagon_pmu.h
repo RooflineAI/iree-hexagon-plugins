@@ -1,7 +1,7 @@
 // Copyright 2025 RooflineAI GmbH
 
-#ifndef HEXAGON_PMU_H_
-#define HEXAGON_PMU_H_
+#ifndef HEXAGON_DSP_PMU_HEXAGON_PMU_H
+#define HEXAGON_DSP_PMU_HEXAGON_PMU_H
 
 #include "HAP_farf.h"
 #include "hexagon/arm_dsp/profiler.h"
@@ -98,4 +98,4 @@ static inline void hexagon_pmu_dump_registers(const char *tag) {
        pmu_cnt[7], pmu_cnt[7]);
 }
 
-#endif // HEXAGON_PMU_H_
+#endif // #ifndef HEXAGON_DSP_PMU_HEXAGON_PMU_H

@@ -11,6 +11,20 @@ include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 
 //===----------------------------------------------------------------------===//
+// Runtime state type.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_RuntimeStateType :
+    TypeDef<IREEHexagon_Dialect, "RuntimeState"> {
+  let mnemonic = "runtime_state";
+  let summary = "Handle to the Hexagon runtime state";
+  let description = [{
+    Opaque handle to the runtime state. The type lowers to an `!llvm.ptr`
+    pointing at the runtime state.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Profiler record type.
 //===----------------------------------------------------------------------===//
 

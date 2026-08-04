@@ -7,6 +7,7 @@
 #ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONOPS_H
 #define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONOPS_H
 
+#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
 #include "cellar-hexagon/CodeGen/IR/HexagonTypes.h"
 
@@ -16,6 +17,7 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir::iree_compiler::IREE::Hexagon {

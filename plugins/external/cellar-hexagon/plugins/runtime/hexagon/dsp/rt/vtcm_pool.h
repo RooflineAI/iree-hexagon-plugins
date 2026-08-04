@@ -1,7 +1,7 @@
 // Copyright 2025 RooflineAI GmbH
 
-#ifndef HEXAGON_DSP_VTCM_POOL_H
-#define HEXAGON_DSP_VTCM_POOL_H
+#ifndef HEXAGON_DSP_RT_VTCM_POOL_H
+#define HEXAGON_DSP_RT_VTCM_POOL_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,4 +27,4 @@ void hexagon_dsp_vtcm_pool_free(void *ptr);
 } // extern "C"
 #endif // __cplusplus
 
-#endif // #ifndef HEXAGON_DSP_VTCM_POOL_H
+#endif // #ifndef HEXAGON_DSP_RT_VTCM_POOL_H

@@ -8,8 +8,19 @@
 #define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS
 
 include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
+include "cellar-hexagon/CodeGen/IR/HexagonEnums.td"
 include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/EnumAttr.td"
+
+//===----------------------------------------------------------------------===//
+// Profiler zone type.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_ProfilerZoneAttr :
+    EnumAttr<IREEHexagon_Dialect, IREEHexagon_ProfilerZone, "profiler_zone"> {
+  let assemblyFormat = "`<` $value `>`";
+}
 
 //===----------------------------------------------------------------------===//
 // Encoding Resolvers.

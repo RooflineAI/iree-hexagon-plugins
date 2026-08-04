@@ -16,7 +16,12 @@ class IREEHexagonDialect;
 
 } // namespace mlir::iree_compiler::IREE::Hexagon
 
+// clang-format off: the enum declarations must come before the attributes
+// wrapping them.
+#include "cellar-hexagon/CodeGen/IR/HexagonEnums.h.inc" // IWYU pragma: export
+
 #define GET_ATTRDEF_CLASSES
 #include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h.inc"
+// clang-format on
 
 #endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS_H

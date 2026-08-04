@@ -1,0 +1,58 @@
+# Copyright 2026 RooflineAI GmbH
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+# This target is separate from hexagon_dsp_skel to be used in external dependencies
+cc_library(
+    name = "hexagon_rt_library",
+    srcs = [
+        "malloc_free.c",
+        "memref_copy.c",
+        "profiler.c",
+        "vtcm_pool.cpp",
+    ],
+    hdrs = [
+        "dispatch_state.h",
+        "executable_library.h",
+        "malloc_free.h",
+        "memref_copy.h",
+        "profiler.h",
+        "runtime_state.h",
+        "runtime_state_fwd_decl.h",
+        "vtcm_pool.h",
+    ],
+    defines = select({
+        ":hexagon_playground_profiler_enabled": [
+            "IREE_HAL_HEXAGON_ENABLE_PROFILER",
+        ],
+        "//conditions:default": [],
+    }),
+    includes = ["../../.."],
+    target_compatible_with = [
+        "@patio_cellar_hexagon//constraints:cpu_hexagon",
+        "@patio_cellar_hexagon//constraints:os_qurt",
+    ],
+    deps = [
+        "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
+        "//plugins/runtime/hexagon/dsp/pmu:hexagon_pmu_helpers",
+        "@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib",
+        "@iree//runtime/src/iree/hal/local:executable_library",
+    ],
+    # Kernels leave these runtime symbols unresolved and expect the DSP loader
+    # to bind them from libhexagon_dsp_skel.so. Force-link this library so the
+    # skeleton exports the entry points even when it does not reference them.
+    alwayslink = True,
+)
+
+config_setting(
+    name = "hexagon_playground_profiler_enabled",
+    define_values = {
+        "hexagon_playground_profiler": "true",
+    },
+)

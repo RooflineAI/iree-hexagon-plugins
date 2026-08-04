@@ -92,13 +92,6 @@ def InsertProfilerMarkersPass :
   }];
 }
 
-def LowerProfilerMarkersPass :
-    Pass<"iree-hexagon-lower-profiler-markers", "mlir::ModuleOp"> {
-  let summary = [{
-      Lower Hexagon DSP profiler marker ops to native runtime calls.
-  }];
-}
-
 def MarkHexagonNativeRuntimeLinksPass :
     Pass<"iree-hexagon-mark-native-runtime-links", "mlir::ModuleOp"> {
   let summary = [{

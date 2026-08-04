@@ -22,6 +22,7 @@ iree_td_library(
     srcs = [
         "HexagonAttrs.td",
         "HexagonDialect.td",
+        "HexagonEnums.td",
         "HexagonOps.td",
         "HexagonTypes.td",
     ],
@@ -49,6 +50,30 @@ iree_gentbl_cc_library(
     ],
     tblgen = "@llvm-project//mlir:mlir-tblgen",
     td_file = "HexagonDialect.td",
+    deps = [":hexagon_td_files"],
+)
+
+iree_gentbl_cc_library(
+    name = "HexagonEnumsGen",
+    strip_include_prefix = "/plugins/compiler",
+    tbl_outs = [
+        (
+            [
+                "--gen-enum-decls",
+                "--dialect=iree_hexagon",
+            ],
+            "HexagonEnums.h.inc",
+        ),
+        (
+            [
+                "--gen-enum-defs",
+                "--dialect=iree_hexagon",
+            ],
+            "HexagonEnums.cpp.inc",
+        ),
+    ],
+    tblgen = "@llvm-project//mlir:mlir-tblgen",
+    td_file = "HexagonEnums.td",
     deps = [":hexagon_td_files"],
 )
 
@@ -113,6 +138,7 @@ cellar_hexagon_plugin_library(
         "HexagonAttrs.cpp.inc",
         "HexagonDialect.cpp",
         "HexagonDialect.cpp.inc",
+        "HexagonEnums.cpp.inc",
         "HexagonOps.cpp",
         "HexagonOps.cpp.inc",
         "HexagonTypes.cpp",
@@ -123,6 +149,7 @@ cellar_hexagon_plugin_library(
         "HexagonAttrs.h.inc",
         "HexagonDialect.h",
         "HexagonDialect.h.inc",
+        "HexagonEnums.h.inc",
         "HexagonOps.h",
         "HexagonOps.h.inc",
         "HexagonTypes.h",
@@ -132,6 +159,7 @@ cellar_hexagon_plugin_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:BytecodeOpInterface",
         "@llvm-project//mlir:Dialect",
+        "@llvm-project//mlir:FunctionInterfaces",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:SideEffectInterfaces",
         "@llvm-project//mlir:Support",
@@ -140,6 +168,7 @@ cellar_hexagon_plugin_library(
     deps = [
         ":HexagonAttrsGen",
         ":HexagonDialectGen",
+        ":HexagonEnumsGen",
         ":HexagonOpsGen",
         ":HexagonTypesGen",
     ],

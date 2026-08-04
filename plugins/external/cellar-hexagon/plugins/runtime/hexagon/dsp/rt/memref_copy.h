@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef HEXAGON_DSP_MEMREF_COPY_H
-#define HEXAGON_DSP_MEMREF_COPY_H
+#ifndef HEXAGON_DSP_RT_MEMREF_COPY_H
+#define HEXAGON_DSP_RT_MEMREF_COPY_H
 
 #include <stdint.h>
 
@@ -20,4 +20,4 @@
 void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
                                  void *dstUnranked);
 
-#endif // HEXAGON_DSP_MEMREF_COPY_H
+#endif // HEXAGON_DSP_RT_MEMREF_COPY_H

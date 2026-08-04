@@ -707,10 +707,6 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
   modulePassManager.addPass(createCSEPass());
   modulePassManager.addPass(createReconcileUnrealizedCastsPass());
 
-  modulePassManager.addPass(createLowerProfilerMarkersPass());
-  modulePassManager.addPass(createMarkHexagonNativeRuntimeLinksPass());
-  modulePassManager.addPass(createReconcileUnrealizedCastsPass());
-
   // We rely on MLIR symbol visibility being correct after this point and
   // need to mirror the LLVM linkage that was assigned during conversion.
   modulePassManager.addPass(createLLVMCPUSynchronizeSymbolVisibilityPass());

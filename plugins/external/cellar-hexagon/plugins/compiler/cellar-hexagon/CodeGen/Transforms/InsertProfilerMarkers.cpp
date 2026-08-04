@@ -4,14 +4,19 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+// Adds profiler markers around the Hexagon memory operations
+// hexagonmem.alloc/dealloc/copy and around the outermost compute loops.
+
 #include "cellar-hexagon/CodeGen/Passes.h"
 
 #include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
 #include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
+
+#include <optional>
 
 namespace mlir::iree_compiler::cellar_hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
@@ -21,11 +26,60 @@ namespace IREE = mlir::iree_compiler::IREE;
 
 namespace {
 
-// This marker is hardcoded here and the reference enum is in the runtime
-constexpr int32_t kMarkerZoneType = 7;
-constexpr llvm::StringLiteral kComputeInnerLoopMarker = "compute.inner_loop";
+// The `extra_info` strings identifying the marked operation in the profile.
+constexpr llvm::StringLiteral kAllocMarker = "kernel_allocation";
+constexpr llvm::StringLiteral kFreeMarker = "kernel_free";
+constexpr llvm::StringLiteral kCopyMarker = "memref_copy";
 constexpr llvm::StringLiteral kHexagonMemAllocMarker = "hexagonmem.alloc";
+constexpr llvm::StringLiteral kHexagonMemDeallocMarker = "hexagonmem.dealloc";
 constexpr llvm::StringLiteral kHexagonMemCopyMarker = "hexagonmem.copy";
+constexpr llvm::StringLiteral kComputeInnerLoopMarker = "compute.inner_loop";
+
+Value insertGetRuntimeState(IRRewriter &rewriter,
+                            mlir::FunctionOpInterface funcOp) {
+  rewriter.setInsertionPointToStart(&funcOp.getFunctionBody().front());
+  auto stateType = IREE::Hexagon::RuntimeStateType::get(rewriter.getContext());
+  return IREE::Hexagon::GetRuntimeStateOp::create(rewriter, funcOp.getLoc(),
+                                                  stateType)
+      .getState();
+}
+
+Value insertMarkerBegin(IRRewriter &rewriter, Value state, Location loc,
+                        IREE::Hexagon::ProfilerZone zoneType,
+                        StringRef extraInfo) {
+  auto recordType =
+      IREE::Hexagon::ProfilerRecordType::get(rewriter.getContext());
+  return IREE::Hexagon::ProfilerBeginOp::create(
+             rewriter, loc, recordType, state,
+             IREE::Hexagon::ProfilerZoneAttr::get(rewriter.getContext(),
+                                                  zoneType),
+             rewriter.getStringAttr(extraInfo))
+      .getRecord();
+}
+
+void insertMarkerEnd(IRRewriter &rewriter, Location loc, Value record) {
+  IREE::Hexagon::ProfilerEndOp::create(rewriter, loc, record);
+}
+
+// An operation to wrap with a profiler marker zone, together with the zone type
+// it is attributed to and the `extra_info` string identifying it in the
+// profile.
+struct MarkerTarget {
+  Operation *op;
+  IREE::Hexagon::ProfilerZone zone;
+  StringRef extraInfo;
+};
+
+void wrapOpWithMarker(IRRewriter &rewriter, Value state,
+                      const MarkerTarget &markerTarget) {
+  Operation *op = markerTarget.op;
+  rewriter.setInsertionPoint(op);
+  Value record = insertMarkerBegin(rewriter, state, op->getLoc(),
+                                   markerTarget.zone, markerTarget.extraInfo);
+
+  rewriter.setInsertionPointAfter(op);
+  insertMarkerEnd(rewriter, op->getLoc(), record);
+}
 
 bool isHexagonMemOp(Operation *op) {
   return op->getName().getDialectNamespace() ==
@@ -56,28 +110,38 @@ bool isOuterMostOpWithoutHexagonMemOps(Operation *op) {
   return containsHexagonMemOp(parent) && !containsHexagonMemOp(op);
 }
 
-Value insertMarkerBegin(IRRewriter &rewriter, Location loc,
-                        StringRef extraInfo) {
-  auto recordType =
-      IREE::Hexagon::ProfilerRecordType::get(rewriter.getContext());
-  return IREE::Hexagon::ProfilerBeginOp::create(
-             rewriter, loc, recordType,
-             rewriter.getI32IntegerAttr(kMarkerZoneType),
-             rewriter.getStringAttr(extraInfo))
-      .getRecord();
-}
-
-void insertMarkerEnd(IRRewriter &rewriter, Location loc, Value record) {
-  IREE::Hexagon::ProfilerEndOp::create(rewriter, loc, record);
-}
-
-void wrapOpWithMarker(IRRewriter &rewriter, Operation *op,
-                      StringRef extraInfo) {
-  rewriter.setInsertionPoint(op);
-  Value record = insertMarkerBegin(rewriter, op->getLoc(), extraInfo);
-
-  rewriter.setInsertionPointAfter(op);
-  insertMarkerEnd(rewriter, op->getLoc(), record);
+std::optional<MarkerTarget> getMarkerTargetForOp(Operation *op) {
+  if (isa<mlir::memref::AllocOp>(op)) {
+    return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
+                        kAllocMarker};
+  }
+  if (isa<mlir::memref::DeallocOp>(op)) {
+    return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
+                        kFreeMarker};
+  }
+  if (isa<mlir::memref::CopyOp>(op)) {
+    return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
+                        kCopyMarker};
+  }
+  if (isa<mlir::hexagonmem::AllocOp>(op)) {
+    return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
+                        kHexagonMemAllocMarker};
+  }
+  if (isa<mlir::hexagonmem::DeallocOp>(op)) {
+    return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
+                        kHexagonMemDeallocMarker};
+  }
+  if (isa<mlir::hexagonmem::CopyOp>(op)) {
+    return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
+                        kHexagonMemCopyMarker};
+  }
+  if (isa<mlir::scf::ForOp>(op)) {
+    if (isOuterMostOpWithoutHexagonMemOps(op)) {
+      return MarkerTarget{op, IREE::Hexagon::ProfilerZone::Marker,
+                          kComputeInnerLoopMarker};
+    }
+  }
+  return std::nullopt;
 }
 
 struct InsertProfilerMarkersPass final
@@ -89,36 +153,25 @@ struct InsertProfilerMarkersPass final
 
   void runOnOperation() override {
     mlir::FunctionOpInterface funcOp = getOperation();
-    llvm::SmallVector<mlir::hexagonmem::AllocOp> allocOps;
-    llvm::SmallVector<mlir::hexagonmem::CopyOp> copyOps;
-    llvm::SmallVector<mlir::scf::ForOp> computeLoops;
+
+    // Collect the targets first so the walk is not perturbed by the markers
+    // inserted around each operation.
+    llvm::SmallVector<MarkerTarget> markerTargets;
     funcOp.walk([&](Operation *op) {
-      if (auto allocOp = dyn_cast<mlir::hexagonmem::AllocOp>(op)) {
-        allocOps.push_back(allocOp);
-        return;
-      }
-      if (auto copyOp = dyn_cast<mlir::hexagonmem::CopyOp>(op)) {
-        copyOps.push_back(copyOp);
-        return;
-      }
-      if (auto forOp = dyn_cast<mlir::scf::ForOp>(op)) {
-        if (isOuterMostOpWithoutHexagonMemOps(forOp)) {
-          computeLoops.push_back(forOp);
-        }
+      if (std::optional<MarkerTarget> markerTarget = getMarkerTargetForOp(op)) {
+        markerTargets.push_back(*markerTarget);
       }
     });
+    if (markerTargets.empty()) {
+      return;
+    }
 
-    mlir::IRRewriter rewriter(&getContext());
-    for (mlir::hexagonmem::AllocOp allocOp : allocOps) {
-      wrapOpWithMarker(rewriter, allocOp, kHexagonMemAllocMarker);
+    mlir::IRRewriter rewriter(funcOp->getContext());
+    Value state = insertGetRuntimeState(rewriter, funcOp);
+    for (const MarkerTarget &markerTarget : markerTargets) {
+      wrapOpWithMarker(rewriter, state, markerTarget);
     }
-    for (mlir::hexagonmem::CopyOp copyOp : copyOps) {
-      wrapOpWithMarker(rewriter, copyOp, kHexagonMemCopyMarker);
-    }
-    for (mlir::scf::ForOp forOp : computeLoops) {
-      wrapOpWithMarker(rewriter, forOp, kComputeInnerLoopMarker);
-    }
-  }
+  };
 };
 
 } // namespace

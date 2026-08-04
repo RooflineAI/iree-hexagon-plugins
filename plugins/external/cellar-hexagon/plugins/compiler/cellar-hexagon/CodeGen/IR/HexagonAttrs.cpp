@@ -14,6 +14,8 @@
 
 #include <cstdint>
 
+#include "cellar-hexagon/CodeGen/IR/HexagonEnums.cpp.inc"
+
 #define GET_ATTRDEF_CLASSES
 #include "cellar-hexagon/CodeGen/IR/HexagonAttrs.cpp.inc"
 

@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef HEXAGON_DSP_MALLOC_FREE_H
-#define HEXAGON_DSP_MALLOC_FREE_H
+#ifndef HEXAGON_DSP_RT_MALLOC_FREE_H
+#define HEXAGON_DSP_RT_MALLOC_FREE_H
 
 #include <stdint.h>
 
@@ -16,4 +16,4 @@
 void *hexagon_runtime_malloc(int64_t size);
 void hexagon_runtime_free(void *ptr);
 
-#endif // HEXAGON_DSP_MALLOC_FREE_H
+#endif // HEXAGON_DSP_RT_MALLOC_FREE_H

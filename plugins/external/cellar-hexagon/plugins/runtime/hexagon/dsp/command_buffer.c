@@ -13,10 +13,12 @@
 #include "hexagon/arm_dsp/profiler.h"
 #include "hexagon/dsp/align.h"
 #include "hexagon/dsp/executable.h"
-#include "hexagon/dsp/executable_library.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/power_mode.h"
-#include "hexagon/dsp/profiler.h"
+#include "hexagon/dsp/rt/dispatch_state.h"
+#include "hexagon/dsp/rt/executable_library.h"
+#include "hexagon/dsp/rt/profiler.h"
+#include "hexagon/dsp/rt/runtime_state.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"
 
@@ -294,21 +296,33 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // function declarations assumes that alignment
   // FIXME: max_concurrency still hard coded to 1, need to be implemented
   // properly
-  HEXAGON_ALIGNAS(16)
-  iree_hal_executable_dispatch_state_v0_t dispatch_state = {
-      .workgroup_size_x = cmd_dispatch->workgroup_size_x,
-      .workgroup_size_y = cmd_dispatch->workgroup_size_y,
-      .workgroup_size_z = cmd_dispatch->workgroup_size_z,
-      .constant_count = cmd_dispatch->constant_count,
-      .workgroup_count_x = cmd_dispatch->workgroup_count_x,
-      .workgroup_count_y = cmd_dispatch->workgroup_count_y,
-      .workgroup_count_z = cmd_dispatch->workgroup_count_z,
-      .max_concurrency = 1,
-      .binding_count = num_buf_refs,
-      .constants = constants,
-      .binding_ptrs = binding_ptrs,
-      .binding_lengths = binding_lengths,
+  // Hexagon uses a custom extended dispatch state that carries a pointer to the
+  // runtime state, which some dispatches access via the dispatch state
+  // argument.
+  const hexagon_rt_state_t runtime_state = {
+      .prof_context = prof_context,
   };
+  HEXAGON_ALIGNAS(16)
+  const hexagon_dsp_extended_dispatch_state_t extended_dispatch_state = {
+      .dispatch_state =
+          {
+              .workgroup_size_x = cmd_dispatch->workgroup_size_x,
+              .workgroup_size_y = cmd_dispatch->workgroup_size_y,
+              .workgroup_size_z = cmd_dispatch->workgroup_size_z,
+              .constant_count = cmd_dispatch->constant_count,
+              .workgroup_count_x = cmd_dispatch->workgroup_count_x,
+              .workgroup_count_y = cmd_dispatch->workgroup_count_y,
+              .workgroup_count_z = cmd_dispatch->workgroup_count_z,
+              .max_concurrency = 1,
+              .binding_count = num_buf_refs,
+              .constants = constants,
+              .binding_ptrs = binding_ptrs,
+              .binding_lengths = binding_lengths,
+          },
+      .runtime_state = &runtime_state,
+  };
+  const iree_hal_executable_dispatch_state_v0_t *dispatch_state =
+      &extended_dispatch_state.dispatch_state;
 
   // Obtain constants from serialized data
   for (uint16_t c = 0; c < cmd_dispatch->constant_count; ++c) {
@@ -361,11 +375,11 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
       profiler_measurement_start(prof_context, KERNEL, func_name);
 
   // for now, run all workgroups sequentially
-  for (uint16_t wg_id_z = 0; wg_id_z < dispatch_state.workgroup_count_z;
+  for (uint16_t wg_id_z = 0; wg_id_z < dispatch_state->workgroup_count_z;
        ++wg_id_z) {
-    for (uint32_t wg_id_y = 0; wg_id_y < dispatch_state.workgroup_count_y;
+    for (uint32_t wg_id_y = 0; wg_id_y < dispatch_state->workgroup_count_y;
          ++wg_id_y) {
-      for (uint32_t wg_id_x = 0; wg_id_x < dispatch_state.workgroup_count_x;
+      for (uint32_t wg_id_x = 0; wg_id_x < dispatch_state->workgroup_count_x;
            ++wg_id_x) {
 
         // build workgroup state - must be aligned at 16 bytes, because dispatch
@@ -381,7 +395,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
         };
 
         // call dispatch function
-        dispatch_func(environment, &dispatch_state, &workgroup_state);
+        dispatch_func(environment, dispatch_state, &workgroup_state);
       }
     }
   }
@@ -704,7 +718,6 @@ int hexagon_dsp_command_buffer_execute_profiler(remote_handle64 rpc_handle,
 
   hexagon_rt_prof_context_t prof_context;
   profiler_context_init(profiler_header, profiler_records, &prof_context);
-  profiler_set_active_context(&prof_context);
 
   hexagon_rt_prof_record_t *prof_record =
       profiler_measurement_start(&prof_context, DSP_EXECUTION, NULL);
@@ -715,7 +728,6 @@ int hexagon_dsp_command_buffer_execute_profiler(remote_handle64 rpc_handle,
 
   profiler_measurement_finish_and_record(prof_record);
 
-  profiler_clear_active_context();
   profiler_context_deinit(&prof_context);
 
   return err;

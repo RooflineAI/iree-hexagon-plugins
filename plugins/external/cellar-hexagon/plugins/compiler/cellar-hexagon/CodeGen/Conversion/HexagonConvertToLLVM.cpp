@@ -7,6 +7,8 @@
 #include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
 
 #include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
+#include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
 #include "cellar-hexagon/CodeGen/Passes.h"
 
 #include "iree/compiler/Codegen/Common/PassUtils.h"
@@ -43,6 +45,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -901,15 +904,188 @@ struct RewriteExternCallOpToDynamicImportCallOp
   LLVMTypeConverter &typeConverter;
 };
 
+//===----------------------------------------------------------------------===//
+// Runtime state and profiler marker lowering.
+//===----------------------------------------------------------------------===//
+
+constexpr llvm::StringLiteral kProfilerZoneBeginFn =
+    "hexagon_runtime_profiler_zone_begin";
+constexpr llvm::StringLiteral kProfilerZoneEndFn =
+    "hexagon_runtime_profiler_zone_end";
+constexpr llvm::StringLiteral kCStringGlobalPrefix =
+    "__hexagon_profiler_marker";
+
+static std::string getUniqueSymbolName(ModuleOp moduleOp, StringRef prefix) {
+  unsigned counter = 0;
+  SmallString<128> name = SymbolTable::generateSymbolName<128>(
+      prefix,
+      [&](StringRef candidate) { return moduleOp.lookupSymbol(candidate); },
+      counter);
+  return name.str().str();
+}
+
+// Materializes a pointer to a NUL-terminated constant string, reusing an
+// existing internal global with the same contents when one is already present.
+static Value getOrCreateCStringPtr(ModuleOp moduleOp, OpBuilder &builder,
+                                   Location loc, StringRef value) {
+  MLIRContext *ctx = moduleOp.getContext();
+  auto ptrType = LLVM::LLVMPointerType::get(ctx);
+  if (value.empty()) {
+    return LLVM::ZeroOp::create(builder, loc, ptrType).getResult();
+  }
+
+  std::string storage = value.str();
+  storage.push_back('\0');
+  auto storageAttr = builder.getStringAttr(storage);
+  LLVM::LLVMArrayType stringType =
+      LLVM::LLVMArrayType::get(builder.getI8Type(), value.size() + 1);
+
+  // Deduplicate identical marker strings (e.g. many ops sharing the same
+  // "hexagonmem.copy" tag) by reusing a matching global instead of caching op
+  // pointers across conversion-pattern invocations.
+  LLVM::GlobalOp global;
+  for (auto candidate : moduleOp.getOps<LLVM::GlobalOp>()) {
+    if (candidate.getSymName().starts_with(kCStringGlobalPrefix) &&
+        candidate.getValueOrNull() == storageAttr) {
+      global = candidate;
+      break;
+    }
+  }
+  if (!global) {
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToStart(moduleOp.getBody());
+    global = LLVM::GlobalOp::create(
+        builder, loc, stringType, /*isConstant=*/true, LLVM::Linkage::Internal,
+        getUniqueSymbolName(moduleOp, kCStringGlobalPrefix), storageAttr);
+  }
+
+  Value address = LLVM::AddressOfOp::create(builder, loc, global).getResult();
+  return LLVM::GEPOp::create(builder, loc, ptrType, stringType, address,
+                             ArrayRef<LLVM::GEPArg>{0, 0})
+      .getResult();
+}
+
+/// Lowers `iree_hexagon.get_runtime_state` by loading the runtime-state pointer
+/// directly from the Hexagon extended dispatch state (the base IREE dispatch
+/// state followed by a pointer to the runtime state; see
+/// hexagon_dsp_extended_dispatch_state_t in
+/// plugins/runtime/hexagon/dsp/rt/dispatch_state.h). The dispatch state is the
+/// second ABI argument of the entry point.
+///
+/// The parent LLVMFuncOp must be compatible with HALDispatchABI.
+struct ConvertGetRuntimeStateOp
+    : public ConvertOpToLLVMPattern<IREE::Hexagon::GetRuntimeStateOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+  LogicalResult
+  matchAndRewrite(IREE::Hexagon::GetRuntimeStateOp getStateOp, OpAdaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto funcOp = getStateOp->getParentOfType<LLVM::LLVMFuncOp>();
+    if (!funcOp || funcOp.getNumArguments() < 2) {
+      return rewriter.notifyMatchFailure(
+          getStateOp,
+          "expected an enclosing function with a dispatch state argument");
+    }
+    Location loc = getStateOp.getLoc();
+    MLIRContext *ctx = rewriter.getContext();
+
+    // Model the extended dispatch state as `{ base dispatch state, ptr }`,
+    // where the trailing pointer is the runtime-state pointer.
+    auto ptrType = LLVM::LLVMPointerType::get(ctx);
+    auto extendedStateType = LLVM::LLVMStructType::getLiteral(
+        ctx, {HALDispatchABI::getDispatchStateType(ctx, getTypeConverter()),
+              ptrType});
+
+    // Load the runtime-state pointer from the field right after the base
+    // dispatch state.
+    Value runtimeStateAddr = LLVM::GEPOp::create(
+        rewriter, loc, ptrType, extendedStateType, funcOp.getArgument(1),
+        ArrayRef<LLVM::GEPArg>{0, 1}, LLVM::GEPNoWrapFlags::inbounds);
+    rewriter.replaceOp(getStateOp, LLVM::LoadOp::create(rewriter, loc, ptrType,
+                                                        runtimeStateAddr));
+    return success();
+  }
+};
+
+/// Lowers `iree_hexagon.profiler.begin` to a call to the
+/// `hexagon_runtime_profiler_zone_begin` runtime entry point.
+struct ConvertProfilerBeginOp
+    : public ConvertOpToLLVMPattern<IREE::Hexagon::ProfilerBeginOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+  LogicalResult
+  matchAndRewrite(IREE::Hexagon::ProfilerBeginOp beginOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto moduleOp = beginOp->getParentOfType<ModuleOp>();
+    Location loc = beginOp.getLoc();
+    auto i32Type = rewriter.getI32Type();
+    auto ptrType = LLVM::LLVMPointerType::get(rewriter.getContext());
+
+    FailureOr<LLVM::LLVMFuncOp> beginFn =
+        LLVM::lookupOrCreateFn(rewriter, moduleOp, kProfilerZoneBeginFn,
+                               {ptrType, i32Type, ptrType}, ptrType);
+    if (failed(beginFn)) {
+      return rewriter.notifyMatchFailure(
+          beginOp, "failed to declare profiler zone begin runtime helper");
+    }
+
+    // The zone type enum values match the runtime's
+    // iree_hal_hexagon_profiler_zone_types_t, so the enum is passed on as its
+    // underlying integer value.
+    Value zoneType = LLVM::ConstantOp::create(
+                         rewriter, loc, i32Type,
+                         rewriter.getI32IntegerAttr(
+                             static_cast<int32_t>(beginOp.getZoneType())))
+                         .getResult();
+    Value extraInfoPtr = getOrCreateCStringPtr(
+        moduleOp, rewriter, loc, beginOp.getExtraInfo().value_or(StringRef{}));
+    // `adaptor.getState()` is the `!llvm.ptr` from the `runtime_state` operand
+    auto callOp = LLVM::CallOp::create(
+        rewriter, loc, beginFn.value(),
+        ValueRange{adaptor.getState(), zoneType, extraInfoPtr});
+    // The result replaces the typed profiler_record value with an `!llvm.ptr`;
+    // the matching profiler.end pattern reads it through its adaptor.
+    rewriter.replaceOp(beginOp, callOp.getResult());
+    return success();
+  }
+};
+
+/// Lowers `iree_hexagon.profiler.end` to a call to the
+/// `hexagon_runtime_profiler_zone_end` runtime entry point.
+struct ConvertProfilerEndOp
+    : public ConvertOpToLLVMPattern<IREE::Hexagon::ProfilerEndOp> {
+  using ConvertOpToLLVMPattern::ConvertOpToLLVMPattern;
+  LogicalResult
+  matchAndRewrite(IREE::Hexagon::ProfilerEndOp endOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto moduleOp = endOp->getParentOfType<ModuleOp>();
+    Location loc = endOp.getLoc();
+    auto voidType = LLVM::LLVMVoidType::get(rewriter.getContext());
+    auto ptrType = LLVM::LLVMPointerType::get(rewriter.getContext());
+
+    FailureOr<LLVM::LLVMFuncOp> endFn = LLVM::lookupOrCreateFn(
+        rewriter, moduleOp, kProfilerZoneEndFn, {ptrType}, voidType);
+    if (failed(endFn)) {
+      return rewriter.notifyMatchFailure(
+          endOp, "failed to declare profiler zone end runtime helper");
+    }
+
+    // The record operand was replaced with the `!llvm.ptr` returned by the
+    // lowered profiler.begin call, so read it generically via the adaptor.
+    LLVM::CallOp::create(rewriter, loc, endFn.value(),
+                         ValueRange{adaptor.getRecord()});
+    rewriter.eraseOp(endOp);
+    return success();
+  }
+};
+
 class HexagonConvertToLLVMPass
     : public impl::HexagonConvertToLLVMPassBase<HexagonConvertToLLVMPass> {
 public:
   using Base::Base;
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<arith::ArithDialect, math::MathDialect, func::FuncDialect,
-                memref::MemRefDialect, linalg::LinalgDialect, tosa::TosaDialect,
-                scf::SCFDialect, vector::VectorDialect, LLVM::LLVMDialect>();
+    registry.insert<arith::ArithDialect, math::MathDialect, func::FuncDialect,
+                    memref::MemRefDialect, linalg::LinalgDialect,
+                    tosa::TosaDialect, scf::SCFDialect, vector::VectorDialect,
+                    LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonDialect>();
   }
   void runOnOperation() override;
 };
@@ -976,6 +1152,8 @@ void HexagonConvertToLLVMPass::runOnOperation() {
     vector::populateVectorMaskMaterializationPatterns(
         patterns, /*force32BitVectorIndices=*/false);
     vector::populateVectorMaskOpLoweringPatterns(patterns);
+    // FIXME: This pass is run twice unneccessarily, once here and another time
+    // in ireeLoweringPipelines.cpp:711. Related to ROO-1458.
     vector::populateVectorShapeCastLoweringPatterns(patterns);
     // vector::populateVectorFromElementsLoweringPatterns(patterns);
     // vector::populateVectorToElementsLoweringPatterns(patterns);
@@ -1083,6 +1261,25 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   // clang-format on
   if (lowerHalBindingSubspan) {
     patterns.insert<ConvertHALInterfaceBindingSubspanOp>(abi, typeConverter);
+  }
+
+  if (lowerHalBindingSubspan) {
+    // The runtime state and profiler marker ops carry the opaque Hexagon
+    // `runtime_state` and `profiler_record` values, which the runtime
+    // represents as plain pointers. Teach the type converter about them.
+    typeConverter.addConversion(
+        [](IREE::Hexagon::RuntimeStateType type) -> std::optional<Type> {
+          return LLVM::LLVMPointerType::get(type.getContext());
+        });
+    typeConverter.addConversion(
+        [](IREE::Hexagon::ProfilerRecordType type) -> std::optional<Type> {
+          return LLVM::LLVMPointerType::get(type.getContext());
+        });
+    patterns.insert<ConvertGetRuntimeStateOp, ConvertProfilerBeginOp,
+                    ConvertProfilerEndOp>(typeConverter);
+    target.addIllegalOp<IREE::Hexagon::GetRuntimeStateOp,
+                        IREE::Hexagon::ProfilerBeginOp,
+                        IREE::Hexagon::ProfilerEndOp>();
   }
 
   target.addLegalOp<ModuleOp>();

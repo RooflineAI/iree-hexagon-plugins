@@ -1,8 +1,8 @@
 // This file contains a table with the event ids from the programming guide. It
 // may be used to configure the pmu.
 
-#ifndef HEXAGON_PMU_EVENTS_FROM_TABLE_H_
-#define HEXAGON_PMU_EVENTS_FROM_TABLE_H_
+#ifndef HEXAGON_PMU_EVENTS_FROM_TABLE_H
+#define HEXAGON_PMU_EVENTS_FROM_TABLE_H
 
 #define HEXAGON_PMU_COUNTERS 8
 
@@ -39,4 +39,4 @@ static inline const char *hexagon_pmu_event_name(int id) {
   return 0;
 }
 
-#endif // HEXAGON_PMU_EVENTS_FROM_TABLE_H_
+#endif // HEXAGON_PMU_EVENTS_FROM_TABLE_H

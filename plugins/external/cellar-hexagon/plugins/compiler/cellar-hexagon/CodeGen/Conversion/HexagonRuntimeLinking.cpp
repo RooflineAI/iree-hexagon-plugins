@@ -10,10 +10,12 @@
 #include "hexagon/Conversion/HexKLToLLVM/HexKLExternalFnNames.h"
 #include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemExternalFnNames.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringMap.h"
 
 namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace IREE = mlir::iree_compiler::IREE;
 
 const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
   static const llvm::StringSet<> names = [] {

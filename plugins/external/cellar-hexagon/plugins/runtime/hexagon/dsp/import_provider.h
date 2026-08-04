@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 
-#include "hexagon/dsp/executable_library.h"
+#include "hexagon/dsp/rt/executable_library.h"
 
 // Resolves helper executable imports from `imports` and initializes
 // `environment`. Any allocated import storage is owned through the environment

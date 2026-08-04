@@ -7,6 +7,7 @@
 #ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONOPS
 #define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONOPS
 
+include "cellar-hexagon/CodeGen/IR/HexagonAttrs.td"
 include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
 include "cellar-hexagon/CodeGen/IR/HexagonTypes.td"
 include "mlir/IR/OpBase.td"
@@ -18,6 +19,28 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 
 class IREEHexagon_Op<string mnemonic, list<Trait> traits = []> :
     Op<IREEHexagon_Dialect, mnemonic, traits>;
+
+//===----------------------------------------------------------------------===//
+// Runtime state ops.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_GetRuntimeStateOp :
+    IREEHexagon_Op<"get_runtime_state", [Pure]> {
+  let summary = "Get the active Hexagon runtime state";
+  let description = [{
+    Produces the runtime state used by the surrounding dispatch. The operation
+    lowers to loading the runtime state pointer from Hexagon's extended dispatch
+    state. As the loaded pointer is not changing while a dispatch is running and
+    nothing else that is compiled in a dispatch can read or write this pointer,
+    it is safe here to not annotate [MemoryEffects<[MemRead]>].
+  }];
+
+  let arguments = (ins);
+
+  let results = (outs IREEHexagon_RuntimeStateType:$state);
+
+  let assemblyFormat = "attr-dict `:` type($state)";
+}
 
 //===----------------------------------------------------------------------===//
 // Profiler marker ops.
@@ -32,13 +55,15 @@ def IREEHexagon_ProfilerBeginOp :
   }];
 
   let arguments = (ins
-      I32Attr:$zone_type,
+      IREEHexagon_RuntimeStateType:$state,
+      IREEHexagon_ProfilerZoneAttr:$zone_type,
       OptionalAttr<StrAttr>:$extra_info
   );
 
   let results = (outs IREEHexagon_ProfilerRecordType:$record);
 
-  let assemblyFormat = "attr-dict `:` type($record)";
+  let assemblyFormat =
+      "$state attr-dict `:` type($state) `->` type($record)";
 }
 
 def IREEHexagon_ProfilerEndOp :

@@ -6,7 +6,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "hexagon/dsp/executable_library.h"
+#include "hexagon/dsp/rt/executable_library.h"
+#include "hexagon/dsp/rt/runtime_state.h"
 
 #include "hexagon_dsp.h"
 
@@ -32,10 +33,6 @@ int hexagon_dsp_executable_load(remote_handle64 rpc_handle, const char *name,
  */
 int hexagon_dsp_executable_close(remote_handle64 rpc_handle,
                                  int64 executable_handle);
-
-/***** internal functions,
- ***** running on DSP,
- ***** called by other DSP compilation units */
 
 /**
  * @brief get dispatch function pointer for an entry point

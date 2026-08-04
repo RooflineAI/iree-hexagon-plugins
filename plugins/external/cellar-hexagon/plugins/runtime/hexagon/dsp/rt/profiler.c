@@ -1,7 +1,8 @@
 // Copyright 2025 RooflineAI GmbH
 
-#include "hexagon/dsp/profiler.h"
+#include "hexagon/dsp/rt/profiler.h"
 #include "hexagon/arm_dsp/profiler.h"
+#include "hexagon/dsp/rt/runtime_state.h"
 #include "qurt_atomic_ops.h"
 #include <string.h>
 
@@ -33,15 +34,11 @@ profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record) {
   (void)record;
 }
 
-void profiler_set_active_context(hexagon_rt_prof_context_t *prof_context) {
-  (void)prof_context;
-}
-
-void profiler_clear_active_context(void) {}
-
 hexagon_rt_prof_record_t *
-hexagon_runtime_profiler_zone_begin(uint32_t zone_type,
+hexagon_runtime_profiler_zone_begin(hexagon_rt_state_t *runtime_state,
+                                    uint32_t zone_type,
                                     const char *extra_info) {
+  (void)runtime_state;
   (void)zone_type;
   (void)extra_info;
   return NULL;
@@ -142,7 +139,7 @@ profiler_measurement_start(hexagon_rt_prof_context_t *prof_context,
 
   hexagon_rt_prof_record_t *record =
       profiler_context_get_fresh_record(prof_context);
-  if (!prof_context) {
+  if (!record) {
     return NULL;
   }
 
@@ -175,21 +172,14 @@ void profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record) {
   record->record_completed = 1;
 }
 
-static hexagon_rt_prof_context_t *active_profiler_context = NULL;
-
-void profiler_set_active_context(hexagon_rt_prof_context_t *prof_context) {
-  active_profiler_context = prof_context;
-}
-
-void profiler_clear_active_context(void) { active_profiler_context = NULL; }
-
 hexagon_rt_prof_record_t *
-hexagon_runtime_profiler_zone_begin(uint32_t zone_type,
+hexagon_runtime_profiler_zone_begin(hexagon_rt_state_t *runtime_state,
+                                    uint32_t zone_type,
                                     const char *extra_info) {
-  if (!active_profiler_context) {
+  if (!runtime_state || !runtime_state->prof_context) {
     return NULL;
   }
-  return profiler_measurement_start(active_profiler_context, zone_type,
+  return profiler_measurement_start(runtime_state->prof_context, zone_type,
                                     extra_info);
 }
 

@@ -6,15 +6,18 @@
 
 #include "malloc_free.h"
 
-#include "hexagon/arm_dsp/profiler.h"
-#include "hexagon/dsp/profiler.h"
-#include "hexagon/dsp/vtcm_pool.h"
+#include "hexagon/dsp/rt/vtcm_pool.h"
 
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "HAP_farf.h"
+
+// Profiler is inserted by the compiler as marker ops around the memref
+// operations that lower to these helpers (see the
+// iree-hexagon-insert-memory-management-profiler-markers pass), so these
+// helpers no longer emit their own profiler zones.
 
 void *hexagon_runtime_malloc(int64_t size) {
   if (size < 0 || (uint64_t)size > UINT_MAX) {
@@ -23,12 +26,7 @@ void *hexagon_runtime_malloc(int64_t size) {
     return NULL;
   }
 
-  hexagon_rt_prof_record_t *prof_rec = hexagon_runtime_profiler_zone_begin(
-      MEMORY_MANAGEMENT, "kernel_allocation");
-  void *res = hexagon_dsp_vtcm_pool_allocate(size);
-  hexagon_runtime_profiler_zone_end(prof_rec);
-
-  return res;
+  return hexagon_dsp_vtcm_pool_allocate(size);
 }
 
 void hexagon_runtime_free(void *ptr) {
@@ -36,8 +34,5 @@ void hexagon_runtime_free(void *ptr) {
     return;
   }
 
-  hexagon_rt_prof_record_t *prof_rec =
-      hexagon_runtime_profiler_zone_begin(MEMORY_MANAGEMENT, "kernel_free");
   hexagon_dsp_vtcm_pool_free(ptr);
-  hexagon_runtime_profiler_zone_end(prof_rec);
 }

@@ -55,7 +55,6 @@ cellar_hexagon_plugin_library(
     srcs = [
         "Conversion/HexagonConvertToLLVM.cpp",
         "Conversion/HexagonRuntimeLinking.cpp",
-        "Conversion/LowerProfilerMarkers.cpp",
         "Conversion/MarkHexagonNativeRuntimeLinks.cpp",
         "Passes.cpp",
         "Pipelines/Bufferization.cpp",

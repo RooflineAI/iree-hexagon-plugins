@@ -87,9 +87,9 @@ void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   pm.addPass(hexagonmem::createHexagonMemToLLVMPass());
   pm.addPass(Hexagon::createDMAToLLVMPass());
   pm.addPass(hexkl::createHexKLToLLVMPass());
-  pm.addPass(createLowerProfilerMarkersPass());
   // Hexagon DMA/HexKL/HexagonMem runtime symbols are always kept as native
-  // unresolved externs and resolved by the DSP loader.
+  // unresolved externs and resolved by the DSP loader. (Profiler markers are
+  // lowered and tagged as part of the convert-to-llvm phase-2 conversion.)
   pm.addPass(createMarkHexagonNativeRuntimeLinksPass());
 
   // Must run after function lowering and before memref finalization.

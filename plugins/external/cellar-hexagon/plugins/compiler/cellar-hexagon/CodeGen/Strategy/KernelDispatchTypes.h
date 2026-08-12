@@ -7,7 +7,7 @@
 #ifndef ROOF_HEXAGON_CODEGEN_KERNELDISPATCHTYPES_H_
 #define ROOF_HEXAGON_CODEGEN_KERNELDISPATCHTYPES_H_
 
-#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenEnums.h"
+#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
@@ -57,9 +57,8 @@ struct VTCMTilingPlan {
 struct RootLoweringPlan {
   std::optional<OpLoweringPlan> opPlan;
   std::optional<VTCMTilingPlan> vtcmTiling;
-  mlir::iree_compiler::IREE::Codegen::DispatchLoweringPassPipeline pipeline =
-      mlir::iree_compiler::IREE::Codegen::DispatchLoweringPassPipeline::
-          CPUDefault;
+  mlir::iree_compiler::IREE::CPU::LoweringPipeline pipeline =
+      mlir::iree_compiler::IREE::CPU::LoweringPipeline::Default;
   bool enableLoopPeeling = false;
 };
 

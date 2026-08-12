@@ -33,7 +33,7 @@ using mlir::ShapedType;
 using mlir::TilingInterface;
 using mlir::Type;
 using mlir::TypeSwitch;
-using mlir::iree_compiler::IREE::Codegen::DispatchLoweringPassPipeline;
+using mlir::iree_compiler::IREE::CPU::LoweringPipeline;
 
 namespace linalg = mlir::linalg;
 
@@ -639,7 +639,7 @@ RootLoweringPlan selectRootLoweringPlan(FunctionOpInterface entryPointFn,
                                         Operation *rootOperation) {
   PolicyConfig policyConfig;
   RootLoweringPlan selection;
-  selection.pipeline = DispatchLoweringPassPipeline::CPUDefault;
+  selection.pipeline = LoweringPipeline::Default;
 
   if (auto linalgOp = mlir::dyn_cast<linalg::LinalgOp>(rootOperation)) {
     if (linalg::isaContractionOpInterface(linalgOp) &&
@@ -675,14 +675,12 @@ RootLoweringPlan selectRootLoweringPlan(FunctionOpInterface entryPointFn,
     // with additional space for padding. In this context, we would ideally use
     // the DMA without any VTCM tiling whatsoever.
     if (isBufferLikeCopyOp(linalgOp)) {
-      selection.pipeline =
-          DispatchLoweringPassPipeline::CPUBufferOpsTileAndVectorize;
+      selection.pipeline = LoweringPipeline::BufferOpsTileAndVectorize;
     } else if (is2DConvOp(linalgOp) || is2DDepthConvOp(linalgOp) ||
                is2DPoolingOp(linalgOp)) {
-      selection.pipeline =
-          DispatchLoweringPassPipeline::CPUConvTileAndDecomposeExpert;
+      selection.pipeline = LoweringPipeline::ConvTileAndDecomposeExpert;
     } else {
-      selection.pipeline = DispatchLoweringPassPipeline::CPUDoubleTilingExpert;
+      selection.pipeline = LoweringPipeline::DoubleTilingExpert;
       selection.enableLoopPeeling = linalgOp.hasPureTensorSemantics();
     }
   }

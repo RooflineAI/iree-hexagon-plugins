@@ -79,6 +79,7 @@ cellar_hexagon_plugin_library(
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
         "@iree//compiler/src/iree/compiler/Utils",
+        "//plugins/runtime/hexagon/schemas:hexagon_executable_def_c_fbs",
         "@llvm-project//llvm:BitWriter",
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:MC",
@@ -99,6 +100,8 @@ cellar_hexagon_plugin_library(
         "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
         "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
         "@iree//compiler/plugins/target/LLVMCPU:LLVMIRPasses",
+        # FlatbufferBuilder + flatcc runtime for the executable-def flatbuffer.
+        "@iree//compiler/src/iree/compiler/Utils",
     ],
 )
 

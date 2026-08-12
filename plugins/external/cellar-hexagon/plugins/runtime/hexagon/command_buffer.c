@@ -659,8 +659,7 @@ iree_hal_hexagon_command_buffer_helper_unmap(const iree_hal_buffer_ref_t *refs,
 
 static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
     iree_hal_command_buffer_t *base_command_buffer,
-    iree_hal_executable_t *executable,
-    iree_hal_executable_export_ordinal_t export_ordinal,
+    iree_hal_executable_t *executable, iree_hal_executable_function_t function,
     const iree_hal_dispatch_config_t config, iree_const_byte_span_t constants,
     iree_hal_buffer_ref_list_t bindings, iree_hal_dispatch_flags_t flags) {
   iree_hal_hexagon_command_buffer_t *command_buffer =
@@ -744,6 +743,9 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   }
 
   // serialize dispatch command
+  // The Hexagon executable indexes its exported functions by dense ordinal, so
+  // decode the opaque function token back to that ordinal for the wire format.
+  uint32_t export_ordinal = iree_hal_executable_function_index(function);
   iree_status_t status_serialize = iree_hal_hexagon_cmd_dispatch_serialize_exec(
       rpc_executable_handle, export_ordinal, &config, &constants, &bindings,
       iree_hal_hexagon_buffer_get_fd_for_dsp, cmd_data, cmd_size);

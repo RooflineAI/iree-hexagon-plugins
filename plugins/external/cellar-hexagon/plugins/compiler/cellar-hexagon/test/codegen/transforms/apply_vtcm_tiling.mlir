@@ -177,7 +177,7 @@ func.func @configured_matmul_mixed(%lhs: tensor<4x4xf32>, %rhs: tensor<4x8xf32>,
 // And finally the result is stored
 // CHECK: tensor.parallel_insert_slice
 
-func.func @main$async_dispatch_2_softmax_4x1024x1024xf32_generic() attributes {translation_info = #iree_codegen.translation_info<pipeline = CPUDoubleTilingExpert>} {
+func.func @main$async_dispatch_2_softmax_4x1024x1024xf32_generic() attributes {translation_info = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>>} {
   %cst = arith.constant 0xFFC00000 : f32
   %cst_0 = arith.constant 0.000000e+00 : f32
   %c0 = arith.constant 0 : index

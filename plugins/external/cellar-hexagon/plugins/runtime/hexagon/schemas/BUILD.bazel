@@ -1,0 +1,55 @@
+# Copyright 2025 RooflineAI GmbH
+
+# Executable-def flatbuffer schema, shared by the compiler (producer) and the
+# runtime (consumer) -- mirrors IREE's runtime/src/iree/schemas layout, where
+# the GPU targets' compilers and HAL drivers both depend on the same
+# <target>_executable_def_c_fbs library.
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+# Host-readable executable metadata (export names in dense ordinal order + the
+# ELF) so the HAL can resolve by-name dispatch refs (IREE #24036) to ordinals on
+# the host; the DSP loads the ELF and dispatches by that same ordinal.
+#
+# Generated with flatcc `--common` so the flatbuffers common headers are emitted
+# co-located with the schema headers -- the generated reader's
+# `#include "flatbuffers_common_reader.h"` then resolves relative to itself,
+# making the library self-contained (unlike iree_flatbuffer_c_library, which
+# relies on a shared flatcc common header that does not resolve under this
+# plugin's include layout).
+genrule(
+    name = "hexagon_executable_def_gen",
+    srcs = ["hexagon_executable_def.fbs"],
+    outs = [
+        "hexagon_executable_def_reader.h",
+        "hexagon_executable_def_builder.h",
+        "hexagon_executable_def_verifier.h",
+        "flatbuffers_common_reader.h",
+        "flatbuffers_common_builder.h",
+    ],
+    cmd = "$(location @com_github_dvidelabs_flatcc//:flatcc) --common --reader " +
+          "--builder --verifier -o$(RULEDIR) $(location hexagon_executable_def.fbs)",
+    tools = ["@com_github_dvidelabs_flatcc//:flatcc"],
+)
+
+cc_library(
+    name = "hexagon_executable_def_c_fbs",
+    hdrs = [
+        "flatbuffers_common_builder.h",
+        "flatbuffers_common_reader.h",
+        "hexagon_executable_def_builder.h",
+        "hexagon_executable_def_reader.h",
+        "hexagon_executable_def_verifier.h",
+    ],
+    # Resolve as "hexagon/schemas/hexagon_executable_def_{reader,builder}.h".
+    strip_include_prefix = "/plugins/runtime",
+    # flatcc runtime headers (flatcc/flatcc_flatbuffers.h ...) + builder/verifier
+    # runtime symbols.
+    deps = ["@iree//runtime/src/iree/base/internal/flatcc:building"],
+)

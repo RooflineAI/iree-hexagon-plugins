@@ -1,0 +1,19 @@
+// Copyright 2026 RooflineAI GmbH
+
+namespace iree.hal.hexagon;
+
+file_identifier "HEX1";
+file_extension "hex1";
+
+table ExecutableDef {
+  // Exported dispatch function names in canonical entry-point order: the index
+  // of a name in this vector IS the export ordinal the DSP dispatches by
+  // (exports->ptrs[ordinal]).
+  entry_points:[string];
+
+  // The linked Hexagon ELF shared object. The host writes this to a .so and the
+  // DSP dlopen-s it.
+  elf:[uint8];
+}
+
+root_type ExecutableDef;

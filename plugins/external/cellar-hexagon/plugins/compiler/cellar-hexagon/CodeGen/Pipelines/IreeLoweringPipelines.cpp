@@ -23,7 +23,6 @@
 #include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
 #include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "hexagon/Transforms/Transforms.h"
-#include "iree-dialects/Dialect/LinalgTransform/Passes.h"
 #include "iree/compiler/Codegen/Common/PassUtils.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
@@ -31,6 +30,7 @@
 #include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "iree/compiler/Dialect/LinalgExt/Transforms/Passes.h"
 #include "iree/compiler/Dialect/Util/Transforms/Passes.h"
+#include "iree/compiler/Transforms/Passes.h"
 #include "iree/compiler/Utils/PassUtils.h"
 #include "mlir/Conversion/ComplexToStandard/ComplexToStandard.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
@@ -581,11 +581,12 @@ void addHexagonDefaultPassPipeline(OpPassManager &funcPassManager,
 }
 
 void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
-  variantPassManager.addPass(createReconcileTranslationInfoPass());
-  variantPassManager.addPass(createCSEPass());
-  variantPassManager.addPass(createResolveWorkgroupCountHintsPass());
-  variantPassManager.addPass(createIREECodegenLowerAffinePass());
-  variantPassManager.addPass(IREE::Util::createDropCompilerHintsPass());
+  OpPassManager &modulePassManager = variantPassManager.nest<ModuleOp>();
+  modulePassManager.addPass(createReconcileTranslationInfoPass());
+  modulePassManager.addPass(createCSEPass());
+  modulePassManager.addPass(createResolveWorkgroupCountHintsPass());
+  modulePassManager.addPass(createIREELowerAffinePass());
+  modulePassManager.addPass(IREE::Util::createDropCompilerHintsPass());
 }
 
 void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
@@ -655,7 +656,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       .addPass(createCSEPass)
       // (HAL, IREE, Linalg, CF) -> LLVM
       .addPass(memref::createFoldMemRefAliasOpsPass)
-      .addPass(createIREECodegenAffineExpandIndexOpsPass)
+      .addPass(createIREEAffineExpandIndexOpsPass)
       .addPass([&]() {
         arith::ArithExpandOpsPassOptions options;
         options.includeBf16 = true;

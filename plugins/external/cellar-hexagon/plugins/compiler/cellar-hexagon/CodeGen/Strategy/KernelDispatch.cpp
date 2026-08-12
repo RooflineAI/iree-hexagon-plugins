@@ -29,16 +29,20 @@ using mlir::iree_compiler::getLoweringConfig;
 using mlir::iree_compiler::getRootOperation;
 using mlir::iree_compiler::getTranslationInfo;
 using mlir::iree_compiler::setTranslationInfo;
-using mlir::iree_compiler::IREE::Codegen::DispatchLoweringPassPipeline;
 
 static LogicalResult
 lowerUsingDefaultPipeline(FunctionOpInterface entryPointFn) {
   if (getTranslationInfo(entryPointFn)) {
     return mlir::success();
   }
+  MLIRContext *ctx = entryPointFn.getContext();
   auto translationInfo =
       mlir::iree_compiler::IREE::Codegen::TranslationInfoAttr::get(
-          entryPointFn.getContext(), DispatchLoweringPassPipeline::CPUDefault);
+          ctx,
+          mlir::iree_compiler::IREE::CPU::PipelineAttr::get(
+              ctx, mlir::iree_compiler::IREE::CPU::LoweringPipeline::Default),
+          mlir::SymbolRefAttr(), /*workgroupSize=*/{}, /*subgroupSize=*/0,
+          /*configuration=*/mlir::DictionaryAttr());
   return setTranslationInfo(entryPointFn, translationInfo);
 }
 

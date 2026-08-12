@@ -70,7 +70,7 @@ def HexagonLowerExecutableTargetPass :
     InterfacePass<"iree-hexagon-lower-executable-target",
                   "mlir::FunctionOpInterface"> {
   let summary =
-      "Lower executable target using an IREE::HAL::DispatchLoweringPassPipeline."
+      "Lower executable target using the pipeline carried on translation_info."
       "The purpose of this pass is to replace the equivalent pass in LLVMCPU of the same name."
       "This is the pass responsible for scheduling the pipeline selected during the Hexagon lowering-strategy pass."
       "Instead of calling the original LLVMCPU pipelines, it now calls the Hexagon ones.";

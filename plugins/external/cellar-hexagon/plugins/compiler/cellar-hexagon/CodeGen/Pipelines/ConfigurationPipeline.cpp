@@ -95,7 +95,7 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
 } // namespace
 
 void buildHexagonConfigurationPassPipeline(OpPassManager &variantPassManager) {
-  variantPassManager.addPass(createSpecializeExportsPass());
+  buildCodegenConfigurationPreProcessingPassPipeline(variantPassManager);
   OpPassManager &modulePassManager = variantPassManager.nest<ModuleOp>();
   buildHexagonCodegenConfigurationPassPipeline(modulePassManager);
 }

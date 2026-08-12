@@ -72,21 +72,29 @@ cellar_hexagon_plugin_library(
         "//conditions:default": [],
     }),
     hdr_deps = [
+        # Don't pull functions already present in iree-run/benchmark-module
+        # into the plugin's shared lib. (In case of enabled tracy, this even
+        # causes segfaults due to duplicate tracy initialization.) Use
+        # header-only dependencies to avoid it.
+        "@iree//runtime/src/iree/async",
+        "@iree//runtime/src/iree/async/util:proactor_pool",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/base/internal",
-        "@iree//runtime/src/iree/base/internal:event_pool",
+        "@iree//runtime/src/iree/base/internal/flatcc:building",
+        "@iree//runtime/src/iree/base/internal/flatcc:parsing",
         "@iree//runtime/src/iree/hal",
+        "@iree//runtime/src/iree/hal/utils:executable_header",
         "@iree//runtime/src/iree/hal/utils:file_transfer",
         "@iree//runtime/src/iree/hal/utils:files",
         "@iree//runtime/src/iree/hal/utils:queue_emulation",
         "@iree//runtime/src/iree/hal/utils:queue_host_call_emulation",
         "@iree//runtime/src/iree/hal/utils:resource_set",
-        "@iree//runtime/src/iree/hal/utils:semaphore_base",
     ],
     strip_include_prefix = "/plugins/runtime",
     deps = [
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
         "//plugins/runtime/hexagon/interface:hexagon_dsp_stub_lib",
+        "//plugins/runtime/hexagon/schemas:hexagon_executable_def_c_fbs",
         "//plugins/runtime/hexagon/serialize:serialize_plugin",
     ],
 )

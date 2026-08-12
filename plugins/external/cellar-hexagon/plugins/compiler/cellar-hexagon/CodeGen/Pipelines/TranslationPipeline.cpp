@@ -78,6 +78,11 @@ void buildHexagonTranslationPassPipeline(
     break;
   }
 
+  // Fold each iree_codegen.dispatch_config op back into its HAL export's
+  // workgroup-count region and erase it, mirroring IREE's existing backends.
+  // Without it the dispatch_config op survives to LLVM translation.
+  buildCodegenTranslationPostProcessingPassPipeline(variantPassManager);
+
   LLVM_DEBUG({
     llvm::dbgs() << "Hexagon codegen pass pipeline:\n";
     variantPassManager.printAsTextualPipeline(llvm::dbgs());

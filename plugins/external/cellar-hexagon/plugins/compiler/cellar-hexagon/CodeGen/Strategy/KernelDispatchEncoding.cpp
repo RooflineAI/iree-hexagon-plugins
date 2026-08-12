@@ -77,6 +77,18 @@ static LoweringConfigAttr encodeTilingConfig(MLIRContext *ctx,
   return LoweringConfigAttr::get(ctx, items);
 }
 
+// Builds a translation_info tagging the function with a CPU lowering pipeline.
+// Hexagon reuses the CPU pipeline names but runs its own passes in
+// HexagonLowerExecutableTarget; mirrors LLVMCPU's getCPUTranslationInfo.
+static IREE::Codegen::TranslationInfoAttr
+getHexagonTranslationInfo(MLIRContext *ctx,
+                          IREE::CPU::LoweringPipeline pipeline,
+                          DictionaryAttr configuration = {}) {
+  return IREE::Codegen::TranslationInfoAttr::get(
+      ctx, IREE::CPU::PipelineAttr::get(ctx, pipeline), SymbolRefAttr(),
+      /*workgroupSize=*/{}, /*subgroupSize=*/0, configuration);
+}
+
 } // namespace
 
 LogicalResult applyRootLoweringPlan(FunctionOpInterface entryPointFn,
@@ -88,9 +100,8 @@ LogicalResult applyRootLoweringPlan(FunctionOpInterface entryPointFn,
   // Hexagon disables workgroup tiling, but the null distribution level still
   // acts as an anchor marker.
   bool preserveZeroDistribution =
-      rootPlan.pipeline ==
-          mlir::iree_compiler::IREE::Codegen::DispatchLoweringPassPipeline::
-              CPUDoubleTilingExpert &&
+      rootPlan.pipeline == mlir::iree_compiler::IREE::CPU::LoweringPipeline::
+                               DoubleTilingExpert &&
       !rootPlan.opPlan->tileLevels.distribution.empty();
   auto loweringConfig =
       encodeTilingConfig(rootOperation->getContext(),
@@ -104,8 +115,9 @@ LogicalResult applyRootLoweringPlan(FunctionOpInterface entryPointFn,
         ctx, ArrayRef<NamedAttribute>{{attrName, UnitAttr::get(ctx)}});
   }
   if (failed(setOpConfigAndEntryPointFnTranslation(
-          entryPointFn, rootOperation, loweringConfig, rootPlan.pipeline,
-          /*workgroupSize=*/{}, /*subgroupSize=*/{}, pipelineConfig))) {
+          entryPointFn, rootOperation, loweringConfig,
+          getHexagonTranslationInfo(rootOperation->getContext(),
+                                    rootPlan.pipeline, pipelineConfig)))) {
     return failure();
   }
 

@@ -14,6 +14,10 @@
 #include "compiler/plugins/target/LLVMCPU/LibraryBuilder.h"
 #include "compiler/plugins/target/LLVMCPU/LinkerTool.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
+#include "iree/compiler/Utils/FlatbufferUtils.h"
+// Generated flatcc builder for the Hexagon executable-def flatbuffer (host-
+// readable export names + ELF). See serialize/hexagon_executable_def.fbs.
+#include "hexagon/schemas/hexagon_executable_def_builder.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Target/LLVMIR/Export.h"
@@ -136,9 +140,10 @@ static void dumpAssemblyFromLLVMModule(HAL::ExecutableVariantOp variantOp,
 // functions except the query function have their visibility changed and are
 // hidden. We are not currently doing the same for Hexagon and all functions
 // are exposed.
-static void buildExecutableMetadata(const LLVMTarget &target,
-                                    llvm::Module &llvmModule,
-                                    HAL::ExecutableVariantOp &variantOp) {
+static void
+buildExecutableMetadata(const LLVMTarget &target, llvm::Module &llvmModule,
+                        HAL::ExecutableVariantOp &variantOp,
+                        llvm::SmallVectorImpl<std::string> &entryPointNames) {
   LibraryBuilder::Mode libraryBuilderMode =
       target.debugSymbols ? LibraryBuilder::Mode::INCLUDE_REFLECTION_ATTRS
                           : LibraryBuilder::Mode::NONE;
@@ -218,6 +223,11 @@ static void buildExecutableMetadata(const LLVMTarget &target,
     libraryBuilder.addExport(exportOp.getName(), std::move(sourceLocation),
                              std::move(stageLocations), /*tag=*/"",
                              dispatchAttrs, llvmFunc);
+
+    // Collect the export name in the SAME order it is added to the library so
+    // the host-readable flatbuffer's entry_points[i] lines up with the DSP's
+    // exports->ptrs[i] (i.e. index == dispatch ordinal).
+    entryPointNames.push_back(exportOp.getName().str());
   }
 
   // TODO: This is where we are actually performing the work. Note that
@@ -398,7 +408,9 @@ mlir::LogicalResult serializeHexagonExecutable(
 
   const auto &llvmIreeTarget = llvmTargetOption.value();
 
-  buildExecutableMetadata(llvmIreeTarget, *llvmModule, variantOp);
+  llvm::SmallVector<std::string> entryPointNames;
+  buildExecutableMetadata(llvmIreeTarget, *llvmModule, variantOp,
+                          entryPointNames);
 
   auto targetMachine = createTargetMachine(llvmIreeTarget);
   if (!targetMachine) {
@@ -478,17 +490,29 @@ mlir::LogicalResult serializeHexagonExecutable(
                            libraryFileOption.value());
   }
 
-  // Embed the resulting executable binary into the IR
-  auto bufferAttr = mlir::DenseIntElementsAttr::get(
-      mlir::VectorType::get(
-          {static_cast<int64_t>(libraryFileOption->size())},
-          mlir::IntegerType::get(executableBuilder.getContext(), 8)),
-      std::move(libraryFileOption.value()));
+  // Wrap the export names (host-readable, in dense ordinal order) plus the
+  // linked ELF into the executable-def flatbuffer, mirroring the GPU targets.
+  // This lets the HAL resolve the by-name dispatch references introduced by
+  // IREE #24036 to ordinals on the host; the DSP still loads the ELF and
+  // dispatches by that same ordinal (exports->ptrs[ordinal]).
+  FlatbufferBuilder builder;
+  iree_hal_hexagon_ExecutableDef_start_as_root(builder);
+  auto entryPointsRef = builder.createStringVec(entryPointNames);
+  auto elfRef = flatbuffers_uint8_vec_create(
+      builder, reinterpret_cast<const uint8_t *>(libraryFileOption->data()),
+      libraryFileOption->size());
+  iree_hal_hexagon_ExecutableDef_entry_points_add(builder, entryPointsRef);
+  iree_hal_hexagon_ExecutableDef_elf_add(builder, elfRef);
+  iree_hal_hexagon_ExecutableDef_end_as_root(builder);
+
   auto binaryOp = HAL::ExecutableBinaryOp::create(
       executableBuilder, variantOp.getLoc(), variantOp.getSymName(),
-      variantOp.getTarget().getFormat(), bufferAttr);
+      variantOp.getTarget().getFormat(),
+      builder.getHeaderPrefixedBufferAttr(
+          executableBuilder.getContext(),
+          iree_hal_hexagon_ExecutableDef_file_identifier, /*version=*/0));
   binaryOp.setMimeTypeAttr(
-      executableBuilder.getStringAttr("application/x-elf"));
+      executableBuilder.getStringAttr("application/x-flatbuffers"));
 
   return mlir::success();
 }

@@ -18,7 +18,7 @@ func.func @generic_dispatch(%src: tensor<4x128x128xf32>) -> tensor<4x128xf32> at
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = CPUDoubleTilingExpert, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
 // CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [4, 128, 128]>
 // CHECK: func.func @generic_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -40,7 +40,7 @@ func.func @matmul_dispatch(%lhs: tensor<128x128xf32>, %rhs: tensor<128x128xf32>)
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = CPUDoubleTilingExpert, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
 // CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [128, 128, 128]>
 // CHECK: func.func @matmul_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -73,7 +73,7 @@ func.func @multi_op_dispatch(%src: tensor<8x8xf32>) -> tensor<8x8xf32> attribute
 // CHECK-DAG: #[[PRODUCER:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 8]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<distribution = [0, 0], vector_common_parallel = [1, 8]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = CPUDoubleTilingExpert, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
 // CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [8, 8]>
 // CHECK: func.func @multi_op_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]

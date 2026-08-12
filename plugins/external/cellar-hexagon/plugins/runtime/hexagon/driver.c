@@ -220,6 +220,7 @@ static iree_status_t iree_hal_hexagon_device_options_parse(
 static iree_status_t iree_hal_hexagon_driver_create_device_by_id(
     iree_hal_driver_t *base_driver, iree_hal_device_id_t device_id,
     iree_host_size_t param_count, const iree_string_pair_t *params,
+    const iree_hal_device_create_params_t *create_params,
     iree_allocator_t host_allocator, iree_hal_device_t **out_device) {
   iree_hal_hexagon_driver_t *driver = iree_hal_hexagon_driver_cast(base_driver);
 
@@ -240,34 +241,36 @@ static iree_status_t iree_hal_hexagon_driver_create_device_by_id(
 
   // device ID is Hexagon domain ID
   return iree_hal_hexagon_device_create(driver->identifier, device_id, &options,
-                                        host_allocator, out_device);
+                                        create_params, host_allocator,
+                                        out_device);
 }
 
 static iree_status_t iree_hal_hexagon_driver_create_device_by_path(
     iree_hal_driver_t *base_driver, iree_string_view_t driver_name,
     iree_string_view_t device_path, iree_host_size_t param_count,
-    const iree_string_pair_t *params, iree_allocator_t host_allocator,
-    iree_hal_device_t **out_device) {
+    const iree_string_pair_t *params,
+    const iree_hal_device_create_params_t *create_params,
+    iree_allocator_t host_allocator, iree_hal_device_t **out_device) {
   if (iree_string_view_is_empty(device_path)) {
     return iree_hal_hexagon_driver_create_device_by_id(
         base_driver, IREE_HAL_HEXAGON_DEVICE_ID_DEFAULT, param_count, params,
-        host_allocator, out_device);
+        create_params, host_allocator, out_device);
   }
 
   // Try parsing path as device ID.
   uint32_t device_id = 0;
   if (iree_string_view_atoi_uint32(device_path, &device_id)) {
     return iree_hal_hexagon_driver_create_device_by_id(
-        base_driver, device_id, param_count, params, host_allocator,
-        out_device);
+        base_driver, device_id, param_count, params, create_params,
+        host_allocator, out_device);
   }
 
   // Try parsing path as device name. Use domain ID as device ID.
   iree_hal_hexagon_domain_id_t domain_id = 99999;
   if (iree_hal_hexagon_get_domain_id(device_path, &domain_id)) {
     return iree_hal_hexagon_driver_create_device_by_id(
-        base_driver, domain_id, param_count, params, host_allocator,
-        out_device);
+        base_driver, domain_id, param_count, params, create_params,
+        host_allocator, out_device);
   }
 
   return iree_make_status(IREE_STATUS_UNIMPLEMENTED, "unsupported device path");

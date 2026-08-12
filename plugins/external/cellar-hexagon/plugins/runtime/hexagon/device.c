@@ -12,8 +12,8 @@
 #include "hexagon/semaphore.h"
 #include "hexagon/serialize/bindings_serialize.h"
 #include "hexagon/utils.h"
+#include "iree/async/util/proactor_pool.h"
 #include "iree/base/internal/arena.h"
-#include "iree/base/internal/event_pool.h"
 #include "iree/base/status.h"
 #include "iree/base/string_builder.h"
 #include "iree/base/string_view.h"
@@ -72,10 +72,6 @@ static iree_status_t iree_hal_hexagon_device_options_verify(
 // iree_hal_hexagon_device_t
 //===----------------------------------------------------------------------===//
 
-/// Number of entries in the event pool to keep allocated. Value inspired by CPU
-/// task for now.
-#define IREE_HAL_HEXAGON_EVENT_POOL_CAPACITY 64
-
 struct iree_hal_hexagon_device_t {
   iree_hal_resource_t resource;
   iree_string_view_t identifier;
@@ -91,8 +87,13 @@ struct iree_hal_hexagon_device_t {
   // For now, the entire Hexagon device uses a single block pool.
   iree_arena_block_pool_t block_pool;
 
-  // For now, the entire Hexagon device uses a single event pool.
-  iree_event_pool_t *event_pool;
+  // Proactor pool for async I/O. Retained for the lifetime of the device to
+  // ensure proactor threads outlive all device resources (semaphores, etc.).
+  iree_async_proactor_pool_t *proactor_pool;
+
+  // Proactor selected from the pool for this device's async I/O operations.
+  // Borrowed from the pool -- valid as long as the pool is retained.
+  iree_async_proactor_t *proactor;
 
   /// Connection to DSP / DSP RPC session.
   rpc_session_handle_t rpc_session_handle;
@@ -363,11 +364,6 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   iree_arena_block_pool_initialize(4096, device->host_allocator,
                                    &device->block_pool);
 
-  // Allocate the one-and-only event pool for the Hexagon device.
-  IREE_RETURN_IF_ERROR(
-      iree_event_pool_allocate(IREE_HAL_HEXAGON_EVENT_POOL_CAPACITY,
-                               device->host_allocator, &device->event_pool));
-
   // Configure the DSP to accept unsigned modules
   struct remote_rpc_control_unsigned_module control_unsigned_module;
   control_unsigned_module.domain = device->domain_id;
@@ -449,8 +445,11 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
 iree_status_t iree_hal_hexagon_device_create(
     iree_string_view_t identifier, iree_hal_hexagon_domain_id_t domain_id,
     const iree_hal_hexagon_device_options_t *options,
+    const iree_hal_device_create_params_t *create_params,
     iree_allocator_t host_allocator, iree_hal_device_t **out_device) {
   IREE_ASSERT_ARGUMENT(options);
+  IREE_ASSERT_ARGUMENT(create_params);
+  IREE_ASSERT_ARGUMENT(create_params->proactor_pool);
   IREE_ASSERT_ARGUMENT(out_device);
   IREE_TRACE_ZONE_BEGIN(z0);
   *out_device = NULL;
@@ -472,12 +471,23 @@ iree_status_t iree_hal_hexagon_device_create(
   device->options = *options; /// copy by value due to lifetime of options arg
   device->host_allocator = host_allocator;
 
+  // Retain the proactor pool and acquire a proactor for this device. The pool
+  // is retained for the device lifetime so proactor threads outlive all
+  // device resources (semaphores).
+  device->proactor_pool = create_params->proactor_pool;
+  iree_async_proactor_pool_retain(device->proactor_pool);
+
 #if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
   device->tracy_context_id = IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID;
   device->tracy_plot_context = NULL;
 #endif
 
-  iree_status_t status = iree_hal_hexagon_device_set_up(domain_id, device);
+  iree_status_t status =
+      iree_async_proactor_pool_get(device->proactor_pool, 0, &device->proactor);
+
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_hexagon_device_set_up(domain_id, device);
+  }
 
   if (iree_status_is_ok(status)) {
     *out_device = (iree_hal_device_t *)device;
@@ -509,7 +519,7 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
   iree_tracing_context_free(device->tracy_plot_context);
 #endif
 
-  iree_event_pool_free(device->event_pool);
+  iree_async_proactor_pool_release(device->proactor_pool);
   iree_arena_block_pool_deinitialize(&device->block_pool);
   iree_hal_allocator_release(device->device_allocator);
 
@@ -703,7 +713,7 @@ static iree_status_t iree_hal_hexagon_device_create_event(
 
 static iree_status_t iree_hal_hexagon_device_create_executable_cache(
     iree_hal_device_t *base_device, iree_string_view_t identifier,
-    iree_loop_t loop, iree_hal_executable_cache_t **out_executable_cache) {
+    iree_hal_executable_cache_t **out_executable_cache) {
   iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
 
   // TODO(hexagon): pass any additional resources required during executable
@@ -719,13 +729,15 @@ static iree_status_t iree_hal_hexagon_device_import_file(
     iree_hal_device_t *base_device, iree_hal_queue_affinity_t queue_affinity,
     iree_hal_memory_access_t access, iree_io_file_handle_t *handle,
     iree_hal_external_file_flags_t flags, iree_hal_file_t **out_file) {
+  iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
+
   // TODO(hexagon): if the implementation supports native file operations
   // definitely prefer that. The emulated file I/O present here as a default is
   // inefficient. The queue affinity specifies which queues may access the file
   // via read and write queue operations.
   return iree_hal_file_from_handle(
       iree_hal_device_allocator(base_device), queue_affinity, access, handle,
-      iree_hal_device_host_allocator(base_device), out_file);
+      device->proactor, iree_hal_device_host_allocator(base_device), out_file);
 }
 
 static iree_status_t iree_hal_hexagon_device_create_semaphore(
@@ -737,9 +749,9 @@ static iree_status_t iree_hal_hexagon_device_create_semaphore(
   // TODO(hexagon): pass any additional resources required to create or track
   // the semaphore. The implementation could pool semaphores here.
 
-  return iree_hal_hexagon_semaphore_create(queue_affinity, initial_value, flags,
-                                           device->host_allocator,
-                                           device->event_pool, out_semaphore);
+  return iree_hal_hexagon_semaphore_create(
+      device->proactor, queue_affinity, initial_value, flags,
+      device->host_allocator, out_semaphore);
 }
 
 static iree_hal_semaphore_compatibility_t
@@ -764,7 +776,7 @@ static iree_status_t iree_hal_hexagon_device_queue_alloca(
     iree_hal_device_t *base_device, iree_hal_queue_affinity_t queue_affinity,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list,
-    iree_hal_allocator_pool_t pool, iree_hal_buffer_params_t params,
+    iree_hal_pool_t *pool, iree_hal_buffer_params_t params,
     iree_device_size_t allocation_size, iree_hal_alloca_flags_t flags,
     iree_hal_buffer_t **IREE_RESTRICT out_buffer) {
   iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
@@ -779,13 +791,13 @@ static iree_status_t iree_hal_hexagon_device_queue_alloca(
 
   // To get started, implement the functionality sequentially, outside of any
   // queue.
-  IREE_RETURN_IF_ERROR(
-      iree_hal_semaphore_list_wait(wait_semaphore_list, iree_infinite_timeout(),
-                                   IREE_HAL_WAIT_FLAG_DEFAULT));
+  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_wait(
+      wait_semaphore_list, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
   IREE_RETURN_IF_ERROR(
       iree_hal_allocator_allocate_buffer(iree_hal_device_allocator(base_device),
                                          params, allocation_size, out_buffer));
-  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_signal(signal_semaphore_list));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_semaphore_list_signal(signal_semaphore_list, /*frontier=*/NULL));
   return iree_ok_status();
 }
 
@@ -808,12 +820,12 @@ static iree_status_t iree_hal_hexagon_device_queue_dealloca(
 
   // To get started, implement the functionality sequentially, outside of any
   // queue.
-  IREE_RETURN_IF_ERROR(
-      iree_hal_semaphore_list_wait(wait_semaphore_list, iree_infinite_timeout(),
-                                   IREE_HAL_WAIT_FLAG_DEFAULT));
+  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_wait(
+      wait_semaphore_list, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
   iree_hal_allocator_deallocate_buffer(iree_hal_device_allocator(base_device),
                                        buffer);
-  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_signal(signal_semaphore_list));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_semaphore_list_signal(signal_semaphore_list, /*frontier=*/NULL));
   return iree_ok_status();
 }
 
@@ -881,9 +893,7 @@ static iree_status_t iree_hal_hexagon_device_queue_read(
   // submits command buffers with host-device blocking behavior.
 
   // TODO: expose streaming chunk count/size options.
-  iree_status_t loop_status = iree_ok_status();
   iree_hal_file_transfer_options_t options = {
-      .loop = iree_loop_inline(&loop_status),
       .chunk_count = IREE_HAL_FILE_TRANSFER_CHUNK_COUNT_DEFAULT,
       .chunk_size = IREE_HAL_FILE_TRANSFER_CHUNK_SIZE_DEFAULT,
   };
@@ -891,7 +901,7 @@ static iree_status_t iree_hal_hexagon_device_queue_read(
       base_device, queue_affinity, wait_semaphore_list, signal_semaphore_list,
       source_file, source_offset, target_buffer, target_offset, length, flags,
       options));
-  return loop_status;
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_device_queue_write(
@@ -907,9 +917,7 @@ static iree_status_t iree_hal_hexagon_device_queue_write(
   // submits command buffers with host-device blocking behavior.
 
   // TODO: expose streaming chunk count/size options.
-  iree_status_t loop_status = iree_ok_status();
   iree_hal_file_transfer_options_t options = {
-      .loop = iree_loop_inline(&loop_status),
       .chunk_count = IREE_HAL_FILE_TRANSFER_CHUNK_COUNT_DEFAULT,
       .chunk_size = IREE_HAL_FILE_TRANSFER_CHUNK_SIZE_DEFAULT,
   };
@@ -917,7 +925,7 @@ static iree_status_t iree_hal_hexagon_device_queue_write(
       base_device, queue_affinity, wait_semaphore_list, signal_semaphore_list,
       source_buffer, source_offset, target_file, target_offset, length, flags,
       options));
-  return loop_status;
+  return iree_ok_status();
 }
 
 static iree_status_t iree_hal_hexagon_device_queue_host_call(
@@ -940,8 +948,7 @@ static iree_status_t iree_hal_hexagon_device_queue_dispatch(
     iree_hal_device_t *base_device, iree_hal_queue_affinity_t queue_affinity,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list,
-    iree_hal_executable_t *executable,
-    iree_hal_executable_export_ordinal_t export_ordinal,
+    iree_hal_executable_t *executable, iree_hal_executable_function_t function,
     const iree_hal_dispatch_config_t config, iree_const_byte_span_t constants,
     const iree_hal_buffer_ref_list_t bindings,
     iree_hal_dispatch_flags_t flags) {
@@ -950,7 +957,7 @@ static iree_status_t iree_hal_hexagon_device_queue_dispatch(
   // it's best if the extra recording/upload/allocation time can be avoided.
   return iree_hal_device_queue_emulated_dispatch(
       base_device, queue_affinity, wait_semaphore_list, signal_semaphore_list,
-      executable, export_ordinal, config, constants, bindings, flags);
+      executable, function, config, constants, bindings, flags);
 }
 
 static void
@@ -1123,9 +1130,8 @@ static iree_status_t iree_hal_hexagon_device_queue_execute(
   // queue.
 
   // Wait for all semaphores for which we need to wait.
-  IREE_RETURN_IF_ERROR(
-      iree_hal_semaphore_list_wait(wait_semaphore_list, iree_infinite_timeout(),
-                                   IREE_HAL_WAIT_FLAG_DEFAULT));
+  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_wait(
+      wait_semaphore_list, iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
 
   // It is possible for command_buffer to be NULL. In this case, there is
   // nothing to be executed. Just wait skip the execution part. (Still handle
@@ -1136,7 +1142,8 @@ static iree_status_t iree_hal_hexagon_device_queue_execute(
   }
 
   // Signal all semaphores we can signal now.
-  IREE_RETURN_IF_ERROR(iree_hal_semaphore_list_signal(signal_semaphore_list));
+  IREE_RETURN_IF_ERROR(
+      iree_hal_semaphore_list_signal(signal_semaphore_list, /*frontier=*/NULL));
 
   return iree_ok_status();
 }
@@ -1153,39 +1160,6 @@ iree_hal_hexagon_device_queue_flush(iree_hal_device_t *base_device,
   (void)device;
   iree_status_t status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                                           "queue flush not implemented");
-
-  return status;
-}
-
-static iree_status_t iree_hal_hexagon_device_wait_semaphores(
-    iree_hal_device_t *base_device, iree_hal_wait_mode_t wait_mode,
-    const iree_hal_semaphore_list_t semaphore_list, iree_timeout_t timeout,
-    iree_hal_wait_flags_t flags) {
-  iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
-
-  // TODO(hexagon): implement multi-wait as either an ALL (AND) or ANY (OR)
-  // operation. Semaphores are expected to be compatible with the device today
-  // and may come from other device instances provided by the same driver or
-  // have been imported by a device instance.
-
-  // TODO(hexagon): if any semaphore has a failure status set return
-  // `iree_status_from_code(IREE_STATUS_ABORTED)`. Avoid a full status as it may
-  // capture a backtrace and allocate and callers are expected to follow up a
-  // failed wait with a query to get the status.
-
-  // TODO(hexagon): prefer having a fast-path for if the semaphores are
-  // known-signaled in user-mode. This can usually avoid syscalls/ioctls and
-  // potential context switches in polling cases.
-
-  // TODO(hexagon): check for `iree_timeout_is_immediate(timeout)` and return
-  // immediately if the condition is not satisfied before waiting with
-  // `iree_status_from_code(IREE_STATUS_DEADLINE_EXCEEDED)`. Prefer the raw code
-  // status instead of a full status object as immediate timeouts are used when
-  // polling and a full status may capture a backtrace and allocate.
-
-  (void)device;
-  iree_status_t status = iree_make_status(
-      IREE_STATUS_UNIMPLEMENTED, "semaphore multi-wait not implemented");
 
   return status;
 }
@@ -1255,7 +1229,6 @@ static const iree_hal_device_vtable_t iree_hal_hexagon_device_vtable = {
     .queue_dispatch = iree_hal_hexagon_device_queue_dispatch,
     .queue_execute = iree_hal_hexagon_device_queue_execute,
     .queue_flush = iree_hal_hexagon_device_queue_flush,
-    .wait_semaphores = iree_hal_hexagon_device_wait_semaphores,
     .profiling_begin = iree_hal_hexagon_device_profiling_begin,
     .profiling_flush = iree_hal_hexagon_device_profiling_flush,
     .profiling_end = iree_hal_hexagon_device_profiling_end,

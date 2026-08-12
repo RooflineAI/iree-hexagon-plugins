@@ -58,6 +58,7 @@ IREE_API_EXPORT void iree_hal_hexagon_device_options_initialize(
 IREE_API_EXPORT iree_status_t iree_hal_hexagon_device_create(
     iree_string_view_t identifier, iree_hal_hexagon_domain_id_t domain_id,
     const iree_hal_hexagon_device_options_t *options,
+    const iree_hal_device_create_params_t *create_params,
     iree_allocator_t host_allocator, iree_hal_device_t **out_device);
 
 typedef struct iree_hal_hexagon_device_t iree_hal_hexagon_device_t;

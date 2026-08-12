@@ -42,8 +42,7 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_prep(
 }
 
 iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
-    rpc_executable_handle_t executable_handle,
-    iree_hal_executable_export_ordinal_t export_ordinal,
+    rpc_executable_handle_t executable_handle, uint32_t export_ordinal,
     const iree_hal_dispatch_config_t *config,
     const iree_const_byte_span_t *constants,
     const iree_hal_buffer_ref_list_t *bindings,

@@ -7,11 +7,14 @@
 #include <unistd.h>
 
 #include "AEEStdErr.h"
+#include "hexagon/schemas/hexagon_executable_def_reader.h"
+#include "hexagon/schemas/hexagon_executable_def_verifier.h"
 #include "hexagon/serialize/rpc_types.h"
 #include "hexagon/utils.h"
 #include "hexagon_dsp.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
+#include "iree/hal/utils/executable_header.h"
 
 //===----------------------------------------------------------------------===//
 // iree_hal_hexagon_executable_t
@@ -23,6 +26,11 @@ typedef struct iree_hal_hexagon_executable_t {
   rpc_session_handle_t rpc_session_handle; // not owned, owner: device
   char *so_file_path;
   rpc_executable_handle_t rpc_executable_handle;
+  // Export names in dense ordinal order (index == the ordinal the DSP
+  // dispatches by via exports->ptrs[ordinal]), copied from the executable-def
+  // flatbuffer so lookup_function_by_name can resolve names to ordinals.
+  iree_host_size_t export_count;
+  char **export_names;
 } iree_hal_hexagon_executable_t;
 
 static const iree_hal_executable_vtable_t iree_hal_hexagon_executable_vtable;
@@ -39,6 +47,54 @@ static iree_status_t iree_hal_hexagon_executable_set_up(
     iree_hal_hexagon_executable_t *executable) {
   // To load the instructions to DSP memory and have it executable, it needs
   // to be written to an .so file which needs to be dlopen-ed on the DSP.
+
+  // The executable data is the Hexagon executable-def flatbuffer (built by the
+  // compiler in HexagonExecutableSerialization.cpp): host-readable export names
+  // in dense ordinal order + the linked ELF. Parse the names so
+  // lookup_function_by_name can resolve the by-name dispatch references
+  // introduced by IREE #24036, then extract the ELF to load on the DSP.
+  iree_const_byte_span_t flatbuffer_data = iree_const_byte_span_empty();
+  IREE_RETURN_IF_ERROR(iree_hal_read_executable_flatbuffer_header(
+      executable_params->executable_data, /*unsafe_infer_size=*/false,
+      iree_hal_hexagon_ExecutableDef_file_identifier, &flatbuffer_data));
+  int verify_ret = iree_hal_hexagon_ExecutableDef_verify_as_root(
+      flatbuffer_data.data, flatbuffer_data.data_length);
+  if (verify_ret != flatcc_verify_ok) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "hexagon executable flatbuffer verification failed: %s",
+        flatcc_verify_error_string(verify_ret));
+  }
+  iree_hal_hexagon_ExecutableDef_table_t executable_def =
+      iree_hal_hexagon_ExecutableDef_as_root(flatbuffer_data.data);
+
+  // Copy the export names (dense ordinal order) for by-name lookup.
+  flatbuffers_string_vec_t entry_points =
+      iree_hal_hexagon_ExecutableDef_entry_points_get(executable_def);
+  iree_host_size_t export_count = flatbuffers_string_vec_len(entry_points);
+  if (export_count > 0) {
+    IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+        executable->host_allocator, export_count * sizeof(char *),
+        (void **)&executable->export_names));
+    executable->export_count = export_count;
+    for (iree_host_size_t i = 0; i < export_count; ++i) {
+      flatbuffers_string_t name = flatbuffers_string_vec_at(entry_points, i);
+      size_t name_len = flatbuffers_string_len(name);
+      char *name_copy = NULL;
+      IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+          executable->host_allocator, name_len + 1, (void **)&name_copy));
+      memcpy(name_copy, name, name_len);
+      name_copy[name_len] = '\0';
+      executable->export_names[i] = name_copy;
+    }
+  }
+
+  // The linked ELF the DSP dlopen-s.
+  flatbuffers_uint8_vec_t elf =
+      iree_hal_hexagon_ExecutableDef_elf_get(executable_def);
+  // A flatcc scalar-vector handle points at element 0, so it is the data ptr.
+  const void *elf_data = (const void *)elf;
+  iree_host_size_t elf_length = flatbuffers_uint8_vec_len(elf);
 
   // Create .so file in temporary directory.
   char *tmpdir = getenv("TMPDIR");
@@ -60,10 +116,9 @@ static iree_status_t iree_hal_hexagon_executable_set_up(
   if (so_fd == -1) {
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_ERRNO("could not open .so file");
   }
-  ssize_t so_wr_ret = write(so_fd, executable_params->executable_data.data,
-                            executable_params->executable_data.data_length);
+  ssize_t so_wr_ret = write(so_fd, elf_data, elf_length);
   close(so_fd);
-  if (so_wr_ret != executable_params->executable_data.data_length) {
+  if (so_wr_ret != (ssize_t)elf_length) {
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_ERRNO("could not write .so file");
   }
 
@@ -153,12 +208,104 @@ iree_hal_hexagon_executable_destroy(iree_hal_executable_t *base_executable) {
     unlink(executable->so_file_path);
     iree_allocator_free(host_allocator, executable->so_file_path);
   }
+  if (executable->export_names) {
+    for (iree_host_size_t i = 0; i < executable->export_count; ++i) {
+      iree_allocator_free(host_allocator, executable->export_names[i]);
+    }
+    iree_allocator_free(host_allocator, executable->export_names);
+  }
 
   iree_allocator_free(host_allocator, executable);
 
   IREE_TRACE_ZONE_END(z0);
 }
 
+// The IREE HAL VM module resolves executable functions by name at module init
+// (iree_hal_module_executable_lookup_function -> lookup_function_by_name) and
+// encodes the resolved index as the dispatch's export ordinal. A hexagon
+// executable may be a LINKED, multi-export module (e.g. a whole model linked
+// into one executable), so we resolve each name to its dense ordinal via the
+// export-name table parsed from the executable-def flatbuffer; the DSP then
+// dispatches exports->ptrs[ordinal].
+static iree_host_size_t
+iree_hal_hexagon_executable_function_count(iree_hal_executable_t *base) {
+  iree_hal_hexagon_executable_t *executable =
+      iree_hal_hexagon_executable_cast(base);
+  return executable->export_count;
+}
+
+static iree_status_t iree_hal_hexagon_executable_lookup_function_by_name(
+    iree_hal_executable_t *base, iree_string_view_t name,
+    iree_hal_executable_function_t *out_function) {
+  iree_hal_hexagon_executable_t *executable =
+      iree_hal_hexagon_executable_cast(base);
+  for (iree_host_size_t i = 0; i < executable->export_count; ++i) {
+    if (iree_string_view_equal(
+            name, iree_make_cstring_view(executable->export_names[i]))) {
+      *out_function = iree_hal_executable_function_from_index((uint32_t)i);
+      return iree_ok_status();
+    }
+  }
+  return iree_make_status(IREE_STATUS_NOT_FOUND,
+                          "no hexagon export named '%.*s'", (int)name.size,
+                          name.data);
+}
+
+// Reports the reflection info for an export. The executable-def flatbuffer only
+// carries export names (there is no host-readable reflection metadata for the
+// foreign DSP arch), so we return the name and leave the remaining fields
+// zeroed.
+static iree_status_t iree_hal_hexagon_executable_function_info(
+    iree_hal_executable_t *base, iree_hal_executable_function_t function,
+    iree_hal_executable_function_info_t *out_info) {
+  iree_hal_hexagon_executable_t *executable =
+      iree_hal_hexagon_executable_cast(base);
+  uint32_t ordinal = iree_hal_executable_function_index(function);
+  if (ordinal >= executable->export_count) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "export ordinal %u out of range", ordinal);
+  }
+  memset(out_info, 0, sizeof(*out_info));
+  out_info->name = iree_make_cstring_view(executable->export_names[ordinal]);
+  return iree_ok_status();
+}
+
+// Hexagon executables carry no per-parameter reflection, so
+// function_info::parameter_count is always 0 and there is nothing to write.
+static iree_status_t iree_hal_hexagon_executable_function_parameters(
+    iree_hal_executable_t *base, iree_hal_executable_function_t function,
+    iree_host_size_t capacity,
+    iree_hal_executable_function_parameter_t *out_parameters) {
+  iree_hal_hexagon_executable_t *executable =
+      iree_hal_hexagon_executable_cast(base);
+  uint32_t ordinal = iree_hal_executable_function_index(function);
+  if (ordinal >= executable->export_count) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "export ordinal %u out of range", ordinal);
+  }
+  (void)capacity;
+  (void)out_parameters;
+  return iree_ok_status();
+}
+
+// Hexagon executables do not expose global buffers.
+static iree_status_t iree_hal_hexagon_executable_lookup_global_by_name(
+    iree_hal_executable_t *base, iree_string_view_t name,
+    iree_hal_queue_affinity_t queue_affinity, iree_hal_buffer_t **out_buffer) {
+  (void)base;
+  (void)name;
+  (void)queue_affinity;
+  *out_buffer = NULL;
+  return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                          "hexagon executable global lookup not implemented");
+}
+
 static const iree_hal_executable_vtable_t iree_hal_hexagon_executable_vtable = {
     .destroy = iree_hal_hexagon_executable_destroy,
+    .function_count = iree_hal_hexagon_executable_function_count,
+    .function_info = iree_hal_hexagon_executable_function_info,
+    .function_parameters = iree_hal_hexagon_executable_function_parameters,
+    .lookup_function_by_name =
+        iree_hal_hexagon_executable_lookup_function_by_name,
+    .lookup_global_by_name = iree_hal_hexagon_executable_lookup_global_by_name,
 };

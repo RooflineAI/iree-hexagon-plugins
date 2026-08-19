@@ -1,0 +1,58 @@
+diff --git a/qcom_hexagon_backend/bin/runtime/UserDMA/RuntimeDMA.cc b/qcom_hexagon_backend/bin/runtime/UserDMA/RuntimeDMA.cc
+index 987a7dc..9c90f18 100644
+--- a/qcom_hexagon_backend/bin/runtime/UserDMA/RuntimeDMA.cc
++++ b/qcom_hexagon_backend/bin/runtime/UserDMA/RuntimeDMA.cc
+@@ -28,10 +28,14 @@
+ namespace hexagon {
+ namespace userdma {
+
+-// Create a static object of HexagonUserDMA to be used in DMAStart and
+-// DMAWait APIs. TODO: Make HexagonUserDMA class as a singleton and
+-// call its static member function to get its unique instance
+-static UserDMA hexDMA(hexagon::userdma::MAX_NUM_DMA_DESCRIPTORS);
++// Fork divergence note
++// Avoid relying on global static C++ constructor execution when this code is
++// linked into generated kernel shared objects. If crashes disappear with this
++// lazy init path, that strongly indicates static initialization timing issues.
++static UserDMA *getDMA() {
++  static UserDMA *dma = new UserDMA(hexagon::userdma::MAX_NUM_DMA_DESCRIPTORS);
++  return dma;
++}
+
+ /*!
+  * Initiate DMA to copy memory from source to destination address
+@@ -48,8 +52,8 @@ extern "C" uint32_t
+ hexagon_runtime_dma_start(void *src, AddrSpace srcAS, void *dst,
+                           AddrSpace dstAS, uint32_t length, bool bypassCacheSrc,
+                           bool bypassCacheDst, DMAStatus *status) {
+-  return hexDMA.copy(src, srcAS, dst, dstAS, length, bypassCacheSrc,
+-                     bypassCacheDst, status);
++  return getDMA()->copy(src, srcAS, dst, dstAS, length, bypassCacheSrc,
++                        bypassCacheDst, status);
+ }
+
+ /*!
+@@ -83,9 +87,9 @@ extern "C" uint32_t hexagon_runtime_dma2d_start(
+     uint32_t height, uint32_t srcStride, uint32_t dstStride,
+     bool bypassCacheSrc, bool bypassCacheDst, bool isOrdered,
+     uint32_t cacheAllocationPolicy, DMAStatus *status) {
+-  return hexDMA.copy2D(src, srcAS, dst, dstAS, width, height, srcStride,
+-                       dstStride, bypassCacheSrc, bypassCacheDst, isOrdered,
+-                       cacheAllocationPolicy, status);
++  return getDMA()->copy2D(src, srcAS, dst, dstAS, width, height, srcStride,
++                          dstStride, bypassCacheSrc, bypassCacheDst, isOrdered,
++                          cacheAllocationPolicy, status);
+ }
+
+ /*!
+@@ -93,7 +97,9 @@ extern "C" uint32_t hexagon_runtime_dma2d_start(
+  * complete
+  * token: token corresponding to the DMA transfer to wait
+  */
+-extern "C" void hexagon_runtime_dma_wait(uint32_t token) { hexDMA.wait(token); }
++extern "C" void hexagon_runtime_dma_wait(uint32_t token) {
++  getDMA()->wait(token);
++}
+
+ } // namespace userdma
+ } // namespace hexagon

@@ -348,10 +348,10 @@ void addHexagonMultiTilingExpertPassPipeline(
     // It is assumed that IREE passes do not need them anymore from this point
     // on.
     funcPassManager.addPass(createEraseHALDescriptorTypeFromMemRefPass());
-    funcPassManager.addPass(hexagon::createConvertToHexagonmemPass());
+    funcPassManager.addPass(::mlir::hexagon::createConvertToHexagonmemPass());
     if (clHexagonEnableProfilerMarkers)
       funcPassManager.addPass(createInsertProfilerMarkersPass());
-    funcPassManager.addPass(hexagon::createHexmemCpyToDMAPass());
+    funcPassManager.addPass(::mlir::hexagon::createHexmemCpyToDMAPass());
     // HexmemCpyToDMA materializes short-lived DMA tag buffers as
     // `memref.alloc : memref<1xi32>` + `memref.dealloc`. These tags only carry
     // the dma token between `dma_start` and `dma_wait`, so keeping them on heap
@@ -690,7 +690,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
   // lowering. Therefore, they can run in tadem with iree's standard
   // lowering.
   modulePassManager.addPass(hexagonmem::createHexagonMemToLLVMPass());
-  modulePassManager.addPass(hexagon::createDMAToLLVMPass());
+  modulePassManager.addPass(::mlir::hexagon::createDMAToLLVMPass());
   modulePassManager.addPass(hexkl::createHexKLToLLVMPass());
   // Hexagon DMA/HexKL/HexagonMem runtime symbols are always kept as native
   // unresolved externs and resolved by the DSP loader.
@@ -699,7 +699,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
   // The collapse pass rewrites ptr<addrspace> in descriptors/calls to
   // default address space so finalize-memref-to-llvm can lower deallocs
   // correctly
-  modulePassManager.addPass(hexagon::createCollapseAddressSpacePass());
+  modulePassManager.addPass(::mlir::hexagon::createCollapseAddressSpacePass());
   modulePassManager.addPass(createReconcileUnrealizedCastsPass());
   // Complete conversion after address-space normalization.
   modulePassManager.addPass(createHexagonConvertToLLVMPassPhase2(

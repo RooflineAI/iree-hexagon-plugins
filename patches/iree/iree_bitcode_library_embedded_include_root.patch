@@ -1,0 +1,83 @@
+diff --git a/build_tools/bazel/iree_bitcode_library.bzl b/build_tools/bazel/iree_bitcode_library.bzl
+index dd9a41d0ee..6b76a43fe1 100644
+--- a/build_tools/bazel/iree_bitcode_library.bzl
++++ b/build_tools/bazel/iree_bitcode_library.bzl
+@@ -67,7 +67,19 @@ def iree_bitcode_library(
+     clang_tool = "@llvm-project//clang:clang"
+     link_tool = "@llvm-project//llvm:llvm-link"
+     builtin_headers_dep = "@llvm-project//clang:builtin_headers_gen"
+-    builtin_headers_path = "external/+_repo_rules+llvm-project/clang/staging/include/"
++
++    # These paths are resolved by clang relative to the genrule action's CWD
++    # (the exec root), not the package, and "external/+_repo_rules+llvm-project"
++    # and "runtime/src" only happen to be correct when this repository is the
++    # Bazel main/root repo. When it's embedded as a dependency (e.g. iree_core
++    # inside a larger workspace), resolve the actual canonical repo names of
++    # "@llvm-project" (via a Label, so this stays correct regardless of how
++    # that repo happens to be configured/named - a direct repo-rule call, or
++    # module-extension-owned, as it is here) and of this repo itself instead.
++    llvm_project_repo_name = Label("@llvm-project//clang:builtin_headers_gen").repo_name
++    repo_name = Label("//:MODULE.bazel").repo_name
++    builtin_headers_path = "external/%s/clang/staging/include/" % llvm_project_repo_name
++    runtime_src_path = "external/%s/runtime/src" % repo_name if repo_name else "runtime/src"
+ 
+     base_copts = [
+         # Target architecture
+@@ -127,8 +139,8 @@ def iree_bitcode_library(
+                     "$(location %s)" % (clang_tool),
+                     "-isystem $(BINDIR)/%s" % builtin_headers_path,
+                     " ".join(base_copts + copts),
+-                    " ".join(["-I $(BINDIR)/runtime/src"]),
+-                    " ".join(["-I runtime/src"]),
++                    " ".join(["-I $(BINDIR)/%s" % runtime_src_path]),
++                    " ".join(["-I %s" % runtime_src_path]),
+                     "-o $(location %s)" % (bitcode_out),
+                     "$(location %s)" % (src),
+                 ]),
+@@ -189,7 +201,19 @@ def iree_cuda_bitcode_library(
+     clang_tool = "@llvm-project//clang:clang"
+     link_tool = "@llvm-project//llvm:llvm-link"
+     builtin_headers_dep = "@llvm-project//clang:builtin_headers_gen"
+-    builtin_headers_path = "external/+_repo_rules+llvm-project/clang/staging/include/"
++
++    # These paths are resolved by clang relative to the genrule action's CWD
++    # (the exec root), not the package, and "external/+_repo_rules+llvm-project"
++    # and "runtime/src" only happen to be correct when this repository is the
++    # Bazel main/root repo. When it's embedded as a dependency (e.g. iree_core
++    # inside a larger workspace), resolve the actual canonical repo names of
++    # "@llvm-project" (via a Label, so this stays correct regardless of how
++    # that repo happens to be configured/named - a direct repo-rule call, or
++    # module-extension-owned, as it is here) and of this repo itself instead.
++    llvm_project_repo_name = Label("@llvm-project//clang:builtin_headers_gen").repo_name
++    repo_name = Label("//:MODULE.bazel").repo_name
++    builtin_headers_path = "external/%s/clang/staging/include/" % llvm_project_repo_name
++    runtime_src_path = "external/%s/runtime/src" % repo_name if repo_name else "runtime/src"
+ 
+     base_copts = [
+         "-x",
+@@ -314,6 +338,16 @@ def iree_amdgpu_bitcode_library(
+     if not out:
+         out = "%s.%s.bc" % (src, gpu_arch)
+ 
++    # "-I ." is resolved by clang relative to the genrule action's CWD (the
++    # exec root), not the package. That only happens to line up with this
++    # package's own includes (e.g. "compiler/plugins/target/ROCM/builtins/
++    # ukernel/common.h") when this repository is the Bazel main/root repo.
++    # When it's embedded as a dependency (e.g. iree_core inside a larger
++    # workspace), its own sources live under "external/<repo_name>/..."
++    # instead, so compute that prefix explicitly.
++    repo_name = Label("//:MODULE.bazel").repo_name
++    include_root = ("external/%s" % repo_name) if repo_name else "."
++
+     native.genrule(
+         name = "gen_%s" % (out),
+         srcs = srcs,
+@@ -322,7 +356,7 @@ def iree_amdgpu_bitcode_library(
+             "$(location %s)" % (clang_tool),
+             "$(location %s)" % (src),
+             "-o $(location %s)" % (out),
+-            "-I .",
++            "-I " + include_root,
+         ] + base_copts + copts),
+         tools = [
+             clang_tool,

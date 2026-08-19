@@ -1,0 +1,134 @@
+diff --git a/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp b/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
+index f44c36dd5d..0943dda8f4 100644
+--- a/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
++++ b/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
+@@ -80,6 +80,8 @@ namespace {
+ class EliminateEmptyTensorsPass final
+     : public impl::EliminateEmptyTensorsPassBase<EliminateEmptyTensorsPass> {
+ public:
++  using Base::Base;
++
+   void getDependentDialects(DialectRegistry &registry) const override {
+     // BufferizationDialect is needed for using type interfaces, like
+     // TensorLikeType. Because the builtin types, e.g., RankedTensorType, etc.,
+@@ -100,8 +102,10 @@ public:
+   using Base::Base;
+   explicit IREEComprehensiveBufferizePass(
+       BufferizationOptions::AllocationFn allocationFn,
+-      BufferizationOptions::MemCpyFn memCpyFn)
+-      : allocationFn(allocationFn), memCpyFn(memCpyFn) {}
++      BufferizationOptions::MemCpyFn memCpyFn,
++      bool allowReturnAllocsFromLoops = false)
++      : allocationFn(allocationFn), memCpyFn(memCpyFn),
++        allowReturnAllocsFromLoops(allowReturnAllocsFromLoops) {}
+ 
+   void getDependentDialects(DialectRegistry &registry) const override {
+     // clang-format off
+@@ -127,6 +131,7 @@ public:
+ private:
+   const BufferizationOptions::AllocationFn allocationFn = defaultAllocationFn;
+   const BufferizationOptions::MemCpyFn memCpyFn = defaultMemCpyFn;
++  const bool allowReturnAllocsFromLoops = false;
+ };
+ 
+ /// Pass to convert from tensor based constants to memref.
+@@ -219,6 +224,7 @@ void EliminateEmptyTensorsPass::runOnOperation() {
+   IRRewriter rewriter(funcOp->getContext());
+   moveUpMemrefReshapeOps(rewriter, funcOp);
+   auto bufferizationOptions = getBufferizationOptions();
++  bufferizationOptions.allowReturnAllocsFromLoops = allowReturnAllocsFromLoops;
+   OneShotAnalysisState state(funcOp, bufferizationOptions);
+   // Analyze IR.
+   if (failed(analyzeOp(funcOp, state))) {
+@@ -275,6 +281,7 @@ void IREEComprehensiveBufferizePass::runOnOperation() {
+   options.printConflicts = printConflicts;
+   options.allocationFn = allocationFn;
+   options.memCpyFn = memCpyFn;
++  options.allowReturnAllocsFromLoops = allowReturnAllocsFromLoops;
+   // Turning off checkParallelRegions assumes that we are not relying too much
+   // on bufferization being conservative. If we are, then this could cause race
+   // conditions. Turning this option off could be a good step in diagnosing
+@@ -342,15 +349,16 @@ void IREEBufferizeConstantsPass::runOnOperation() {
+ std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+ createIREEComprehensiveBufferizePass(
+     std::optional<BufferizationOptions::AllocationFn> allocationFn,
+-    std::optional<BufferizationOptions::MemCpyFn> memCpyFn) {
++    std::optional<BufferizationOptions::MemCpyFn> memCpyFn,
++    bool allowReturnAllocsFromLoops) {
+   if (!allocationFn) {
+     allocationFn = defaultAllocationFn;
+   }
+   if (!memCpyFn) {
+     memCpyFn = defaultMemCpyFn;
+   }
+-  return std::make_unique<IREEComprehensiveBufferizePass>(allocationFn.value(),
+-                                                          memCpyFn.value());
++  return std::make_unique<IREEComprehensiveBufferizePass>(
++      allocationFn.value(), memCpyFn.value(), allowReturnAllocsFromLoops);
+ }
+ 
+ void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
+@@ -368,11 +376,14 @@ void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
+ void addIREEComprehensiveBufferizePasses(
+     OpPassManager &funcPassManager,
+     std::optional<BufferizationOptions::AllocationFn> allocationFn,
+-    std::optional<BufferizationOptions::MemCpyFn> memCpyFn) {
+-  funcPassManager.addPass(createEliminateEmptyTensorsPass());
++    std::optional<BufferizationOptions::MemCpyFn> memCpyFn,
++    bool allowReturnAllocsFromLoops) {
++  EliminateEmptyTensorsPassOptions eliminateOptions;
++  eliminateOptions.allowReturnAllocsFromLoops = allowReturnAllocsFromLoops;
++  funcPassManager.addPass(createEliminateEmptyTensorsPass(eliminateOptions));
+   funcPassManager.addPass(bufferization::createEmptyTensorToAllocTensorPass());
+-  funcPassManager.addPass(
+-      createIREEComprehensiveBufferizePass(allocationFn, memCpyFn));
++  funcPassManager.addPass(createIREEComprehensiveBufferizePass(
++      allocationFn, memCpyFn, allowReturnAllocsFromLoops));
+   addIREEPostBufferizationPasses(funcPassManager);
+ }
+ 
+diff --git a/compiler/src/iree/compiler/Codegen/Common/Passes.h b/compiler/src/iree/compiler/Codegen/Common/Passes.h
+index f1c9273706..a37904c82e 100644
+--- a/compiler/src/iree/compiler/Codegen/Common/Passes.h
++++ b/compiler/src/iree/compiler/Codegen/Common/Passes.h
+@@ -59,7 +59,12 @@ void addIREEComprehensiveBufferizePasses(
+     OpPassManager &funcPassManager,
+     std::optional<BufferizationOptions::AllocationFn> allocationFn =
+         std::nullopt,
+-    std::optional<BufferizationOptions::MemCpyFn> memCpyFn = std::nullopt);
++    std::optional<BufferizationOptions::MemCpyFn> memCpyFn = std::nullopt,
++    // Forwarded to mlir::bufferization::OneShotAnalysisState's option of the
++    // same name (see mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h)
++    // - restored here after IREE's own wrapper stopped exposing it, since
++    // some backends still need to opt into it.
++    bool allowReturnAllocsFromLoops = false);
+ 
+ /// Populate Encoding to Nop pass and canonicalizer pass to the pipeline.
+ void addEncodingToNopPasses(FunctionLikeNest &passManager);
+@@ -90,7 +95,8 @@ std::unique_ptr<Pass> createDecomposeMemrefsPass();
+ std::unique_ptr<InterfacePass<FunctionOpInterface>>
+ createIREEComprehensiveBufferizePass(
+     std::optional<BufferizationOptions::AllocationFn> allocationFn,
+-    std::optional<BufferizationOptions::MemCpyFn> memCpyFn);
++    std::optional<BufferizationOptions::MemCpyFn> memCpyFn,
++    bool allowReturnAllocsFromLoops = false);
+ 
+ /// Create an IREE-specific Transform dialect interpreter pass with all
+ /// registrations necessary for IREE.
+diff --git a/compiler/src/iree/compiler/Codegen/Common/Passes.td b/compiler/src/iree/compiler/Codegen/Common/Passes.td
+index 65c21c4ec7..5cee7164a2 100644
+--- a/compiler/src/iree/compiler/Codegen/Common/Passes.td
++++ b/compiler/src/iree/compiler/Codegen/Common/Passes.td
+@@ -519,6 +519,12 @@ def ReplaceSlowMinMaxOpsPass
+ def EliminateEmptyTensorsPass :
+     InterfacePass<"iree-eliminate-empty-tensors", "mlir::FunctionOpInterface"> {
+   let summary = "Eliminate tensor.empty ops to avoid buffer allocations";
++  let options = [
++    Option<"allowReturnAllocsFromLoops", "allow-return-allocs-from-loops",
++           "bool", /*default=*/"false",
++           "Allow returning newly allocated buffers from loops during "
++           "empty-tensor elimination analysis.">
++  ];
+ }
+ 
+ def EmulateNarrowTypePass :

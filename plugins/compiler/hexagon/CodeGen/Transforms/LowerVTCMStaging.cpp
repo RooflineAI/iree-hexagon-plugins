@@ -40,7 +40,7 @@ struct LowerStageToVTCMPattern
         rewriter, copyOp.getLoc(), tensorType,
         /*dynamicSizes=*/ValueRange{}, copyOp.getSource());
     allocOp.setMemorySpaceAttr(
-        rewriter.getI64IntegerAttr(hexagon::VTCM_ADDRESS_SPACE));
+        rewriter.getI64IntegerAttr(::mlir::hexagon::VTCM_ADDRESS_SPACE));
     rewriter.replaceOp(copyOp, allocOp.getResult());
     return success();
   }
@@ -60,7 +60,7 @@ struct LowerVTCMEmptyPattern
     auto loweredAllocOp = bufferization::AllocTensorOp::create(
         rewriter, allocOp.getLoc(), tensorType, allocOp.getDynamicSizes());
     loweredAllocOp.setMemorySpaceAttr(
-        rewriter.getI64IntegerAttr(hexagon::VTCM_ADDRESS_SPACE));
+        rewriter.getI64IntegerAttr(::mlir::hexagon::VTCM_ADDRESS_SPACE));
     rewriter.replaceOp(allocOp, loweredAllocOp.getResult());
     return success();
   }

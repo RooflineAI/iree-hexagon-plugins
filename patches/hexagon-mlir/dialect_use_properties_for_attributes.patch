@@ -1,0 +1,60 @@
+diff --git a/qcom_hexagon_backend/include/hexagon/Dialect/HexKL/IR/HexKLDialect.td b/qcom_hexagon_backend/include/hexagon/Dialect/HexKL/IR/HexKLDialect.td
+index 10b906f..edaba82 100644
+--- a/qcom_hexagon_backend/include/hexagon/Dialect/HexKL/IR/HexKLDialect.td
++++ b/qcom_hexagon_backend/include/hexagon/Dialect/HexKL/IR/HexKLDialect.td
+@@ -34,7 +34,6 @@ def HexKL_Dialect : Dialect {
+     void registerOperations();
+   }];
+
+-  let usePropertiesForAttributes = 1;
+ }
+
+ #endif // HEXAGON_DIALECT_HEXKL_IR_HEXKL_DIALECT_TD
+diff --git a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.td b/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.td
+index ca78ef9..db19545 100644
+--- a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.td
++++ b/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.td
+@@ -30,7 +30,6 @@ def HexagonMem_Dialect : Dialect {
+     void registerOperations();
+   }];
+
+-  let usePropertiesForAttributes = 1;
+ }
+
+ #endif // HEXAGON_DIALECT_HEXAGONMEM_IR_HEXAGONMEM_DIALECT_TD
+diff --git a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonTPtr/IR/HexagonTPtrDialect.td b/qcom_hexagon_backend/include/hexagon/Dialect/HexagonTPtr/IR/HexagonTPtrDialect.td
+index 7e1f2d7..8c36ae8 100644
+--- a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonTPtr/IR/HexagonTPtrDialect.td
++++ b/qcom_hexagon_backend/include/hexagon/Dialect/HexagonTPtr/IR/HexagonTPtrDialect.td
+@@ -40,7 +40,6 @@ def HexagonTPtr_Dialect : Dialect {
+   }];
+
+   let useDefaultAttributePrinterParser = 1;
+-  let usePropertiesForAttributes = 1;
+ }
+
+
+diff --git a/qcom_hexagon_backend/include/hexagon/Dialect/TTX/IR/TTXDialect.td b/qcom_hexagon_backend/include/hexagon/Dialect/TTX/IR/TTXDialect.td
+index 3f94299..33d7ad6 100644
+--- a/qcom_hexagon_backend/include/hexagon/Dialect/TTX/IR/TTXDialect.td
++++ b/qcom_hexagon_backend/include/hexagon/Dialect/TTX/IR/TTXDialect.td
+@@ -33,7 +33,6 @@ def TTX_Dialect : Dialect {
+     void registerOperations();
+   }];
+
+-  let usePropertiesForAttributes = 1;
+ }
+
+ #endif // HEXAGON_DIALECT_TTX_IR_TTX_DIALECT_TD
+diff --git a/qcom_hexagon_backend/include/hexagon/Dialect/TmTensor/IR/TmTensorDialect.td b/qcom_hexagon_backend/include/hexagon/Dialect/TmTensor/IR/TmTensorDialect.td
+index f37155a..3301140 100644
+--- a/qcom_hexagon_backend/include/hexagon/Dialect/TmTensor/IR/TmTensorDialect.td
++++ b/qcom_hexagon_backend/include/hexagon/Dialect/TmTensor/IR/TmTensorDialect.td
+@@ -33,7 +33,6 @@ def TmTensor_Dialect : Dialect {
+     void registerOperations();
+   }];
+
+-  let usePropertiesForAttributes = 1;
+ }
+
+ #endif // HEXAGON_DIALECT_TMTENSOR_IR_TMTENSOR_DIALECT_TD

@@ -1,0 +1,50 @@
+diff --git a/MODULE.bazel b/MODULE.bazel
+index a75ab70435..7b2bd03405 100644
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -83,6 +83,7 @@ use_repo(
+     "hsa_runtime_headers",
+     "iree_amdgpu_device_toolchain",
+     "iree_cuda",
++    "llvm-project",
+     "llvm-raw",
+     "nccl",
+     "rccl",
+@@ -90,6 +91,7 @@ use_repo(
+     "spirv_headers",
+     "spirv_tools",
+     "stablehlo",
++    "torch-mlir",
+     "torch-mlir-raw",
+     "tracy_client",
+     "vulkan_headers",
+@@ -102,29 +104,3 @@ use_repo(
+ # module here, so inject IREE's @llvm-raw (created by iree_extension) into the
+ # overlay extension to satisfy its use_repo("llvm-raw").
+ inject_repo(llvm_repos_ext, "llvm-raw")
+-
+-# Configure LLVM using the llvm-raw repo (creates llvm-project)
+-llvm_configure = use_repo_rule("@llvm-raw//utils/bazel:configure.bzl", "llvm_configure")
+-
+-llvm_configure(
+-    name = "llvm-project",
+-    targets = [
+-        "AArch64",
+-        "AMDGPU",
+-        "ARM",
+-        "NVPTX",
+-        "RISCV",
+-        "SPIRV",
+-        "WebAssembly",
+-        "X86",
+-    ],
+-)
+-
+-# Configure torch-mlir using its upstream Bazel overlay. The configured
+-# repository is only needed when the Torch input plugin is selected.
+-torch_mlir_configure = use_repo_rule("@torch-mlir-raw//utils/bazel:configure.bzl", "torch_mlir_configure")
+-
+-torch_mlir_configure(
+-    name = "torch-mlir",
+-    src_workspace = "@torch-mlir-raw//:CMakeLists.txt",
+-)

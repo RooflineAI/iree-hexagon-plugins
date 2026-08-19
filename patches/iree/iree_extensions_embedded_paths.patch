@@ -1,0 +1,189 @@
+diff --git a/build_tools/bazel/extensions.bzl b/build_tools/bazel/extensions.bzl
+index dc3d8a75c3..beed566527 100644
+--- a/build_tools/bazel/extensions.bzl
++++ b/build_tools/bazel/extensions.bzl
+@@ -11,111 +11,166 @@ load("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository", "new_l
+ load("//build_tools/bazel:amdgpu_device_toolchain_repo.bzl", "amdgpu_device_toolchain_repo")
+ load("//build_tools/bazel:workspace.bzl", "cuda_auto_configure")
+ load("//build_tools/wasm:wasi_sdk_repo.bzl", "wasi_sdk_repo")
++load("@llvm-raw//utils/bazel:configure.bzl", "llvm_configure")
++load("@torch-mlir-raw//utils/bazel:configure.bzl", "torch_mlir_configure")
+ 
+ def _iree_extension_impl(module_ctx):
+     """Implementation of the IREE module extension."""
+ 
++    # The "third_party/<name>" paths below are resolved by repository rules
++    # relative to the Bazel main/root repo's own directory, not IREE's - that
++    # only happens to be the same directory when this repository is itself
++    # the Bazel root module. When it's embedded as a dependency (e.g.
++    # iree_core inside a larger workspace, as here), resolve IREE's actual
++    # on-disk location explicitly and anchor these paths to it instead.
++    #
++    # llvm-raw/torch-mlir-raw are deliberately left out here (and thus still
++    # gated behind "is IREE the Bazel root module" below, same as upstream) -
++    # the embedding project provides its own via inject_repo() against this
++    # same extension, pointed at its own top-level submodules. This isn't done
++    # for stablehlo too: unlike llvm-raw/torch-mlir-raw (which only ever
++    # provide an empty/overlaid BUILD file), stablehlo's real BUILD files load
++    # "@rules_cc" and friends, which only resolve correctly against iree_core's
++    # own repo mapping - a stablehlo repo injected from the embedding project's
++    # own root module context would fail to load. So stablehlo is created
++    # unconditionally below instead, still owned by iree_core, just pointed at
++    # the embedding project's own top-level stablehlo submodule (a plain
++    # workspace-relative path, which - unlike a Label - resolves the same way
++    # regardless of which module's extension creates the repo).
++    iree_root = str(module_ctx.path(Label("@iree_core//:MODULE.bazel")).dirname)
++
+     iree_is_root = any([m.is_root and m.name == "iree_core" for m in module_ctx.modules])
+ 
+     # Create MLIR-adjacent source repositories only when IREE is the root
+-    # module. Downstream consumers can provide their own LLVM, StableHLO, and
+-    # torch-mlir repositories when IREE is part of a larger project.
++    # module. Downstream consumers can provide their own LLVM and torch-mlir
++    # repositories when IREE is part of a larger project.
+     if iree_is_root:
+         new_local_repository(
+             name = "llvm-raw",
+             build_file_content = "# empty",
+             path = "third_party/llvm-project",
+         )
+-        local_repository(
+-            name = "stablehlo",
+-            path = "third_party/stablehlo",
+-        )
+         new_local_repository(
+             name = "torch-mlir-raw",
+             build_file_content = "# empty - BUILD files overlaid by torch_mlir_configure",
+             path = "third_party/torch-mlir",
+         )
+ 
++    # StableHLO
++    local_repository(
++        name = "stablehlo",
++        path = "third-party/stablehlo",
++    )
++
++    # LLVM/MLIR, configured from "llvm-raw" (created above when IREE is root,
++    # or injected from the embedding project otherwise). Made extension-owned
++    # (rather than a direct MODULE.bazel-level call) so it can be shared via
++    # use_repo() with whichever module actually consumes it - a direct call
++    # would be private to whichever MODULE.bazel contains it, giving two
++    # separately-compiled "llvm-project" instances (one for iree_core's own
++    # internal use, one for anyone else referencing IREE under a different
++    # repo name) that can't be linked together.
++    llvm_configure(
++        name = "llvm-project",
++        targets = [
++            "AArch64",
++            "AMDGPU",
++            "ARM",
++            "Hexagon",
++            "NVPTX",
++            "RISCV",
++            "SPIRV",
++            "WebAssembly",
++            "X86",
++        ],
++    )
++
++    # torch-mlir, configured from "torch-mlir-raw" for the same reason.
++    torch_mlir_configure(
++        name = "torch-mlir",
++        src_workspace = "@torch-mlir-raw//:CMakeLists.txt",
++    )
++
+     # Googletest
+     local_repository(
+         name = "com_google_googletest",
+-        path = "third_party/googletest",
++        path = iree_root + "/third_party/googletest",
+     )
+ 
+     # Flatcc
+     new_local_repository(
+         name = "com_github_dvidelabs_flatcc",
+         build_file = "@iree_core//:build_tools/third_party/flatcc/BUILD.overlay",
+-        path = "third_party/flatcc",
++        path = iree_root + "/third_party/flatcc",
+     )
+ 
+     # Vulkan headers
+     new_local_repository(
+         name = "vulkan_headers",
+         build_file = "@iree_core//:build_tools/third_party/vulkan_headers/BUILD.overlay",
+-        path = "third_party/vulkan_headers",
++        path = iree_root + "/third_party/vulkan_headers",
+     )
+ 
+     # Benchmark
+     local_repository(
+         name = "com_google_benchmark",
+-        path = "third_party/benchmark",
++        path = iree_root + "/third_party/benchmark",
+     )
+ 
+     # SPIRV-Cross
+     new_local_repository(
+         name = "spirv_cross",
+         build_file = "@iree_core//:build_tools/third_party/spirv_cross/BUILD.overlay",
+-        path = "third_party/spirv_cross",
++        path = iree_root + "/third_party/spirv_cross",
+     )
+ 
+     # Tracy
+     new_local_repository(
+         name = "tracy_client",
+         build_file = "@iree_core//:build_tools/third_party/tracy_client/BUILD.overlay",
+-        path = "third_party/tracy",
++        path = iree_root + "/third_party/tracy",
+     )
+ 
+     # NCCL
+     new_local_repository(
+         name = "nccl",
+         build_file = "@iree_core//:build_tools/third_party/nccl/BUILD.overlay",
+-        path = "third_party/nccl",
++        path = iree_root + "/third_party/nccl",
+     )
+ 
+     # HIP API headers
+     new_local_repository(
+         name = "hip_api_headers",
+         build_file = "@iree_core//:build_tools/third_party/hip-api-headers/BUILD.overlay",
+-        path = "third_party/hip-build-deps",
++        path = iree_root + "/third_party/hip-build-deps",
+     )
+ 
+     # HSA runtime headers
+     new_local_repository(
+         name = "hsa_runtime_headers",
+         build_file = "@iree_core//:build_tools/third_party/hsa-runtime-headers/BUILD.overlay",
+-        path = "third_party/hsa-runtime-headers",
++        path = iree_root + "/third_party/hsa-runtime-headers",
+     )
+ 
+     # RCCL
+     new_local_repository(
+         name = "rccl",
+         build_file = "@iree_core//:build_tools/third_party/rccl/BUILD.overlay",
+-        path = "third_party/rccl",
++        path = iree_root + "/third_party/rccl",
+     )
+ 
+     # Doug Lea's malloc (dlmalloc v2.8.6, MIT-0 license)
+     new_local_repository(
+         name = "dlmalloc",
+         build_file = "@iree_core//:build_tools/third_party/dlmalloc/BUILD.overlay",
+-        path = "third_party/dlmalloc",
++        path = iree_root + "/third_party/dlmalloc",
+     )
+ 
+     # WebGPU headers
+     new_local_repository(
+         name = "webgpu_headers",
+         build_file = "@iree_core//:build_tools/third_party/webgpu-headers/BUILD.overlay",
+-        path = "third_party/webgpu-headers",
++        path = iree_root + "/third_party/webgpu-headers",
+     )
+ 
+     # Dawn (Tint SPIR-V → WGSL translation for the WebGPU compiler target).

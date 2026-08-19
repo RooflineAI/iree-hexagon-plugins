@@ -1,0 +1,32 @@
+# Import IREE's own bazelrc for its build configs (generic_clang, opt, etc.)
+# and flag aliases.
+import %workspace%/third-party/iree/build_tools/bazel/iree.bazelrc
+
+# Compiler selection and default config - see configured.bazelrc.
+import %workspace%/configured.bazelrc
+
+# Disable layering_check: the layering_check feature with clang module maps
+# does not work correctly with bzlmod's repository name mangling (this repo
+# embeds IREE as a non-root module), causing false "does not depend on a
+# module exporting" errors.
+build --features=-layering_check
+build --host_features=-layering_check
+
+# Enable fallback type IDs for MLIR to avoid issues with type ID registration
+# across the dynamically-loaded compiler plugin shared libraries.
+build --copt=-DMLIR_USE_FALLBACK_TYPE_IDS=1
+
+# IREE's generic_clang config treats warnings as errors. clang-19 here is
+# apparently stricter about a couple of warnings in vendored third-party
+# sources than the upstream baseline, so demote those specific warnings back to
+# non-fatal:
+#  - deprecated-declarations: this system's glibc (2.39) marks mallinfo()
+#    deprecated, which LLVM's Unix/Process.inc still calls as a fallback.
+#  - implicit-fallthrough: vendored SPIRV-Cross has a couple of switch
+#    fallthroughs without a [[fallthrough]] annotation.
+build --copt=-Wno-error=deprecated-declarations
+build --copt=-Wno-error=implicit-fallthrough
+
+# The user.bazelrc file is not checked in but available for local mods.
+# Always keep this at the end of the file so that user flags override.
+try-import %workspace%/user.bazelrc

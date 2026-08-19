@@ -1,0 +1,28 @@
+diff --git a/runtime/src/iree/vm/bytecode/isa/BUILD.bazel b/runtime/src/iree/vm/bytecode/isa/BUILD.bazel
+index 86e833f735..69d5896a04 100644
+--- a/runtime/src/iree/vm/bytecode/isa/BUILD.bazel
++++ b/runtime/src/iree/vm/bytecode/isa/BUILD.bazel
+@@ -26,9 +26,9 @@ iree_genrule(
+     outs = ["op_table.h"],
+     cmd = " ".join([
+         "python3",
+-        "$(rootpath //build_tools/scripts:generate_vm_isa.py)",
++        "$(location //build_tools/scripts:generate_vm_isa.py)",
+         "--schema",
+-        "$(rootpath isa.json)",
++        "$(location isa.json)",
+         "--op-table",
+         "$(execpath op_table.h)",
+     ]),
+@@ -46,9 +46,9 @@ iree_genrule(
+     ],
+     cmd = " ".join([
+         "python3",
+-        "$(rootpath //build_tools/scripts:generate_vm_isa.py)",
++        "$(location //build_tools/scripts:generate_vm_isa.py)",
+         "--schema",
+-        "$(rootpath isa.json)",
++        "$(location isa.json)",
+         "--encoding-table-header",
+         "$(execpath encoding_table.h)",
+         "--encoding-table-source",

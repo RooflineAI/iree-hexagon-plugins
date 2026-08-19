@@ -57,7 +57,7 @@ void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager) {
   funcPassManager.addPass(mlir::bufferization::createLowerDeallocationsPass());
   funcPassManager.addPass(mlir::createCanonicalizerPass());
   funcPassManager.addPass(createEraseHALDescriptorTypeFromMemRefPass());
-  funcPassManager.addPass(hexagon::createConvertToHexagonmemPass());
+  funcPassManager.addPass(::mlir::hexagon::createConvertToHexagonmemPass());
 }
 
 void addHexagonBufferizePassesForHexagonMlir(

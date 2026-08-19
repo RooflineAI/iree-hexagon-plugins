@@ -1,0 +1,107 @@
+diff --git a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
+index b1a420d..69f91f5 100644
+--- a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
+@@ -14,6 +14,7 @@
+ #include "hexagon/Conversion/DMAToLLVM/DMAExternalFnNames.h"
+ #include "hexagon/Conversion/DMAToLLVM/Passes.h"
+ #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
++#include "mlir/Analysis/DataLayoutAnalysis.h"
+ #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+ #include "mlir/Conversion/LLVMCommon/Pattern.h"
+ #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
+@@ -31,7 +32,7 @@ using namespace mlir;
+ using namespace hexagon;
+ using namespace mlir::hexagonmem;
+
+-#define GEN_PASS_CLASSES
++#define GEN_PASS_DEF_DMATOLLVM
+ #include "hexagon/Conversion/DMAToLLVM/Passes.h.inc"
+
+ namespace {
+@@ -348,7 +348,7 @@ void populateDMAToLLVMConversionPatterns(LLVMTypeConverter &converter,
+   patterns.add<LowerDMAStart, LowerDMAWait>(converter);
+ }
+
+-struct DMAToLLVMPass : public DMAToLLVMBase<DMAToLLVMPass> {
++struct DMAToLLVMPass : public ::impl::DMAToLLVMBase<DMAToLLVMPass> {
+   using Base::Base;
+
+   void getDependentDialects(DialectRegistry &registry) const override {
+diff --git a/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp
+index 8400a22..f0a98df 100644
+--- a/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp
+@@ -40,7 +40,7 @@
+ using namespace mlir;
+ using namespace mlir::hexkl;
+
+-#define GEN_PASS_CLASSES
++#define GEN_PASS_DEF_HEXKLTOLLVM
+ #include "hexagon/Conversion/HexKLToLLVM/Passes.h.inc"
+
+ namespace {
+@@ -515,7 +515,7 @@ void populateHexKLToLLVMConversionPatterns(LLVMTypeConverter &converter,
+       converter);
+ }
+
+-struct HexKLToLLVMPass : public HexKLToLLVMBase<HexKLToLLVMPass> {
++struct HexKLToLLVMPass : public ::impl::HexKLToLLVMBase<HexKLToLLVMPass> {
+   using Base::Base;
+
+   void getDependentDialects(DialectRegistry &registry) const override {
+diff --git a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
+index 8828398..57ce24a 100644
+--- a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
+@@ -49,7 +49,7 @@
+ using namespace mlir;
+ using namespace mlir::hexagonmem;
+
+-#define GEN_PASS_CLASSES
++#define GEN_PASS_DEF_HEXAGONMEMTOLLVM
+ #include "hexagon/Conversion/HexagonMemToLLVM/Passes.h.inc"
+
+ namespace {
+@@ -411,7 +411,7 @@ void populateHexagonMemToLLVMConversionPatterns(LLVMTypeConverter &converter,
+ }
+
+ struct HexagonMemToLLVMPass
+-    : public HexagonMemToLLVMBase<HexagonMemToLLVMPass> {
++    : public ::impl::HexagonMemToLLVMBase<HexagonMemToLLVMPass> {
+   using Base::Base;
+
+   void getDependentDialects(DialectRegistry &registry) const override {
+diff --git a/qcom_hexagon_backend/lib/Transforms/Transforms.cpp b/qcom_hexagon_backend/lib/Transforms/Transforms.cpp
+index 4ced10c..a93e287 100644
+--- a/qcom_hexagon_backend/lib/Transforms/Transforms.cpp
++++ b/qcom_hexagon_backend/lib/Transforms/Transforms.cpp
+@@ -27,5 +27,5 @@
+ using namespace mlir;
+ using namespace hexagon;
+
+-#define GEN_PASS_CLASSES
++#define GEN_PASS_REGISTRATION
+ #include "hexagon/Transforms/Passes.h.inc"
+diff --git a/qcom_hexagon_backend/lib/Transforms/UseHexagonRoutines.cpp b/qcom_hexagon_backend/lib/Transforms/UseHexagonRoutines.cpp
+index bbec7c3..1ab81c3 100644
+--- a/qcom_hexagon_backend/lib/Transforms/UseHexagonRoutines.cpp
++++ b/qcom_hexagon_backend/lib/Transforms/UseHexagonRoutines.cpp
+@@ -32,7 +32,7 @@
+ using namespace mlir;
+ using namespace hexagon;
+
+-#define GEN_PASS_CLASSES
++#define GEN_PASS_DEF_HEXAGONLLVMENABLEHEXAGONROUTINES
+ #include "hexagon/Transforms/Passes.h.inc"
+
+ namespace {
+@@ -445,7 +445,7 @@ void populateEnableHexagonRoutinesPattern(RewritePatternSet &patterns) {
+ }
+
+ struct HexagonLLVMEnableHexagonRoutinesPass
+-    : public HexagonLLVMEnableHexagonRoutinesBase<
++    : public ::impl::HexagonLLVMEnableHexagonRoutinesBase<
+           HexagonLLVMEnableHexagonRoutinesPass> {
+ public:
+   void runOnOperation() override {

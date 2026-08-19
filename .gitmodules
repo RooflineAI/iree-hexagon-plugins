@@ -4,3 +4,12 @@
 [submodule "third-party/hexagon-mlir"]
         path = third-party/hexagon-mlir
         url = https://github.com/qualcomm/hexagon-mlir.git
+[submodule "third-party/torch-mlir"]
+	path = third-party/torch-mlir
+	url = https://github.com/iree-org/torch-mlir.git
+[submodule "third-party/llvm-project"]
+	path = third-party/llvm-project
+	url = https://github.com/iree-org/llvm-project.git
+[submodule "third-party/stablehlo"]
+	path = third-party/stablehlo
+	url = https://github.com/iree-org/stablehlo.git

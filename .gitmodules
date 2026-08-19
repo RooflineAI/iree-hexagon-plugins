@@ -1,0 +1,6 @@
+[submodule "third-party/iree"]
+	path = third-party/iree
+	url = https://github.com/iree-org/iree
+[submodule "third-party/hexagon-mlir"]
+        path = third-party/hexagon-mlir
+        url = https://github.com/qualcomm/hexagon-mlir.git

@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_gentbl_cc_library")
-load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -12,7 +12,7 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonEncodingExternalModels",
     srcs = [
         "Encoding/HexagonEncodingExternalModels.cpp",
@@ -32,7 +32,7 @@ cellar_hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
-        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
     ],
 )
 
@@ -50,7 +50,7 @@ iree_gentbl_cc_library(
     deps = ["@llvm-project//mlir:PassBaseTdFiles"],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "codegen",
     srcs = [
         "Conversion/HexagonConvertToLLVM.cpp",
@@ -151,7 +151,7 @@ cellar_hexagon_plugin_library(
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":PassesIncGen",
-        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
         # These dependencies are not present in the base iree-compile binary,
         # so they need to be added with the dynamic plugin

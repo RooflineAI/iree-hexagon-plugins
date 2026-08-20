@@ -3,7 +3,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -11,7 +11,7 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonOptions",
     srcs = [
         "HexagonOptions.cpp",
@@ -27,7 +27,7 @@ cellar_hexagon_plugin_library(
     deps = [],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonLLVMTarget",
     srcs = [
         "HexagonLLVMTarget.cpp",
@@ -46,7 +46,7 @@ cellar_hexagon_plugin_library(
     ],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonTargetDevice",
     srcs = [
         "HexagonTargetDevice.cpp",
@@ -65,7 +65,7 @@ cellar_hexagon_plugin_library(
     ],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonExecutableSerialization",
     srcs = [
         "HexagonExecutableSerialization.cpp",
@@ -97,15 +97,15 @@ cellar_hexagon_plugin_library(
     deps = [
         ":HexagonLLVMTarget",
         ":HexagonOptions",
-        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
-        "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
+        "//plugins/compiler/hexagon/CodeGen:codegen",
+        "//plugins/compiler/hexagon/Target/Linking:HexagonLinkerTool",
         "@iree//compiler/plugins/target/LLVMCPU:LLVMIRPasses",
         # FlatbufferBuilder + flatcc runtime for the executable-def flatbuffer.
         "@iree//compiler/src/iree/compiler/Utils",
     ],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonTargetBackend",
     srcs = [
         "HexagonTargetBackend.cpp",
@@ -127,12 +127,12 @@ cellar_hexagon_plugin_library(
         ":HexagonExecutableSerialization",
         ":HexagonLLVMTarget",
         ":HexagonOptions",
-        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
-        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
+        "//plugins/compiler/hexagon/CodeGen:codegen",
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
     ],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonSession",
     srcs = [
         "HexagonSession.cpp",
@@ -150,9 +150,9 @@ cellar_hexagon_plugin_library(
         ":HexagonOptions",
         ":HexagonTargetBackend",
         ":HexagonTargetDevice",
-        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
-        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
-        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
+        "//plugins/compiler/hexagon/CodeGen:codegen",
+        "//plugins/compiler/hexagon/CodeGen:HexagonEncodingExternalModels",
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonDialectLibs",
         # These dependencies are not present in the base iree-compile binary,
         # so they need to be added with the dynamic plugin.

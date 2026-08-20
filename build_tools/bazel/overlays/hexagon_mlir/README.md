@@ -1,13 +1,13 @@
 # Hexagon-MLIR Bazel Overlay
 
 This folder defines the Bazel overlay used to expose `third-party/hexagon-mlir`
-as a first-class external repository (`@hexagon-mlir`) in roof-mlir.
+as a first-class external repository (`@hexagon-mlir`).
 
 ## Why this exists
 
-- Upstream `hexagon-mlir` is CMake-first while roof-mlir is Bazel-first.
+- Upstream `hexagon-mlir` is CMake-first while this repo is Bazel-first.
 - Ideally want Bazel targets without forking/editing upstream sources directly.
-- An overlay allows to keep build logic in roof-mlir while reusing upstream code.
+- An overlay allows keeping build logic here while reusing upstream code.
 
 ## Repository flow
 
@@ -18,8 +18,7 @@ as a first-class external repository (`@hexagon-mlir`) in roof-mlir.
    repo named `@hexagon-mlir`.
 4. That generated repo is a symlinked view of:
    - upstream source tree (`@hexagon-mlir-raw`)
-   - this overlay tree
-     (`plugins/external/cellar-hexagon/build_tools/bazel/overlays/hexagon_mlir`)
+   - this overlay tree (`build_tools/bazel/overlays/hexagon_mlir`)
 
 Overlay path precedence is "overlay wins":
 - If a file exists in overlay and upstream at the same relative path, the
@@ -30,7 +29,7 @@ Overlay path precedence is "overlay wins":
 ## Compatibility notes
 
 - Overlaid `CopyOpInterface` implementation:
-  - LLVM snapshot used in roof-mlir does not provide
+  - The LLVM snapshot used here does not provide
     `mlir/Interfaces/CopyOpInterface.td` and
     `mlir/Interfaces/CopyOpInterface.h`.
     These were deprecated and removed long ago.
@@ -51,7 +50,7 @@ Overlay path precedence is "overlay wins":
 ## Dependency model
 
 - Source-bearing overlay libraries use
-  `@patio_cellar_hexagon//build_tools/bazel:hexagon_mlir_overlay_library`.
+  `//build_tools/bazel:hexagon_mlir_overlay_library`.
 - That macro separates:
   - `deps`: real implementation dependencies that should participate in linking
   - `hdr_deps`: compile-time-only LLVM/MLIR/IREE dependencies wrapped with

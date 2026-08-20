@@ -4,10 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Passes.h"
 
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/Common/Common.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -18,13 +18,13 @@
 
 #define DEBUG_TYPE "iree-hexagon-lower-vtcm-staging"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace {
 
 namespace IREEHexagon = mlir::iree_compiler::IREE::Hexagon;
 
 #define GEN_PASS_DEF_HEXAGONLOWERVTCMSTAGINGPASS
-#include "cellar-hexagon/CodeGen/Passes.h.inc"
+#include "hexagon/CodeGen/Passes.h.inc"
 
 struct LowerStageToVTCMPattern
     : public OpRewritePattern<IREEHexagon::StageToVTCMOp> {
@@ -94,4 +94,4 @@ std::unique_ptr<Pass> createHexagonLowerVTCMStagingPass() {
   return std::make_unique<HexagonLowerVTCMStagingPass>();
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

@@ -4,10 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES
+#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONTYPES
+#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONTYPES
 
-include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
+include "hexagon/CodeGen/IR/HexagonDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 
 //===----------------------------------------------------------------------===//
@@ -39,4 +39,4 @@ def IREEHexagon_ProfilerRecordType :
   }];
 }
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONTYPES
+#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONTYPES

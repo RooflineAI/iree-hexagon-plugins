@@ -10,10 +10,10 @@
 #ifndef ROOF_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_
 #define ROOF_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_
 
-#include "cellar-hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Passes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 bool isHexagonFailOnOutOfBoundsStackAllocationEnabled();
 
@@ -66,6 +66,6 @@ void addHexagonTileAndDistributePasses(
     mlir::OpPassManager &funcPassManager,
     const HexagonPipelineOptions &pipelineOpt);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_

@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/Target/HexagonExecutableSerialization.h"
-#include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
+#include "hexagon/Target/HexagonExecutableSerialization.h"
+#include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 
-#include "cellar-hexagon/Target/HexagonLLVMTarget.h"
-#include "cellar-hexagon/Target/Linking/HexagonLinkerTool.h"
+#include "hexagon/Target/HexagonLLVMTarget.h"
+#include "hexagon/Target/Linking/HexagonLinkerTool.h"
 #include "compiler/plugins/target/LLVMCPU/LLVMIRPasses.h"
 #include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
 #include "compiler/plugins/target/LLVMCPU/LibraryBuilder.h"
@@ -41,7 +41,7 @@
 // files inside the hexagon plugin. This will have to be revisited in the future
 // since it is not particularly clean...
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 using HAL::Artifact;
 using HAL::Artifacts;
@@ -349,7 +349,7 @@ static std::optional<Artifacts> linkArtifacts(
   const bool allowNativeUndefinedSymbols =
       variantOp->hasAttr(codegen::kNativeRuntimeLinkVariantAttrName);
 
-  auto linkerTool = mlir::iree_compiler::cellar_hexagon::target::linking::
+  auto linkerTool = mlir::iree_compiler::hexagon::target::linking::
       createHexagonLinkerTool(targetMachine.getTargetTriple(), linkerOptions,
                               allowNativeUndefinedSymbols);
 
@@ -517,4 +517,4 @@ mlir::LogicalResult serializeHexagonExecutable(
   return mlir::success();
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target

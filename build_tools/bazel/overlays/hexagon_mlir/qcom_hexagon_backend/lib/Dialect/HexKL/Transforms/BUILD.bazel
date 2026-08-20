@@ -1,4 +1,4 @@
-load("@patio_cellar_hexagon//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
 
 package(default_visibility = ["//visibility:public"])
 

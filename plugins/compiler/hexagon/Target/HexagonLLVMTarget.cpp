@@ -4,14 +4,14 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/Target/HexagonLLVMTarget.h"
+#include "hexagon/Target/HexagonLLVMTarget.h"
 
 #include "llvm/Support/TargetSelect.h"
 
 #include <mutex>
 #include <string>
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 
 // Registers all LLVM components required for Hexagon code generation.
@@ -74,4 +74,4 @@ HAL::LLVMTarget createLLVMTargetForHexagon(const HexagonOptions &options) {
   return target;
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target

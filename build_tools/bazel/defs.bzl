@@ -1,5 +1,5 @@
 """
-Bazel macros for building cellar-hexagon compiler and runtime plugin libraries.
+Bazel macros for building hexagon compiler and runtime plugin libraries.
 This file is made in the image of the nxp plugin equivalent file.
 """
 
@@ -43,7 +43,7 @@ def _cc_headers_only_group(prefix, hdr_deps, visibility = None):
         wrapped_targets.append(":" + wrapped_name)
     return wrapped_targets
 
-def _cellar_hexagon_library(name, srcs, hdrs, deps, hdr_deps, **kwargs):
+def _hexagon_library(name, srcs, hdrs, deps, hdr_deps, **kwargs):
     wrapped_hdr_deps = _cc_headers_only_group(prefix = name, hdr_deps = hdr_deps)
     iree_cc_library(
         name = name,
@@ -55,8 +55,8 @@ def _cellar_hexagon_library(name, srcs, hdrs, deps, hdr_deps, **kwargs):
         **kwargs
     )
 
-def cellar_hexagon_plugin_library(name, srcs, hdrs, deps, hdr_deps, **kwargs):
-    _cellar_hexagon_library(
+def hexagon_plugin_library(name, srcs, hdrs, deps, hdr_deps, **kwargs):
+    _hexagon_library(
         name = name,
         srcs = srcs,
         hdrs = hdrs,
@@ -66,7 +66,7 @@ def cellar_hexagon_plugin_library(name, srcs, hdrs, deps, hdr_deps, **kwargs):
     )
 
 def hexagon_mlir_overlay_library(name, srcs, hdrs = None, deps = None, hdr_deps = None, **kwargs):
-    _cellar_hexagon_library(
+    _hexagon_library(
         name = name,
         srcs = srcs,
         hdrs = hdrs or [],

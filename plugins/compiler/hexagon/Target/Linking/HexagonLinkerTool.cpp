@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/Target/Linking/HexagonLinkerTool.h"
+#include "hexagon/Target/Linking/HexagonLinkerTool.h"
 
 #include "iree/compiler/Utils/ToolUtils.h"
 #include "llvm/ADT/StringExtras.h"
@@ -15,7 +15,7 @@
 
 #define DEBUG_TYPE "llvm-linker"
 
-namespace mlir::iree_compiler::cellar_hexagon::target::linking {
+namespace mlir::iree_compiler::hexagon::target::linking {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 
 class HexagonLinkerTool : public HAL::LinkerTool {
@@ -187,4 +187,4 @@ createHexagonLinkerTool(const llvm::Triple &targetTriple,
                                              allowNativeUndefinedSymbols);
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target::linking
+} // namespace mlir::iree_compiler::hexagon::target::linking

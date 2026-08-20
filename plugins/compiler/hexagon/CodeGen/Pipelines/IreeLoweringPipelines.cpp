@@ -12,11 +12,11 @@
 // of these two files to see the hexagon specific differences in case you are
 // curious.
 
-#include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
+#include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 
-#include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
-#include "cellar-hexagon/CodeGen/Pipelines/Bufferization.h"
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
+#include "hexagon/CodeGen/Pipelines/Bufferization.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
 #include "hexagon/Conversion/DMAToLLVM/Passes.h"
 #include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
@@ -44,7 +44,7 @@
 
 #define DEBUG_TYPE "iree-hexagon-pass-pipelines"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
 static llvm::cl::opt<bool> clHexagonPatchFuncOps(
@@ -718,4 +718,4 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       createAddFastMathFlagsPass());
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

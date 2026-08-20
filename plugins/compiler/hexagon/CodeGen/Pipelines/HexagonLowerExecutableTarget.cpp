@@ -8,8 +8,8 @@
 // pipelines based on the selected lowering strategy.
 // This file was created in the image of the equivalent LLVMCPU file.
 
-#include "cellar-hexagon/CodeGen/Passes.h"
-#include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
+#include "hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 
 #include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
@@ -31,11 +31,11 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "llvm/ADT/STLExtras.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
 #define GEN_PASS_DEF_HEXAGONLOWEREXECUTABLETARGETPASS
-#include "cellar-hexagon/CodeGen/Passes.h.inc"
+#include "hexagon/CodeGen/Passes.h.inc"
 
 namespace {
 class HexagonLowerExecutableTargetPass
@@ -167,4 +167,4 @@ void HexagonLowerExecutableTargetPass::runOnOperation() {
   }
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

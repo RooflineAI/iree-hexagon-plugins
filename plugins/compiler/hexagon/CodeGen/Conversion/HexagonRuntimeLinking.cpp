@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
+#include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 
 #include "hexagon/Conversion/DMAToLLVM/DMAExternalFnNames.h"
 #include "hexagon/Conversion/HexKLToLLVM/HexKLExternalFnNames.h"
@@ -14,7 +14,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringMap.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
 const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
@@ -136,4 +136,4 @@ LogicalResult renameAndTagNativeRuntimeLinkedFunc(ModuleOp moduleOp,
   return success();
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

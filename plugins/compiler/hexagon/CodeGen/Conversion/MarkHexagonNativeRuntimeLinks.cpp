@@ -4,17 +4,17 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
-#include "cellar-hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
+#include "hexagon/CodeGen/Passes.h"
 
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
 #define GEN_PASS_DEF_MARKHEXAGONNATIVERUNTIMELINKSPASS
-#include "cellar-hexagon/CodeGen/Passes.h.inc"
+#include "hexagon/CodeGen/Passes.h.inc"
 
 namespace {
 
@@ -44,4 +44,4 @@ struct MarkHexagonNativeRuntimeLinksPass
 
 } // namespace
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

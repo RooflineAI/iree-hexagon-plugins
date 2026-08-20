@@ -20,10 +20,10 @@
 // development.
 //
 // For runnable examples and the currently expected behavior, see
-// `plugins/compiler/cellar-hexagon/test/codegen/strategy/`
+// `plugins/compiler/hexagon/test/codegen/strategy/`
 // `hexagon_select_lowering_strategy.mlir`.
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 constexpr llvm::StringLiteral kHexagonVTCMTilingConfigAttrName =
     "hexagon_vtcm_tiling_config";
@@ -31,6 +31,6 @@ constexpr llvm::StringLiteral kHexagonVTCMTilingConfigAttrName =
 /// Public facade for Hexagon launch-config selection.
 mlir::LogicalResult initHexagonLaunchConfig(mlir::FunctionOpInterface funcOp);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_KERNELDISPATCH_H_

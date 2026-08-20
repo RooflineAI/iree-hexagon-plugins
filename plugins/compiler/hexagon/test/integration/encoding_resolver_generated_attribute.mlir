@@ -5,7 +5,7 @@
 
 // RUN: iree-compile %s \
 // RUN:   --iree-opt-data-tiling=true \
-// RUN:   --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
+// RUN:   --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
 // RUN:   --iree-hal-target-device=hexagon \
 // RUN:   --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN:   --compile-to=stream \

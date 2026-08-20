@@ -7,17 +7,17 @@
 #ifndef ROOF_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_
 #define ROOF_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_
 
-#include "cellar-hexagon/Target/HexagonOptions.h"
+#include "hexagon/Target/HexagonOptions.h"
 
 #include "iree/compiler/Dialect/HAL/Target/TargetBackend.h"
 
 #include <memory>
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 
 std::shared_ptr<mlir::iree_compiler::IREE::HAL::TargetBackend>
 createHexagonTargetBackend(const HexagonOptions &options);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target
 
 #endif // ROOF_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_

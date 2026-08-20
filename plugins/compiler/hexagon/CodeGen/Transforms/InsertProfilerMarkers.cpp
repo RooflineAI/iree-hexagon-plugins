@@ -7,10 +7,10 @@
 // Adds profiler markers around the Hexagon memory operations
 // hexagonmem.alloc/dealloc/copy and around the outermost compute loops.
 
-#include "cellar-hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Passes.h"
 
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -18,11 +18,11 @@
 
 #include <optional>
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
 #define GEN_PASS_DEF_INSERTPROFILERMARKERSPASS
-#include "cellar-hexagon/CodeGen/Passes.h.inc"
+#include "hexagon/CodeGen/Passes.h.inc"
 
 namespace {
 
@@ -176,4 +176,4 @@ struct InsertProfilerMarkersPass final
 
 } // namespace
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

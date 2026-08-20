@@ -11,10 +11,10 @@
 
 #include "mlir/Pass/PassManager.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 void buildHexagonConfigurationPassPipeline(mlir::OpPassManager &passManager);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_CONFIGURATIONPIPELINE_H_

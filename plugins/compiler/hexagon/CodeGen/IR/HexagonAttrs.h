@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS_H
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS_H
+#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS_H
+#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS_H
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Dialect.h"
@@ -18,10 +18,10 @@ class IREEHexagonDialect;
 
 // clang-format off: the enum declarations must come before the attributes
 // wrapping them.
-#include "cellar-hexagon/CodeGen/IR/HexagonEnums.h.inc" // IWYU pragma: export
+#include "hexagon/CodeGen/IR/HexagonEnums.h.inc" // IWYU pragma: export
 
 #define GET_ATTRDEF_CLASSES
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h.inc"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h.inc"
 // clang-format on
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS_H
+#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS_H

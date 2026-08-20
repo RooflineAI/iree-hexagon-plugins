@@ -3,7 +3,7 @@
 // This file is not intended as a long-term reference of expected behavior,
 // but it keeps track of the current state of the kernelDispatch.cpp file.
 //
-// RUN: iree-opt --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   --split-input-file %s | FileCheck %s
 //
@@ -15,7 +15,7 @@
 // the fused fill is generalized into a linalg.generic and tiled as one, so its
 // config intentionally differs from the named form and is not asserted.
 //
-// RUN: iree-opt --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
 // RUN:   --pass-pipeline='builtin.module(func.func(linalg-generalize-named-ops),iree-hexagon-select-lowering-strategy)' \
 // RUN:   --split-input-file %s | FileCheck %s --check-prefix=GENERIC
 

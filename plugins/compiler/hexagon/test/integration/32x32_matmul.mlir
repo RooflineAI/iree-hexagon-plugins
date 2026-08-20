@@ -2,7 +2,7 @@
 // TODO: Once vector/tensor instructions are generated, they can be added here.
 
 // RUN: rm -f %t.vmfb
-// RUN: iree-compile %s --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN --iree-hal-target-device=hexagon \
+// RUN: iree-compile %s --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN --iree-hal-target-device=hexagon \
 // RUN: --iree-hexagon-v=79 \
 // RUN: --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN: -o %t.vmfb

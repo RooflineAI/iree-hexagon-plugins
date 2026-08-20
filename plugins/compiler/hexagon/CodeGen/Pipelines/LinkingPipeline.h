@@ -14,12 +14,12 @@
 #include <optional>
 #include <string>
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 void buildHexagonLinkingPassPipeline(
     mlir::OpPassManager &passManager,
     std::optional<std::string> target = std::nullopt);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_LINKINGPIPELINE_H_

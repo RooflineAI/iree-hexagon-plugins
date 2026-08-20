@@ -85,8 +85,8 @@ cc_toolchain(
 toolchain(
     name = "hexagon_toolchain",
     target_compatible_with = [
-        "@patio_cellar_hexagon//constraints:os_qurt",
-        "@patio_cellar_hexagon//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
+        "//constraints:cpu_hexagon",
     ],
     toolchain = ":cc_hexagon_toolchain",
     toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",

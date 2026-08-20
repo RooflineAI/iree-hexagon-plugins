@@ -35,8 +35,8 @@ cc_library(
     }),
     includes = ["../../.."],
     target_compatible_with = [
-        "@patio_cellar_hexagon//constraints:cpu_hexagon",
-        "@patio_cellar_hexagon//constraints:os_qurt",
+        "//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
     ],
     deps = [
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",

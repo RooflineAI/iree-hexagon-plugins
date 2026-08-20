@@ -4,16 +4,16 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_HEXAGONENCODINGEXTERNALMODELS_H
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_HEXAGONENCODINGEXTERNALMODELS_H
+#ifndef ROOF_HEXAGON_CODEGEN_HEXAGONENCODINGEXTERNALMODELS_H
+#define ROOF_HEXAGON_CODEGEN_HEXAGONENCODINGEXTERNALMODELS_H
 
 #include "mlir/IR/DialectRegistry.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 /// Registers the Hexagon encoding resolver interfaces.
 void registerHexagonEncodingExternalModels(mlir::DialectRegistry &registry);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_HEXAGONENCODINGEXTERNALMODELS_H
+#endif // ROOF_HEXAGON_CODEGEN_HEXAGONENCODINGEXTERNALMODELS_H

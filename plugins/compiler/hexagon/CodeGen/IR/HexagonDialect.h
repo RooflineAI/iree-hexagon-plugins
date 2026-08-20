@@ -4,12 +4,12 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT_H
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT_H
+#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT_H
+#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 #include "mlir/Support/TypeID.h"
 
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h.inc"
+#include "hexagon/CodeGen/IR/HexagonDialect.h.inc"
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT_H
+#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT_H

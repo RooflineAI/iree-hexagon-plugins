@@ -9,7 +9,7 @@ load(
     "iree_gentbl_cc_library",
     "iree_td_library",
 )
-load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -131,7 +131,7 @@ iree_gentbl_cc_library(
     deps = [":hexagon_td_files"],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "HexagonIR",
     srcs = [
         "HexagonAttrs.cpp",

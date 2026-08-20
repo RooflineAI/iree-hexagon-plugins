@@ -7,16 +7,16 @@
 #ifndef ROOF_HEXAGON_HAL_HEXAGONTARGETDEVICE_H_
 #define ROOF_HEXAGON_HAL_HEXAGONTARGETDEVICE_H_
 
-#include "cellar-hexagon/Target/HexagonOptions.h"
+#include "hexagon/Target/HexagonOptions.h"
 
 #include "iree/compiler/Dialect/HAL/Target/TargetDevice.h"
 
 #include <memory>
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 
 std::shared_ptr<mlir::iree_compiler::IREE::HAL::TargetDevice>
 createHexagonTargetDevice(const HexagonOptions &options);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target
 
 #endif // ROOF_HEXAGON_HAL_HEXAGONTARGETDEVICE_H_

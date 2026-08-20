@@ -13,7 +13,7 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Support/LogicalResult.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 /// Applies the selected root plan by setting both lowering config and
 /// translation info on the root op / entry point.
@@ -24,6 +24,6 @@ LogicalResult applyRootLoweringPlan(FunctionOpInterface entryPointFn,
 /// Applies the lowering config for a non-root op.
 void applyOpLoweringPlan(Operation *op, const OpLoweringPlan &opPlan);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_KERNELDISPATCHENCODING_H_

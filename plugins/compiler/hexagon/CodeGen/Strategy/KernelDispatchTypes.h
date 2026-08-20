@@ -12,7 +12,7 @@
 
 #include <optional>
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 // This header defines structs that are meant to interface between
 // kernelDispatch heuristic selection and encoding.
@@ -87,6 +87,6 @@ struct PolicyConfig {
   const HeuristicCaps caps;
 };
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_KERNELDISPATCHTYPES_H_

@@ -4,15 +4,15 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/Target/HexagonTargetBackend.h"
+#include "hexagon/Target/HexagonTargetBackend.h"
 
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
-#include "cellar-hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
-#include "cellar-hexagon/CodeGen/Pipelines/LinkingPipeline.h"
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
-#include "cellar-hexagon/Target/HexagonExecutableSerialization.h"
-#include "cellar-hexagon/Target/HexagonLLVMTarget.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
+#include "hexagon/CodeGen/Pipelines/LinkingPipeline.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/Target/HexagonExecutableSerialization.h"
+#include "hexagon/Target/HexagonLLVMTarget.h"
 #include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
@@ -26,7 +26,7 @@
 #include <optional>
 #include <string>
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 namespace IREE = mlir::iree_compiler::IREE;
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 
@@ -100,21 +100,21 @@ public:
   buildConfigurationPassPipeline(HAL::ExecutableTargetAttr targetAttr,
                                  mlir::OpPassManager &passManager) override {
     (void)targetAttr;
-    mlir::iree_compiler::cellar_hexagon::codegen::
+    mlir::iree_compiler::hexagon::codegen::
         buildHexagonConfigurationPassPipeline(passManager);
   }
 
   void buildTranslationPassPipeline(HAL::ExecutableTargetAttr targetAttr,
                                     mlir::OpPassManager &passManager) override {
     (void)targetAttr;
-    mlir::iree_compiler::cellar_hexagon::codegen::
+    mlir::iree_compiler::hexagon::codegen::
         buildHexagonTranslationPassPipeline(passManager);
   }
 
   void buildLinkingPassPipeline(mlir::OpPassManager &passManager) override {
     // Passing the backend name ensures the link pass actually gathers
     // Hexagon executables instead of skipping with an empty target filter.
-    mlir::iree_compiler::cellar_hexagon::codegen::
+    mlir::iree_compiler::hexagon::codegen::
         buildHexagonLinkingPassPipeline(
             passManager, std::make_optional<std::string>("hexagon"));
   }
@@ -136,4 +136,4 @@ createHexagonTargetBackend(const HexagonOptions &options) {
   return std::make_shared<HexagonTargetBackend>(options);
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target

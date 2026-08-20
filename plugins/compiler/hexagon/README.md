@@ -1,4 +1,4 @@
-# Cellar Hexagon Compiler Plugin
+# Hexagon Compiler Plugin
 
 ## Purpose
 

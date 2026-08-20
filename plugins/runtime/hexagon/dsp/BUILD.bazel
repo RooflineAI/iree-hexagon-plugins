@@ -41,8 +41,8 @@ cc_binary(
     includes = ["../.."],
     linkshared = True,
     target_compatible_with = [
-        "@patio_cellar_hexagon//constraints:os_qurt",
-        "@patio_cellar_hexagon//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
+        "//constraints:cpu_hexagon",
     ],
     deps = [
         ":qurt_lib",
@@ -65,7 +65,7 @@ copy_file(
     src = ":hexagon_dsp_skel_cross",
     out = "lib/hexagon/libhexagon_dsp_skel.so",
     target_compatible_with = select({
-        "@patio_cellar_hexagon//plugins/runtime/hexagon:hexagon_runtime_enabled": [],
+        "//plugins/runtime/hexagon:hexagon_runtime_enabled": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
 )

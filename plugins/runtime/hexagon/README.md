@@ -52,22 +52,22 @@ sudo mv "/opt/android-ndk-${NDK_VERSION}" "/opt/android-sdk/ndk/${NDK_FOLDER}"
 
 The cross-compile command is:
 ```sh
-bazel build @patio_cellar_hexagon//plugins/runtime/hexagon:hexagon_runtime_aarch64_android
+bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
 ```
 
 The output file can be queried:
 ```sh
-bazel cquery --output=files @patio_cellar_hexagon//plugins/runtime/hexagon:hexagon_runtime_aarch64_android
+bazel cquery --output=files //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
 ```
 It usually returns:
 ```sh
-bazel-out/aarch64-dbg/bin/external/_main~_repo_rules~patio_cellar_hexagon/plugins/runtime/hexagon/hexagon_runtime.zip
+bazel-out/aarch64-dbg/bin/plugins/runtime/hexagon/hexagon_runtime.zip
 ```
 
 This zip file contains two binaries, the runtime plugin, and some support files:
-- `lib/libcellar_hexagon_runtime_plugin.so`:
+- `lib/libhexagon_runtime_plugin.so`:
   The dynamic HAL runtime plugin for Hexagon. Loaded at runtime via
-  `IREE_DYNAMIC_HAL=hexagon=<path>/libcellar_hexagon_runtime_plugin.so`.
+  `IREE_DYNAMIC_HAL=hexagon=<path>/libhexagon_runtime_plugin.so`.
 - `bin/iree-benchmark-module`:
   This is the IREE runtime for benchmarking. It contains the ARM host part of
   the Hexagon runtime.
@@ -146,16 +146,16 @@ adb forward tcp:8086 tcp:8086
 Example script to run tracing:
 ```sh
 DIRECTORY=/data/local/tmp/{your_path}
-bazel build @patio_cellar_hexagon//plugins/runtime/hexagon:hexagon_runtime_aarch64_android --@iree//runtime/src/iree/base/tracing:tracing_provider=tracy
+bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android --@iree//runtime/src/iree/base/tracing:tracing_provider=tracy
 adb shell rm -rf $DIRECTORY/bin $DIRECTORY/lib $DIRECTORY/hexagon_runtime.zip
-adb push bazel-bin/external/_main~_repo_rules~patio_cellar_hexagon/plugins/runtime/hexagon/hexagon_runtime.zip $DIRECTORY
+adb push bazel-bin/plugins/runtime/hexagon/hexagon_runtime.zip $DIRECTORY
 adb shell unzip $DIRECTORY/hexagon_runtime.zip -d $DIRECTORY
 adb shell chmod +x $DIRECTORY/bin/iree-run-module
-adb shell "export DSP_LIBRARY_PATH=$DIRECTORY/farf && export IREE_DYNAMIC_HAL=hexagon=$DIRECTORY/lib/libcellar_hexagon_runtime_plugin.so && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
+adb shell "export DSP_LIBRARY_PATH=$DIRECTORY/farf && export IREE_DYNAMIC_HAL=hexagon=$DIRECTORY/lib/libhexagon_runtime_plugin.so && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
 ```
 On a different shell, retrieve the output from profiler:
 ```sh
-./roof-mlir/third-party/iree/third_party/tracy/capture/build/tracy-capture -o /tmp/capture.tracy
+./third-party/iree/third_party/tracy/capture/build/tracy-capture -o /tmp/capture.tracy
 ```
 Or alternatively, open the Tracy UI and connect to the listed available client to get the output directly.
 

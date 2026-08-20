@@ -7,11 +7,11 @@
 // This file owns the experimental nested-module lowering path built primarily
 // from hexagon-mlir passes.
 
-#include "cellar-hexagon/CodeGen/Pipelines/HexagonMlirPipeline.h"
-#include "cellar-hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
-#include "cellar-hexagon/CodeGen/Pipelines/Bufferization.h"
-#include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/CodeGen/Pipelines/HexagonMlirPipeline.h"
+#include "hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
+#include "hexagon/CodeGen/Pipelines/Bufferization.h"
+#include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
 #include "hexagon/Conversion/DMAToLLVM/Passes.h"
 #include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
@@ -34,7 +34,7 @@
 
 #define DEBUG_TYPE "iree-hexagon-pass-pipelines"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace Hexagon = mlir::hexagon;
 
 enum class HexagonTilingPipeline {
@@ -450,4 +450,4 @@ void buildHexagonMlirTranslationRoute(
   }
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

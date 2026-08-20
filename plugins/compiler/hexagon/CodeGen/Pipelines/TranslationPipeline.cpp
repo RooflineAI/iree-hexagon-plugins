@@ -7,10 +7,10 @@
 // This file owns top-level translation orchestration and route selection
 // between the IREE-oriented and hexagon-mlir-oriented lowering paths.
 
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
-#include "cellar-hexagon/CodeGen/Pipelines/HexagonMlirPipeline.h"
-#include "cellar-hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
+#include "hexagon/CodeGen/Pipelines/HexagonMlirPipeline.h"
+#include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "iree/compiler/Dialect/Util/Transforms/Passes.h"
 #include "iree/compiler/Utils/PassUtils.h"
@@ -21,7 +21,7 @@
 
 #define DEBUG_TYPE "iree-hexagon-pass-pipelines"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
 enum class TranslationRoute {
@@ -90,4 +90,4 @@ void buildHexagonTranslationPassPipeline(
   });
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

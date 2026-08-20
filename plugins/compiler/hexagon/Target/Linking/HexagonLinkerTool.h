@@ -9,7 +9,7 @@
 
 #include "compiler/plugins/target/LLVMCPU/LinkerTool.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::target::linking {
+namespace mlir::iree_compiler::hexagon::target::linking {
 
 std::unique_ptr<mlir::iree_compiler::IREE::HAL::LinkerTool>
 createHexagonLinkerTool(
@@ -17,6 +17,6 @@ createHexagonLinkerTool(
     mlir::iree_compiler::IREE::HAL::LLVMTargetOptions &targetOptions,
     bool allowNativeUndefinedSymbols = false);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target::linking
+} // namespace mlir::iree_compiler::hexagon::target::linking
 
 #endif // ROOF_HEXAGON_HAL_LINKING_HEXAGONLINKERTOOL_H_

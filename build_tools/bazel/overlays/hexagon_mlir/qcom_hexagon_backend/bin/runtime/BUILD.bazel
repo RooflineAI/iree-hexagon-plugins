@@ -1,4 +1,4 @@
-load("@patio_cellar_hexagon//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -54,8 +54,8 @@ hexagon_mlir_overlay_library(
         "multithreading/fake_includes",
     ],
     target_compatible_with = [
-        "@patio_cellar_hexagon//constraints:cpu_hexagon",
-        "@patio_cellar_hexagon//constraints:os_qurt",
+        "//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
     ],
     deps = [
         "@hexagon_sdk//:hexagon_toolchain_bit_headers",

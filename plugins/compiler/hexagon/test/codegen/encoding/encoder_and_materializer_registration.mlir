@@ -1,7 +1,7 @@
 // This test is based on the 4x4 matmul example test.
 // It ensures the Hexagon encoder and materializer are registered: the host encoding pass should lower the matmul into pack/mmt4d/unpack.
 //
-// RUN: iree-opt --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
 // RUN:   --pass-pipeline='builtin.module(util.func(iree-dispatch-creation-set-encoding), iree-global-opt-materialize-homogeneous-encodings)' \
 // RUN:   %s | FileCheck %s
 //

@@ -17,7 +17,7 @@
 
 #define DEBUG_TYPE "iree-hexagon-kernel-dispatch"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace {
 
 using mlir::failure;
@@ -118,4 +118,4 @@ LogicalResult initHexagonLaunchConfig(FunctionOpInterface funcOp) {
   return mlir::applyPatternsGreedily(funcOp, std::move(patterns));
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

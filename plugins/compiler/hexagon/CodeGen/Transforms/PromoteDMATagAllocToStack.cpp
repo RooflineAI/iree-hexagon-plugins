@@ -4,15 +4,15 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Passes.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 #define GEN_PASS_DEF_PROMOTEDMATAGALLOCTOSTACKPASS
-#include "cellar-hexagon/CodeGen/Passes.h.inc"
+#include "hexagon/CodeGen/Passes.h.inc"
 
 namespace {
 
@@ -108,4 +108,4 @@ struct PromoteDMATagAllocToStackPass final
 
 } // namespace
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

@@ -4,13 +4,13 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/Target/HexagonTargetDevice.h"
+#include "hexagon/Target/HexagonTargetDevice.h"
 
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 
 // This is a custom TargetDevice for Hexagon.
@@ -64,4 +64,4 @@ createHexagonTargetDevice(const HexagonOptions &options) {
   return std::make_shared<HexagonTargetDevice>(options);
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target

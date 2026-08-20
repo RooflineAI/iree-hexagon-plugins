@@ -9,11 +9,11 @@
 
 #include "iree/compiler/PluginAPI/Client.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 
-bool registerCellarHexagonPlugin(
+bool registerHexagonPlugin(
     mlir::iree_compiler::PluginRegistrar *registrar);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target
 
 #endif // ROOF_HEXAGON_HAL_HEXAGONSESSION_H_

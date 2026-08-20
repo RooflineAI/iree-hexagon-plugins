@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/Pipelines/Bufferization.h"
+#include "hexagon/CodeGen/Pipelines/Bufferization.h"
 
 #include "hexagon/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
@@ -18,7 +18,7 @@
 // third-party/iree/compiler/src/iree/compiler/Codegen/Common/CPU/Passes.cpp,
 // open it to the side for comparison if needed.
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace {
 
 mlir::LogicalResult memrefCopyFn(mlir::OpBuilder &builder, mlir::Location loc,
@@ -65,4 +65,4 @@ void addHexagonBufferizePassesForHexagonMlir(
   addHexagonBufferizePassesCommon(funcPassManager);
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

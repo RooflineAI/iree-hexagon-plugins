@@ -7,17 +7,17 @@
 #ifndef ROOF_HEXAGON_HAL_HEXAGONLLVMTARGET_H_
 #define ROOF_HEXAGON_HAL_HEXAGONLLVMTARGET_H_
 
-#include "cellar-hexagon/Target/HexagonOptions.h"
+#include "hexagon/Target/HexagonOptions.h"
 
 #include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 
 void initializeHexagonTarget();
 
 mlir::iree_compiler::IREE::HAL::LLVMTarget
 createLLVMTargetForHexagon(const HexagonOptions &options);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target
 
 #endif // ROOF_HEXAGON_HAL_HEXAGONLLVMTARGET_H_

@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
-#include "cellar-hexagon/CodeGen/Passes.h"
-#include "cellar-hexagon/CodeGen/Strategy/KernelDispatch.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/IR/HexagonOps.h"
+#include "hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Strategy/KernelDispatch.h"
 
 #include "iree/compiler/Codegen/Common/TileAndFuseUtils.h"
 
@@ -27,13 +27,13 @@
 
 #define DEBUG_TYPE "iree-hexagon-vtcm-tiling"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace {
 
 namespace IREEHexagon = mlir::iree_compiler::IREE::Hexagon;
 
 #define GEN_PASS_DEF_HEXAGONVTCMTILINGPASS
-#include "cellar-hexagon/CodeGen/Passes.h.inc"
+#include "hexagon/CodeGen/Passes.h.inc"
 
 static bool isEmptyBackedTensor(Value tensor) {
   if (tensor.getDefiningOp<tensor::EmptyOp>()) {
@@ -356,4 +356,4 @@ std::unique_ptr<Pass> createHexagonVTCMTilingPass() {
   return std::make_unique<HexagonVTCMTilingPass>();
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

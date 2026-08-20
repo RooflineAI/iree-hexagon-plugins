@@ -8,7 +8,7 @@ load(
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
-load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -30,7 +30,7 @@ config_setting(
     ],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "hexagon",
     srcs = [
         "allocator.c",
@@ -100,7 +100,7 @@ cellar_hexagon_plugin_library(
 )
 
 cc_binary(
-    name = "cellar_hexagon_runtime_plugin",
+    name = "hexagon_runtime_plugin",
     srcs = [],
     features = ["allow_all_undefined_symbols"],
     linkopts = RPATH_LINKOPTS,
@@ -117,7 +117,7 @@ cc_binary(
 
 pkg_files(
     name = "hexagon_runtime_plugin_files",
-    srcs = [":cellar_hexagon_runtime_plugin"],
+    srcs = [":hexagon_runtime_plugin"],
     prefix = "lib",
 )
 
@@ -168,7 +168,7 @@ aarch64_android_platform_alias(
 
 # The runtime package built with IREE tracing set to tracy (profiler enabled).
 # Points at :hexagon_runtime so the produced runfile is hexagon_runtime.zip (the
-# fixed path cellar_hexagon_rt.data_files.get_hexagon_runtime() resolves); the
+# fixed path hexagon_rt.data_files.get_hexagon_runtime() resolves); the
 # transition applies the tracy config to its contents. Used by the Hexagon
 # profiler smoke test.
 aarch64_android_tracy_platform_alias(

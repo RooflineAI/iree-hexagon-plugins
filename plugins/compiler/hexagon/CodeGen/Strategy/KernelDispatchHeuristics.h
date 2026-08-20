@@ -16,7 +16,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 /// Returns true when an operation should receive a Hexagon lowering config.
 ///
@@ -33,6 +33,6 @@ inferOpLoweringPlan(FunctionOpInterface entryPointFn, Operation *op,
 RootLoweringPlan selectRootLoweringPlan(FunctionOpInterface entryPointFn,
                                         Operation *rootOperation);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_KERNELDISPATCHHEURISTICS_H_

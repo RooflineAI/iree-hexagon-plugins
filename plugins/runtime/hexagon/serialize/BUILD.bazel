@@ -1,6 +1,6 @@
 # Copyright 2025 RooflineAI GmbH
 
-load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -13,7 +13,7 @@ package(
 # Note that this target is used in the unit tests and therefore
 # they will only pass when no call to IREE happens in them.
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "serialize_plugin",
     srcs = [
         "bindings_serialize.c",

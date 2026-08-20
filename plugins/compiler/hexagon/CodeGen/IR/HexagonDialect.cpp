@@ -4,10 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
 
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.cpp.inc"
-#include "cellar-hexagon/CodeGen/IR/HexagonOps.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.cpp.inc"
+#include "hexagon/CodeGen/IR/HexagonOps.h"
 
 #include "mlir/IR/DialectImplementation.h"
 

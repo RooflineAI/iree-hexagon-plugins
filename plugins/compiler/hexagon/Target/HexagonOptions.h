@@ -11,7 +11,7 @@
 
 #include <string>
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 
 // These options describe the available fields that are reused in the Hexagon
 // TargetDevice and TargetBackend. They are available as CLI arguments obviously
@@ -23,6 +23,6 @@ struct HexagonOptions {
   void bindOptions(mlir::iree_compiler::OptionsBinder &binder);
 };
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target
 
 #endif // ROOF_HEXAGON_HAL_HEXAGONOPTIONS_H_

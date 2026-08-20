@@ -22,17 +22,17 @@ cc_import(
 )
 
 cc_binary(
-    name = "cellar_hexagon_compiler_plugin",
+    name = "hexagon_compiler_plugin",
     srcs = [],
     linkopts = RPATH_LINKOPTS,
     linkshared = True,
     deps = [
         ":IREECompilerLibImport",
-        "//plugins/compiler/cellar-hexagon:registration",
-        "//plugins/compiler/cellar-hexagon/CodeGen:HexagonEncodingExternalModels",
-        "//plugins/compiler/cellar-hexagon/CodeGen:codegen",
-        "//plugins/compiler/cellar-hexagon/CodeGen/IR:HexagonIR",
-        "//plugins/compiler/cellar-hexagon/Target:HexagonSession",
-        "//plugins/compiler/cellar-hexagon/Target/Linking:HexagonLinkerTool",
+        "//plugins/compiler/hexagon:registration",
+        "//plugins/compiler/hexagon/CodeGen:HexagonEncodingExternalModels",
+        "//plugins/compiler/hexagon/CodeGen:codegen",
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
+        "//plugins/compiler/hexagon/Target:HexagonSession",
+        "//plugins/compiler/hexagon/Target/Linking:HexagonLinkerTool",
     ],
 )

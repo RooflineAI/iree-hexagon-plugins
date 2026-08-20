@@ -1,6 +1,6 @@
 # Copyright 2025 RooflineAI GmbH
 
-load("@patio_cellar_hexagon//build_tools/bazel:hexagon_interface.bzl", "hexagon_interface")
+load("//build_tools/bazel:hexagon_interface.bzl", "hexagon_interface")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 package(

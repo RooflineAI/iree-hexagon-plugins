@@ -4,14 +4,14 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/Target/HexagonSession.h"
+#include "hexagon/Target/HexagonSession.h"
 
-#include "cellar-hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
-#include "cellar-hexagon/CodeGen/Passes.h"
-#include "cellar-hexagon/Target/HexagonOptions.h"
-#include "cellar-hexagon/Target/HexagonTargetBackend.h"
-#include "cellar-hexagon/Target/HexagonTargetDevice.h"
+#include "hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/Passes.h"
+#include "hexagon/Target/HexagonOptions.h"
+#include "hexagon/Target/HexagonTargetBackend.h"
+#include "hexagon/Target/HexagonTargetDevice.h"
 
 #include "hexagon/Dialect/HexKL/Transforms/BufferizableOpInterfaceImpl.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
@@ -22,7 +22,7 @@
 #include "mlir/Dialect/SCF/Transforms/BufferDeallocationOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 namespace {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 namespace IREE = mlir::iree_compiler::IREE;
@@ -34,7 +34,7 @@ struct HexagonSession
           HexagonSession, HexagonOptions,
           mlir::iree_compiler::PluginActivationPolicy::DefaultActivated> {
   static void registerPasses() {
-    mlir::iree_compiler::cellar_hexagon::codegen::
+    mlir::iree_compiler::hexagon::codegen::
         registerHexagonCodeGenPasses();
   };
 
@@ -54,7 +54,7 @@ struct HexagonSession
     scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
 
     // IREE hooks
-    mlir::iree_compiler::cellar_hexagon::codegen::
+    mlir::iree_compiler::hexagon::codegen::
         registerHexagonEncodingExternalModels(registry);
   }
 
@@ -71,13 +71,13 @@ struct HexagonSession
 
 } // namespace
 
-bool registerCellarHexagonPlugin(
+bool registerHexagonPlugin(
     mlir::iree_compiler::PluginRegistrar *registrar) {
-  registrar->registerPlugin<HexagonSession>("cellar_hexagon");
+  registrar->registerPlugin<HexagonSession>("hexagon");
   return true;
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target
 
 IREE_DEFINE_COMPILER_OPTION_FLAGS(
-    ::mlir::iree_compiler::cellar_hexagon::target::HexagonOptions);
+    ::mlir::iree_compiler::hexagon::target::HexagonOptions);

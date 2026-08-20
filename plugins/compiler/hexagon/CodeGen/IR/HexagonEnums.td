@@ -4,10 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENUMS
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENUMS
+#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONENUMS
+#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONENUMS
 
-include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
+include "hexagon/CodeGen/IR/HexagonDialect.td"
 include "mlir/IR/EnumAttr.td"
 
 class IREEHexagon_I32EnumAttr<string name, string summary,
@@ -60,4 +60,4 @@ def IREEHexagon_ProfilerZone :
       IREEHexagon_ProfilerZoneUnknown
     ]>;
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONENUMS
+#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONENUMS

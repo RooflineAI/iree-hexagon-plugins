@@ -14,16 +14,16 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 // This is meant to be used as an attribute marker for functions that are linked
 // from the Hexagon runtime.
 inline constexpr llvm::StringLiteral kNativeRuntimeLinkAttrName =
-    "cellar_hexagon.native_runtime_link";
+    "hexagon.native_runtime_link";
 // This is meant to be used as an attribute marker for a hal.executable.variant.
 // It will be used during serialization to allow for undefined symbols.
 inline constexpr llvm::StringLiteral kNativeRuntimeLinkVariantAttrName =
-    "cellar_hexagon.native_runtime_linking";
+    "hexagon.native_runtime_linking";
 
 const llvm::StringSet<> &getHexagonRuntimeSymbolNames();
 const llvm::StringSet<> &getHexKLSymbolNames();
@@ -63,6 +63,6 @@ void markNativeRuntimeLinkingVariant(Operation *op);
 LogicalResult renameAndTagNativeRuntimeLinkedFunc(ModuleOp moduleOp,
                                                   LLVM::LLVMFuncOp funcOp);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_CONVERSION_HEXAGONRUNTIMELINKING_H_

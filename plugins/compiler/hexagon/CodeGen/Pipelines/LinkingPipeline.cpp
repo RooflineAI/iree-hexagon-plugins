@@ -6,12 +6,12 @@
 
 // This file owns HAL executable linking pipeline assembly for Hexagon targets.
 
-#include "cellar-hexagon/CodeGen/Pipelines/LinkingPipeline.h"
+#include "hexagon/CodeGen/Pipelines/LinkingPipeline.h"
 
 #include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
 // NOTE: this runs on the top-level program module containing all
@@ -34,4 +34,4 @@ void buildHexagonLinkingPassPipeline(OpPassManager &modulePassManager,
   variantPassManager.addPass(createLLVMCPUAssignImportOrdinalsPass());
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

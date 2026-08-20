@@ -6,7 +6,7 @@
 
 #include "KernelDispatchHeuristics.h"
 
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
 #include "hexagon/Conversion/LinalgToLLVM/VTCMTilingOptions.h"
 #include "iree/compiler/Codegen/LLVMCPU/Utils.h"
@@ -24,7 +24,7 @@
 
 #define DEBUG_TYPE "iree-hexagon-kernel-dispatch"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace {
 
 using mlir::FunctionOpInterface;
@@ -687,4 +687,4 @@ RootLoweringPlan selectRootLoweringPlan(FunctionOpInterface entryPointFn,
   return selection;
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

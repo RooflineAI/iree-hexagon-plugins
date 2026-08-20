@@ -1,6 +1,6 @@
 # Copyright 2025 RooflineAI GmbH
 
-load("//build_tools/bazel:defs.bzl", "cellar_hexagon_plugin_library")
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -8,7 +8,7 @@ package(
     licenses = [],
 )
 
-cellar_hexagon_plugin_library(
+hexagon_plugin_library(
     name = "DriverModuleLib",
     srcs = ["driver_module.c"],
     hdrs = ["driver_module.h"],

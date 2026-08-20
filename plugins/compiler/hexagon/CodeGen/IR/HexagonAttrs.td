@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS
+#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS
+#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS
 
-include "cellar-hexagon/CodeGen/IR/HexagonDialect.td"
-include "cellar-hexagon/CodeGen/IR/HexagonEnums.td"
+include "hexagon/CodeGen/IR/HexagonDialect.td"
+include "hexagon/CodeGen/IR/HexagonEnums.td"
 include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
@@ -72,4 +72,4 @@ def IREEHexagon_VTCMTilingConfigAttr :
   let genVerifyDecl = 1;
 }
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONATTRS
+#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS

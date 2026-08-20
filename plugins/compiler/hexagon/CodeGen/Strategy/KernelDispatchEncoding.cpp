@@ -7,8 +7,8 @@
 #include "KernelDispatchEncoding.h"
 #include "KernelDispatch.h"
 
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
 #include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
@@ -17,7 +17,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "llvm/ADT/STLExtras.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace {
 
 using mlir::iree_compiler::getLoweringConfig;
@@ -134,4 +134,4 @@ void applyOpLoweringPlan(Operation *op, const OpLoweringPlan &opPlan) {
                                            /*preserveZeroDistribution=*/false));
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

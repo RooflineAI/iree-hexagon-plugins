@@ -9,9 +9,9 @@
 #ifndef ROOF_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_
 #define ROOF_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_
 
-#include "cellar-hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Passes.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 void buildHexagonMlirTranslationRoute(
     mlir::OpPassManager &variantPassManager,
@@ -19,6 +19,6 @@ void buildHexagonMlirTranslationRoute(
 
 void addHexagonMlirLowerToLLVMPasses(mlir::OpPassManager &variantPassManager);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_

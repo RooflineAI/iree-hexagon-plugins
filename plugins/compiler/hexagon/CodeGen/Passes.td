@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_CELLAR_CODEGEN_HEXAGON_PASSES
-#define ROOF_CELLAR_CODEGEN_HEXAGON_PASSES
+#ifndef ROOF_HEXAGON_CODEGEN_PASSES_TD_
+#define ROOF_HEXAGON_CODEGEN_PASSES_TD_
 
 include "mlir/Pass/PassBase.td"
 
@@ -111,4 +111,4 @@ def PromoteDMATagAllocToStackPass :
   }];
 }
 
-#endif // ROOF_CELLAR_CODEGEN_HEXAGON_PASSES
+#endif // ROOF_HEXAGON_CODEGEN_PASSES_TD_

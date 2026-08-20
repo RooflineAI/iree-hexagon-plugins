@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -14,10 +14,10 @@
 
 #include <cstdint>
 
-#include "cellar-hexagon/CodeGen/IR/HexagonEnums.cpp.inc"
+#include "hexagon/CodeGen/IR/HexagonEnums.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.cpp.inc"
+#include "hexagon/CodeGen/IR/HexagonAttrs.cpp.inc"
 
 using namespace mlir;
 
@@ -46,6 +46,6 @@ void mlir::iree_compiler::IREE::Hexagon::IREEHexagonDialect::
     registerAttributes() {
   addAttributes<
 #define GET_ATTRDEF_LIST
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.cpp.inc"
+#include "hexagon/CodeGen/IR/HexagonAttrs.cpp.inc"
       >();
 }

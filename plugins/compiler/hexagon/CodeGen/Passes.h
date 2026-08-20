@@ -15,7 +15,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 // Similar to the LLVMCPUPipelineOptions struct, but simplified for Hexagon
 struct HexagonPipelineOptions {
@@ -36,8 +36,8 @@ void registerHexagonPasses();
 void registerHexagonCodeGenPasses();
 
 #define GEN_PASS_DECL
-#include "cellar-hexagon/CodeGen/Passes.h.inc" // IWYU pragma: keep
+#include "hexagon/CodeGen/Passes.h.inc" // IWYU pragma: keep
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_PASSES_H_

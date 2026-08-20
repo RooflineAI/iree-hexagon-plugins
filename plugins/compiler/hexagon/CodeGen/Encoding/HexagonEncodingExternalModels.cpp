@@ -43,9 +43,9 @@
 //
 //===---------------------------------------------------------------------===//
 
-#include "cellar-hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "cellar-hexagon/CodeGen/IR/HexagonDialect.h"
+#include "hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
 
 #include "iree/compiler/Codegen/Dialect/Codegen/Utils/Utils.h"
 #include "iree/compiler/Codegen/ExternalInterfaces/Utils.h"
@@ -56,7 +56,7 @@
 
 #define DEBUG_TYPE "iree-hexagon-encoding"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 namespace Hexagon = IREE::Hexagon;
 namespace Codegen = IREE::Codegen;
@@ -388,4 +388,4 @@ void registerHexagonEncodingExternalModels(DialectRegistry &registry) {
       });
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

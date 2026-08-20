@@ -7,11 +7,11 @@
 #ifndef ROOF_HEXAGON_HAL_HEXAGONEXECUTABLESERIALIZATION_H_
 #define ROOF_HEXAGON_HAL_HEXAGONEXECUTABLESERIALIZATION_H_
 
-#include "cellar-hexagon/Target/HexagonOptions.h"
+#include "hexagon/Target/HexagonOptions.h"
 
 #include "iree/compiler/Dialect/HAL/Target/TargetBackend.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 
 mlir::LogicalResult serializeHexagonExecutable(
     const HexagonOptions &options,
@@ -20,6 +20,6 @@ mlir::LogicalResult serializeHexagonExecutable(
     mlir::iree_compiler::IREE::HAL::ExecutableVariantOp variantOp,
     mlir::OpBuilder &executableBuilder);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target
 
 #endif // ROOF_HEXAGON_HAL_HEXAGONEXECUTABLESERIALIZATION_H_

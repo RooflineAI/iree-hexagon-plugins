@@ -10,9 +10,9 @@
 #ifndef ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
 #define ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
 
-#include "cellar-hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Passes.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 void buildHexagonTranslationPassPipeline(
     mlir::OpPassManager &passManager,
@@ -21,6 +21,6 @@ void buildHexagonTranslationPassPipeline(
 bool isHexagonVTCMTilingEnabled();
 bool isHexagonMlirLinalgLoweringEnabled();
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_

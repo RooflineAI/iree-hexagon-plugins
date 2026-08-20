@@ -7,7 +7,7 @@
 #include "KernelDispatchPropagation.h"
 #include "KernelDispatchHeuristics.h"
 
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "mlir/Analysis/TopologicalSortUtils.h"
@@ -24,7 +24,7 @@
 #include <algorithm>
 #include <optional>
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 namespace {
 
 using mlir::AffineDimExpr;
@@ -385,4 +385,4 @@ NonRootPlanPropagator::inferPlans() const {
   return plans;
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

@@ -10,7 +10,7 @@ This wires together:
 - Optional zipped "ship" bundle with both artifacts.
 """
 
-load("@patio_cellar_hexagon//build_tools/bazel:hexagon_interface.bzl", "hexagon_interface")
+load("//build_tools/bazel:hexagon_interface.bzl", "hexagon_interface")
 load("@roof_mlir//:build_tools/bazel/platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
@@ -57,8 +57,8 @@ def hexagon_rpc_app(
         "@platforms//os:android",
     ]
     dsp_target_compatible_with = [
-        "@patio_cellar_hexagon//constraints:cpu_hexagon",
-        "@patio_cellar_hexagon//constraints:os_qurt",
+        "//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
     ]
     gen_dir = name + "_gen"
     iface_target = name + "_iface"

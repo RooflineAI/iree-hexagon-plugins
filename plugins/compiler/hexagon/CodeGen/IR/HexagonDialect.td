@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT
-#define PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
 
 include "mlir/IR/AttrTypeBase.td"
 
@@ -32,4 +32,4 @@ def IREEHexagon_Dialect : Dialect {
   let useDefaultTypePrinterParser = 1;
 }
 
-#endif // PATIO_PLUGINS_CELLARHEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT

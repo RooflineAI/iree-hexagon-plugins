@@ -2,7 +2,7 @@
 // (assuming the configuration pipeline has already run) executes correctly and
 // generates memrefs in the VTCM address space
 
-// RUN: iree-opt --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
 // RUN:   --iree-hexagon-enable-vtcm-tiling \
 // RUN:   --pass-pipeline='builtin.module(hal.executable(hal.executable.variant(builtin.module(func.func(iree-hexagon-lower-executable-target)))))' \
 // RUN:   --mlir-print-ir-after=iree-hexagon-vtcm-tiling \

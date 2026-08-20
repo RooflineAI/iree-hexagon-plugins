@@ -2,7 +2,7 @@
 // markers around it are lowered to native runtime calls as part of the
 // convert-to-llvm phase-2 conversion (default pass options), which also tags
 // the emitted runtime helpers as native runtime links.
-// RUN: iree-opt --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-convert-to-llvm)' \
 // RUN:   %s | FileCheck %s
 
@@ -19,8 +19,8 @@ module {
 }
 
 // CHECK-DAG: llvm.mlir.global internal constant @__hexagon_profiler_marker_0("hexagonmem.copy\00")
-// CHECK-DAG: llvm.func @hexagon_runtime_profiler_zone_begin(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr attributes {cellar_hexagon.native_runtime_link}
-// CHECK-DAG: llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {cellar_hexagon.native_runtime_link}
+// CHECK-DAG: llvm.func @hexagon_runtime_profiler_zone_begin(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr attributes {hexagon.native_runtime_link}
+// CHECK-DAG: llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {hexagon.native_runtime_link}
 
 // CHECK-LABEL: llvm.func @kernel(
 // CHECK-SAME: %[[EXEC:[a-zA-Z0-9_]+]]: !llvm.ptr, %[[DISP:[a-zA-Z0-9_]+]]: !llvm.ptr, %[[WRKGRP:[a-zA-Z0-9_]+]]: !llvm.ptr)

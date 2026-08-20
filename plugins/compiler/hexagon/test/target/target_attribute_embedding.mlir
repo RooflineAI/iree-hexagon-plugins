@@ -1,7 +1,7 @@
 // This test makes sure that we get the expected embedded attributes in the IR.
 // Right now, this tests default hardcoded information such as the DataLayout but also flag defined info such as the features.
 
-// RUN: iree-compile --iree-load-plugin=cellar_hexagon=$CELLAR_HEXAGON_COMPILER_PLUGIN --iree-hal-target-device=hexagon \
+// RUN: iree-compile --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN --iree-hal-target-device=hexagon \
 // RUN:   --iree-hexagon-v=69 \
 // RUN:   --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN:   --compile-to=preprocessing \

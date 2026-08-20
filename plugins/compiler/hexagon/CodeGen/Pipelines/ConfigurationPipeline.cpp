@@ -7,10 +7,10 @@
 // This file owns configuration-stage preprocessing and lowering-strategy
 // selection for Hexagon executables.
 
-#include "cellar-hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
+#include "hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
 
-#include "cellar-hexagon/CodeGen/Passes.h"
-#include "cellar-hexagon/CodeGen/Pipelines/TranslationPipeline.h"
+#include "hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
 #include "hexagon/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Common/CPU/Passes.h"
@@ -23,7 +23,7 @@
 
 #define DEBUG_TYPE "iree-hexagon-pass-pipelines"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 enum class LaunchConfigSelector {
   LLVMCPU,
@@ -100,4 +100,4 @@ void buildHexagonConfigurationPassPipeline(OpPassManager &variantPassManager) {
   buildHexagonCodegenConfigurationPassPipeline(modulePassManager);
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen

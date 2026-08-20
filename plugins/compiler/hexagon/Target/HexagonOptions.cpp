@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "cellar-hexagon/Target/HexagonOptions.h"
+#include "hexagon/Target/HexagonOptions.h"
 
 #include "llvm/Support/CommandLine.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::target {
+namespace mlir::iree_compiler::hexagon::target {
 
 void HexagonOptions::bindOptions(mlir::iree_compiler::OptionsBinder &binder) {
   static llvm::cl::OptionCategory category("Hexagon HAL Target");
@@ -31,4 +31,4 @@ void HexagonOptions::bindOptions(mlir::iree_compiler::OptionsBinder &binder) {
                      "(available in Hexagon's SDK)"));
 }
 
-} // namespace mlir::iree_compiler::cellar_hexagon::target
+} // namespace mlir::iree_compiler::hexagon::target

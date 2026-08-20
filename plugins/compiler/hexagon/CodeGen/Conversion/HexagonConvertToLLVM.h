@@ -12,7 +12,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 // Full conversion in a single pass (default behavior, identical to LLVMCPU).
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
@@ -30,6 +30,6 @@ createHexagonConvertToLLVMPassPhase1(bool reassociateFpReductions);
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 createHexagonConvertToLLVMPassPhase2(bool reassociateFpReductions);
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CONVERSION_HEXAGONCONVERTTOLLVM_H_

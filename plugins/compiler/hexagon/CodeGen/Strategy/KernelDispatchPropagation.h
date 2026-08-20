@@ -16,7 +16,7 @@
 
 #include <utility>
 
-namespace mlir::iree_compiler::cellar_hexagon::codegen {
+namespace mlir::iree_compiler::hexagon::codegen {
 
 /// Derives non-root lowering plans from the selected root plan.
 class NonRootPlanPropagator {
@@ -38,6 +38,6 @@ private:
   RootLoweringPlan rootPlan;
 };
 
-} // namespace mlir::iree_compiler::cellar_hexagon::codegen
+} // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // ROOF_HEXAGON_CODEGEN_KERNELDISPATCHPROPAGATION_H_

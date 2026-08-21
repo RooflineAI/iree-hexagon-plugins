@@ -36,6 +36,14 @@ bazel_dep(name = "zstd", version = "1.5.7.bcr.1", repo_name = "llvm_zstd")
 bazel_dep(name = "libbacktrace", version = "1.0.0-20250926-7939218")
 bazel_dep(name = "nanobind", version = "2.12.0.bcr.1")
 
+# Needed by the hexagon runtime plugin's own build files (toolchain/BUILD.bazel,
+# plugins/runtime/hexagon/{BUILD.bazel,dsp/BUILD.bazel,build_tools/bazel/
+# platform_aliases.bzl}).
+bazel_dep(name = "aspect_rules_py", version = "1.6.6")
+bazel_dep(name = "aspect_bazel_lib", version = "2.21.0")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+bazel_dep(name = "with_cfg.bzl", version = "0.12.0")
+
 ###############################################################################
 # IREE, sourced from the third-party/iree submodule.
 #
@@ -176,3 +184,37 @@ hexagon_mlir_configure = use_repo_rule(
     "hexagon_mlir_configure",
 )
 hexagon_mlir_configure(name = "hexagon-mlir")
+
+###############################################################################
+# Android NDK detection, Hexagon SDK, and HexKL - root-owned (direct
+# use_repo_rule() calls, not module extensions, since these .bzl files are
+# already ours - no cross-module sharing needed).
+###############################################################################
+
+android_ndk_detect = use_repo_rule(
+    "//build_tools/bazel:android_ndk_detect.bzl",
+    "android_ndk_detect",
+)
+android_ndk_detect(
+    name = "android_ndk_detect",
+    ndk_dir = "/opt/android-sdk/ndk/28.2.13676358",
+)
+
+hexagon_sdk_repository = use_repo_rule(
+    "//build_tools/bazel:hexagon_sdk_repository.bzl",
+    "hexagon_sdk_repository",
+)
+hexagon_sdk_repository(name = "hexagon_sdk")
+
+hexkl_repository = use_repo_rule(
+    "//build_tools/bazel:hexkl_repository.bzl",
+    "hexkl_repository",
+)
+hexkl_repository(name = "hexkl")
+
+###############################################################################
+# Toolchain registrations for the hexagon runtime plugin.
+###############################################################################
+
+register_toolchains("//toolchain:aarch64_android_toolchain")
+register_toolchains("//toolchain:hexagon_toolchain")

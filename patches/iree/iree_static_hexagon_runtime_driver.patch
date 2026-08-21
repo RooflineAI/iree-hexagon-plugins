@@ -1,0 +1,147 @@
+diff --git a/build_tools/bazel/hal_driver_init_gen.bzl b/build_tools/bazel/hal_driver_init_gen.bzl
+new file mode 100644
+index 0000000000..a673323eff
+--- /dev/null
++++ b/build_tools/bazel/hal_driver_init_gen.bzl
+@@ -0,0 +1,40 @@
++# Copyright 2025 The IREE Authors
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions.
++# See https://llvm.org/LICENSE.txt for license information.
++# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++"""Rule for generating IREE HAL driver init C files."""
++
++def _iree_hal_driver_init_c_generator_impl(ctx):
++    output_file = ctx.outputs.out
++    template = ctx.file.template
++
++    substitutions = {
++        "${_INIT_EXTERNAL_REGISTER_DECLS}": "\n".join([
++            "extern iree_status_t {}(iree_hal_driver_registry_t* registry);".format(f)
++            for f in ctx.attr.registration_functions
++        ]),
++        "${_INIT_EXTERNAL_REGISTER_CALLS}": "\n".join([
++            "IREE_RETURN_IF_ERROR({}(registry));".format(f)
++            for f in ctx.attr.registration_functions
++        ]),
++    }
++
++    ctx.actions.expand_template(
++        template = template,
++        output = output_file,
++        substitutions = substitutions,
++    )
++
++iree_hal_driver_init_c_generator = rule(
++    implementation = _iree_hal_driver_init_c_generator_impl,
++    attrs = {
++        "out": attr.output(mandatory = True),
++        "template": attr.label(
++            mandatory = True,
++            allow_single_file = True,
++        ),
++        "registration_functions": attr.string_list(),
++    },
++)
+diff --git a/build_tools/bazel/load_external_hal_drivers_utils.bzl b/build_tools/bazel/load_external_hal_drivers_utils.bzl
+new file mode 100644
+index 0000000000..edab5e17c0
+--- /dev/null
++++ b/build_tools/bazel/load_external_hal_drivers_utils.bzl
+@@ -0,0 +1,38 @@
++# Copyright 2025 The IREE Authors
++#
++# Licensed under the Apache License v2.0 with LLVM Exceptions.
++# See https://llvm.org/LICENSE.txt for license information.
++# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++"""
++Utility function for loading external HAL drivers.
++"""
++
++def get_attr_values(external_hal_drivers, attr_name):
++    """Return the list of values of a specific attribute of the enabled external HAL drivers.
++
++    Args:
++        external_hal_drivers: List of external hal drivers as returned be get_external_hal_drivers().
++        attr_name (str): Name of the attribute to return.
++
++    Returns:
++        Chain of selections of list of strings and list of strings.
++    """
++    values = []
++    for e_d in external_hal_drivers:
++        if not hasattr(e_d, "enabled_by"):
++            values.append(getattr(e_d, attr_name))
++            continue
++        values += select({
++            e_d.enabled_by: [getattr(e_d, attr_name)],
++            "//conditions:default": [],
++        })
++    return values
++
++def get_targets(external_hal_drivers):
++    """Return list of enabled external driver targets."""
++    return get_attr_values(external_hal_drivers, "target")
++
++def get_register_fns(external_hal_drivers):
++    """Return list of enabled external driver registration functions."""
++    return get_attr_values(external_hal_drivers, "register_fn")
+diff --git a/runtime/src/iree/hal/drivers/BUILD.bazel b/runtime/src/iree/hal/drivers/BUILD.bazel
+index bd49dad3a2..4ed211f018 100644
+--- a/runtime/src/iree/hal/drivers/BUILD.bazel
++++ b/runtime/src/iree/hal/drivers/BUILD.bazel
+@@ -6,6 +6,10 @@
+ 
+ load("@bazel_skylib//rules:common_settings.bzl", "string_list_flag")
+ load("//build_tools/bazel:build_defs.oss.bzl", "iree_runtime_cc_library")
++load(
++    "//build_tools/bazel:hal_driver_init_gen.bzl",
++    "iree_hal_driver_init_c_generator",
++)
+ 
+ package(
+     default_visibility = ["//visibility:public"],
+@@ -26,6 +30,25 @@ string_list_flag(
+     ],
+ )
+ 
++# EXTERNAL DRIVERS: Load from main workspace (not IREE)
++# Use @// to refer to the root workspace, not the IREE submodule.
++# The main workspace should provide this file.
++load("@//build_tools/bazel:load_external_hal_drivers.bzl", "get_external_hal_drivers")
++
++# Load helper functions for processing from the IREE repo.
++load("//build_tools/bazel:load_external_hal_drivers_utils.bzl", "get_targets")
++load("//build_tools/bazel:load_external_hal_drivers_utils.bzl", "get_register_fns")
++
++_EXTERNAL_DRIVER_TARGETS = get_targets(get_external_hal_drivers())
++_EXTERNAL_DRIVER_REGISTER_FNS = get_register_fns(get_external_hal_drivers())
++
++iree_hal_driver_init_c_generator(
++    name = "init_external_c",
++    template = "init_external.c.in",
++    out = "init_external.c",
++    registration_functions = _EXTERNAL_DRIVER_REGISTER_FNS,
++)
++
+ UNCONDITIONAL_DRIVERS = [
+     "local-sync",
+     "local-task",
+@@ -70,12 +93,13 @@ config_setting(
+ 
+ iree_runtime_cc_library(
+     name = "drivers",
+-    srcs = ["init.c"],
++    srcs = ["init.c"] + (["init_external.c"] if _EXTERNAL_DRIVER_TARGETS else []),
+     hdrs = ["init.h"],
++    copts = ["-DIREE_HAVE_HAL_EXTERNAL_DRIVERS=1"] if _EXTERNAL_DRIVER_TARGETS else [],
+     deps = [
+                "//runtime/src/iree/base",
+                "//runtime/src/iree/hal",
+-           ] + select({
++           ] + _EXTERNAL_DRIVER_TARGETS + select({
+                ":amdgpu_enabled": ["//runtime/src/iree/hal/drivers/amdgpu/registration"],
+                "//conditions:default": [],
+            }) + select({

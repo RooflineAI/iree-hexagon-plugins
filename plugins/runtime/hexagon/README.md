@@ -55,19 +55,18 @@ The cross-compile command is:
 bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
 ```
 
-The output file can be queried:
+The output file lands at:
 ```sh
-bazel cquery --output=files //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
+bazel-bin/plugins/runtime/hexagon/hexagon_runtime_aarch64_android.zip
 ```
-It usually returns:
-```sh
-bazel-out/aarch64-dbg/bin/plugins/runtime/hexagon/hexagon_runtime.zip
-```
+(the tracy-enabled build, see [Profiler](#profiler) below, produces
+`hexagon_runtime_aarch64_android_tracy.zip` alongside it.)
 
-This zip file contains two binaries, the runtime plugin, and some support files:
-- `lib/libhexagon_runtime_plugin.so`:
-  The dynamic HAL runtime plugin for Hexagon. Loaded at runtime via
-  `IREE_DYNAMIC_HAL=hexagon=<path>/libhexagon_runtime_plugin.so`.
+This zip file contains two binaries and some support files. The Hexagon HAL
+driver is compiled directly into both binaries (a static HAL driver
+registered via `build_tools/bazel/load_external_hal_drivers.bzl`) - there is
+no separate runtime plugin `.so` to load:
+
 - `bin/iree-benchmark-module`:
   This is the IREE runtime for benchmarking. It contains the ARM host part of
   the Hexagon runtime.
@@ -86,10 +85,10 @@ This zip file contains two binaries, the runtime plugin, and some support files:
 
 ## Deployment
 
-Copy `hexagon_runtime.zip` (described in the previous section) to the Android
-phone. Unzip it:
+Copy `hexagon_runtime_aarch64_android.zip` (described in the previous
+section) to the Android phone. Unzip it:
 ```sh
-unzip hexagon_runtime.zip
+unzip hexagon_runtime_aarch64_android.zip
 ```
 Set the environment variable `DSP_LIBRARY_PATH` to the absolute path of the
 directory that contains `libhexagon_dsk_skel.so`:
@@ -146,12 +145,12 @@ adb forward tcp:8086 tcp:8086
 Example script to run tracing:
 ```sh
 DIRECTORY=/data/local/tmp/{your_path}
-bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android --@iree//runtime/src/iree/base/tracing:tracing_provider=tracy
-adb shell rm -rf $DIRECTORY/bin $DIRECTORY/lib $DIRECTORY/hexagon_runtime.zip
-adb push bazel-bin/plugins/runtime/hexagon/hexagon_runtime.zip $DIRECTORY
-adb shell unzip $DIRECTORY/hexagon_runtime.zip -d $DIRECTORY
+bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
+adb shell rm -rf $DIRECTORY/bin $DIRECTORY/lib $DIRECTORY/hexagon_runtime_aarch64_android_tracy.zip
+adb push bazel-bin/plugins/runtime/hexagon/hexagon_runtime_aarch64_android_tracy.zip $DIRECTORY
+adb shell unzip $DIRECTORY/hexagon_runtime_aarch64_android_tracy.zip -d $DIRECTORY
 adb shell chmod +x $DIRECTORY/bin/iree-run-module
-adb shell "export DSP_LIBRARY_PATH=$DIRECTORY/farf && export IREE_DYNAMIC_HAL=hexagon=$DIRECTORY/lib/libhexagon_runtime_plugin.so && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
+adb shell "export DSP_LIBRARY_PATH=$DIRECTORY/farf && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
 ```
 On a different shell, retrieve the output from profiler:
 ```sh

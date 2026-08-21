@@ -1,0 +1,46 @@
+diff --git a/runtime/src/iree/base/tracing/tracy.cc b/runtime/src/iree/base/tracing/tracy.cc
+index 8535661fa1..a26c5a5413 100644
+--- a/runtime/src/iree/base/tracing/tracy.cc
++++ b/runtime/src/iree/base/tracing/tracy.cc
+@@ -413,6 +413,16 @@ void iree_tracing_gpu_zone_begin_external(
+     uint8_t context_id, uint16_t query_id, const char* file_name,
+     size_t file_name_length, uint32_t line, const char* function_name,
+     size_t function_name_length, const char* name, size_t name_length) {
++  iree_tracing_gpu_zone_begin_external_colored(
++      context_id, query_id, file_name, file_name_length, line, function_name,
++      function_name_length, name, name_length, 0);
++}
++
++void iree_tracing_gpu_zone_begin_external_colored(
++    uint8_t context_id, uint16_t query_id, const char* file_name,
++    size_t file_name_length, uint32_t line, const char* function_name,
++    size_t function_name_length, const char* name, size_t name_length,
++    uint32_t color_xbgr) {
+   // If name is NULL or empty, use function_name as the zone name.
+   if (!name || name_length == 0) {
+     name = function_name;
+@@ -421,7 +431,7 @@ void iree_tracing_gpu_zone_begin_external(
+ 
+   const auto src_loc = tracy::Profiler::AllocSourceLocation(
+       line, file_name, file_name_length, function_name, function_name_length,
+-      name, name_length);
++      name, name_length, color_xbgr);
+   auto* item = tracy::Profiler::QueueSerial();
+   tracy::MemWrite(&item->hdr.type,
+                   tracy::QueueType::GpuZoneBeginAllocSrcLocSerial);
+diff --git a/runtime/src/iree/base/tracing/tracy.h b/runtime/src/iree/base/tracing/tracy.h
+index 2635cc9e7e..d7026ed89c 100644
+--- a/runtime/src/iree/base/tracing/tracy.h
++++ b/runtime/src/iree/base/tracing/tracy.h
+@@ -169,6 +169,11 @@ void iree_tracing_gpu_zone_begin_external(
+     uint8_t context_id, uint16_t query_id, const char* file_name,
+     size_t file_name_length, uint32_t line, const char* function_name,
+     size_t function_name_length, const char* name, size_t name_length);
++void iree_tracing_gpu_zone_begin_external_colored(
++    uint8_t context_id, uint16_t query_id, const char* file_name,
++    size_t file_name_length, uint32_t line, const char* function_name,
++    size_t function_name_length, const char* name, size_t name_length,
++    uint32_t color_xbgr);
+ void iree_tracing_gpu_zone_end(uint8_t context_id, uint16_t query_id);
+ void iree_tracing_gpu_zone_notify(uint8_t context_id, uint16_t query_id,
+                                   int64_t gpu_timestamp);

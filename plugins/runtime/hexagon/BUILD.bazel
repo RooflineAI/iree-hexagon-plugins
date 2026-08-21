@@ -4,12 +4,12 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load(
-    "@roof_mlir//:build_tools/bazel/platform_aliases.bzl",
+    "//build_tools/bazel:platform_aliases.bzl",
     "aarch64_android_platform_alias",
     "aarch64_android_tracy_platform_alias",
 )
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
 load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
@@ -19,12 +19,6 @@ package(
     features = ["layering_check"],
     licenses = [],
 )
-
-RPATH_LINKOPTS = select({
-    "@platforms//os:linux": ["-Wl,-rpath,$ORIGIN"],
-    "@platforms//os:osx": ["-Wl,-rpath,@loader_path"],
-    "//conditions:default": [],
-})
 
 config_setting(
     name = "hexagon_runtime_enabled",
@@ -75,11 +69,19 @@ hexagon_plugin_library(
         ],
         "//conditions:default": [],
     }),
-    hdr_deps = [
-        # Don't pull functions already present in iree-run/benchmark-module
-        # into the plugin's shared lib. (In case of enabled tracy, this even
-        # causes segfaults due to duplicate tracy initialization.) Use
-        # header-only dependencies to avoid it.
+    hdr_deps = [],
+    strip_include_prefix = "/plugins/runtime",
+    deps = [
+        "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
+        "//plugins/runtime/hexagon/interface:hexagon_dsp_stub_lib",
+        "//plugins/runtime/hexagon/schemas:hexagon_executable_def_c_fbs",
+        "//plugins/runtime/hexagon/serialize:serialize_plugin",
+        # Statically linked directly into iree-run-module/iree-benchmark-module
+        # now (see build_tools/bazel/load_external_hal_drivers.bzl) - these were
+        # previously hdr_deps (declarations only), relying on the dynamically
+        # loaded plugin .so's host process already linking in the real
+        # implementations. That assumption no longer holds now that there's no
+        # separate process boundary, so they need to be real deps.
         "@iree//runtime/src/iree/async",
         "@iree//runtime/src/iree/async/util:proactor_pool",
         "@iree//runtime/src/iree/base",
@@ -94,35 +96,6 @@ hexagon_plugin_library(
         "@iree//runtime/src/iree/hal/utils:queue_host_call_emulation",
         "@iree//runtime/src/iree/hal/utils:resource_set",
     ],
-    strip_include_prefix = "/plugins/runtime",
-    deps = [
-        "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
-        "//plugins/runtime/hexagon/interface:hexagon_dsp_stub_lib",
-        "//plugins/runtime/hexagon/schemas:hexagon_executable_def_c_fbs",
-        "//plugins/runtime/hexagon/serialize:serialize_plugin",
-    ],
-)
-
-cc_binary(
-    name = "hexagon_runtime_plugin",
-    srcs = [],
-    features = ["allow_all_undefined_symbols"],
-    linkopts = RPATH_LINKOPTS,
-    linkshared = True,
-    target_compatible_with = select({
-        ":hexagon_runtime_enabled": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
-    deps = [
-        ":hexagon",
-        "//plugins/runtime/hexagon/registration:DriverModuleLib",
-    ],
-)
-
-pkg_files(
-    name = "hexagon_runtime_plugin_files",
-    srcs = [":hexagon_runtime_plugin"],
-    prefix = "lib",
 )
 
 pkg_files(
@@ -152,7 +125,6 @@ pkg_zip(
         ":hexagon_runtime_bin_files",
         ":hexagon_runtime_hexagon_lib_files",
         ":hexagon_runtime_lib_files",
-        ":hexagon_runtime_plugin_files",
     ],
     package_dir = ".",
     visibility = ["//visibility:public"],
@@ -162,7 +134,7 @@ pkg_zip(
 # that run onLinux x86_64, but need the Hexagon runtime package built for
 # Android aarch64 to push it to an Android phone and run it there.
 aarch64_android_platform_alias(
-    name = "hexagon_runtime_aarch64_android",
+    name = "hexagon_runtime_aarch64_android_internal",
     actual = ":hexagon_runtime",
     target_compatible_with = select({
         "@android_ndk_detect//:android_ndk_available": [],
@@ -173,11 +145,35 @@ aarch64_android_platform_alias(
 # The runtime package built with IREE tracing set to tracy (profiler enabled).
 # Points at :hexagon_runtime so the produced runfile is hexagon_runtime.zip (the
 # fixed path hexagon_rt.data_files.get_hexagon_runtime() resolves); the
-# transition applies the tracy config to its contents. Used by the Hexagon
-# profiler smoke test.
+# transition applies the tracy config to its contents.
 aarch64_android_tracy_platform_alias(
-    name = "hexagon_runtime_aarch64_android_tracy",
+    name = "hexagon_runtime_aarch64_android_tracy_internal",
     actual = ":hexagon_runtime",
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+# Both aliases above produce a same-named hexagon_runtime.zip, just under
+# separate config-specific output trees (one per transition), so building
+# both at once doesn't let you tell them apart by path. Copy each into the
+# default configuration under a distinct name so both are available
+# side by side for local comparison/testing.
+copy_file(
+    name = "hexagon_runtime_aarch64_android",
+    src = ":hexagon_runtime_aarch64_android_internal",
+    out = "hexagon_runtime_aarch64_android.zip",
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+copy_file(
+    name = "hexagon_runtime_aarch64_android_tracy",
+    src = ":hexagon_runtime_aarch64_android_tracy_internal",
+    out = "hexagon_runtime_aarch64_android_tracy.zip",
     target_compatible_with = select({
         "@android_ndk_detect//:android_ndk_available": [],
         "//conditions:default": ["@platforms//:incompatible"],

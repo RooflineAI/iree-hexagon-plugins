@@ -1,3 +1,9 @@
+// Copyright 2026 RooflineAI GmbH
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 // This file contains a table with the event ids from the programming guide. It
 // may be used to configure the pmu.
 

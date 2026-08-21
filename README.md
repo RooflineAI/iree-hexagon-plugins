@@ -25,6 +25,24 @@ build_tools/apply_submodule_patches.sh
 It's idempotent - safe to re-run any time, including when the patches are
 already applied.
 
+## Dependencies
+
+### Runtime
+
+The build of the runtime needs the Android ADK 28.2.13676358 to be installed:
+
+```sh
+NDK_VERSION=r28c
+NDK_FOLDER=28.2.13676358
+NDK_ZIP="android-ndk-${NDK_VERSION}-linux.zip"
+NDK_SHA256="dfb20d396df28ca02a8c708314b814a4d961dc9074f9a161932746f815aa552f"
+wget https://dl.google.com/android/repository/${NDK_ZIP} -O /tmp/ndk.zip
+echo "${NDK_SHA256} /tmp/ndk.zip" | sha256sum -c -
+sudo unzip -q /tmp/ndk.zip -d /opt
+sudo mkdir -p /opt/android-sdk/ndk
+sudo mv "/opt/android-ndk-${NDK_VERSION}" "/opt/android-sdk/ndk/${NDK_FOLDER}"
+```
+
 ## Configuring
 
 ```sh
@@ -38,6 +56,25 @@ EOF
 
 ## Building
 
+### Compiler
+
+The compiler part is built for the host:
+
 ```sh
-bazel build @iree//tools/...
+bazel build @iree//tools:iree-compile
+```
+
+### Runtime
+
+The runtime part is built for Android on aarch64 plus Hexagon.
+It is produced in form a zip file to be deployed to the Android device:
+
+```sh
+bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
+```
+
+A variant including tracing can be build using:
+
+```sh
+bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 ```

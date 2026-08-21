@@ -1,0 +1,26 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+package(default_visibility = ["//visibility:public"])
+
+# Target platform for the Android aarch64 host side of the hexagon runtime
+# plugin (the ARM side talking to the DSP over FastRPC).
+platform(
+    name = "aarch64_android",
+    constraint_values = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:android",
+    ],
+)
+
+# Target platform for the Hexagon DSP side of the runtime plugin.
+platform(
+    name = "hexagon",
+    constraint_values = [
+        "//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
+    ],
+)

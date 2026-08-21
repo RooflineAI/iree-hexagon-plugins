@@ -138,8 +138,6 @@ static iree_status_t iree_hal_hexagon_driver_query_available_devices(
   // toggles, etc) through a process lifetime to appear without needing a
   // full restart.
 
-  iree_hal_hexagon_driver_t *driver = iree_hal_hexagon_driver_cast(base_driver);
-
   // Query all DSP domains if present or not.
   // If the API for querying is not present, assume no domain is present.
   static const iree_hal_hexagon_domain_id_t all_domain_ids[] = {
@@ -174,8 +172,8 @@ static iree_status_t iree_hal_hexagon_driver_query_available_devices(
       host_allocator, device_info_count * sizeof(iree_hal_device_info_t),
       (void **)&device_infos));
   for (int idx = 0; idx < detected_domain_ids_count; ++idx) {
-    iree_hal_hexagon_fill_device_info(
-        driver->identifier, detected_domain_ids[idx], &device_infos[idx]);
+    iree_hal_hexagon_fill_device_info(detected_domain_ids[idx],
+                                      &device_infos[idx]);
   }
 
   *out_device_info_count = device_info_count;

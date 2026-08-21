@@ -1,0 +1,12 @@
+diff --git a/runtime/src/iree/base/tracing/BUILD.bazel b/runtime/src/iree/base/tracing/BUILD.bazel
+index 7d3ee191d0..62c9306d27 100644
+--- a/runtime/src/iree/base/tracing/BUILD.bazel
++++ b/runtime/src/iree/base/tracing/BUILD.bazel
+@@ -83,6 +83,7 @@ iree_runtime_cc_library(
+     defines = [
+         "IREE_TRACING_PROVIDER_H=\\\"iree/base/tracing/tracy.h\\\"",
+         "IREE_TRACING_MODE=2",
++        "IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1",
+     ],
+     deps = [
+         "//runtime/src/iree/base:core_headers",

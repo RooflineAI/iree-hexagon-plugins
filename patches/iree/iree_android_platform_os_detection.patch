@@ -1,0 +1,66 @@
+diff --git a/build_tools/BUILD.bazel b/build_tools/BUILD.bazel
+index 70c61f4c36..9a66346801 100644
+--- a/build_tools/BUILD.bazel
++++ b/build_tools/BUILD.bazel
+@@ -19,6 +19,9 @@ iree_cc_library(
+         "//build_tools/bazel:iree_is_android": [
+             # Android provides its own pthreads support with no linking required.
+         ],
++        "//build_tools/bazel:iree_is_android_platform_os": [
++            # Android provides its own pthreads support with no linking required.
++        ],
+         "//build_tools/bazel:iree_is_wasm": [
+             # Wasm threading is opt-in and does not use a pthreads library.
+         ],
+@@ -36,6 +39,9 @@ iree_cc_library(
+         "//build_tools/bazel:iree_is_android": [
+             "-ldl",
+         ],
++        "//build_tools/bazel:iree_is_android_platform_os": [
++            "-ldl",
++        ],
+         "//conditions:default": [
+             "-ldl",
+         ],
+diff --git a/build_tools/bazel/BUILD.bazel b/build_tools/bazel/BUILD.bazel
+index 7d870c75f8..aa87eec872 100644
+--- a/build_tools/bazel/BUILD.bazel
++++ b/build_tools/bazel/BUILD.bazel
+@@ -33,6 +33,20 @@ config_setting(
+     },
+ )
+ 
++# Detect Android from platform OS setting.
++# Note: Upstream IREE uses a define "iree_is_android" (see above) for building
++# iree-run-module for Android. This repo builds for Android via a platform OS
++# ("//platform:aarch64_android"), which is also used to pick the right
++# toolchain. When building for this platform OS, this needs to also trigger
++# the same config adaptions as "iree_is_android" for IREE. So define a config
++# setting triggering on the platform OS.
++config_setting(
++    name = "iree_is_android_platform_os",
++    constraint_values = [
++        "@platforms//os:android",
++    ],
++)
++
+ # OS platform constraints. Used in select() for platform-specific backend
+ # selection. bazel_to_cmake maps these to CMAKE_SYSTEM_NAME checks.
+ config_setting(
+diff --git a/runtime/src/iree/async/platform/posix/BUILD.bazel b/runtime/src/iree/async/platform/posix/BUILD.bazel
+index a9f372e774..2f5ffdd7c8 100644
+--- a/runtime/src/iree/async/platform/posix/BUILD.bazel
++++ b/runtime/src/iree/async/platform/posix/BUILD.bazel
+@@ -71,6 +71,12 @@ iree_runtime_cc_library(
+         "//build_tools/bazel:iree_is_android": [
+             "//runtime/src/iree/async/platform/linux:signal",
+         ],
++        # This repo builds for Android via a platform OS rather than the
++        # define-based iree_is_android, so the signalfd backend is selected
++        # and needs the same linux signal dep (see iree_is_android_platform_os).
++        "//build_tools/bazel:iree_is_android_platform_os": [
++            "//runtime/src/iree/async/platform/linux:signal",
++        ],
+         "//conditions:default": [],
+     }),
+ )

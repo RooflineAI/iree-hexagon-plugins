@@ -247,15 +247,12 @@ static int domain_id_to_uri_suffix(iree_hal_hexagon_domain_id_t domain_id,
   return 0;
 }
 
-void iree_hal_hexagon_fill_device_info(iree_string_view_t identifier,
-                                       iree_hal_hexagon_domain_id_t domain_id,
+void iree_hal_hexagon_fill_device_info(iree_hal_hexagon_domain_id_t domain_id,
                                        iree_hal_device_info_t *device_info) {
   device_info->device_id = domain_id;
   device_info->name = iree_make_cstring_view(
       iree_hal_hexagon_get_domain_name_or_unknown(domain_id));
   device_info->path = device_info->name;
-  device_info->identifier = identifier;
-  device_info->device_index = domain_id;
 }
 
 iree_hal_hexagon_domain_id_t
@@ -537,15 +534,6 @@ iree_hal_hexagon_device_id(iree_hal_device_t *base_device) {
   iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
   return iree_make_cstring_view(
       iree_hal_hexagon_get_domain_name_or_unknown(device->domain_id));
-}
-
-static iree_hal_device_info_t
-iree_hal_hexagon_device_info(iree_hal_device_t *base_device) {
-  iree_hal_hexagon_device_t *device = iree_hal_hexagon_device_cast(base_device);
-  iree_hal_device_info_t device_info;
-  iree_hal_hexagon_fill_device_info(device->identifier, device->domain_id,
-                                    &device_info);
-  return device_info;
 }
 
 static iree_allocator_t
@@ -1203,7 +1191,6 @@ iree_hal_hexagon_device_profiling_end(iree_hal_device_t *base_device) {
 static const iree_hal_device_vtable_t iree_hal_hexagon_device_vtable = {
     .destroy = iree_hal_hexagon_device_destroy,
     .id = iree_hal_hexagon_device_id,
-    .info = iree_hal_hexagon_device_info,
     .host_allocator = iree_hal_hexagon_device_host_allocator,
     .device_allocator = iree_hal_hexagon_device_allocator,
     .replace_device_allocator = iree_hal_hexagon_replace_device_allocator,

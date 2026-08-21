@@ -43,8 +43,7 @@ int iree_hal_hexagon_get_domain_id(iree_string_view_t name,
 // The name and path strings referenced by the device info structure have
 // global/infinite lifetime, so those are not allocated and do not need to be
 // freed.
-void iree_hal_hexagon_fill_device_info(iree_string_view_t identifier,
-                                       iree_hal_hexagon_domain_id_t domain_id,
+void iree_hal_hexagon_fill_device_info(iree_hal_hexagon_domain_id_t domain_id,
                                        iree_hal_device_info_t *device_info);
 
 // NOTE: nothing in the skeleton implementation. Device creation and adoption is

@@ -1,0 +1,3 @@
+/bazel-*
+/configured.bazelrc
+/MODULE.bazel.lock

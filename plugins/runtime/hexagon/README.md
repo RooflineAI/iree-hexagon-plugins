@@ -1,8 +1,5 @@
 # Qualcomm Hexagon HAL Driver (`hexagon`)
 
-This is a skeleton of the HAL driver for Qualcomm Hexagon. For now, it
-implements most interfaces needed by a HAL driver.
-
 ## Directory Structure
 
 - `.`: HAL driver implementation on the ARM host side, all sources compiled for
@@ -201,7 +198,6 @@ See `hexagon_pmu_events_ids.h` for IDs:
 
 Memory allocation can be done through `iree_hal_hexagon_mem_alloc_create`. Its implementation is in `mem_alloc.c`.
 There are three alternative allocations that can be done (available in `iree_hal_hexagon_mem_kind_e`). They represent DSP, host and shared allocations.
-The shared allocations in particular are a (deduced) reimplementation of the work performed by the proprietary RPC framework.
 Note that the behavior of the allocated memory differs depending on whether this framework is used or not.
 For example, when passing an allocation through an RPC as an argument, flushing the cache for synchronization with the host at the end of the RPC is automated.
 It must be done manually when not passed as an argument though.

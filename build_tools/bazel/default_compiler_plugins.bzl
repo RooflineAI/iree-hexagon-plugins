@@ -6,11 +6,9 @@
 """Default compiler plugin registry for iree-hexagon-plugins Bazel builds.
 
 IREE's own compiler/plugins/BUILD.bazel loads this file from the root
-workspace via @//build_tools/bazel:default_compiler_plugins.bzl - see
-third-party/iree/build_tools/bazel/default_compiler_plugins.bzl for the
-upstream default this mirrors. This is the extension point where this repo's
-own plugins (e.g. the hexagon compiler plugin) would eventually be
-registered; for now it just reproduces IREE's stock defaults.
+workspace via @//build_tools/bazel:default_compiler_plugins.bzl (see
+third-party/iree/build_tools/bazel/default_compiler_plugins.bzl).
+This is the extension point where this repo's own plugins are registered.
 """
 
 def iree_default_compiler_plugin_ids():

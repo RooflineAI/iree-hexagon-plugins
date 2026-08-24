@@ -2,7 +2,7 @@ diff --git a/qcom_hexagon_backend/bin/runtime/UserDMA/RuntimeDMA.cc b/qcom_hexag
 index 987a7dc..9c90f18 100644
 --- a/qcom_hexagon_backend/bin/runtime/UserDMA/RuntimeDMA.cc
 +++ b/qcom_hexagon_backend/bin/runtime/UserDMA/RuntimeDMA.cc
-@@ -28,10 +28,14 @@
+@@ -28,10 +28,13 @@
  namespace hexagon {
  namespace userdma {
 
@@ -12,8 +12,7 @@ index 987a7dc..9c90f18 100644
 -static UserDMA hexDMA(hexagon::userdma::MAX_NUM_DMA_DESCRIPTORS);
 +// Fork divergence note
 +// Avoid relying on global static C++ constructor execution when this code is
-+// linked into generated kernel shared objects. If crashes disappear with this
-+// lazy init path, that strongly indicates static initialization timing issues.
++// linked into generated kernel shared objects.
 +static UserDMA *getDMA() {
 +  static UserDMA *dma = new UserDMA(hexagon::userdma::MAX_NUM_DMA_DESCRIPTORS);
 +  return dma;

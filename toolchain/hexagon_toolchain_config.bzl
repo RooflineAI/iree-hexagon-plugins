@@ -78,7 +78,6 @@ def _hexagon_toolchain_config_impl(ctx):
                     ACTION_NAMES.cpp_link_dynamic_library,
                     ACTION_NAMES.cpp_link_executable,
                 ],
-                #flag_groups = [flag_group(flags = [ ... ])],
             ),
         ],
     )
@@ -91,13 +90,13 @@ def _hexagon_toolchain_config_impl(ctx):
         ]
 
     # Need to override the builtin include dirs, which are absolute paths,
-    # with relative versionf of the same. Otherwise bazel complains that
+    # with relative version of the same. Otherwise bazel complains that
     # "non-builtin files with absolute paths" are included. It's not possible
     # to list the absolute include paths as builtin include paths because
     # bazel does not allow to get the absolute path of the downloaded Hexagon
     # SDK.
     # The dirs come from the output of "clang -x c -E -v /dev/null" and
-    # "clang -x c++ -E -v /dev/null" and
+    # "clang -x c++ -E -v /dev/null"
     hexagon_builtin_c_include_dirs = [
         paths.join(hexagon_tools_dir, "target/hexagon/include"),
         paths.join(hexagon_tools_dir, "lib/clang/19/include"),

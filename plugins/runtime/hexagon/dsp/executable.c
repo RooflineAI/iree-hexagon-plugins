@@ -26,7 +26,7 @@ typedef struct hexagon_dsp_executable_s {
   iree_hal_executable_library_query_fn_t query_func;
   /// library information
   /// The approach is taken from
-  /// iree/hal/local/loaders/static_library_loader.c:30. The executable_library
+  /// iree/hal/local/loaders/static_library_loader.c. The executable_library
   /// API works with "..._header_t **", but the specific implementation needs
   /// more information. So the "..._library_v0_t" structure contains a
   /// "..._header_t*" as the first member. The union is then used to "cast"

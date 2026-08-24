@@ -131,7 +131,7 @@ pkg_zip(
 )
 
 # Provide a platform alias for Android aarch64 here for integration tests
-# that run onLinux x86_64, but need the Hexagon runtime package built for
+# that run on Linux x86_64, but need the Hexagon runtime package built for
 # Android aarch64 to push it to an Android phone and run it there.
 aarch64_android_platform_alias(
     name = "hexagon_runtime_aarch64_android_internal",

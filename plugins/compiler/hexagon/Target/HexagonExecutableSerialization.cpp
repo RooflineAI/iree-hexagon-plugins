@@ -38,8 +38,7 @@
 
 // TODO: There is a lot of code that is calling on functions from the
 // LLVMCPUTarget plugin, especially during linking. This also includes other
-// files inside the hexagon plugin. This will have to be revisited in the future
-// since it is not particularly clean...
+// files inside the hexagon plugin. This will have to be revisited in the future...
 
 namespace mlir::iree_compiler::hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
@@ -74,8 +73,7 @@ static void dumpMLIRModuleToPath(llvm::StringRef path, llvm::StringRef baseName,
   // verifications at the same time. These flags avoid any traversal through
   // shared state between threads. It is unclear to me where data is modified
   // and not only read in the AsmPrinter.cpp, but this looks like it makes the
-  // bug disappear. If you find the line modifying the data, please ping for my
-  // curiosity.
+  // bug disappear.
   printingFlags.assumeVerified(true);
   printingFlags.useLocalScope(true);
   module.print(os, printingFlags);
@@ -230,9 +228,6 @@ buildExecutableMetadata(const LLVMTarget &target, llvm::Module &llvmModule,
     entryPointNames.push_back(exportOp.getName().str());
   }
 
-  // TODO: This is where we are actually performing the work. Note that
-  // this is reusing a lot of machinery from LLVMCPUTarget through a call to
-  // the that plugin's functions and this should be fixed.
   auto queryFunctionName = std::string(kQueryFunctionName);
   auto *queryLibraryFunc = libraryBuilder.build(queryFunctionName);
 
@@ -337,10 +332,6 @@ static std::optional<Artifacts> linkArtifacts(
     const llvm::SmallVector<Artifact> &objectFiles,
     const LLVMTarget &llvmIreeTarget, const llvm::TargetMachine &targetMachine,
     HAL::ExecutableVariantOp &variantOp, const llvm::StringRef libraryName) {
-  // FIXME: I can optionally pass more arguments here, but any other options
-  // would not be useful given my current custom implementation of the linker.
-  // This type is yet another example of reused code from LLVMCPUTarget that
-  // is meant for more complex logic
   LLVMTargetOptions linkerOptions;
   linkerOptions.target.copy(llvmIreeTarget);
   linkerOptions.embeddedLinkerPath = options.linker;

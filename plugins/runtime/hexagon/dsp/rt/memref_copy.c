@@ -12,12 +12,10 @@
 // This file is currently intended as a temporary fix and not a permanent
 // solution. I would like to revisit this at some point and think about
 // alternative solutions. This is currently not thought out enough.
-// Additionally, hexagon-mlir's implementation looks dubious or unclear to me
-// right now, so this should be analyzed further.
 
 // Why this implementation exists:
 //
-// 1) MLIR/Hexagon lowering intentionally emits calls to `memrefCopy` for copy
+// 1) MLIR/Hexagon lowering emits calls to `memrefCopy` for copy
 //    patterns that are not lowered to contiguous memcpy/DMA. In particular,
 //    strided/non-contiguous copies from lowered `memref.copy` /
 //    `hexagonmem.copy` can reach LLVM as:

@@ -6,7 +6,6 @@
 
 """
 Bazel macros for building hexagon compiler and runtime plugin libraries.
-This file is made in the image of the nxp plugin equivalent file.
 """
 
 load(

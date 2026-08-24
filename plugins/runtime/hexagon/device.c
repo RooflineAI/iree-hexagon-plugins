@@ -1176,14 +1176,14 @@ static iree_status_t iree_hal_hexagon_device_profiling_begin(
 
 static iree_status_t
 iree_hal_hexagon_device_profiling_flush(iree_hal_device_t *base_device) {
-  // Read iree_hal_hexagon_device_profiler_begin.
+  // Read iree_hal_hexagon_device_profiling_begin.
 
   return iree_ok_status();
 }
 
 static iree_status_t
 iree_hal_hexagon_device_profiling_end(iree_hal_device_t *base_device) {
-  // Read iree_hal_hexagon_device_profiler_begin.
+  // Read iree_hal_hexagon_device_profiling_begin.
 
   return iree_ok_status();
 }

@@ -47,7 +47,7 @@ Function can be linked at dynamically during runtime execution.
 All three of these options have been implemented and tested in experimental branches
 and the third one is the one currently implemented in the code.
 This is only done for a hardcoded set of symbols from DMA/HexKL/HexagonMem and for
-some generic symbols used by the lowering (`malloc`, `free`, `memrefCopy`).
+some generic symbols used by the lowering (`malloc`, `free`, `memrefCopy`, ...).
 
 ## Code Relationships
 
@@ -102,37 +102,6 @@ It exposes:
 Everything else in `CodeGen/` should be thought of as implementation detail for
 those entrypoints.
 
-### `CodeGen/Encoding/`
-
-This subtree has two layers:
-
-- `Encoding/IR/`
-  - defines the Hexagon encoding dialect,
-  - defines the Hexagon encoding resolver attribute,
-  - owns the generated IR/TableGen files.
-- `Encoding/HexagonEncodingExternalModels.*`
-  - attaches external interfaces to the Hexagon resolver attribute,
-  - implements layout resolution/materialization/serialization hooks,
-  - consumes configuration embedded by `HexagonTargetBackend`.
-
-This is the key relationship:
-
-- `HexagonTargetBackend` embeds `#iree_hexagon.hexagon_encoding_resolver<>`
-  into the executable target configuration.
-- encoding materialization later reads that attribute through the external
-  models in `CodeGen/Encoding/`.
-
-All of this was originally intended to reuse LLVMCPU's lowerings, particularly around `mmt4d`
-and the associated data layout reorderings (`pack`/`unpack` operations).
-Nevertheless, this is no longer used. Given the Hexagon hardware architecture,
-the value of these reorderings is questionable and these layout rearrangements are expected
-to be unused in the current lowering pipelines (`--iree-opt-data-tiling=false`).
-
-In the future, it is likely that this folder will be removed altogether. Nevertheless, it
-currently is a good skeleton for adding new dialects, if necessary. Note that the Hexagon
-plugin currently does not declare any plugin owned dialects that would fit under a `IR/`
-equivalent of more mature plugins.
-
 ### `CodeGen/Pipelines/`
 
 This directory is about pipeline construction, not individual transformations.
@@ -143,13 +112,6 @@ IREE's HAL expects three main pipelines that will be called in order:
 - `TranslationPipeline.cpp`
 - `LinkingPipeline.cpp`
 
-Additionally, this folder contains some additional helper functionality:
-
-- `Internal.h`
-  - internal helpers and flags shared only by pipeline implementation files.
-- `Bufferization.cpp`
-  - Hexagon-specific bufferization helper used by pipelines.
-
 Finally, Hexagon's Translation pipeline is currently in an experimental state. As such,
 it currently has two different pipelines under development that are likely to be removed in the future:
 
@@ -159,6 +121,8 @@ it currently has two different pipelines under development that are likely to be
   - Hexagon-adapted versions of IREE/LLVMCPU lowering sequences.
 
 ### `CodeGen/Strategy/`
+
+> This folder is about to be completely reworked. Please do not invest any time on it!
 
 This directory contains passes centered about deciding how a dispatch should be lowered,
 not about performing the lowering itself. It is currently only usable when triggering the

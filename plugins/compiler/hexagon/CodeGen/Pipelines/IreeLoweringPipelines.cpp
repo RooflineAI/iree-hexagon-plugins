@@ -181,9 +181,6 @@ static void buildHexagonVectorLoweringPipeline(
 
 } // namespace
 
-// TODO: Needs further verification, but this pipeline is called
-// on vector operations from what I have seen so far.
-// It is also very similar to hexagon-mlir by itself.
 void addHexagonBufferOpsTileAndVectorizePipeline(
     OpPassManager &funcPassManager, const HexagonPipelineOptions &pipelineOpt) {
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
@@ -235,13 +232,6 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
 // This is the pipeline executed when CPUDoubleTilingExpert is configured. This
 // is the pipeline that executes, for example, when lowering linalg.batch_matmul
 // operations that are lowered into linalg.generics in the current state.
-// TODO: I believe this pipeline might be interesting given that it contains
-// tiling for cache and vector dimensions. In our current execution model, we
-// intend to move data destined to the vector unit (like linalg.generic) through
-// the cache and it is therefore interesting to keep. To be discussed and
-// analyzed (performance-wise!)
-
-// TODO: Also need to verify where the cache size is currently defined
 void addHexagonMultiTilingExpertPassPipeline(
     OpPassManager &funcPassManager,
     IREE::Codegen::LoweringConfigAttrInterface loweringConfig,
@@ -371,10 +361,6 @@ void addHexagonMultiTilingExpertPassPipeline(
   }
 }
 
-// TODO: This whole pipeline could possibly be removed altogether. I decided to
-// keep it in case there is some unexpected lowering going through it, but this
-// might be useless.
-
 // TODO: Hexagon-mlir has its own convolution tiling pass. This should be tested
 // and compared to the performance from this pipeline. Right now, hexagon-mlir's
 // convolution operation is not included
@@ -426,19 +412,12 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
 
   {
     HexagonVectorLoweringPassOptions options;
-    // TODO: During the meeting, we mentioned that this pipeline was inefficient
-    // and could be ignored, but it looks like it even has mistakes on it...
     // This shuffle is nonsensical and does not get used. Copied from LLVMCPU
     options.splitVectorTransfersTo = "shuffle";
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }
 
-// TODO: Decide what to do with this lowering pipeline. This lowering pipeline
-// takes special care for linalg.matmul and batch_matmul when data tiling is
-// enabled. Since we are disabling iree's data tiling and managing through
-// hexagon-mlir's passes that take advantage of the VTCM and vector unit, this
-// pipeline should be useless for hexagon.
 void addHexagonMmt4dTilingExpertPassPipeline(
     OpPassManager &funcPassManager, const HexagonPipelineOptions &pipelineOpt) {
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
@@ -557,13 +536,6 @@ void addHexagonLinalgExtTileAndVectorizePipeline(
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }
-
-// TODO: It might not be a bad idea to only keep the
-// default pass pipeline. I should analyze the situations under which this is
-// not the pipeline that is called, but I do not believe there are many since
-// most things are based on the matmul operations anyway. This would massively
-// simplify the pass logic and finally unify all this shitty stuff going on
-// everywhere.
 
 // This is the executed pipeline when no tiling is used. When lowering
 // linalg.matmul operations into hexkl API calls, we manage tiling and data

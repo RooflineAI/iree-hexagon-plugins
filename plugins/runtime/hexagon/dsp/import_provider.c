@@ -13,9 +13,10 @@
 #include "AEEStdErr.h"
 #include "HAP_farf.h"
 
+// TODO: Consider deleting this file
 // Hexagon runtime/helper symbols are now resolved natively by the DSP dynamic
-// loader from libhexagon_dsp_skel.so. This import table remains only as a
-// safety net for any unexpected HAL imports emitted elsewhere.
+// loader from libhexagon_dsp_skel.so. This file was the previous alternative
+// currently unused.
 
 typedef struct {
   const char *name;

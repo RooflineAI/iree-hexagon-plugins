@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
-#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#ifndef HEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#define HEXAGON_CODEGEN_IR_HEXAGONDIALECT
 
 include "mlir/IR/AttrTypeBase.td"
 
@@ -15,7 +15,7 @@ include "mlir/IR/AttrTypeBase.td"
 
 def IREEHexagon_Dialect : Dialect {
   let name = "iree_hexagon";
-  let summary = "Roofline Hexagon encoding helpers.";
+  let summary = "New Hexagon dialect used for prototyping.";
   let description = [{
     A lightweight dialect that hosts attributes and operations used by
     the custom Hexagon backend. It includes, for example, memory-staging

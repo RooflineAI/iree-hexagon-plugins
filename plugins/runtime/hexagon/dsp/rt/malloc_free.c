@@ -15,8 +15,7 @@
 #include "HAP_farf.h"
 
 // Profiler is inserted by the compiler as marker ops around the memref
-// operations that lower to these helpers (see the
-// iree-hexagon-insert-memory-management-profiler-markers pass), so these
+// operations that lower to these helpers, so these
 // helpers no longer emit their own profiler zones.
 
 void *hexagon_runtime_malloc(int64_t size) {

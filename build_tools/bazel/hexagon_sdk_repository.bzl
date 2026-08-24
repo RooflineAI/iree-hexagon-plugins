@@ -44,7 +44,7 @@ filegroup(
 
 # This file group refers to all files in the SDK. It can be used as a dependency
 # for rules that depend on the entire Hexagon SDK. For example, the Hexagon
-# toochain uses this to amke sure all Hexagon SDK files are in the sandbox
+# toolchain uses this to make sure all Hexagon SDK files are in the sandbox
 # when compiling for Hexagon.
 filegroup(
     name = "sdk_tree",

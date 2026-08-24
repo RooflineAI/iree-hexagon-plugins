@@ -13,10 +13,6 @@
 namespace mlir::iree_compiler::hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 
-// This is a custom TargetDevice for Hexagon.
-// This embeds an attribute into the IR containing information for the runtime.
-// Right now, this is modeled after LLVMCPUTarget and only contains a reference
-// to the TargetBackend attribute and the name of the target device.
 class HexagonTargetDevice final : public HAL::TargetDevice {
 public:
   explicit HexagonTargetDevice(const HexagonOptions &options)
@@ -43,11 +39,6 @@ public:
                                       {}, executableTargetAttrs);
   }
 
-  // TODO: This is also a placeholder and is currently incomplete.
-  // This is just meant for verification so I should be able to ignore it for
-  // now...
-  // Should: "Build an expression that returns an i1 indicating whether
-  // the given |device| matches the |targetAttr| requirements."
   mlir::Value buildDeviceTargetMatch(mlir::Location loc, mlir::Value device,
                                      HAL::DeviceTargetAttr targetAttr,
                                      mlir::OpBuilder &builder) const override {

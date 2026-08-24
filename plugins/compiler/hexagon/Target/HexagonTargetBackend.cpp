@@ -47,16 +47,6 @@ public:
 
   // This generates an attr that will be embedded in the IR and that
   // is used by some of the passes
-  //
-  // One of the informations we have to embed into the IR is the encoding.
-  // It consists of metadata describing layout and tiling information.
-  //
-  // This works in tandem with the resolver, who is in charge of using this
-  // additional information to generate the tiling.
-  //
-  // This is needed, even for prototyping simple scalar backends, because
-  // otherwise linalg operations do not get lowered in passes such as
-  // materializeEncodings.
   HAL::ExecutableTargetAttr
   getExecutableTarget(mlir::MLIRContext *context) const {
     mlir::Builder builder(context);
@@ -69,16 +59,13 @@ public:
     configItems.emplace_back(builder.getNamedAttr(
         "hexagon.version", builder.getStringAttr(hexagonOptions.version)));
 
-    // I tried using the already existing CPUEncodingResolverAttr. This does not
-    // play properly with the custom target backend, so creating a custom one is
-    // needed, even for prototyping
     configItems.emplace_back(
         builder.getStringAttr(IREE::Encoding::kEncodingResolverAttrName),
         IREE::Hexagon::HexagonEncodingResolverAttr::get(context, {}));
 
-    // The first two attributes are only identifiers if I am not wrong.
+    // The first two attributes are only identifiers.
     // The second one interacts with the HAL. It follows the pattern
-    // [loader]-[format]-[arch]. Check LLVMCPUTarget:188 for the example this is
+    // [loader]-[format]-[arch]. Check LLVMCPUTarget for the example this is
     // based on.
     // Might be changed in the future to qurt-elf-hexagon
     return builder.getAttr<HAL::ExecutableTargetAttr>(

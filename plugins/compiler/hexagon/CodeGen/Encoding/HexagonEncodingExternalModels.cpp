@@ -4,12 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// TODO: This file currently contains a lot of copy pasted code from LLVMCPU
-// needed to lower matmul operations. I did not check that code yet
-// TODO: Remove, keep, modify or whatever:
+// TODO: This file is currently unused and served for experimentation purposes in the past.
+// It needs to be rewritten to make use of encodings in Hexagon.
 // This is the description of the CPUEncodingExternalModels.cpp file that this
 // one is modeled after
-// This file is likely to get scrapped in the future!
 
 //===- CPUEncodingExternalModels.cpp --------------------------------------===//
 //
@@ -68,8 +66,6 @@ namespace {
 // encoding plumbing in the same way as CPU/GPU backends.
 constexpr Codegen::TileMxNxK kHexagonPrototypeTile{4, 4, 4};
 
-// TODO: Copy pasted function, come back to it later. It might not even be
-// useful for Hexagon, this probably needs a lot of rethinking
 static void transposeInPlace(IREE::Codegen::MaterializeEncodingInfo &info) {
   // Vector cases: nothing to do.
   if (info.innerTileSizes.size() < 2) {
@@ -84,8 +80,6 @@ static void transposeInPlace(IREE::Codegen::MaterializeEncodingInfo &info) {
   transpose(info.outerDimsPerm);
 }
 
-// TODO: Copy pasted function, come back to it later. It might not even be
-// useful for Hexagon, this probably needs a lot of rethinking
 static RankedTensorType
 getExpandedType(RankedTensorType type, bool isBatched, bool isTransposed,
                 SmallVectorImpl<ReassociationIndices> &ri) {
@@ -139,8 +133,6 @@ static Value createElementWiseExtUIOp(OpBuilder &builder, Value input,
       ->getResult(0);
 }
 
-// TODO: Copy pasted function, come back to it later. It might not even be
-// useful for Hexagon, this probably needs a lot of rethinking
 static Value getMmt4dOperand(Value value, linalg::LinalgOp linalgOp,
                              bool transpose, OpBuilder &builder,
                              SmallVectorImpl<ReassociationIndices> &ri,
@@ -168,8 +160,6 @@ static Value getMmt4dOperand(Value value, linalg::LinalgOp linalgOp,
   return expandedValue;
 }
 
-// TODO: Copy pasted function, come back to it later. It might not even be
-// useful for Hexagon, this probably needs a lot of rethinking
 Operation *
 lowerContractionOpWithEncoding(OpBuilder &builder, linalg::LinalgOp linalgOp,
                                ValueRange operands,

@@ -110,9 +110,6 @@ alias(
     actual = ":hexkl_micro_v79",
 )
 
-# Expose the bundled HexKL license so wheel targets can co-locate it
-# next to the runtime binaries (its license requires the text to travel
-# with any redistributed binary).
 filegroup(
     name = "license_txt",
     srcs = ["hexkl_addon/LICENSE.txt"],

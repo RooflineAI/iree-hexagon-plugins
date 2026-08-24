@@ -27,8 +27,6 @@ namespace {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
 namespace IREE = mlir::iree_compiler::IREE;
 
-// The plugin session simply takes care of registering all the extensions from
-// the plugin
 struct HexagonSession
     : public mlir::iree_compiler::PluginSession<
           HexagonSession, HexagonOptions,
@@ -38,8 +36,6 @@ struct HexagonSession
         registerHexagonCodeGenPasses();
   };
 
-  // For some reason, trying to override registerGlobalDialects through the CRTP
-  // does not work, so this is an alternative. Not sure about the difference.
   void onRegisterDialects(mlir::DialectRegistry &registry) override {
     // MLIR hooks
     registry.insert<IREE::Hexagon::IREEHexagonDialect,

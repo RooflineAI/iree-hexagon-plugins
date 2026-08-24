@@ -130,8 +130,6 @@ void HexagonLowerExecutableTargetPass::runOnOperation() {
            "found";
     return signalPassFailure();
 
-  // For now I am just assuming that we use im2col and forget about special
-  // pipelines for convolutions
   case IREE::CPU::LoweringPipeline::ConvTileAndDecomposeExpert:
     addHexagonConvTileAndDecomposeExpertPassPipeline(passManager, pipelineOpts);
     break;

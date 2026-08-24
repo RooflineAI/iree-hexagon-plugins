@@ -14,8 +14,6 @@
 namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
 
-// NOTE: this runs on the top-level program module containing all
-// hal.executable ops.
 void buildHexagonLinkingPassPipeline(OpPassManager &modulePassManager,
                                      std::optional<std::string> target) {
   // Link together executables. This may produce some IR duplication.

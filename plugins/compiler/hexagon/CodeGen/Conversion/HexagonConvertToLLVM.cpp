@@ -68,17 +68,7 @@
 // README! This file is copied from LLVMCPU's ConvertToLLVM. Most of the file
 // are HAL conversions that do not need to change for hexagon. Ideally, these
 // would be reused from ConvertToLLVM.cpp but this is currently not possible
-// without refactoring these HAL ABI patterns into a shared library/file. To
-// examine this file, I recommend opening the diff between the copied file and
-// this one, but in any case, the main changes happen only in the runOnOperation
-// at the bottom while most patterns remain untouched.
-
-// TODO: I have to revisit this file in detail. Right now, it is only copy
-// pasted from convertToLLVM. Ideally I would also compare it to what is
-// happening inside the equivalent passes of hexagon-mlir to make sure that
-// nothing too surprising is going on.
-// Therefore, this should be trimmed and refactored appropriately.
-// This is a big TODO ahead of me.
+// without refactoring these HAL ABI patterns into a shared library/file.
 
 namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;

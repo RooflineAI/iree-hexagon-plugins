@@ -11,7 +11,7 @@ as a first-class external repository (`@hexagon-mlir`).
 
 ## Repository flow
 
-1. `build_tools/bazel/extensions.bzl` creates `@hexagon-mlir-raw` as a
+1. `MODULE.bazel` creates `@hexagon-mlir-raw` as a
    `new_local_repository` pointing at `third-party/hexagon-mlir`.
 2. `MODULE.bazel` calls `hexagon_mlir_configure(name = "hexagon-mlir")`.
 3. `build_tools/bazel/hexagon_mlir_configure.bzl` creates a generated external

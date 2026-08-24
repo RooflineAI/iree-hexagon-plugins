@@ -68,9 +68,8 @@ use_repo(pip, "pypi")
 ###############################################################################
 # IREE, sourced from the third-party/iree submodule.
 #
-# The submodule checkout itself carries a couple of patches (patches/iree/,
-# applied via build_tools/apply_submodule_patches.sh - see README.md) needed
-# to embed IREE as a non-root bzlmod module.
+# The submodule checkout itself carries a couple of patches (see README.md)
+# needed to embed IREE as a non-root bzlmod module.
 ###############################################################################
 
 bazel_dep(name = "iree_core", version = "0.0.1")
@@ -98,6 +97,7 @@ local_repository = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:local.bzl",
     "local_repository",
 )
+
 new_local_repository = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:local.bzl",
     "new_local_repository",
@@ -124,6 +124,7 @@ new_local_repository(
     build_file_content = "# empty",
     path = "third-party/llvm-project",
 )
+
 new_local_repository(
     name = "torch-mlir-raw",
     build_file_content = "# empty - BUILD files overlaid by torch_mlir_configure",
@@ -158,8 +159,11 @@ iree_ext = use_extension(
     "@iree_core//build_tools/bazel:extensions.bzl",
     "iree_extension",
 )
+
 inject_repo(iree_ext, "llvm-raw")
+
 inject_repo(iree_ext, "torch-mlir-raw")
+
 use_repo(
     iree_ext,
     "abseil_cpp",
@@ -191,6 +195,7 @@ llvm_repos_ext = use_extension(
     "@llvm-project-overlay//:extensions.bzl",
     "llvm_repos_extension",
 )
+
 inject_repo(llvm_repos_ext, "llvm-raw")
 
 ###############################################################################
@@ -204,6 +209,7 @@ hexagon_mlir_configure = use_repo_rule(
     "//build_tools/bazel:hexagon_mlir_configure.bzl",
     "hexagon_mlir_configure",
 )
+
 hexagon_mlir_configure(name = "hexagon-mlir")
 
 ###############################################################################
@@ -216,6 +222,7 @@ android_ndk_detect = use_repo_rule(
     "//build_tools/bazel:android_ndk_detect.bzl",
     "android_ndk_detect",
 )
+
 android_ndk_detect(
     name = "android_ndk_detect",
     ndk_dir = "/opt/android-sdk/ndk/28.2.13676358",
@@ -225,12 +232,14 @@ hexagon_sdk_repository = use_repo_rule(
     "//build_tools/bazel:hexagon_sdk_repository.bzl",
     "hexagon_sdk_repository",
 )
+
 hexagon_sdk_repository(name = "hexagon_sdk")
 
 hexkl_repository = use_repo_rule(
     "//build_tools/bazel:hexkl_repository.bzl",
     "hexkl_repository",
 )
+
 hexkl_repository(name = "hexkl")
 
 ###############################################################################
@@ -238,4 +247,5 @@ hexkl_repository(name = "hexkl")
 ###############################################################################
 
 register_toolchains("//toolchain:aarch64_android_toolchain")
+
 register_toolchains("//toolchain:hexagon_toolchain")

@@ -1,3 +1,9 @@
+# Copyright 2025 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")

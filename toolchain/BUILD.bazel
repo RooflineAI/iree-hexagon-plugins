@@ -1,3 +1,9 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 load("@aspect_rules_py//py:defs.bzl", "py_binary", "py_library")
 load("@rules_cc//cc/toolchains:cc_toolchain.bzl", "cc_toolchain")
 load(":aarch64_android_toolchain_config.bzl", "aarch64_android_toolchain_config")

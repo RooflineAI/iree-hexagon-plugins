@@ -1,3 +1,9 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 """
 Bazel macros for building hexagon compiler and runtime plugin libraries.
 This file is made in the image of the nxp plugin equivalent file.

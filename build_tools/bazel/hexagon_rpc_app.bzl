@@ -1,3 +1,9 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 """
 Helpers to build simple Hexagon RPC sample apps (ARM host + DSP skeleton)
 similar to the legacy `my_build.bash` script in testing/hexagon_loader.

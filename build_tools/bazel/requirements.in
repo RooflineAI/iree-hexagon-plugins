@@ -1,0 +1,4 @@
+# Direct Python dependencies used by root-repository Bazel tests.
+numpy==2.2.6
+pyelftools==0.33
+pytest==8.4.2

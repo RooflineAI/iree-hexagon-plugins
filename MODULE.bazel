@@ -1,3 +1,9 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 ###############################################################################
 # Bazel module configuration for iree-hexagon-plugins
 ###############################################################################
@@ -43,6 +49,21 @@ bazel_dep(name = "aspect_rules_py", version = "1.6.6")
 bazel_dep(name = "aspect_bazel_lib", version = "2.21.0")
 bazel_dep(name = "rules_pkg", version = "1.0.1")
 bazel_dep(name = "with_cfg.bzl", version = "0.12.0")
+
+# Python dependencies used by this repository's own tests. This is separate
+# from IREE's @pip hub: module-extension repositories are not automatically
+# visible under another name from the root repository.
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.11")
+use_repo(python)
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pypi",
+    python_version = "3.11",
+    requirements_lock = "//build_tools/bazel:requirements.txt",
+)
+use_repo(pip, "pypi")
 
 ###############################################################################
 # IREE, sourced from the third-party/iree submodule.

@@ -15,21 +15,21 @@ upstream IREE being used as a submodule (those need to be fixed upstream); the
 `hexagon-mlir` patches mostly bring its sources up to date with the LLVM/MLIR
 version this repo builds against.
 
-Run this after cloning and after any `git submodule update` (which resets a
-submodule to its pinned commit and wipes these edits):
+After cloning, initialize the required submodules and apply the patches used by
+the Bazel build with:
 
 ```sh
-build_tools/apply_submodule_patches.sh
+build_tools/update_submodules.py
 ```
 
-It's idempotent - safe to re-run any time, including when the patches are
-already applied.
+Run the helper again after a submodule pin changes. It is safe to re-run when
+the submodules and patches are already up to date.
 
 ## Dependencies
 
 ### Runtime
 
-The build of the runtime needs the Android ADK 28.2.13676358 to be installed:
+The runtime build needs Android NDK 28.2.13676358 to be installed:
 
 ```sh
 NDK_VERSION=r28c
@@ -66,14 +66,14 @@ bazel build @iree//tools:iree-compile
 
 ### Runtime
 
-The runtime part is built for Android on aarch64 plus Hexagon.
-It is produced in form a zip file to be deployed to the Android device:
+The runtime is built for Android on AArch64 plus Hexagon and is packaged as a
+ZIP file for deployment to the Android device:
 
 ```sh
 bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
 ```
 
-A variant including tracing can be build using:
+A variant including tracing can be built using:
 
 ```sh
 bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy

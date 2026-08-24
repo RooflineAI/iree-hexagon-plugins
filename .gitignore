@@ -1,3 +1,5 @@
 /bazel-*
 /configured.bazelrc
 /MODULE.bazel.lock
+.vscode
+*__pycache__*

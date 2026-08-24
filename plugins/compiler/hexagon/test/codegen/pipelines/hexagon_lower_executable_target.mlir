@@ -3,7 +3,7 @@
 // different translation_info pipeline and checks that a pipeline-specific pass
 // runs on the expected dispatch function.
 
-// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(hal.executable(hal.executable.variant(builtin.module(func.func(iree-hexagon-lower-executable-target)))))' \
 // RUN:   --mlir-print-ir-after-all \
 // RUN:   --split-input-file %s -o /dev/null 2>&1 | FileCheck %s

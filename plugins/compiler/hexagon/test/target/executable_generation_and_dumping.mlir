@@ -1,17 +1,14 @@
 // This test makes sure that:
-//  - debug files are properly dumped when passing the --iree-hal-dump-executable-intermediates-to and --iree-hal-dump-executable-binaries-to flags
-//  - that the full lowering pipeline runs and outputs a vmfb. This includes serialization and a call to llvm right now
-// This test does not check for correctness in any way, only that everything is properly connected
+//  - debug files are properly dumped by the executable serializer
+//  - serialization of an already lowered executable, including calls to LLVM
+// This test does not check for correctness, only that everything is connected.
 
 // RUN: rm -rf %t
 // RUN: mkdir %t
-// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-device=hexagon \
-// RUN:   --iree-hal-dump-executable-intermediates-to=%t \
-// RUN:   --iree-hal-dump-executable-binaries-to=%t \
-// RUN:   --pass-pipeline='builtin.module(iree-hal-transformation-pipeline)' \
-// RUN:   %s -o %t/matmul.vmfb
-// RUN: test -f %t/matmul.vmfb
+// RUN: iree-opt \
+// RUN:   --iree-hal-serialize-all-executables='dump-intermediates-path=%t dump-binaries-path=%t' \
+// RUN:   %s -o %t/serialized.mlir
+// RUN: test -f %t/serialized.mlir
 // RUN: find %t -name "*.ll" | grep .
 // RUN: find %t -name "*.s" | grep .
 // RUN: find %t -name "*.o" | grep .

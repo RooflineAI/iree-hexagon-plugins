@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-vtcm-tiling))' \
 // RUN:   --split-input-file %s | FileCheck %s
 

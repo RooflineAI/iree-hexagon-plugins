@@ -4,11 +4,8 @@
 
 // RUN: rm -rf %t
 // RUN: mkdir %t
-// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-backends=hexagon \
-// RUN:   --iree-hal-dump-executable-intermediates-to=%t \
-// RUN:   --iree-hal-dump-executable-binaries-to=%t \
-// RUN:   --pass-pipeline='builtin.module(iree-hal-transformation-pipeline)' \
+// RUN: iree-opt \
+// RUN:   --iree-hal-serialize-all-executables='dump-intermediates-path=%t dump-binaries-path=%t' \
 // RUN:   %s
 // RUN: FileCheck %s --check-prefix=LLVM < %t/module_test_embedded_elf_hexagon.ll
 // RUN: readelf -sW %t/module_test_embedded_elf_hexagon.so | FileCheck %s --check-prefix=ELF

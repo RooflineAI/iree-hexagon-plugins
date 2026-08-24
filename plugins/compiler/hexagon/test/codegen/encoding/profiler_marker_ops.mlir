@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   %s | FileCheck %s
 
 // Test parsing and emitting of Hexagon profiler ops and zone types.

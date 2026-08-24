@@ -1,13 +1,10 @@
-// This test runs the full hal pipeline. Running only the serializer is possible with --iree-hal-serialize-all-executables, but executables are not dumped for some reason.
+// This test serializes an already lowered executable and inspects the result.
 // This test makes sure that the generated dynamically linked libraries have the correct file type, machine and ABI.
 
 // RUN: rm -rf %t
 // RUN: mkdir %t
-// RUN: iree-opt --iree-load-plugin=hexagon=$HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-device=hexagon \
-// RUN:   --iree-hal-dump-executable-intermediates-to=%t \
-// RUN:   --iree-hal-dump-executable-binaries-to=%t \
-// RUN:   --pass-pipeline='builtin.module(iree-hal-transformation-pipeline)' \
+// RUN: iree-opt \
+// RUN:   --iree-hal-serialize-all-executables='dump-intermediates-path=%t dump-binaries-path=%t' \
 // RUN:   %s
 // RUN: readelf -h %t/module_test_embedded_elf_hexagon.so | FileCheck %s
 

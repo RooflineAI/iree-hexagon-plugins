@@ -12,10 +12,8 @@ package(
 )
 
 _COMMON_TOOLS = [
-    "//plugins/compiler:hexagon_compiler_plugin",
-    "@iree//lib:IREECompilerUnshielded",
-    "@iree//compiler/bindings/python:iree-compile",
-    "@iree//compiler/bindings/python:iree-opt",
+    "@iree//tools:iree-compile",
+    "@iree//tools:iree-opt",
     "@llvm-project//lld:ld.lld",
     "@llvm-project//llvm:FileCheck",
     "@llvm-project//llvm:not",

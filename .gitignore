@@ -3,3 +3,4 @@
 /MODULE.bazel.lock
 .vscode
 *__pycache__*
+/examples/**/dump/

@@ -78,3 +78,8 @@ A variant including tracing can be built using:
 ```sh
 bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 ```
+
+## Examples
+
+[`examples/`](examples/) walks through compiling a small matmul and an attention layer
+for Hexagon and running them on an android device with Hexagon.

@@ -1,0 +1,108 @@
+diff --git a/qcom_hexagon_backend/lib/Common/DMATransferUtil.cpp b/qcom_hexagon_backend/lib/Common/DMATransferUtil.cpp
+index 18c6e4a..36422d8 100644
+--- a/qcom_hexagon_backend/lib/Common/DMATransferUtil.cpp
++++ b/qcom_hexagon_backend/lib/Common/DMATransferUtil.cpp
+@@ -95,9 +95,11 @@ bool createDMAStartOp(Location loc, IRRewriter &rewriter, Value source,
+     return true;
+   }
+
+-  int64_t stride, width;
+-  assert(isStridedMultiDimMemrefType(sourceMemRefType, stride, width) ||
+-         isStridedMultiDimMemrefType(targetMemRefType, stride, width));
++  int64_t stride = 0;
++  int64_t width = 0;
++  if (!isStridedMultiDimMemrefType(sourceMemRefType, stride, width) &&
++      !isStridedMultiDimMemrefType(targetMemRefType, stride, width))
++    return false;
+   rewriter.create<memref::DmaStartOp>(
+       loc, source, zeroIndices, target, zeroIndices, numElements, tagAlloc,
+       zeroIndex, getI32Const(loc, rewriter, stride),
+diff --git a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
+index b1a420d..69f91f5 100644
+--- a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
+@@ -152,10 +153,9 @@ LowerDMAStart::matchAndRewrite(memref::DmaStartOp op, OpAdaptor adaptor,
+   };
+
+   // Get the LLVM pointer to the memory reference
+-  auto getMemRefPtr = [this, loc,
+-                       context](Value memref, int rank, signed offset,
+-                                OpAdaptor adaptor,
+-                                ConversionPatternRewriter &rewriter) {
++  auto getMemRefPtr = [this, loc](Value memref, int rank, signed offset,
++                                  OpAdaptor adaptor,
++                                  ConversionPatternRewriter &rewriter) {
+     auto memrefType = cast<MemRefType>(memref.getType());
+     auto llvmMemref = *(adaptor.getOperands().begin() + offset);
+     ValueRange indices = {
+diff --git a/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/FormVirtualThreadsPass.cpp b/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/FormVirtualThreadsPass.cpp
+index 5b2074a..ee43670 100644
+--- a/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/FormVirtualThreadsPass.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/FormVirtualThreadsPass.cpp
+@@ -95,7 +95,7 @@ bool rewriteForTLP(IRRewriter &rewriter, linalg::GenericOp op,
+
+   // To begin with, `no-interchange`, single thread.
+   SmallVector<int64_t> threadSizes(op.getNumLoops(), 0);
+-  std::vector<long int> interchangeVector(op.getNumLoops(), 0);
++  std::vector<int64_t> interchangeVector(op.getNumLoops(), 0);
+   std::iota(interchangeVector.begin(), interchangeVector.end(), 0);
+
+   // utility to make parallel-loop at `loopIndex` the threading loop
+diff --git a/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/HexmemCpyToDMA.cpp b/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/HexmemCpyToDMA.cpp
+index 755bcb1..0623ad3 100644
+--- a/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/HexmemCpyToDMA.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/HexmemCpyToDMA.cpp
+@@ -214,9 +214,14 @@ void replaceWithDMA(mlir::hexagonmem::CopyOp copyOp, FunctionOpInterface funcOp,
+
+       auto srcStride = rewriter.create<memref::SubViewOp>(loc, source, offsets,
+                                                           sizes, strides);
+-      int64_t stride, width;
+-      assert(isStridedMultiDimMemrefType(sourceMemRefType, stride, width) ||
+-             isStridedMultiDimMemrefType(targetMemRefType, stride, width));
++      int64_t stride = 0;
++      int64_t width = 0;
++      bool hasStridedLayout =
++          isStridedMultiDimMemrefType(sourceMemRefType, stride, width) ||
++          isStridedMultiDimMemrefType(targetMemRefType, stride, width);
++      assert(hasStridedLayout);
++      if (!hasStridedLayout)
++        return;
+       emitDMA(srcStride, target, zeroIndices, tileIndices, numElementsVal,
+               getI32Const(loc, rewriter, stride),
+               getI32Const(loc, rewriter, width));
+@@ -230,9 +235,14 @@ void replaceWithDMA(mlir::hexagonmem::CopyOp copyOp, FunctionOpInterface funcOp,
+
+       auto dstStride = rewriter.create<memref::SubViewOp>(loc, target, offsets,
+                                                           sizes, strides);
+-      int64_t stride, width;
+-      assert(isStridedMultiDimMemrefType(sourceMemRefType, stride, width) ||
+-             isStridedMultiDimMemrefType(targetMemRefType, stride, width));
++      int64_t stride = 0;
++      int64_t width = 0;
++      bool hasStridedLayout =
++          isStridedMultiDimMemrefType(sourceMemRefType, stride, width) ||
++          isStridedMultiDimMemrefType(targetMemRefType, stride, width);
++      assert(hasStridedLayout);
++      if (!hasStridedLayout)
++        return;
+       emitDMA(source, dstStride, tileIndices, zeroIndices, numElementsVal,
+               getI32Const(loc, rewriter, stride),
+               getI32Const(loc, rewriter, width));
+@@ -252,9 +262,14 @@ void replaceWithDMA(mlir::hexagonmem::CopyOp copyOp, FunctionOpInterface funcOp,
+                                           numElements, tagAlloc, zeroIndex);
+       rewriter.create<memref::DmaWaitOp>(loc, tagAlloc, tagIndex, numElements);
+     } else {
+-      int64_t stride, width;
+-      assert(isStridedMultiDimMemrefType(sourceMemRefType, stride, width) ||
+-             isStridedMultiDimMemrefType(targetMemRefType, stride, width));
++      int64_t stride = 0;
++      int64_t width = 0;
++      bool hasStridedLayout =
++          isStridedMultiDimMemrefType(sourceMemRefType, stride, width) ||
++          isStridedMultiDimMemrefType(targetMemRefType, stride, width);
++      assert(hasStridedLayout);
++      if (!hasStridedLayout)
++        return;
+       rewriter.create<memref::DmaStartOp>(
+           loc, copyOp.getSource(), zeroIndices, copyOp.getTarget(), zeroIndices,
+           numElements, tagAlloc, zeroIndex, getI32Const(loc, rewriter, stride),

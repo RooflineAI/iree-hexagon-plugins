@@ -1,0 +1,150 @@
+diff --git a/qcom_hexagon_backend/lib/Transforms/DecomposeHexKLMatmulPass.cpp b/qcom_hexagon_backend/lib/Transforms/DecomposeHexKLMatmulPass.cpp
+index 964ce89..a975470 100644
+--- a/qcom_hexagon_backend/lib/Transforms/DecomposeHexKLMatmulPass.cpp
++++ b/qcom_hexagon_backend/lib/Transforms/DecomposeHexKLMatmulPass.cpp
+@@ -12,6 +12,7 @@
+ //
+ //===----------------------------------------------------------------------===//
+
++#include "hexagon/Conversion/HexKLToLLVM/HexKLExternalFnNames.h"
+ #include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
+ #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
+ #include "hexagon/Transforms/Transforms.h"
+@@ -37,6 +38,31 @@ using namespace hexagon;
+
+ namespace {
+
++// Fork divergence note: upstream modeled the scratch/config layout as fixed
++// 4096-byte regions with a hardcoded extra reserve. We modified it to use
++// 2048-byte fp16 tile spacing and place the HMX configuration block at the end
++// of the VTCM allocation, with the exact size reported by
++// `hexkl_micro_hmx_config_size()`. Materializing the declaration here keeps the
++// decomposition pass aligned with hexKLAPI.cpp and with the later HexKL-to-LLVM
++// lowering, which computes the config offset as `vtcm_size - config_size`.
++// I am unsure if this divergence was intentional in the original upstream
++// version
++static func::FuncOp getOrCreateHmxConfigSizeFunc(ModuleOp module, Location loc,
++                                                 PatternRewriter &rewriter) {
++  const std::string fnName = hexkl::getHmxConfigSizeFnName();
++  if (auto funcOp = module.lookupSymbol<func::FuncOp>(fnName)) {
++    return funcOp;
++  }
++
++  auto savedInsertionPoint = rewriter.saveInsertionPoint();
++  rewriter.setInsertionPointToStart(module.getBody());
++  auto funcType = rewriter.getFunctionType({}, rewriter.getI32Type());
++  auto funcOp = rewriter.create<func::FuncOp>(loc, fnName, funcType);
++  funcOp.setPrivate();
++  rewriter.restoreInsertionPoint(savedInsertionPoint);
++  return funcOp;
++}
++
+ struct DecomposeHexKLMatmul final : public OpRewritePattern<hexkl::MatmulOp> {
+   DecomposeHexKLMatmul(MLIRContext *ctx) : OpRewritePattern(ctx) {}
+
+@@ -83,6 +109,7 @@ struct DecomposeHexKLMatmul final : public OpRewritePattern<hexkl::MatmulOp> {
+
+     // Create constants
+     auto i32Ty = rewriter.getI32Type();
++    ModuleOp module = op->getParentOfType<ModuleOp>();
+
+     Value idx0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+     Value idx1 = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+@@ -92,8 +119,8 @@ struct DecomposeHexKLMatmul final : public OpRewritePattern<hexkl::MatmulOp> {
+     Value i32_0 = rewriter.create<arith::ConstantIntOp>(loc, i32Ty, 0);
+     Value i32_1 = rewriter.create<arith::ConstantIntOp>(loc, i32Ty, 1);
+     Value i32_32 = rewriter.create<arith::ConstantIntOp>(loc, i32Ty, 32);
+-    Value i32_4096 = rewriter.create<arith::ConstantIntOp>(loc, i32Ty, 4096);
+-    Value idx4096 = rewriter.create<arith::ConstantIndexOp>(loc, 4096);
++    Value i32_2048 = rewriter.create<arith::ConstantIntOp>(loc, i32Ty, 2048);
++    Value idx2048 = rewriter.create<arith::ConstantIndexOp>(loc, 2048);
+
+     // Get dimensions dynamically
+     Value dimM = rewriter.create<memref::DimOp>(loc, lhs, idx0);
+@@ -109,15 +136,30 @@ struct DecomposeHexKLMatmul final : public OpRewritePattern<hexkl::MatmulOp> {
+     Value kTiles = rewriter.create<arith::DivUIOp>(loc, kPlus31, idx32);
+     Value kTilesI32 = rewriter.create<arith::IndexCastOp>(loc, i32Ty, kTiles);
+
+-    // Calculate VTCM size: (numKTiles*2 + 2 + 3) * 4096
+-    // Layout: [act_tiles | scratch_tiles | flat_out | acc_read | extra]
++    // Fork divergence note: keep this layout in sync with the HexKL micro
++    // runtime rather than upstream's older fixed-size approximation. The
++    // runtime uses 2048-byte fp16 tile regions and appends a trailing HMX
++    // config block whose size comes from `hexkl_micro_hmx_config_size()`.
++    // Reserving that exact suffix here avoids placing the config area inside
++    // the tile data region after HexKL-to-LLVM lowers
++    // `MicroHMXSetupAccReadF16Op` / `MicroHMXAccReadF16Op` to runtime calls
++    // that derive the config offset from the total VTCM size.
++
++    // Calculate the fp16 VTCM data layout to match the reference HexKL API:
++    // [act_tiles | scratch_tiles | flat_out | acc_read] + config_bytes
++    // with each fp16 tile region 2048-byte aligned.
+     Value twoKTiles = rewriter.create<arith::MulIOp>(
+         loc, kTiles, rewriter.create<arith::ConstantIndexOp>(loc, 2));
+     Value dataTiles = rewriter.create<arith::AddIOp>(
+         loc, twoKTiles, rewriter.create<arith::ConstantIndexOp>(loc, 2));
+-    Value vtcmTiles = rewriter.create<arith::AddIOp>(
+-        loc, dataTiles, rewriter.create<arith::ConstantIndexOp>(loc, 3));
+-    Value vtcmBytes = rewriter.create<arith::MulIOp>(loc, vtcmTiles, idx4096);
++    Value dataBytes = rewriter.create<arith::MulIOp>(loc, dataTiles, idx2048);
++    auto cfgSizeFunc = getOrCreateHmxConfigSizeFunc(module, loc, rewriter);
++    Value cfgSizeI32 =
++        rewriter.create<func::CallOp>(loc, cfgSizeFunc, ValueRange{})
++            .getResult(0);
++    Value cfgSize = rewriter.create<arith::IndexCastOp>(
++        loc, rewriter.getIndexType(), cfgSizeI32);
++    Value vtcmBytes = rewriter.create<arith::AddIOp>(loc, dataBytes, cfgSize);
+
+     // Manual VTCM alloc; tag for bufferization and dealloc after outer loop.
+     auto vtcmType =
+@@ -134,16 +176,16 @@ struct DecomposeHexKLMatmul final : public OpRewritePattern<hexkl::MatmulOp> {
+     rewriter.create<hexkl::MicroHMXSetupAccReadF16Op>(loc, vtcm);
+
+     // Hoist loop-invariant offset calculations
+-    // weightOffset = numKTiles * 4096 (weight buffer starts after activation
++    // weightOffset = numKTiles * 2048 (weight buffer starts after activation
+     // tiles)
+-    Value wOff = rewriter.create<arith::MulIOp>(loc, kTilesI32, i32_4096);
++    Value wOff = rewriter.create<arith::MulIOp>(loc, kTilesI32, i32_2048);
+
+-    // flatOffset = numKTiles * 4096 (flat output buffer location)
++    // flatOffset = numKTiles * 2048 (flat output buffer location)
+     Value flatOff = wOff;
+
+-    // accReadOffset = (numKTiles + 1) * 4096 (accumulator readback location)
++    // accReadOffset = (numKTiles + 1) * 2048 (accumulator readback location)
+     Value kTilesPlus1 = rewriter.create<arith::AddIOp>(loc, kTilesI32, i32_1);
+-    Value accOff = rewriter.create<arith::MulIOp>(loc, kTilesPlus1, i32_4096);
++    Value accOff = rewriter.create<arith::MulIOp>(loc, kTilesPlus1, i32_2048);
+
+     // Outer loop: iterate over rows (M dimension) in 32-row tiles
+     auto outerFor = rewriter.create<scf::ForOp>(
+@@ -158,16 +200,16 @@ struct DecomposeHexKLMatmul final : public OpRewritePattern<hexkl::MatmulOp> {
+               [&](OpBuilder &bb, Location loc, Value ktIdx, ValueRange) {
+                 Value kt = bb.create<arith::IndexCastOp>(loc, i32Ty, ktIdx);
+
+-                // scratchOffset = (numKTiles + kTile) * 4096
++                // scratchOffset = (numKTiles + kTile) * 2048
+                 Value scrIdx = bb.create<arith::AddIOp>(loc, kTilesI32, kt);
+-                Value scrOff = bb.create<arith::MulIOp>(loc, scrIdx, i32_4096);
++                Value scrOff = bb.create<arith::MulIOp>(loc, scrIdx, i32_2048);
+
+                 // Copy activation tile to scratch
+                 bb.create<hexkl::MicroHMXCopySubmatrixToF16Op>(
+                     loc, vtcm, scrOff, lhs, rowTile, kt, M, K);
+
+                 // Layout activation from scratch to activation buffer
+-                Value actOff = bb.create<arith::MulIOp>(loc, kt, i32_4096);
++                Value actOff = bb.create<arith::MulIOp>(loc, kt, i32_2048);
+                 bb.create<hexkl::MicroHMXRmToAhF16Op>(loc, vtcm, actOff,
+                                                       scrOff);
+
+@@ -197,7 +239,7 @@ struct DecomposeHexKLMatmul final : public OpRewritePattern<hexkl::MatmulOp> {
+
+                       // Perform matrix multiplication (accumulates)
+                       Value actOff2 =
+-                          bbb.create<arith::MulIOp>(loc, kt, i32_4096);
++                          bbb.create<arith::MulIOp>(loc, kt, i32_2048);
+                       bbb.create<hexkl::MicroHMXMmF16Op>(loc, vtcm, actOff2,
+                                                          wOff);
+

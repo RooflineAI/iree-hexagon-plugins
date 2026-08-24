@@ -1,7 +1,178 @@
 ###############################################################################
-# Bazel now uses Bzlmod by default to manage external dependencies.
-# Please consider migrating your external dependencies from WORKSPACE to
-# MODULE.bazel.
-#
-# For more details, please check https://github.com/bazelbuild/bazel/issues/18958
+# Bazel module configuration for iree-hexagon-plugins
 ###############################################################################
+
+module(
+    name = "iree_hexagon_plugins",
+    repo_name = "iree_hexagon_plugins",
+)
+
+# Needed directly by our own plugin BUILD files (e.g.
+# plugins/runtime/hexagon/schemas, referenced from the compiler plugin's
+# Target/BUILD.bazel).
+bazel_dep(name = "rules_cc", version = "0.2.19")
+
+# IREE is referenced via the "@iree" local_repository alias below (not the
+# "iree_core" bzlmod module), so that IREE's own Bazel-level plugin registry
+# override (compiler/plugins/BUILD.bazel's "@//build_tools/bazel:..." load)
+# can resolve back to this root module - only possible because "@iree" is a
+# repo created by a direct repo-rule call in *this* MODULE.bazel, which makes
+# it inherit this module's own repo mapping (bzlmod modules like "iree_core"
+# are isolated and can never see the root module that depends on them).
+# Consequently, every bazel_dep IREE's own MODULE.bazel declares must also be
+# declared here directly, so IREE's own BUILD/bzl files can resolve their
+# apparent names via "@iree" the same way they would via "iree_core" - see
+# third-party/iree/MODULE.bazel for the source of this list.
+bazel_dep(name = "apple_support", version = "2.6.1", repo_name = "build_bazel_apple_support")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_python", version = "2.0.2")
+bazel_dep(name = "rules_shell", version = "0.8.0")
+bazel_dep(name = "protobuf", version = "35.0", repo_name = "com_google_protobuf")
+bazel_dep(name = "rules_android", version = "0.7.2")
+bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
+bazel_dep(name = "zlib-ng", version = "2.3.3", repo_name = "llvm_zlib")
+bazel_dep(name = "zstd", version = "1.5.7.bcr.1", repo_name = "llvm_zstd")
+bazel_dep(name = "libbacktrace", version = "1.0.0-20250926-7939218")
+bazel_dep(name = "nanobind", version = "2.12.0.bcr.1")
+
+###############################################################################
+# IREE, sourced from the third-party/iree submodule.
+#
+# The submodule checkout itself carries a couple of patches (patches/iree/,
+# applied via build_tools/apply_submodule_patches.sh - see README.md) needed
+# to embed IREE as a non-root bzlmod module.
+###############################################################################
+
+bazel_dep(name = "iree_core", version = "0.0.1")
+local_path_override(
+    module_name = "iree_core",
+    path = "third-party/iree",
+)
+
+# LLVM's Bazel overlay, required by IREE. IREE's own MODULE.bazel declares a
+# local_path_override for this too, but bzlmod only honors overrides declared
+# by the root module (this one), so we repoint it ourselves at our own
+# top-level llvm-project submodule instead of relying on IREE's (ignored)
+# override.
+bazel_dep(name = "llvm-project-overlay", version = "main")
+local_path_override(
+    module_name = "llvm-project-overlay",
+    path = "third-party/llvm-project/utils/bazel",
+)
+
+###############################################################################
+# Local repository aliases and "llvm-raw"/"stablehlo"/"torch-mlir-raw" repos.
+###############################################################################
+
+local_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:local.bzl",
+    "local_repository",
+)
+new_local_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:local.bzl",
+    "new_local_repository",
+)
+
+# "iree" alias (distinct from the "iree_core" bzlmod module name above) - the
+# hexagon plugin's BUILD files reference "@iree//..." directly.
+local_repository(
+    name = "iree",
+    path = "third-party/iree",
+)
+
+# "llvm-raw" and "torch-mlir-raw", pointed at this repo's own top-level
+# llvm-project/torch-mlir submodules. IREE's own extensions.bzl only creates
+# these itself when IREE is Bazel's root module (it isn't, here) - we create
+# them ourselves and inject_repo() them into IREE's extension below instead,
+# so every consumer of "@llvm-project" (including stablehlo's BUILD files)
+# shares the exact same repo instance and TdInfo provider, without needing
+# IREE to patch that gating out of its own extensions.bzl. (stablehlo doesn't
+# get the same treatment - see the comment on "stablehlo" in IREE's own
+# extensions.bzl, patched in the submodule checkout, for why.)
+new_local_repository(
+    name = "llvm-raw",
+    build_file_content = "# empty",
+    path = "third-party/llvm-project",
+)
+new_local_repository(
+    name = "torch-mlir-raw",
+    build_file_content = "# empty - BUILD files overlaid by torch_mlir_configure",
+    path = "third-party/torch-mlir",
+)
+
+# "hexagon-mlir-raw", pointed at this repo's own top-level hexagon-mlir
+# submodule. hexagon-mlir has no Bazel support of its own, so
+# build_tools/bazel/hexagon_mlir_configure.bzl merges this raw source tree
+# with the Bazel overlay under build_tools/bazel/overlays/hexagon_mlir to
+# produce "@hexagon-mlir" below.
+new_local_repository(
+    name = "hexagon-mlir-raw",
+    build_file_content = "# empty - BUILD files overlaid by hexagon_mlir_configure",
+    path = "third-party/hexagon-mlir",
+)
+
+###############################################################################
+# Wire "llvm-raw"/"torch-mlir-raw" into IREE's and the LLVM overlay's own
+# module extensions.
+#
+# Both @iree_core//build_tools/bazel:extensions.bzl's iree_extension and
+# @llvm-project-overlay//:extensions.bzl's llvm_repos_extension unconditionally
+# import "llvm-raw" (iree_extension also imports "torch-mlir-raw"), but only
+# create it themselves when their own module is Bazel's root (neither is,
+# here) - inject_repo() feeds them the repos we created above instead,
+# satisfying those modules' own MODULE.bazel-level use_repo() calls for the
+# same extension.
+###############################################################################
+
+iree_ext = use_extension(
+    "@iree_core//build_tools/bazel:extensions.bzl",
+    "iree_extension",
+)
+inject_repo(iree_ext, "llvm-raw")
+inject_repo(iree_ext, "torch-mlir-raw")
+use_repo(
+    iree_ext,
+    "abseil_cpp",
+    "amdgpu_device_libs",
+    "com_github_dvidelabs_flatcc",
+    "com_google_benchmark",
+    "com_google_googletest",
+    "dawn",
+    "dlmalloc",
+    "hip_api_headers",
+    "hsa_runtime_headers",
+    "iree_amdgpu_device_toolchain",
+    "iree_cuda",
+    "llvm-project",
+    "nccl",
+    "rccl",
+    "spirv_cross",
+    "spirv_headers",
+    "spirv_tools",
+    "stablehlo",
+    "torch-mlir",
+    "tracy_client",
+    "vulkan_headers",
+    "wasi_sdk",
+    "webgpu_headers",
+)
+
+llvm_repos_ext = use_extension(
+    "@llvm-project-overlay//:extensions.bzl",
+    "llvm_repos_extension",
+)
+inject_repo(llvm_repos_ext, "llvm-raw")
+
+###############################################################################
+# Configure "@hexagon-mlir" - a merge of "@hexagon-mlir-raw" (above) with the
+# Bazel overlay under build_tools/bazel/overlays/hexagon_mlir. Root-owned
+# (direct use_repo_rule() call, not a module extension) so our own plugin
+# BUILD files can reference "@hexagon-mlir//..." directly.
+###############################################################################
+
+hexagon_mlir_configure = use_repo_rule(
+    "//build_tools/bazel:hexagon_mlir_configure.bzl",
+    "hexagon_mlir_configure",
+)
+hexagon_mlir_configure(name = "hexagon-mlir")

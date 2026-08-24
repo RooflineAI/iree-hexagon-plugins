@@ -1,0 +1,24 @@
+diff --git a/build_tools/bazel/iree_flatcc.bzl b/build_tools/bazel/iree_flatcc.bzl
+index 8969d89c54..4d4cb26f15 100644
+--- a/build_tools/bazel/iree_flatcc.bzl
++++ b/build_tools/bazel/iree_flatcc.bzl
+@@ -17,9 +17,18 @@ def iree_flatbuffer_c_library(
+         **kwargs):
+     flatcc = "@com_github_dvidelabs_flatcc//:flatcc"
+ 
++    # "-I runtime/src" is resolved by flatcc relative to the genrule action's
++    # CWD (the exec root), not the package. That only happens to line up with
++    # "runtime/src/..." when this repository is the Bazel main/root repo. When
++    # it's embedded as a dependency (e.g. iree_core inside a larger workspace),
++    # its own sources live under a sibling directory named after its canonical
++    # repo name instead, so compute that prefix explicitly.
++    repo_name = Label("//:MODULE.bazel").repo_name
++    include_root = ("external/%s/runtime/src" % repo_name) if repo_name else "runtime/src"
++
+     flags = [
+         "-o$(RULEDIR)",
+-        "-I runtime/src",
++        "-I " + include_root,
+     ] + flatcc_args
+ 
+     out_stem = "%s" % (srcs[0].replace(".fbs", ""))

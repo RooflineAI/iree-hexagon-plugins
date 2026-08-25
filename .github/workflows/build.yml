@@ -9,6 +9,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    env:
+      # Fork PRs never receive secrets, so they cannot hold an overlay key and
+      # cannot reach the phone. That is the boundary working as intended, not
+      # something to route around: pull_request_target would hand a fork's code
+      # our credentials. Forks still get the full build, just no device steps.
+      PHONE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,12 +40,29 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install platform-tools and NDK 28
+      - name: Install pinned platform-tools and NDK 28
+        env:
+          PLATFORM_TOOLS_VERSION: "37.0.1"
+          PLATFORM_TOOLS_SHA256: d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1
         run: |
-          sdkmanager --install "platform-tools"
           sdkmanager --install "ndk;28.2.13676358"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+          # Deliberately NOT `sdkmanager --install platform-tools`, which always
+          # fetches the newest release. adb refuses to work across a
+          # client/server version gap: on mismatch the client kills the server
+          # and starts its own. Harmless when both live on one machine, fatal
+          # here, where the server runs on the phone rig at the far end of the
+          # tunnel and cannot be restarted from this job. It would also take the
+          # phone away from every other job until systemd restarted it.
+          # Keep in lockstep with platform_tools_version in provision-servers,
+          # ansible/inventory/group_vars/phone_public.yml.
+          zip="platform-tools_r${PLATFORM_TOOLS_VERSION}-linux.zip"
+          curl -fsSLO "https://dl.google.com/android/repository/${zip}"
+          echo "${PLATFORM_TOOLS_SHA256}  ${zip}" | sha256sum -c -
+          unzip -q "${zip}" -d "${RUNNER_TEMP}"
+          # Appended last so it precedes the SDK's own copy on PATH.
+          echo "${RUNNER_TEMP}/platform-tools" >> "$GITHUB_PATH"
 
       - name: Verify Android
         run: |
@@ -70,3 +93,45 @@ jobs:
         run: |
           # The current CI runner is quite slow and does not finish an entire build in 10h, so don't even try and limit to 5m.
           timeout 5m bazel build @iree_core//tools/...
+
+      - name: Join the phone overlay
+        if: env.PHONE_ACCESS == 'true'
+        env:
+          TS_AUTHKEY: ${{ secrets.HEADSCALE_AUTHKEY }}
+        run: |
+          if [ -z "$TS_AUTHKEY" ]; then
+            echo "HEADSCALE_AUTHKEY is unset, so this job cannot reach the phone." >&2
+            exit 1
+          fi
+          curl -fsSL https://tailscale.com/install.sh | sh
+          # The key is ephemeral, so this node deletes itself on disconnect and
+          # the control plane does not accumulate one dead node per CI run.
+          sudo tailscale up \
+            --login-server=https://vpn.cloud.rfldev.de \
+            --authkey="$TS_AUTHKEY" \
+            --hostname="gha-${GITHUB_RUN_ID}"
+          tailscale status
+
+      - name: Point adb at the phone rig
+        if: env.PHONE_ACCESS == 'true'
+        run: |
+          # The rig runs the adb server; this job must never start its own.
+          # ANDROID_SERIAL is redundant with a single phone attached and becomes
+          # load-bearing the moment a second one is.
+          echo "ADB_SERVER_SOCKET=tcp:100.64.0.2:5037" >> "$GITHUB_ENV"
+          echo "ANDROID_SERIAL=2c82b852" >> "$GITHUB_ENV"
+
+      - name: Check the phone is reachable
+        if: env.PHONE_ACCESS == 'true'
+        run: |
+          adb devices -l
+          # Reading the two failure modes: `unauthorized` means the phone has
+          # dropped its trust of the rig's key and someone has to tap Always
+          # allow on the device itself; `device not found` means something on
+          # the rig is holding the phone's USB interface, usually a stray adb
+          # server left behind by a bare `adb` command run there.
+          adb shell getprop ro.product.model
+
+      - name: Leave the overlay
+        if: always()
+        run: sudo tailscale logout || true

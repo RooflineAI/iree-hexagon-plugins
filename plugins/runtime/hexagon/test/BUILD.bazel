@@ -5,6 +5,8 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@aspect_rules_py//py:defs.bzl", "py_test")
+load("//build_tools/bazel:hexagon_sim_test.bzl", "hexagon_sim_test")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
@@ -12,6 +14,36 @@ package(
     default_visibility = ["//visibility:public"],
     features = ["layering_check"],
     licenses = [],
+)
+
+_HEXAGON_COMPAT = [
+    "//constraints:cpu_hexagon",
+    "//constraints:os_qurt",
+]
+
+cc_binary(
+    name = "userdma_stride_overflow_test_module",
+    testonly = True,
+    srcs = ["userdma_stride_overflow_test.cc"],
+    features = ["-default_cpp_link"],
+    linkopts = [
+        "-Wl,-Bstatic",
+        "-lstdc++",
+        "-lc++abi",
+        "-Wl,-Bdynamic",
+        "-lm",
+        "-static-libgcc",
+    ],
+    linkshared = True,
+    target_compatible_with = _HEXAGON_COMPAT,
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib",
+    ],
+)
+
+hexagon_sim_test(
+    name = "userdma_stride_overflow_sim_test",
+    module = ":userdma_stride_overflow_test_module",
 )
 
 py_test(

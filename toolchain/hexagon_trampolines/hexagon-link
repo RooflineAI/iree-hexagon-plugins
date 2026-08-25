@@ -1,0 +1,2 @@
+#! /bin/sh
+exec external/*hexagon_sdk/tools/HEXAGON_Tools/19.0.04/Tools/bin/hexagon-link "$@"

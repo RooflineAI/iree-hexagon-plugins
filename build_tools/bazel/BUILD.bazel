@@ -3,4 +3,10 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-exports_files(["requirements.txt"])
+exports_files(
+    [
+        "hexagon_sim_test_runner.py",
+        "requirements.txt",
+    ],
+    visibility = ["//visibility:public"],
+)

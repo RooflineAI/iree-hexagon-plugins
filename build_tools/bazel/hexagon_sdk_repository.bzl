@@ -30,6 +30,36 @@ filegroup(
     srcs = ["tools/HEXAGON_Tools/19.0.04/Tools/bin/hexagon-clang"],
 )
 
+filegroup(
+    name = "hexagon_sim",
+    srcs = ["tools/HEXAGON_Tools/19.0.04/Tools/bin/hexagon-sim"],
+)
+
+filegroup(
+    name = "hexagon_sim_host_libs",
+    srcs = glob(["tools/HEXAGON_Tools/19.0.04/Tools/lib/**"]),
+)
+
+# QuRT executable used by hexagon-sim to load a test shared object and call its
+# main entry point.
+filegroup(
+    name = "run_main_on_hexagon_sim_v79",
+    srcs = [
+        "libs/run_main_on_hexagon/ship/hexagon_toolv19_v79/run_main_on_hexagon_sim",
+    ],
+)
+
+# QuRT simulation image and OS model used to boot run_main_on_hexagon_sim.
+filegroup(
+    name = "qurt_runelf_v79",
+    srcs = ["rtos/qurt/computev79/sdksim_bin/runelf.pbn"],
+)
+
+filegroup(
+    name = "qurt_model_v79",
+    srcs = ["rtos/qurt/computev79/debugger/lnx64/qurt_model.so"],
+)
+
 # Single file target to the QAIC interface generator tool.
 filegroup(
     name = "qaic",

@@ -116,9 +116,15 @@ jobs:
           #   headscale preauthkeys create --user 4 --tags tag:gha-runner \
           #     --ephemeral --reusable --expiration 8760h
           #   gh secret set HEADSCALE_AUTHKEY --repo RooflineAI/iree-hexagon-plugins
+          # --accept-dns=false: we address the rig by its literal overlay IP, so
+          # there is nothing to gain from MagicDNS, and hosted runners already
+          # carry enough search domains that setting it fails noisily with
+          # "Too many search domains per link". Leaving the runner's resolver
+          # alone avoids an alarming log line that means nothing.
           if ! sudo tailscale up \
             --login-server=https://vpn.cloud.rfldev.de \
             --authkey="$TS_AUTHKEY" \
+            --accept-dns=false \
             --hostname="gha-${GITHUB_RUN_ID}"; then
             echo "::error::Could not join the overlay. The most likely cause is an expired HEADSCALE_AUTHKEY, which was due to lapse on 2027-08-25. Re-mint it and update the date in .github/workflows/build.yml; the exact commands are in the comment above this step."
             exit 1

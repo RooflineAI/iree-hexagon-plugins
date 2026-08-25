@@ -89,11 +89,11 @@ jobs:
           disk-cache: ${{ github.workflow }}
           repository-cache: true
 
-      - name: Build
-        run: |
-          # The current CI runner is quite slow and does not finish an entire build in 10h, so don't even try and limit to 5m.
-          timeout 5m bazel build @iree//tools/...
-
+      # Ahead of the build on purpose. Reaching the phone does not depend on
+      # bazel, and a step with a custom `if:` is implicitly wrapped in
+      # success(), so sitting after a red build meant these never ran and the
+      # rig went unverified. The on-device test belongs after the build, where
+      # it does depend on an artifact.
       - name: Join the phone overlay
         if: env.PHONE_ACCESS == 'true'
         env:
@@ -144,6 +144,11 @@ jobs:
           # the rig is holding the phone's USB interface, usually a stray adb
           # server left behind by a bare `adb` command run there.
           adb shell getprop ro.product.model
+
+      - name: Build
+        run: |
+          # The current CI runner is quite slow and does not finish an entire build in 10h, so don't even try and limit to 5m.
+          timeout 5m bazel build @iree//tools/...
 
       - name: Leave the overlay
         if: always()

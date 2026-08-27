@@ -1,2 +1,4 @@
 build_tools/bazel/overlays
 third-party
+.venv
+.cache

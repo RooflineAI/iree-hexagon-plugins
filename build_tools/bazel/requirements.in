@@ -2,3 +2,12 @@
 numpy==2.2.6
 pyelftools==0.33
 pytest==8.4.2
+
+# iree-turbine supplies the fx importer that turns
+# an exported torch program into torch-dialect MLIR; the lowering to IREE input
+# is then done by this repo's own iree-compile via --iree-input-type, so nothing
+# here is on the compile path.
+iree-turbine==3.9.0
+torch==2.13.0+cpu
+transformers==5.16.1
+markupsafe==3.0.3

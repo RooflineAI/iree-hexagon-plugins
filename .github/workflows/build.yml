@@ -6,9 +6,88 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on:
+      group: qualcomm
+      labels: qc-large
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install clang-19
+        run: |
+          wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install NDK 28
+        run: |
+          sdkmanager --install "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Apply patches
+        run: |
+          build_tools/apply_submodule_patches.sh
+
+      - name: Configure bazelrc
+        run: |
+          cat - >configured.bazelrc <<EOF
+          build --action_env CC=/usr/lib/llvm-19/bin/clang
+          build --action_env CXX=/usr/lib/llvm-19/bin/clang++
+          build --config=generic_clang
+          build --incompatible_strict_action_env
+          EOF
+
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+
+      - name: Build
+        run: |
+          TARGETS=(
+            @iree//tools:iree-compile
+            @iree//tools:iree-dump-module
+            @iree//tools:iree-dump-parameters
+            @iree//tools:iree-encode-parameters
+            @iree//tools:iree-opt
+            @iree//tools:iree-run-module
+            @iree//tools:iree-benchmark-module
+            @llvm-project//lld:ld.lld
+            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
+            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
+          )
+          bazel build --verbose_failures "${TARGETS[@]}"
+          mkdir build-artifacts
+          for TARGET in "${TARGETS[@]}"
+          do
+            cp $(bazel cquery --output=files "$TARGET") build-artifacts
+          done
+          chmod -R u+w build-artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: build-artifacts
+          retention-days: 1
+
+  test:
+    needs: build
+    runs-on:
+      group: qualcomm
+      labels: qc-small
     env:
       # Fork PRs never receive secrets, so they cannot hold an overlay key and
       # cannot reach the phone. That is the boundary working as intended, not
@@ -20,34 +99,23 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Free disk space
-        run: |
-          df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo rm -rf /opt/hostedtoolcache
-          sudo docker system prune -af
-          df -h
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: build-artifacts
 
-      - name: Install clang-19
-        run: |
-          wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
+      - name: List build artifacts
+        run: find build-artifacts
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install pinned platform-tools and NDK 28
+      - name: Install pinned platform-tools
         env:
           PLATFORM_TOOLS_VERSION: "37.0.1"
           PLATFORM_TOOLS_SHA256: d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1
         run: |
-          sdkmanager --install "ndk;28.2.13676358"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-
           # Deliberately NOT `sdkmanager --install platform-tools`, which always
           # fetches the newest release. adb refuses to work across a
           # client/server version gap: on mismatch the client kills the server
@@ -70,10 +138,6 @@ jobs:
           echo $ANDROID_NDK_HOME
           ls $ANDROID_NDK_HOME
 
-      - name: Apply patches
-        run: |
-          build_tools/apply_submodule_patches.sh
-
       - name: Configure bazelrc
         run: |
           cat - >configured.bazelrc <<EOF
@@ -83,17 +147,6 @@ jobs:
           build --incompatible_strict_action_env
           EOF
 
-      - uses: bazel-contrib/setup-bazel@0.15.0
-        with:
-          bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
-          repository-cache: true
-
-      # Ahead of the build on purpose. Reaching the phone does not depend on
-      # bazel, and a step with a custom `if:` is implicitly wrapped in
-      # success(), so sitting after a red build meant these never ran and the
-      # rig went unverified. The on-device test belongs after the build, where
-      # it does depend on an artifact.
       - name: Join the phone overlay
         if: env.PHONE_ACCESS == 'true'
         env:
@@ -151,10 +204,9 @@ jobs:
           # server left behind by a bare `adb` command run there.
           adb shell getprop ro.product.model
 
-      - name: Build
+      - name: Test
         run: |
-          # The current CI runner is quite slow and does not finish an entire build in 10h, so don't even try and limit to 5m.
-          timeout 5m bazel build @iree//tools/...
+          echo TODO
 
       - name: Leave the overlay
         if: always()

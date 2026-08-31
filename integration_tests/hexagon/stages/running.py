@@ -12,8 +12,9 @@ import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from integration_tests.hexagon.adb_device import AdbDevice, AdbError
-from integration_tests.hexagon.hexagon_runtime import DeployedRuntime
+from integration_tests.hexagon.device import adb
+from integration_tests.hexagon.device.adb import AdbError
+from integration_tests.hexagon.device.deploy import Deployment
 
 
 @dataclass
@@ -33,49 +34,59 @@ class RunModuleResult:
 
 
 def run_module_on_device(
-    runtime: DeployedRuntime,
+    deployment: Deployment,
     case_dir_name: str,
     module_vmfb: Path,
     function: str,
     input_files: list[Path],
     output_names: list[str],
     local_output_dir: Path,
+    parameter_file: str | None = None,
+    parameter_scope: str = "model",
+    parameter_mode: str = "file",
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
 
-    Each case gets its own subdirectory of the runtime directory so that a
-    stale artifact from another case can never be picked up, and so a failure
-    can be inspected on the device afterwards.
+    The command runs under `limit_lifetime`, so that when `timeout` fires and
+    Python SIGKILLs the adb client, the on-device process group is killed too.
+    Without it a timed-out run leaves iree-run-module alive holding the DSP, and
+    every subsequent test fails for an unrelated reason.
     """
-    device: AdbDevice = runtime.device
-    remote_dir = f"{runtime.remote_dir}/cases/{case_dir_name}"
-    device.shell(f"rm -rf {remote_dir}; mkdir -p {remote_dir}")
-    device.push([module_vmfb], f"{remote_dir}/module.vmfb")
+    remote_dir = deployment.case_dir(case_dir_name)
+    adb.shell(f"rm -rf {remote_dir}; mkdir -p {remote_dir}")
+    adb.push([module_vmfb], f"{remote_dir}/module.vmfb")
     if input_files:
-        device.push(input_files, remote_dir + "/")
+        adb.push(input_files, remote_dir + "/")
 
-    input_args = " ".join(
-        f"--input=@{shlex.quote(path.name)}" for path in input_files
-    )
-    output_args = " ".join(f"--output=@{shlex.quote(name)}" for name in output_names)
+    argv = [
+        deployment.limit_lifetime,
+        deployment.run_module,
+        "--module=module.vmfb",
+        f"--function={function}",
+        "--device=hexagon",
+    ]
+    argv += [f"--input=@{path.name}" for path in input_files]
+    argv += [f"--output=@{name}" for name in output_names]
+    if parameter_file is not None:
+        # The imported IR names its scope: #flow.parameter.named<"model"::"...">.
+        argv += [
+            f"--parameters={parameter_scope}={parameter_file}",
+            f"--parameter_mode={parameter_mode}",
+        ]
+    argv += list(extra_flags)
+
     # DSP_LIBRARY_PATH is where the DSP side looks for the skel and for the
     # FARF mask file; see examples/running.md.
     script = (
         f"cd {remote_dir} && "
-        f"export DSP_LIBRARY_PATH={runtime.dsp_library_path} && "
-        f"{runtime.run_module} --module=module.vmfb "
-        f"--function={shlex.quote(function)} --device=hexagon "
-        f"{input_args} {output_args} "
-        + " ".join(shlex.quote(flag) for flag in extra_flags)
+        f"export DSP_LIBRARY_PATH={deployment.dsp_library_path} && " + shlex.join(argv)
     )
 
-    device.logcat_clear()
-    exit_code, log = device.shell_exit_code(
-        script, exit_code_file=f"{remote_dir}/exit-code", timeout=timeout
-    )
-    logcat = device.logcat_dump()
+    adb.logcat_clear()
+    exit_code, log = adb.shell_exit_code(script, timeout=timeout)
+    logcat = adb.logcat_dump()
 
     local_output_dir.mkdir(parents=True, exist_ok=True)
     pulled: list[Path] = []
@@ -85,9 +96,9 @@ def run_module_on_device(
         # Outputs are pulled one at a time and a miss is tolerated: when the run
         # failed there may be no output at all, and the exit code plus the log
         # are the useful diagnostics, not a pull error on top of them.
-        if device.exists(remote_output):
+        if adb.exists(remote_output):
             try:
-                device.pull([remote_output], local_output_dir)
+                adb.pull([remote_output], local_output_dir)
             except AdbError:
                 continue
             pulled.append(local_output)

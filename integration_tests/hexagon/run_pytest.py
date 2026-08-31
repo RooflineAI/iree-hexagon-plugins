@@ -4,11 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""py_test entry point: runs pytest over this directory.
-
-A plain `pytest integration_tests/hexagon` does the same thing; this exists so
-Bazel has a single `main` to invoke and can hand the tool paths over as `args`.
-"""
+"""Entry point for the one Bazel target here, the model-tree check."""
 
 import sys
 from pathlib import Path
@@ -16,7 +12,10 @@ from pathlib import Path
 import pytest
 
 if __name__ == "__main__":
+    given = sys.argv[1:]
+    if any(not arg.startswith("-") for arg in given):
+        targets = []
+    else:
+        targets = [str(Path(__file__).resolve().parent)]
     # -rA so the reason for every skip and xfail is printed
-    sys.exit(
-        pytest.main([str(Path(__file__).resolve().parent), "-vv", "-rA", *sys.argv[1:]])
-    )
+    sys.exit(pytest.main([*targets, "-vv", "-rA", *given]))

@@ -1,0 +1,53 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
+load("//build_tools/bazel:platform_aliases.bzl", "aarch64_android_platform_alias")
+
+package(
+    default_visibility = ["//visibility:public"],
+    licenses = [],
+)
+
+cc_binary(
+    name = "limit_lifetime",
+    srcs = ["src/limit_lifetime.c"],
+    tags = ["manual"],
+)
+
+pkg_files(
+    name = "device_tool_files",
+    srcs = [":limit_lifetime"],
+    prefix = "bin",
+)
+
+pkg_zip(
+    name = "device_tools",
+    srcs = [":device_tool_files"],
+    package_dir = ".",
+)
+
+aarch64_android_platform_alias(
+    name = "device_tools_aarch64_android_internal",
+    actual = ":device_tools",
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+copy_file(
+    name = "device_tools_aarch64_android",
+    src = ":device_tools_aarch64_android_internal",
+    out = "device_tools_aarch64_android.zip",
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)

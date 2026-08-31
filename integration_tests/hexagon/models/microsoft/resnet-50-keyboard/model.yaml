@@ -1,0 +1,28 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# resnet-50 on a real photograph, asserting the predicted label.
+model: microsoft/resnet-50-keyboard
+revision: 34c2154c194f829b11125337b98c8f5f9965ff19
+dtype: float32
+
+inputs:
+  - shape: [1, 3, 224, 224]
+    dtype: float32
+    generator: image
+    image: keyboard.png
+
+tolerances:
+  atol: 1.0e-2
+  rtol: 1.0e-2
+  relative_l2_percent: 0.1
+
+semantic_check:
+  expected_label: "computer keyboard, keypad"
+
+compile_cases: [new-tiling-heuristics]
+
+tags: [hexagon, vision, semantic]

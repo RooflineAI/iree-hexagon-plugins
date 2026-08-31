@@ -4,11 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Numeric comparison of a device output against a reference.
-
-Reports both a relative L2 norm (which tolerates a few
-badly wrong elements in a large tensor) and an element-wise atol/rtol check.
-"""
+"""Numeric comparison of a device output against a reference."""
 
 from __future__ import annotations
 
@@ -91,6 +87,7 @@ def check_output_files(
     actual_files: list[Path],
     atol: float,
     rtol: float,
+    max_relative_l2_percent: float | None = None,
 ) -> None:
     """Compare every reference/actual pair, reporting all failures at once."""
     if len(reference_files) != len(actual_files):
@@ -112,8 +109,52 @@ def check_output_files(
         print(comparison.report)
         if not comparison.elementwise_close:
             failures.append(comparison.report)
+        elif (
+            max_relative_l2_percent is not None
+            and comparison.relative_l2_percent > max_relative_l2_percent
+        ):
+            # Only reported separately when the element-wise check passed;
+            # otherwise it would be the same failure counted twice.
+            failures.append(
+                f"{comparison.name}: relative L2 error "
+                f"{comparison.relative_l2_percent:.4f}% exceeds the "
+                f"{max_relative_l2_percent:g}% threshold, although every element "
+                f"is within atol={atol:g}/rtol={rtol:g}"
+            )
     if failures:
         raise AccuracyError(
             f"{len(failures)} of {len(reference_files)} outputs failed the "
             "accuracy check:\n" + "\n".join(failures)
+        )
+
+
+def check_predicted_label(
+    output_file: Path,
+    labels: dict[int, str] | None,
+    expected_label: str,
+) -> None:
+    """Assert the device's argmax class is `expected_label`."""
+    if labels is None:
+        raise AccuracyError(
+            "a semantic_check needs the model's config.id2label, and this "
+            "import recorded none"
+        )
+    logits = np.load(output_file).astype(np.float64).reshape(-1)
+    order = np.argsort(logits)[::-1]
+    top, runner_up = int(order[0]), int(order[1]) if logits.size > 1 else None
+    predicted = labels.get(top, f"<no label for class {top}>")
+    margin = float(logits[top] - logits[runner_up]) if runner_up is not None else None
+    print(
+        f"{output_file.name}: predicted {predicted!r} (class {top})"
+        + (
+            f", runner-up {labels.get(runner_up, runner_up)!r} at a margin of "
+            f"{margin:.4g}"
+            if runner_up is not None
+            else ""
+        )
+    )
+    if predicted != expected_label:
+        raise AccuracyError(
+            f"{output_file.name}: expected the device to predict "
+            f"{expected_label!r}, got {predicted!r} (class {top})"
         )

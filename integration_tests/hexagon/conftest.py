@@ -4,26 +4,32 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Fixtures for the Hexagon on-device integration tests."""
+"""Options and fixtures."""
 
 from __future__ import annotations
 
 import logging
-import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from integration_tests.hexagon.adb_device import AdbDevice, attached_devices
-from integration_tests.hexagon.hexagon_runtime import DeployedRuntime, deploy_runtime
-from integration_tests.hexagon.iree_tools import (
+from integration_tests.hexagon.device import adb
+from integration_tests.hexagon.device.deploy import (
+    DEFAULT_DEVICE_ROOT,
+    Deployment,
+    cleanup,
+    deploy,
+)
+from integration_tests.hexagon.modeltree import discover
+from integration_tests.hexagon.modeltree.spec import ModelSpec
+from integration_tests.hexagon.tool_paths import (
+    DEVICE_TOOLS_TARGET,
     IREE_COMPILE_TARGET,
     LLD_TARGET,
     RUNTIME_ZIP_TARGET,
     resolve_bazel_artifact,
 )
-
-_DEFAULT_REMOTE_DIR = "/data/local/tmp/hexagon_integration_tests"
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -55,26 +61,83 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ),
     )
     group.addoption(
+        "--device-tools-zip",
+        default=None,
+        help=(
+            f"path to the on-device test helper ({DEVICE_TOOLS_TARGET}): "
+            "limit_lifetime. Resolved with 'bazel cquery' when omitted."
+        ),
+    )
+    group.addoption(
         "--lld",
         default=None,
         help=(
             f"path to ld.lld ({LLD_TARGET}), passed to iree-compile as the "
             "Hexagon and llvm-cpu linker. Omit to let iree-compile find one on "
-            "PATH, which works in a shell but not under 'bazel test'."
+            "PATH."
         ),
     )
     group.addoption(
-        "--android-serial",
-        default=None,
+        "--device-root",
+        default=DEFAULT_DEVICE_ROOT,
         help=(
-            "adb serial of the device to use. Defaults to $ANDROID_SERIAL, or "
-            "to the only attached device."
+            "root directory on the device for the per-run trees "
+            f"(default: {DEFAULT_DEVICE_ROOT})."
         ),
     )
     group.addoption(
-        "--device-dir",
-        default=_DEFAULT_REMOTE_DIR,
-        help=f"working directory on the device (default: {_DEFAULT_REMOTE_DIR}).",
+        "--keep-device-dir",
+        action="store_true",
+        default=False,
+        help="leave this run's directory on the device, to inspect a failure.",
+    )
+    group.addoption(
+        "--model",
+        action="append",
+        default=[],
+        metavar="ORG/NAME",
+        help="run only this model from models/ (repeatable).",
+    )
+    group.addoption(
+        "--include-tag",
+        action="append",
+        default=[],
+        metavar="TAG[,TAG...]",
+        help=(
+            "select models carrying all of these tags (repeatable, OR-ed "
+            "across repeats). Ignored when --model is given."
+        ),
+    )
+    group.addoption(
+        "--exclude-tag",
+        action="append",
+        default=[],
+        metavar="TAG[,TAG...]",
+        help="skip models carrying all of these tags (repeatable, OR-ed).",
+    )
+
+
+def _selected_specs(config: pytest.Config) -> list[ModelSpec]:
+    include = [
+        discover.parse_tag_expression(raw) for raw in config.getoption("--include-tag")
+    ]
+    exclude = [
+        discover.parse_tag_expression(raw) for raw in config.getoption("--exclude-tag")
+    ]
+    return discover.select(
+        names=config.getoption("--model") or None,
+        include=include or None,
+        exclude=exclude or None,
+    )
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Parametrize over the model tree, so adding a model needs no test code."""
+    if "model_spec" not in metafunc.fixturenames:
+        return
+    specs = _selected_specs(metafunc.config)
+    metafunc.parametrize(
+        "model_spec", specs, ids=[spec.name for spec in specs], scope="session"
     )
 
 
@@ -93,6 +156,13 @@ def runtime_zip(pytestconfig: pytest.Config) -> Path:
 
 
 @pytest.fixture(scope="session")
+def device_tools_zip(pytestconfig: pytest.Config) -> Path:
+    return resolve_bazel_artifact(
+        DEVICE_TOOLS_TARGET, pytestconfig.getoption("--device-tools-zip")
+    )
+
+
+@pytest.fixture(scope="session")
 def lld(pytestconfig: pytest.Config) -> Path | None:
     """The linker to hand iree-compile, or None to let it search PATH."""
     given = pytestconfig.getoption("--lld")
@@ -100,46 +170,37 @@ def lld(pytestconfig: pytest.Config) -> Path | None:
 
 
 @pytest.fixture(scope="session")
-def hexagon_device(pytestconfig: pytest.Config) -> AdbDevice:
-    """The device under test, or a skip if there is none.
-
-    Skipping rather than failing is the point: a machine with no phone should
-    still be able to run the rest of the suite, and CI without device access
-    should not go red for a reason it cannot fix. The corollary is that a green
-    run does not prove anything ran on hardware - check the skip count.
-    """
-    requested = pytestconfig.getoption("--android-serial") or os.environ.get(
-        "ANDROID_SERIAL"
+def require_device() -> None:
+    """Fail every device test if there is no usable device."""
+    ok, detail = adb.available()
+    if ok:
+        return
+    pytest.fail(
+        f"no usable adb device ({detail}). The adb server is assumed to be up "
+        "already - a restarted server silently drops a TCP device. Check "
+        "'adb devices'; an 'unauthorized' phone needs 'Always allow' tapped on "
+        "the handset, and $ANDROID_SERIAL picks between several. To run only the "
+        "checks that need no device: pytest integration_tests/hexagon/test_model_tree.py",
+        pytrace=False,
     )
-    serials = attached_devices()
-    if not serials:
-        pytest.skip(
-            "no adb device in state 'device' (check 'adb devices'; an "
-            "'unauthorized' phone needs 'Always allow' tapped on the handset)"
-        )
-    if requested:
-        if requested not in serials:
-            pytest.skip(
-                f"requested device {requested!r} is not attached; attached: {serials}"
-            )
-        return AdbDevice(serial=requested)
-    if len(serials) > 1:
-        pytest.skip(
-            f"{len(serials)} devices attached ({serials}); pick one with "
-            "--android-serial or $ANDROID_SERIAL"
-        )
-    return AdbDevice(serial=serials[0])
 
 
 @pytest.fixture(scope="session")
-def hexagon_runtime(
-    hexagon_device: AdbDevice, runtime_zip: Path, pytestconfig: pytest.Config
-) -> DeployedRuntime:
-    """Deploy the runtime package once per session."""
-    remote_dir = pytestconfig.getoption("--device-dir")
-    print(
-        f"deploying {runtime_zip.name} to {hexagon_device.serial}:{remote_dir} "
-        f"(model {hexagon_device.property('ro.product.model')}, "
-        f"platform {hexagon_device.property('ro.board.platform')})"
+def deployment(
+    require_device: None,
+    runtime_zip: Path,
+    device_tools_zip: Path,
+    pytestconfig: pytest.Config,
+) -> Iterator[Deployment]:
+    """Unpack the runtime and the helper once per session, in a fresh directory."""
+    active = deploy(
+        runtime_zip=runtime_zip,
+        tools_zip=device_tools_zip,
+        root=pytestconfig.getoption("--device-root"),
     )
-    return deploy_runtime(hexagon_device, runtime_zip, remote_dir)
+    print(f"deployed to {active.run_dir} on {adb.describe_device()}")
+    yield active
+    if pytestconfig.getoption("--keep-device-dir"):
+        print(f"leaving {active.run_dir} on the device as requested")
+    else:
+        cleanup(active)

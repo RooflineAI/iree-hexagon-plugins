@@ -11,59 +11,21 @@ package(
     licenses = [],
 )
 
-# One target for the whole suite, torch and all.
-#
-# The alternative is to split it in two - a host-side "import" test carrying the
-# torch/transformers dependency, and a device test needing only numpy - so that
-# the common case does not drag ~2.5 GB of wheels into the repository cache.
-# That was weighed and rejected for now: it needs an artifact hand-off between
-# the two targets, and "manual" already keeps the cost off anyone who has not
-# asked for these tests by name. Revisit if the wheel fetch becomes the thing
-# that hurts.
-#
-# manual:    never selected by a wildcard pattern; these need a phone.
-# exclusive: there is one phone, and two of these running at once would fight
-#            over the same directory on it.
-# external:  never cached. A pass means "it worked on the hardware attached at
-#            the time", which is not a property of the inputs.
 py_test(
-    name = "hexagon_device_tests",
-    srcs = glob(["*.py"]),
-    args = [
-        "--iree-compile=$(rootpath @iree//tools:iree-compile)",
-        "--runtime-zip=$(rootpath //plugins/runtime/hexagon:hexagon_runtime_aarch64_android)",
-        # Bazel trims PATH for test actions, so iree-compile cannot find the
-        # system lld the way it does in a shell - hand it one explicitly, the
-        # same target the lit tests put on their PATH.
-        "--lld=$(rootpath @llvm-project//lld:ld.lld)",
-    ],
-    data = [
-        "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android",
-        "@iree//tools:iree-compile",
-        "@llvm-project//lld:ld.lld",
-    ],
-    # adb talks to its server over a socket and reads its keys from $HOME;
-    # HF_HOME keeps the model out of a per-run temporary directory.
-    env_inherit = [
-        "ADB_SERVER_SOCKET",
-        "ANDROID_SERIAL",
-        "HF_HOME",
-        "HF_TOKEN",
-        "HOME",
-    ],
+    name = "model_tree",
+    srcs = glob(
+        ["**/*.py"],
+        exclude = ["models/**"],
+    ),
+    args = ["$(rootpath test_model_tree.py)"],
+    data = glob([
+        "models/*/*/model.yaml",
+        "models/*/*/model.py",
+    ]) + ["test_model_tree.py"],
     main = "run_pytest.py",
-    tags = [
-        "exclusive",
-        "external",
-        "manual",
-        "no-sandbox",
-        "requires-network",
-    ],
     deps = [
-        "@pypi//iree_turbine",
         "@pypi//numpy",
         "@pypi//pytest",
-        "@pypi//torch",
-        "@pypi//transformers",
+        "@pypi//pyyaml",
     ],
 )

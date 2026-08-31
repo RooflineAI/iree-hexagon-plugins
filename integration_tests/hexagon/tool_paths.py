@@ -4,14 +4,14 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Locating the Bazel-built artifacts these tests drive.
+"""Locating the four artifacts these tests drive.
 
-Under `bazel test` the paths arrive as command-line options filled in by
-`$(location ...)` in the BUILD file, and this module does nothing. Run under a
-bare `pytest` - which is the fast local loop - nothing fills them in, so the
-paths are resolved with `bazel cquery` instead. That fallback is deliberately
-skipped when running inside Bazel (TEST_TMPDIR set), because a nested Bazel
-invocation inside a test action deadlocks on the output-base lock.
+The device suite runs under plain pytest, so the normal path is that each of
+`iree-compile`, the runtime zip, the device-tools zip and `ld.lld` arrives as a
+command-line option and this module only checks that it exists.
+
+When an option is omitted the path is resolved with
+`bazel cquery` instead.
 """
 
 from __future__ import annotations
@@ -24,6 +24,9 @@ from pathlib import Path
 IREE_COMPILE_TARGET = "@iree//tools:iree-compile"
 RUNTIME_ZIP_TARGET = "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android"
 LLD_TARGET = "@llvm-project//lld:ld.lld"
+DEVICE_TOOLS_TARGET = (
+    "//integration_tests/hexagon/device/tools:device_tools_aarch64_android"
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 

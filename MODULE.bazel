@@ -50,9 +50,8 @@ bazel_dep(name = "aspect_bazel_lib", version = "2.21.0")
 bazel_dep(name = "rules_pkg", version = "1.0.1")
 bazel_dep(name = "with_cfg.bzl", version = "0.12.0")
 
-# Python dependencies used by this repository's own tests. This is separate
-# from IREE's @pip hub: module-extension repositories are not automatically
-# visible under another name from the root repository.
+# Python dependencies used by this repository's own tests, hubbed as "@pypi"
+# (not "@pip" - see below).
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.toolchain(python_version = "3.11")
 use_repo(python)
@@ -64,6 +63,20 @@ pip.parse(
     requirements_lock = "//build_tools/bazel:requirements.txt",
 )
 use_repo(pip, "pypi")
+
+# Also import (but do not redeclare) the "@pip" hub that IREE's own
+# MODULE.bazel (third-party/iree/MODULE.bazel) already defines via its own
+# pip.parse(hub_name = "pip", ...): rules_python enforces that a given
+# pip hub name is unique bazel-wide, so this module must reuse that name
+# rather than declare a second, competing hub_name = "pip" of its own
+# (attempting that fails with "Duplicate cross-module pip hub named 'pip'").
+# We still need "@pip" resolvable from *this* module's own repo mapping:
+# IREE's BUILD files hardcode "@pip//..." (e.g. tools/test/BUILD.bazel's
+# python_with_numpy dep on "@pip//numpy"), which resolves fine when IREE is
+# bzlmod's root module, but here IREE is instead pulled in via the plain
+# "@iree" local_repository alias below (see the comment on it), which
+# inherits this module's repo mapping rather than iree_core's own.
+use_repo(pip, "pip")
 
 ###############################################################################
 # IREE, sourced from the third-party/iree submodule.
@@ -225,7 +238,10 @@ android_ndk_detect = use_repo_rule(
 
 android_ndk_detect(
     name = "android_ndk_detect",
-    ndk_dir = "/opt/android-sdk/ndk/28.2.13676358",
+    ndk_dirs = [
+        "/opt/android-sdk/ndk/28.2.13676358",
+        "/usr/local/lib/android/sdk/ndk/28.2.13676358",
+    ],
 )
 
 hexagon_sdk_repository = use_repo_rule(

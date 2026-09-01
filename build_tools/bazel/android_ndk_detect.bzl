@@ -33,8 +33,9 @@ _LIBCXX_REL_PATH = (
 )
 
 def _android_ndk_detect_impl(repo_ctx):
-    ndk_dir = repo_ctx.attr.ndk_dir
-    ndk_found = repo_ctx.path(ndk_dir).exists
+    existing_dirs = [d for d in repo_ctx.attr.ndk_dirs if repo_ctx.path(d).exists]
+    ndk_found = len(existing_dirs) > 0
+    ndk_dir = existing_dirs[0] if ndk_found else "not_found"
 
     toolchain_dir = ndk_dir + "/toolchains/llvm/prebuilt/linux-x86_64"
 
@@ -98,8 +99,8 @@ filegroup(
 android_ndk_detect = repository_rule(
     implementation = _android_ndk_detect_impl,
     attrs = {
-        "ndk_dir": attr.string(
-            doc = "Absolute path to the Android NDK root directory to detect.",
+        "ndk_dirs": attr.string_list(
+            doc = "Absolute paths to candidate Android NDK root directories to detect, in priority order.",
         ),
     },
     # local = True tells Bazel to re-run this rule whenever local state may

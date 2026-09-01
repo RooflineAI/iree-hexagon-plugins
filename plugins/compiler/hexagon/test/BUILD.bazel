@@ -24,6 +24,7 @@ iree_lit_test_suite(
     timeout = "short",
     srcs = enforce_glob(
         [
+            "codegen/conversion/dispatch_config_legality.mlir",
             "codegen/conversion/lower_profiler_markers.mlir",
             "codegen/encoding/encoder_and_materializer_registration.mlir",
             "codegen/encoding/profiler_marker_ops.mlir",

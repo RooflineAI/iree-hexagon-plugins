@@ -10,12 +10,6 @@
 #
 #   build_tools/create_test_venv.sh [venv-dir]      # default: ./.venv
 #
-# This exists because a bare `uv pip install -r build_tools/bazel/requirements.txt`
-# fails, and the failure is opaque:
-#
-#   × No solution found when resolving dependencies:
-#   ╰─▶ Because there is no version of torch==2.9.0+cpu ...
-#
 # torch is pinned to the "+cpu" build, which is published only on PyTorch's own
 # index - the same version on PyPI drags in the whole nvidia-* CUDA stack. The
 # lock file names that index itself, but uv still stops at the first index that

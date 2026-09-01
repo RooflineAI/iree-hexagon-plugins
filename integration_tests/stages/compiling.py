@@ -60,16 +60,7 @@ class CompilationError(RuntimeError):
 
 
 def linker_flags(linker: Path) -> list[str]:
-    """Point both linkers at `linker` instead of letting them search PATH.
-
-    Two are needed. The Hexagon target links the DSP shared object, and a
-    test also emits an llvm-cpu variant which links its own embedded
-    ELF. Both look for `lld`/`ld.lld` on PATH by default, which is fine in a
-    shell and not fine under `bazel test`, where PATH is trimmed to
-    /usr/local/bin:/usr/bin:/bin and an LLVM installed under /usr/lib/llvm-19
-    is invisible. The symptom otherwise is
-    "required embedded linker tool (typically `lld`) not found".
-    """
+    """Point both linkers at `linker` instead of letting them search PATH."""
     return [
         f"--iree-hexagon-linker-path={linker}",
         f"--iree-llvmcpu-embedded-linker-path={linker}",

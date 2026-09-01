@@ -225,6 +225,7 @@ def generate_inputs(
     tensors = []
     for input_spec in spec.inputs:
         dtype = _TORCH_DTYPES[input_spec.dtype]
+        INTEGRAL = ("int64", "int32", "bool")
         generator = torch.Generator().manual_seed(input_spec.seed)
         if input_spec.generator == "image":
             tensor = _load_image(spec, input_spec)
@@ -232,18 +233,35 @@ def generate_inputs(
             tensor = torch.zeros(input_spec.shape, dtype=dtype)
         elif input_spec.generator == "ones":
             tensor = torch.ones(input_spec.shape, dtype=dtype)
-        elif dtype in (torch.int64, torch.int32, torch.bool):
-            high = 2 if dtype is torch.bool else _resolve_high(input_spec, model)
-            tensor = torch.randint(
-                input_spec.low, high, input_spec.shape, generator=generator
-            ).to(dtype)
-        elif input_spec.generator == "uniform":
-            tensor = torch.rand(input_spec.shape, generator=generator).to(dtype)
-        else:
+        elif input_spec.generator == "normal":
+            if dtype in INTEGRAL:
+                raise ValueError(
+                    f"{spec.name}: unexpected input generator {input_spec.generator!r} "
+                    f"for dtype {input_spec.dtype!r}"
+                )
             tensor = torch.randn(
                 input_spec.shape, generator=generator, dtype=torch.float32
             ).to(dtype)
+        elif input_spec.generator == "uniform":
+            if dtype in INTEGRAL:
+                high = 2 if dtype is torch.bool else _resolve_high(input_spec, model)
+                tensor = torch.randint(
+                    input_spec.low, high, input_spec.shape, generator=generator
+                ).to(dtype)
+            else:
+                raise ValueError(
+                    f"{spec.name}: unexpected input generator {input_spec.generator!r} "
+                    f"for dtype {input_spec.dtype!r}"
+                )
+        else:
+            raise ValueError(
+                f"{spec.name}: unknown input generator {input_spec.generator!r} "
+                f"for dtype {input_spec.dtype!r}; known: "
+                f"normal, uniform, ones, zeros, image"
+            )
+
         tensors.append(tensor)
+
     return tuple(tensors)
 
 

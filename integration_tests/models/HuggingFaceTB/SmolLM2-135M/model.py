@@ -18,8 +18,7 @@ def get_model() -> torch.nn.Module:
         # No KV cache: one static prefill, which is what this suite compiles.
         use_cache=False,
         dtype=torch.float16,
-        # sdpa keeps attention in a form the decomposition list handles; this is
-        # the recipe testing/SmolLM2-135M_f16/import.py uses.
+        # sdpa keeps attention in a form the decomposition list handles.
         attn_implementation="sdpa",
     )
     # from_pretrained leaves some buffers in f32; the export has to see a

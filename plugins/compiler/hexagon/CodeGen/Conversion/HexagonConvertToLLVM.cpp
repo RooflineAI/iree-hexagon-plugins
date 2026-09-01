@@ -1272,7 +1272,8 @@ void HexagonConvertToLLVMPass::runOnOperation() {
                         IREE::Hexagon::ProfilerEndOp>();
   }
 
-  target.addLegalOp<ModuleOp>();
+  target.addLegalOp<ModuleOp, IREE::Codegen::DispatchConfigOp>();
+  target.markOpRecursivelyLegal<IREE::Codegen::DispatchConfigOp>();
   target.addIllegalDialect<func::FuncDialect, mlir::arith::ArithDialect,
                            IREE::Util::UtilDialect, IREE::HAL::HALDialect,
                            math::MathDialect, tosa::TosaDialect>();

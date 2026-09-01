@@ -28,10 +28,10 @@ The Hexagon SDK contains x86_64 binaries. The target device is an Android phone
 with an aarch64 CPU and a Hexagon DSP. Thus, building is done by cross-compiling
 on x86_64.
 
-Integration tests on remote Hexagon devices (e.g. //integration_tests/hexagon)
+Integration tests on remote Hexagon devices (e.g. //integration_tests/)
 are not built or run via Bazel; they run directly with `pytest` against
 installed wheels on a machine with ADB access to a physical phone, see
-`integration_tests/hexagon/README.md`.
+`integration_tests/README.md`.
 
 Please note that cross-compiling requires an Android NDK to be present on the
 system. It can be installed using

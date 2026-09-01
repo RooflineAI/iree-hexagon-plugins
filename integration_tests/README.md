@@ -19,7 +19,7 @@ passed as an argument to the pytest command.
 
 ```sh
 build_tools/create_test_venv.sh                 # creates ./.venv from requirements.txt
-.venv/bin/pytest integration_tests/hexagon -v -rA \
+.venv/bin/pytest integration_tests/ -v -rA \
     --iree-compile=<path> --runtime-zip=<path> --device-tools-zip=<path> --lld=<path>
 ```
 
@@ -28,15 +28,9 @@ Omit the four paths and they will try to be resolved with `bazel cquery`:
 ```sh
 bazel build @iree//tools:iree-compile \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android \
-            //integration_tests/hexagon/device/tools:device_tools_aarch64_android \
+            //integration_tests/device/tools:device_tools_aarch64_android \
             @llvm-project//lld:ld.lld
-pytest integration_tests/hexagon -v -rA --model=microsoft/resnet-50
-```
-
-The following bazel target catches a type in any `model.yaml` and does not use any device.
-
-```sh
-bazel test //integration_tests/hexagon:model_tree
+pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 ```
 
 Options, all in `conftest.py`: `--model` (repeatable), `--include-tag` /
@@ -103,9 +97,9 @@ semantic_check:
   expected_label: "computer keyboard, keypad"
 ```
 
-## Known failures are data, and the data is checked
+## Known failures
 
-A model records what it cannot do yet:
+A model may record known failures:
 
 ```yaml
 expected_outcomes:

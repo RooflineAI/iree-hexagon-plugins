@@ -14,16 +14,16 @@ from pathlib import Path
 
 import pytest
 
-from integration_tests.hexagon.device import adb
-from integration_tests.hexagon.device.deploy import (
+from integration_tests.device import adb
+from integration_tests.device.deploy import (
     DEFAULT_DEVICE_ROOT,
     Deployment,
     cleanup,
     deploy,
 )
-from integration_tests.hexagon.modeltree import discover
-from integration_tests.hexagon.modeltree.spec import ModelSpec
-from integration_tests.hexagon.tool_paths import (
+from integration_tests.modeltree import discover
+from integration_tests.modeltree.spec import ModelSpec
+from integration_tests.tool_paths import (
     DEVICE_TOOLS_TARGET,
     IREE_COMPILE_TARGET,
     LLD_TARGET,
@@ -180,7 +180,7 @@ def require_device() -> None:
         "already - a restarted server silently drops a TCP device. Check "
         "'adb devices'; an 'unauthorized' phone needs 'Always allow' tapped on "
         "the handset, and $ANDROID_SERIAL picks between several. To run only the "
-        "checks that need no device: pytest integration_tests/hexagon/test_model_tree.py",
+        "checks that need no device: pytest integration_tests/test_model_tree.py",
         pytrace=False,
     )
 

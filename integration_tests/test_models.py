@@ -21,22 +21,22 @@ import pathlib
 
 import pytest
 
-from integration_tests.hexagon.device.deploy import Deployment, push_parameters
-from integration_tests.hexagon.modeltree.outcomes import Outcome, Status, check_outcome
-from integration_tests.hexagon.modeltree.spec import ModelSpec
-from integration_tests.hexagon.stages.artifacts import ImportedModel
-from integration_tests.hexagon.stages.checking import (
+from integration_tests.device.deploy import Deployment, push_parameters
+from integration_tests.modeltree.outcomes import Outcome, Status, check_outcome
+from integration_tests.modeltree.spec import ModelSpec
+from integration_tests.stages.artifacts import ImportedModel
+from integration_tests.stages.checking import (
     AccuracyError,
     check_output_files,
     check_predicted_label,
 )
-from integration_tests.hexagon.stages.compiling import (
+from integration_tests.stages.compiling import (
     HEXAGON_DEFAULT_COMPILE_CASES,
     CompilationError,
     CompileCase,
     compile_model,
 )
-from integration_tests.hexagon.stages.running import run_module_on_device
+from integration_tests.stages.running import run_module_on_device
 
 
 @pytest.fixture(scope="session")
@@ -44,7 +44,7 @@ def imported_model(
     model_spec: ModelSpec, tmp_path_factory: pytest.TempPathFactory
 ) -> ImportedModel:
     """The model's MLIR, inputs and torch reference, imported once per session."""
-    from integration_tests.hexagon.stages.importing import import_model
+    from integration_tests.stages.importing import import_model
 
     output_dir = tmp_path_factory.mktemp(model_spec.name.replace("/", "_"))
     imported = import_model(model_spec, output_dir)

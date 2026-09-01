@@ -24,11 +24,9 @@ from pathlib import Path
 IREE_COMPILE_TARGET = "@iree//tools:iree-compile"
 RUNTIME_ZIP_TARGET = "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android"
 LLD_TARGET = "@llvm-project//lld:ld.lld"
-DEVICE_TOOLS_TARGET = (
-    "//integration_tests/hexagon/device/tools:device_tools_aarch64_android"
-)
+DEVICE_TOOLS_TARGET = "//integration_tests/device/tools:device_tools_aarch64_android"
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ToolResolutionError(RuntimeError):

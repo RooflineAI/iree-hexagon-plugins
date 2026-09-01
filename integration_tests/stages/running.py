@@ -12,9 +12,9 @@ import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from integration_tests.hexagon.device import adb
-from integration_tests.hexagon.device.adb import AdbError
-from integration_tests.hexagon.device.deploy import Deployment
+from integration_tests.device import adb
+from integration_tests.device.adb import AdbError
+from integration_tests.device.deploy import Deployment
 
 
 @dataclass
@@ -96,12 +96,11 @@ def run_module_on_device(
         # Outputs are pulled one at a time and a miss is tolerated: when the run
         # failed there may be no output at all, and the exit code plus the log
         # are the useful diagnostics, not a pull error on top of them.
-        if adb.exists(remote_output):
-            try:
-                adb.pull([remote_output], local_output_dir)
-            except AdbError:
-                continue
-            pulled.append(local_output)
+        try:
+            adb.pull([remote_output], local_output_dir)
+        except AdbError:
+            continue
+        pulled.append(local_output)
     return RunModuleResult(
         remote_dir=remote_dir,
         exit_code=exit_code,

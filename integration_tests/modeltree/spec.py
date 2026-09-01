@@ -20,9 +20,9 @@ from typing import Any
 
 import yaml
 
-from integration_tests.hexagon.modeltree.outcomes import ExpectedOutcome
+from integration_tests.modeltree.outcomes import ExpectedOutcome
 
-# numpy/torch dtype names accepted in `inputs[].dtype`. Deliberately a closed
+# numpy/torch dtype names accepted in `inputs[].dtype`. Closed
 # set: a typo here would otherwise produce a silently different reference.
 _DTYPES = ("float32", "float16", "bfloat16", "int64", "int32", "bool")
 

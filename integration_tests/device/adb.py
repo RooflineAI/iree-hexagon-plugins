@@ -67,13 +67,6 @@ def pull(remote_paths: list[str], local_dir: Path) -> None:
     _run(["pull", *remote_paths, str(local_dir)])
 
 
-def exists(remote_path: str) -> bool:
-    return (
-        _run(["shell", f"test -e {shlex.quote(remote_path)}"], check=False).returncode
-        == 0
-    )
-
-
 def logcat_clear() -> None:
     _run(["logcat", "-c"])
 

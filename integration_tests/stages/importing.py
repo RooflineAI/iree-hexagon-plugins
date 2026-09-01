@@ -36,8 +36,8 @@ from torch._export.utils import (
     _get_decomp_for_cia,
 )
 
-from integration_tests.hexagon.modeltree.spec import InputSpec, ModelSpec
-from integration_tests.hexagon.stages.artifacts import ImportedModel
+from integration_tests.modeltree.spec import InputSpec, ModelSpec
+from integration_tests.stages.artifacts import ImportedModel
 
 _aten = torch.ops.aten
 

@@ -46,4 +46,4 @@ uv pip install \
 
 echo
 echo "done. Run the integration tests with:"
-echo "  ${VENV}/bin/pytest integration_tests/hexagon -v -rA"
+echo "  ${VENV}/bin/pytest integration_tests/ -v -rA"

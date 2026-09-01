@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from integration_tests.hexagon.modeltree.spec import ModelSpec, load_model_spec
+from integration_tests.modeltree.spec import ModelSpec, load_model_spec
 
 # The data tree lives beside this package.
 MODELS_DIR = Path(__file__).resolve().parents[1] / "models"

@@ -16,7 +16,7 @@ Two packages are unpacked into one directory per run:
         lib/hexagon/libhexagon_dsp_skel.so   the DSP side
         lib/libc++_shared.so         NDK C++ runtime
 
-  * `//integration_tests/hexagon/device/tools:device_tools_aarch64_android`,
+  * `//integration_tests/device/tools:device_tools_aarch64_android`,
     which adds `bin/limit_lifetime`.
 
 Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
@@ -34,7 +34,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from integration_tests.hexagon.device import adb
+from integration_tests.device import adb
 
 # FARF mask enabling all five DSP debug flags. The file has to be named after
 # the executable and live in the directory named by DSP_LIBRARY_PATH, which is
@@ -117,8 +117,6 @@ def push_parameters(deployment: Deployment, model_name: str, archive: Path) -> s
     """
     remote_dir = deployment.parameters_dir(model_name)
     remote_path = f"{remote_dir}/{archive.name}"
-    if adb.exists(remote_path):
-        return remote_path
     adb.shell(f"mkdir -p {remote_dir}")
     adb.push([archive], remote_dir + "/")
     return remote_path

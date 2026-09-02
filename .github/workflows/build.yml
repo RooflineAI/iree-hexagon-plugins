@@ -73,7 +73,7 @@ jobs:
           mkdir build-artifacts
           for TARGET in "${TARGETS[@]}"
           do
-            cp $(bazel cquery --output=files "$TARGET") build-artifacts
+            cp $(bazel cquery --output=files "config($TARGET, target)") build-artifacts
           done
           chmod -R u+w build-artifacts
 

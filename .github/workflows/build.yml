@@ -108,8 +108,10 @@ jobs:
           name: build-artifacts
           path: build-artifacts
 
-      - name: List build artifacts
-        run: find build-artifacts
+      - name: Prepare build artifacts
+        run: |
+          chmod +x build-artifacts/iree-* build-artifacts/ld.lld
+          ls -l build-artifacts
 
       - name: Install pinned platform-tools
         env:

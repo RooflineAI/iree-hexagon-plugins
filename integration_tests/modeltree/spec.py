@@ -123,12 +123,10 @@ class SemanticCheck:
     """An assertion about what the output *means*, not just its numbers.
 
     For a classifier: the label the device is expected to predict. This needs no
-    reference tensor at all, which makes it the one check that cannot be
-    satisfied by a tolerance chosen after the fact - the argument for having a
-    real photograph in the tree rather than only random inputs.
+    reference tensor at all.
 
     The label mapping comes from the model's own `config.id2label`, recorded
-    into `labels.json` at import time so the check stays torch-free.
+    into `labels.json` at import time.
     """
 
     expected_label: str

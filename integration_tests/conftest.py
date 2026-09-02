@@ -179,8 +179,7 @@ def require_device() -> None:
         f"no usable adb device ({detail}). The adb server is assumed to be up "
         "already - a restarted server silently drops a TCP device. Check "
         "'adb devices'; an 'unauthorized' phone needs 'Always allow' tapped on "
-        "the handset, and $ANDROID_SERIAL picks between several. To run only the "
-        "checks that need no device: pytest integration_tests/test_model_tree.py",
+        "the handset, and $ANDROID_SERIAL picks between several.",
         pytrace=False,
     )
 

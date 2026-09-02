@@ -234,7 +234,7 @@ def generate_inputs(
         elif input_spec.generator == "ones":
             tensor = torch.ones(input_spec.shape, dtype=dtype)
         elif input_spec.generator == "normal":
-            if dtype in INTEGRAL:
+            if input_spec.dtype in INTEGRAL:
                 raise ValueError(
                     f"{spec.name}: unexpected input generator {input_spec.generator!r} "
                     f"for dtype {input_spec.dtype!r}"
@@ -243,7 +243,7 @@ def generate_inputs(
                 input_spec.shape, generator=generator, dtype=torch.float32
             ).to(dtype)
         elif input_spec.generator == "uniform":
-            if dtype in INTEGRAL:
+            if input_spec.dtype in INTEGRAL:
                 high = 2 if dtype is torch.bool else _resolve_high(input_spec, model)
                 tensor = torch.randint(
                     input_spec.low, high, input_spec.shape, generator=generator

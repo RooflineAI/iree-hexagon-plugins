@@ -57,7 +57,6 @@ paths.
 | `tool_paths.py` | resolve an artifact path, or ask Bazel |
 | `conftest.py` | options and fixtures, the only pytest glue |
 | `test_models.py` | the device test, parametrized over the tree |
-| `test_model_tree.py` | the checks that need no phone |
 
 ## On the device
 

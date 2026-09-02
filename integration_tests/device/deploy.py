@@ -30,6 +30,7 @@ There is no lock: this suite is meant for one runner executing serially.
 
 from __future__ import annotations
 
+import shlex
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,9 +83,11 @@ class Deployment:
 
 
 def _unpack(zip_path: Path, remote_dir: str) -> None:
-    adb.shell(f"mkdir -p {remote_dir}")
+    adb.shell(f"mkdir -p {shlex.quote(remote_dir)}")
     adb.push([zip_path], remote_dir + "/")
-    adb.shell(f"cd {remote_dir} && unzip -oq {zip_path.name} && rm {zip_path.name}")
+    adb.shell(
+        f"cd {shlex.quote(remote_dir)} && unzip -oq {shlex.quote(zip_path.name)} && rm {shlex.quote(zip_path.name)}"
+    )
 
 
 def deploy(
@@ -104,7 +107,9 @@ def deploy(
     chmods = " ".join(
         f"bin/{binary}" for binary in (*_ENTRY_BINARIES, "limit_lifetime")
     )
-    adb.shell(f"cd {deployment.run_dir} && chmod +x {chmods} && {farf_writes}")
+    adb.shell(
+        f"cd {shlex.quote(deployment.run_dir)} && chmod +x {shlex.quote(chmods)} && {shlex.quote(farf_writes)}"
+    )
     return deployment
 
 
@@ -117,7 +122,7 @@ def push_parameters(deployment: Deployment, model_name: str, archive: Path) -> s
     """
     remote_dir = deployment.parameters_dir(model_name)
     remote_path = f"{remote_dir}/{archive.name}"
-    adb.shell(f"mkdir -p {remote_dir}")
+    adb.shell(f"mkdir -p {shlex.quote(remote_dir)}")
     adb.push([archive], remote_dir + "/")
     return remote_path
 
@@ -125,6 +130,6 @@ def push_parameters(deployment: Deployment, model_name: str, archive: Path) -> s
 def cleanup(deployment: Deployment) -> None:
     """Remove this run's directory, tolerating a device that has gone away."""
     try:
-        adb.shell(f"rm -rf {deployment.run_dir}")
+        adb.shell(f"rm -rf {shlex.quote(deployment.run_dir)}")
     except Exception as err:  # noqa: BLE001 - teardown must not mask a failure
         print(f"warning: could not remove {deployment.run_dir}: {err}")

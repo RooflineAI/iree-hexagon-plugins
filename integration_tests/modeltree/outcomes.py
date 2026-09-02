@@ -23,6 +23,7 @@ class Status(enum.StrEnum):
 
 
 _EXPECTABLE = tuple(status for status in Status if status is not Status.PASSED)
+_EXPECTABLE_NAMES = [str(status) for status in _EXPECTABLE]
 
 
 class Mismatch(enum.StrEnum):
@@ -38,49 +39,40 @@ class OutcomeError(ValueError):
     pass
 
 
+def parse_status(raw: Any) -> Status:
+    """A `status:` field of a `model.yaml`, with a message naming the choices."""
+    try:
+        return Status(str(raw))
+    except ValueError as err:
+        raise OutcomeError(
+            f"unknown status {raw!r}; one of {_EXPECTABLE_NAMES}"
+        ) from err
+
+
 @dataclasses.dataclass(frozen=True)
 class ExpectedOutcome:
     """One `expected_outcomes` entry of a `model.yaml`."""
 
-    case: str
     status: Status
     reason: str
+    # No `case` means the entry covers every compile case.
+    case: str = "*"
     comment: str | None = None
 
-    @classmethod
-    def from_yaml(cls, where: str, data: dict[str, Any]) -> ExpectedOutcome:
-        unknown = set(data) - {"case", "status", "reason", "comment"}
-        if unknown:
-            raise OutcomeError(f"{where}: unknown key(s) {sorted(unknown)}")
-        if "status" not in data:
+    def __post_init__(self) -> None:
+        if self.status is Status.PASSED:
             raise OutcomeError(
-                f"{where}: 'status' is required; one of {[str(s) for s in _EXPECTABLE]}"
+                f"case '{self.case}': PASSED is not an expected *outcome*; "
+                "remove the entry"
             )
-        try:
-            status = Status(str(data["status"]))
-        except ValueError as err:
+        # An entry with no reason is rejected at load time rather than at run time.
+        if not self.reason.strip():
             raise OutcomeError(
-                f"{where}: unknown status {data['status']!r}; one of "
-                f"{[str(s) for s in _EXPECTABLE]}"
-            ) from err
-        if status is Status.PASSED:
-            raise OutcomeError(
-                f"{where}: PASSED is not an expected *outcome*; remove the entry"
+                f"case '{self.case}': 'reason' is required and must be a "
+                f"substring of the log the failure produces "
+                f"({Mismatch.NO_XFAIL_REASON})"
             )
-        # An entry with no reason is exactly the hole this module exists to
-        # close, so it is rejected at load time rather than at run time.
-        reason = str(data.get("reason", "")).strip()
-        if not reason:
-            raise OutcomeError(
-                f"{where}: 'reason' is required and must be a substring of the "
-                f"log the failure produces ({Mismatch.NO_XFAIL_REASON})"
-            )
-        return cls(
-            case=str(data.get("case", "*")),
-            status=status,
-            reason=reason,
-            comment=None if data.get("comment") is None else str(data["comment"]),
-        )
+        object.__setattr__(self, "reason", self.reason.strip())
 
 
 @dataclasses.dataclass(frozen=True)

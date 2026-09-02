@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
-from typing import Any
 
+import dacite
 import yaml
 
-from integration_tests.modeltree.outcomes import ExpectedOutcome
+from integration_tests.modeltree.outcomes import ExpectedOutcome, Status, parse_status
 
 # numpy/torch dtype names accepted in `inputs[].dtype`. Closed
 # set: a typo here would otherwise produce a silently different reference.
@@ -31,14 +31,6 @@ _GENERATORS = ("normal", "uniform", "ones", "zeros", "image")
 
 class SpecError(ValueError):
     pass
-
-
-def _require_keys(where: str, data: dict[str, Any], allowed: set[str]) -> None:
-    unknown = set(data) - allowed
-    if unknown:
-        raise SpecError(
-            f"{where}: unknown key(s) {sorted(unknown)}; allowed: {sorted(allowed)}"
-        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -73,49 +65,14 @@ class InputSpec:
                 "needs generator 'image'"
             )
 
-    @classmethod
-    def from_yaml(cls, where: str, data: dict[str, Any]) -> InputSpec:
-        _require_keys(
-            where,
-            data,
-            {"shape", "dtype", "generator", "seed", "low", "high", "image"},
-        )
-        if "shape" not in data or "dtype" not in data:
-            raise SpecError(f"{where}: 'shape' and 'dtype' are required")
-        return cls(
-            shape=tuple(int(dim) for dim in data["shape"]),
-            dtype=str(data["dtype"]),
-            generator=str(data.get("generator", "normal")),
-            seed=int(data.get("seed", 0)),
-            low=int(data.get("low", 0)),
-            high=None if data.get("high") is None else int(data["high"]),
-            image=None if data.get("image") is None else str(data["image"]),
-        )
-
 
 @dataclasses.dataclass(frozen=True)
 class Tolerances:
-    """How close the device has to be to the torch reference.
-
-    Two criteria, because they fail differently. `atol`/`rtol` is element-wise
-    and catches a single wrong lane; relative L2 is aggregate and is the one
-    that stays meaningful on a large output, where a handful of elements over
-    the element-wise bound says nothing.
-    """
+    """How close the device has to be to the torch reference."""
 
     atol: float = 1e-2
     rtol: float = 1e-2
     relative_l2_percent: float | None = 0.1
-
-    @classmethod
-    def from_yaml(cls, where: str, data: dict[str, Any]) -> Tolerances:
-        _require_keys(where, data, {"atol", "rtol", "relative_l2_percent"})
-        raw = data.get("relative_l2_percent", 0.1)
-        return cls(
-            atol=float(data.get("atol", 1e-2)),
-            rtol=float(data.get("rtol", 1e-2)),
-            relative_l2_percent=None if raw is None else float(raw),
-        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -132,16 +89,6 @@ class SemanticCheck:
     expected_label: str
     output_index: int = 0
 
-    @classmethod
-    def from_yaml(cls, where: str, data: dict[str, Any]) -> SemanticCheck:
-        _require_keys(where, data, {"expected_label", "output_index"})
-        if "expected_label" not in data:
-            raise SpecError(f"{where}: 'expected_label' is required")
-        return cls(
-            expected_label=str(data["expected_label"]),
-            output_index=int(data.get("output_index", 0)),
-        )
-
 
 @dataclasses.dataclass(frozen=True)
 class ModelSpec:
@@ -150,11 +97,11 @@ class ModelSpec:
     name: str
     directory: Path
     model_id: str
-    dtype: str
     inputs: tuple[InputSpec, ...]
-    tolerances: Tolerances
-    tags: tuple[str, ...]
-    expected_outcomes: tuple[ExpectedOutcome, ...]
+    dtype: str = "float32"
+    tolerances: Tolerances = dataclasses.field(default_factory=Tolerances)
+    tags: tuple[str, ...] = ()
+    expected_outcomes: tuple[ExpectedOutcome, ...] = ()
     revision: str | None = None
     # Which compile cases to run, by name. Empty means all of them. This is how
     # a model opts out of a configuration that is not interesting for it.
@@ -195,20 +142,11 @@ class ModelSpec:
         return wildcard
 
 
-_ALLOWED_TOP_LEVEL = {
-    "model",
-    "revision",
-    "dtype",
-    "inputs",
-    "tolerances",
-    "tags",
-    "expected_outcomes",
-    "compile_cases",
-    "semantic_check",
-    "externalize",
-    "extra_compile_flags",
-    "function",
-}
+_DACITE_CONFIG = dacite.Config(
+    cast=[tuple, float],
+    type_hooks={Status: parse_status},
+    strict=True,
+)
 
 
 def load_model_spec(directory: Path) -> ModelSpec:
@@ -222,44 +160,20 @@ def load_model_spec(directory: Path) -> ModelSpec:
     data = yaml.safe_load(yaml_path.read_text())
     if not isinstance(data, dict):
         raise SpecError(f"{yaml_path}: expected a mapping at the top level")
-    _require_keys(str(yaml_path), data, _ALLOWED_TOP_LEVEL)
+    data = {key: value for key, value in data.items() if value is not None}
     if "model" not in data:
         raise SpecError(f"{yaml_path}: 'model' (the hub id) is required")
 
-    model_id = str(data["model"])
-    inputs = tuple(
-        InputSpec.from_yaml(f"{yaml_path} inputs[{index}]", entry)
-        for index, entry in enumerate(data.get("inputs") or ())
-    )
-    outcomes = tuple(
-        ExpectedOutcome.from_yaml(f"{yaml_path} expected_outcomes[{index}]", entry)
-        for index, entry in enumerate(data.get("expected_outcomes") or ())
-    )
-    return ModelSpec(
-        # The tree layout mirrors the hub id, and the id is what people search
-        # for, so it is also the test name.
-        name=model_id,
-        directory=directory,
-        model_id=model_id,
-        revision=None if data.get("revision") is None else str(data["revision"]),
-        dtype=str(data.get("dtype", "float32")),
-        inputs=inputs,
-        tolerances=Tolerances.from_yaml(
-            f"{yaml_path} tolerances", data.get("tolerances") or {}
-        ),
-        tags=tuple(str(tag) for tag in data.get("tags") or ()),
-        expected_outcomes=outcomes,
-        compile_cases=tuple(str(name) for name in data.get("compile_cases") or ()),
-        semantic_check=(
-            None
-            if data.get("semantic_check") is None
-            else SemanticCheck.from_yaml(
-                f"{yaml_path} semantic_check", data["semantic_check"]
-            )
-        ),
-        externalize=bool(data.get("externalize", False)),
-        extra_compile_flags=tuple(
-            str(flag) for flag in data.get("extra_compile_flags") or ()
-        ),
-        function=str(data.get("function", "main")),
-    )
+    # dacite has no field aliases, so the one key whose name differs from its
+    # field is bridged here, along with the two fields that come from the tree
+    # layout rather than from the file.
+    data = dict(data)
+    model_id = str(data.pop("model"))
+    data["model_id"] = model_id
+    data["name"] = model_id
+    data["directory"] = directory
+
+    try:
+        return dacite.from_dict(ModelSpec, data, _DACITE_CONFIG)
+    except (dacite.DaciteError, TypeError, ValueError) as err:
+        raise SpecError(f"{yaml_path}: {err}") from err

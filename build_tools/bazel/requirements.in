@@ -1,4 +1,5 @@
 # Direct Python dependencies used by root-repository Bazel tests.
+dacite==1.9.2
 numpy==2.2.6
 pyelftools==0.33
 pytest==8.4.2

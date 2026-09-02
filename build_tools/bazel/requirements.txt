@@ -18,6 +18,7 @@ annotated-doc==0.0.5
 anyio==4.14.2
 certifi==2026.7.22
 click==8.5.0
+dacite==1.9.2
 decorator==5.3.1
 filelock==3.32.4
 fsspec==2026.7.0

@@ -22,7 +22,6 @@ Two packages are unpacked into one directory per run:
 Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
 
     runs/<run-id>/bin,lib/   the runtime and the helpers for this run
-    runs/<run-id>/params/    parameter archives, one directory per model
     runs/<run-id>/cases/     one directory per (model, compile case)
 
 There is no lock: this suite is meant for one runner executing serially.
@@ -77,10 +76,6 @@ class Deployment:
     def case_dir(self, case_dir_name: str) -> str:
         return f"{self.run_dir}/cases/{case_dir_name}"
 
-    def parameters_dir(self, model_name: str) -> str:
-        """Where a model's parameter archive lives, shared by its cases."""
-        return f"{self.run_dir}/params/{model_name.replace('/', '_')}"
-
 
 def _unpack(zip_path: Path, remote_dir: str) -> None:
     adb.shell(f"mkdir -p {shlex.quote(remote_dir)}")
@@ -112,19 +107,6 @@ def deploy(
     )
     return deployment
 
-
-def push_parameters(deployment: Deployment, model_name: str, archive: Path) -> str:
-    """Push a model's `.irpa` once, returning its path on the device.
-
-    Once per *model*, not once per compile case: the archive is the weights, and
-    the weights do not change between cases. For SmolLM2-135M at f16 that is one
-    326 MB push per run instead of one per case.
-    """
-    remote_dir = deployment.parameters_dir(model_name)
-    remote_path = f"{remote_dir}/{archive.name}"
-    adb.shell(f"mkdir -p {shlex.quote(remote_dir)}")
-    adb.push([archive], remote_dir + "/")
-    return remote_path
 
 
 def cleanup(deployment: Deployment) -> None:

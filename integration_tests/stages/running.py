@@ -41,9 +41,6 @@ def run_module_on_device(
     input_files: list[Path],
     output_names: list[str],
     local_output_dir: Path,
-    parameter_file: str | None = None,
-    parameter_scope: str = "model",
-    parameter_mode: str = "file",
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
 ) -> RunModuleResult:
@@ -69,12 +66,6 @@ def run_module_on_device(
     ]
     argv += [f"--input=@{path.name}" for path in input_files]
     argv += [f"--output=@{name}" for name in output_names]
-    if parameter_file is not None:
-        # The imported IR names its scope: #flow.parameter.named<"model"::"...">.
-        argv += [
-            f"--parameters={parameter_scope}={parameter_file}",
-            f"--parameter_mode={parameter_mode}",
-        ]
     argv += list(extra_flags)
 
     # DSP_LIBRARY_PATH is where the DSP side looks for the skel and for the

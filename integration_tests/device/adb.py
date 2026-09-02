@@ -81,10 +81,10 @@ def logcat_dump(filters: list[str] | None = None) -> str:
         return f"<could not read logcat: {err}>"
 
 
-def property(name: str) -> str:
+def getprop(name: str) -> str:
     return _run(["shell", f"getprop {shlex.quote(name)}"]).stdout.strip()
 
 
 def describe_device() -> str:
     """A one-line identification of whatever we are talking to."""
-    return f"{property('ro.product.model')} (platform {property('ro.board.platform')})"
+    return f"{getprop('ro.product.model')} (platform {getprop('ro.board.platform')})"

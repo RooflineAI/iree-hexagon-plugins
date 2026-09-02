@@ -16,7 +16,6 @@ When an option is omitted the path is resolved with
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -33,10 +32,6 @@ class ToolResolutionError(RuntimeError):
     pass
 
 
-def running_under_bazel() -> bool:
-    return "TEST_TMPDIR" in os.environ
-
-
 def resolve_bazel_artifact(target: str, explicit: str | None) -> Path:
     """Return the built file for `target`, preferring an explicitly given path."""
     if explicit:
@@ -44,16 +39,11 @@ def resolve_bazel_artifact(target: str, explicit: str | None) -> Path:
         if not path.exists():
             raise ToolResolutionError(f"{target}: given path does not exist: {path}")
         return path
-    if running_under_bazel():
-        raise ToolResolutionError(
-            f"{target} was not passed on the command line. Under Bazel the path "
-            f"must come from $(location {target}) in the BUILD file; querying "
-            "Bazel from inside a test action would deadlock."
-        )
     if shutil.which("bazel") is None:
         raise ToolResolutionError(
-            f"{target}: no path given and bazel is not on PATH. Either build the "
-            "target and pass its path, or run these tests through Bazel."
+            f"{target}: no path given and bazel is not on PATH. Build the "
+            "target and pass its path, or put bazel on PATH so it can be "
+            "queried for one."
         )
     query = subprocess.run(
         ["bazel", "cquery", "--output=files", target],

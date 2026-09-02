@@ -67,7 +67,6 @@ Options, all in `conftest.py`: `--model` (repeatable), `--keep-device-dir`,
 /data/local/tmp/hexagon_it/runs/<run-id>/
     bin/    iree-run-module, iree-benchmark-module, limit_lifetime
     lib/    the DSP skel and libc++_shared
-    params/ parameter archives, one directory per model
     cases/  one directory per (model, compile case)
 ```
 

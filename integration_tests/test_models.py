@@ -21,7 +21,7 @@ import pathlib
 
 import pytest
 
-from integration_tests.device.deploy import Deployment, push_parameters
+from integration_tests.device.deploy import Deployment
 from integration_tests.modeltree.outcomes import Outcome, Status, check_outcome
 from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.stages.artifacts import ImportedModel
@@ -55,18 +55,6 @@ def imported_model(
     return imported
 
 
-@pytest.fixture(scope="session")
-def device_parameters(
-    model_spec: ModelSpec,
-    imported_model: ImportedModel,
-    deployment: Deployment,
-) -> str | None:
-    """The model's parameter archive on the device, pushed once per model."""
-    if imported_model.parameter_file is None:
-        return None
-    return push_parameters(deployment, model_spec.name, imported_model.parameter_file)
-
-
 def _run_pipeline(
     model_spec: ModelSpec,
     compile_case: CompileCase,
@@ -74,7 +62,6 @@ def _run_pipeline(
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
     deployment: Deployment,
-    device_parameters: str | None,
     work_dir: pathlib.Path,
 ) -> Outcome:
     """Compile, run and check, returning where it got to and the evidence."""
@@ -101,7 +88,6 @@ def _run_pipeline(
         input_files=imported_model.input_files,
         output_names=imported_model.output_names,
         local_output_dir=work_dir / "device_outputs",
-        parameter_file=device_parameters,
     )
     if result.exit_code != 0:
         return Outcome(Status.RUNTIME_FAILURE, result.describe())
@@ -127,7 +113,6 @@ def _run_pipeline(
     return Outcome(Status.PASSED, result.log)
 
 
-@pytest.mark.hexagon
 @pytest.mark.parametrize(
     "compile_case",
     HEXAGON_DEFAULT_COMPILE_CASES,
@@ -140,7 +125,6 @@ def test_model_on_device(
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
     deployment: Deployment,
-    device_parameters: str | None,
     tmp_path: pathlib.Path,
 ) -> None:
     if not model_spec.runs_case(compile_case.name):
@@ -153,7 +137,6 @@ def test_model_on_device(
         iree_compile=iree_compile,
         lld=lld,
         deployment=deployment,
-        device_parameters=device_parameters,
         work_dir=tmp_path,
     )
 
@@ -178,9 +161,3 @@ def test_model_on_device(
     # confirmed to be the recorded one, so the strictness that
     # xfail(strict=True) gave is preserved and the reason is now evidence-backed.
     pytest.xfail(f"{expected.status}: {expected.reason}")
-
-
-if __name__ == "__main__":
-    import sys
-
-    sys.exit(pytest.main([__file__, "-vv", *sys.argv[1:]]))

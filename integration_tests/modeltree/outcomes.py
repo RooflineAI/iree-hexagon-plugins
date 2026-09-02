@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from typing import Any
 
 
 class Status(enum.StrEnum):
@@ -22,28 +21,12 @@ class Status(enum.StrEnum):
     ACCURACY_FAILURE = "ACCURACY_FAILURE"
 
 
-_EXPECTABLE = tuple(str(status) for status in Status if status is not Status.PASSED)
-
-
 class Mismatch(enum.StrEnum):
     """The ways a run can disagree with what the model said would happen."""
 
     UNEXPECTED_PASS = "unexpected_pass"
     DIFFERENT_ERROR_TYPE = "different_error_type"
     REASON_NOT_FOUND = "reason_not_found"
-    NO_XFAIL_REASON = "no_xfail_reason"
-
-
-class OutcomeError(ValueError):
-    pass
-
-
-def parse_status(raw: Any) -> Status:
-    """A `status:` field of a `model.yaml`, with a message naming the choices."""
-    try:
-        return Status(str(raw))
-    except ValueError as err:
-        raise OutcomeError(f"unknown status {raw!r}; one of {_EXPECTABLE}") from err
 
 
 @dataclasses.dataclass(frozen=True)
@@ -58,16 +41,15 @@ class ExpectedOutcome:
 
     def __post_init__(self) -> None:
         if self.status is Status.PASSED:
-            raise OutcomeError(
+            raise ValueError(
                 f"case '{self.case}': PASSED is not an expected *outcome*; "
                 "remove the entry"
             )
         # An entry with no reason is rejected at load time rather than at run time.
         if not self.reason.strip():
-            raise OutcomeError(
+            raise ValueError(
                 f"case '{self.case}': 'reason' is required and must be a "
-                f"substring of the log the failure produces "
-                f"({Mismatch.NO_XFAIL_REASON})"
+                "substring of the log the failure produces"
             )
         object.__setattr__(self, "reason", self.reason.strip())
 

@@ -20,7 +20,7 @@ from pathlib import Path
 import dacite
 import yaml
 
-from integration_tests.modeltree.outcomes import ExpectedOutcome, Status, parse_status
+from integration_tests.modeltree.outcomes import ExpectedOutcome, Status
 
 # numpy/torch dtype names accepted in `inputs[].dtype`. Closed
 # set: a typo here would otherwise produce a silently different reference.
@@ -106,11 +106,7 @@ class ModelSpec:
     # a model opts out of a configuration that is not interesting for it.
     compile_cases: tuple[str, ...] = ()
     semantic_check: SemanticCheck | None = None
-    # Move the weights out of the MLIR and into a .irpa parameter archive. Off
-    # for every model today: it does not compile for the hexagon target.
-    externalize: bool = False
     extra_compile_flags: tuple[str, ...] = ()
-    function: str = "main"
 
     def __post_init__(self) -> None:
         if self.dtype not in _DTYPES:
@@ -142,8 +138,7 @@ class ModelSpec:
 
 
 _DACITE_CONFIG = dacite.Config(
-    cast=[tuple, float],
-    type_hooks={Status: parse_status},
+    cast=[tuple, float, Status],
     strict=True,
 )
 

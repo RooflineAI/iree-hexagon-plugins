@@ -33,9 +33,6 @@ from integration_tests.tool_paths import (
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line(
-        "markers", "hexagon: test that runs on a physical Hexagon device."
-    )
     # torch.export logs its whole tracing session at DEBUG. pytest captures it
     # and replays it into the report of any failing test, where it buries the
     # actual assertion under thousands of lines.

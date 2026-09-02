@@ -48,8 +48,6 @@ HEXAGON_DEFAULT_COMPILE_CASES: tuple[CompileCase, ...] = (
     ),
 )
 
-CASE_NAMES = tuple(case.name for case in HEXAGON_DEFAULT_COMPILE_CASES)
-
 
 class CompilationError(RuntimeError):
     """Raised when iree-compile fails. Carries the log, for reason matching."""

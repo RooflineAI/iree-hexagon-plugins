@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""What one import produces, described without importing torch."""
+"""What one import produces."""
 
 from __future__ import annotations
 
@@ -20,9 +20,8 @@ class ImportedModel:
     model_mlir: Path
     input_files: list[Path]
     output_files: list[Path]
+    # iree-turbine's default entry point name, which is what aot.export emits.
     function: str = "main"
-    # Present only when the model spec asked for externalized weights.
-    parameter_file: Path | None = None
     # Present only when the model carries a config.id2label, i.e. classifiers.
     labels_file: Path | None = None
 
@@ -37,17 +36,3 @@ class ImportedModel:
             int(key): str(value)
             for key, value in json.loads(self.labels_file.read_text()).items()
         }
-
-    @classmethod
-    def from_directory(cls, directory: Path, function: str = "main") -> ImportedModel:
-        """Re-open an already-imported model, without needing torch."""
-        parameters = directory / "weights.irpa"
-        labels = directory / "labels.json"
-        return cls(
-            model_mlir=directory / "model.mlir",
-            input_files=sorted(directory.glob("input*.npy")),
-            output_files=sorted(directory.glob("output*.npy")),
-            function=function,
-            parameter_file=parameters if parameters.exists() else None,
-            labels_file=labels if labels.exists() else None,
-        )

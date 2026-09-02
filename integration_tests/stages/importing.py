@@ -108,8 +108,6 @@ def manifest(spec: ModelSpec) -> dict[str, Any]:
     return {
         "model": spec.name,
         "dtype": spec.dtype,
-        "function": spec.function,
-        "externalize": spec.externalize,
         "inputs": [dataclasses.asdict(entry) for entry in spec.inputs],
         "decompositions": list(DECOMPOSITION_NAMES),
         "versions": _tool_versions(),
@@ -117,11 +115,7 @@ def manifest(spec: ModelSpec) -> dict[str, Any]:
 
 
 def _tool_versions() -> dict[str, str]:
-    """Versions of everything between the model definition and the MLIR.
-
-    Read from the installed distribution metadata rather than by importing the
-    packages, so this stays usable from a context that has no torch.
-    """
+    """Versions of everything between the model definition and the MLIR."""
     versions: dict[str, str] = {}
     for distribution in ("torch", "transformers", "iree-turbine"):
         try:
@@ -282,16 +276,16 @@ def import_model(
 ) -> ImportedModel:
     """Export the spec's model to MLIR and record its inputs and eager outputs.
 
-    Writes `model.mlir`, `input{N}.npy`, `output{N}.npy` and - when the spec
-    asks for it - `weights.irpa` into `output_dir`. The outputs come from
-    running the model eagerly in torch on the same inputs.
+    Writes `model.mlir`, `input{N}.npy` and `output{N}.npy` into `output_dir`.
+    The outputs come from running the model eagerly in torch on the same
+    inputs.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     model = load_model(spec)
     inputs = generate_inputs(spec, model)
 
     # The eager reference is taken before the export, because aot.export can
-    # mutate the module (externalize_module_parameters tags its tensors).
+    # mutate the module.
     with torch.no_grad():
         outputs = _as_tensor_tuple(model(*inputs))
     output_files = []
@@ -306,14 +300,6 @@ def import_model(
         np.save(input_file, tensor.detach().cpu().numpy())
         input_files.append(input_file)
 
-    parameter_file: Path | None = None
-    if spec.externalize:
-        # Moves the weights out of the module and into a .irpa: 205 MB -> 0.36 MB
-        # of MLIR for resnet-50, 1.08 GB -> 0.61 MB for SmolLM2-135M. The
-        # archive is then pushed to the device once per model instead of a
-        # full-weight vmfb once per compile case.
-        aot.externalize_module_parameters(model)
-
     ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
     exported_program = torch.export.export(model, args=inputs, strict=True)
     exported_program = exported_program.run_decompositions(
@@ -326,10 +312,6 @@ def import_model(
 
     model_mlir = output_dir / "model.mlir"
     exported.save_mlir(model_mlir)
-
-    if spec.externalize:
-        parameter_file = output_dir / "weights.irpa"
-        aot.save_module_parameters(parameter_file, model)
 
     labels = label_map(model)
     if labels is not None:
@@ -349,7 +331,5 @@ def import_model(
         model_mlir=model_mlir,
         input_files=input_files,
         output_files=output_files,
-        function=spec.function,
-        parameter_file=parameter_file,
         labels_file=(output_dir / "labels.json") if labels is not None else None,
     )

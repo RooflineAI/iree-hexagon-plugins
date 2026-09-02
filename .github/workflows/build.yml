@@ -209,6 +209,13 @@ jobs:
           # server left behind by a bare `adb` command run there.
           adb shell getprop ro.product.model
 
+      - name: Install UV
+        if: env.PHONE_ACCESS == 'true'
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
       - name: Setup environment for integration tests
         if: env.PHONE_ACCESS == 'true'
         run: |

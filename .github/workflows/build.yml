@@ -101,8 +101,6 @@ jobs:
       PHONE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -112,9 +110,6 @@ jobs:
 
       - name: List build artifacts
         run: find build-artifacts
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
 
       - name: Install pinned platform-tools
         env:
@@ -142,15 +137,6 @@ jobs:
           adb version
           echo $ANDROID_NDK_HOME
           ls $ANDROID_NDK_HOME
-
-      - name: Configure bazelrc
-        run: |
-          cat - >configured.bazelrc <<EOF
-          build --action_env CC=/usr/lib/llvm-19/bin/clang
-          build --action_env CXX=/usr/lib/llvm-19/bin/clang++
-          build --config=generic_clang
-          build --incompatible_strict_action_env
-          EOF
 
       - name: Join the phone overlay
         if: env.PHONE_ACCESS == 'true'
@@ -214,7 +200,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           python-version: "3.11"
-          enable-cache: true
+          enable-cache: false
 
       - name: Setup environment for integration tests
         if: env.PHONE_ACCESS == 'true'

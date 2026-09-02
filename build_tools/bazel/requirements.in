@@ -1,4 +1,13 @@
 # Direct Python dependencies used by root-repository Bazel tests.
+dacite==1.9.2
 numpy==2.2.6
 pyelftools==0.33
 pytest==8.4.2
+
+iree-turbine==3.9.0
+torch==2.9.0+cpu
+setuptools==84.0.0
+transformers==5.15.0
+pyyaml==6.0.3
+pillow==12.3.0
+markupsafe==3.0.2

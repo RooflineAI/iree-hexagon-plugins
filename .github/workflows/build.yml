@@ -65,6 +65,7 @@ jobs:
             @iree//tools:iree-run-module
             @iree//tools:iree-benchmark-module
             @llvm-project//lld:ld.lld
+            //integration_tests/device/tools:device_tools_aarch64_android
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
           )
@@ -72,7 +73,7 @@ jobs:
           mkdir build-artifacts
           for TARGET in "${TARGETS[@]}"
           do
-            cp $(bazel cquery --output=files "$TARGET") build-artifacts
+            cp $(bazel cquery --output=files "config($TARGET, target)") build-artifacts
           done
           chmod -R u+w build-artifacts
 
@@ -82,6 +83,10 @@ jobs:
           name: build-artifacts
           path: build-artifacts
           retention-days: 1
+
+      - name: Unit tests
+        run: |
+          bazel test //...
 
   test:
     needs: build
@@ -96,8 +101,6 @@ jobs:
       PHONE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -105,11 +108,10 @@ jobs:
           name: build-artifacts
           path: build-artifacts
 
-      - name: List build artifacts
-        run: find build-artifacts
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+      - name: Prepare build artifacts
+        run: |
+          chmod +x build-artifacts/iree-* build-artifacts/ld.lld
+          ls -l build-artifacts
 
       - name: Install pinned platform-tools
         env:
@@ -137,15 +139,6 @@ jobs:
           adb version
           echo $ANDROID_NDK_HOME
           ls $ANDROID_NDK_HOME
-
-      - name: Configure bazelrc
-        run: |
-          cat - >configured.bazelrc <<EOF
-          build --action_env CC=/usr/lib/llvm-19/bin/clang
-          build --action_env CXX=/usr/lib/llvm-19/bin/clang++
-          build --config=generic_clang
-          build --incompatible_strict_action_env
-          EOF
 
       - name: Join the phone overlay
         if: env.PHONE_ACCESS == 'true'
@@ -204,9 +197,26 @@ jobs:
           # server left behind by a bare `adb` command run there.
           adb shell getprop ro.product.model
 
-      - name: Test
+      - name: Install UV
+        if: env.PHONE_ACCESS == 'true'
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+          enable-cache: false
+
+      - name: Setup environment for integration tests
+        if: env.PHONE_ACCESS == 'true'
         run: |
-          echo TODO
+          build_tools/create_test_venv.sh
+
+      - name: Integration tests
+        if: env.PHONE_ACCESS == 'true'
+        run: |
+          .venv/bin/pytest integration_tests/ -v -rA \
+          --iree-compile=build-artifacts/iree-compile \
+          --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
+          --device-tools-zip=build-artifacts/device_tools_aarch64_android.zip \
+          --lld=build-artifacts/ld.lld
 
       - name: Leave the overlay
         if: always()

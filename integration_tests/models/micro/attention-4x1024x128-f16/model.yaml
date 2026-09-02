@@ -1,0 +1,23 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+
+inputs:
+  - {shape: [4, 1024, 128], dtype: float16, generator: normal, seed: 0}
+  - {shape: [4, 1024, 128], dtype: float16, generator: normal, seed: 1}
+  - {shape: [4, 1024, 128], dtype: float16, generator: normal, seed: 2}
+
+tolerances:
+  atol: 5.0e-2
+  rtol: 5.0e-2
+  relative_l2_percent: 1.0
+
+expected_outcomes:
+  - case: new-tiling-heuristics-vtcm
+    status: RUNTIME_FAILURE
+    reason: "could not execute command buffer on DSP (AEE_EBADSTATE)"
+    comment: "VTCM tiling on a bare attention block; found 2026-08-31"

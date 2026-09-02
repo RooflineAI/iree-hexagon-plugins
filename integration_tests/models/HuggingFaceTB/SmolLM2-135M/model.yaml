@@ -1,0 +1,29 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+
+inputs:
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: null
+    seed: 0
+  - shape: [1, 128]
+    dtype: int64
+    generator: ones
+
+tolerances:
+  atol: 2.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 0.2
+
+expected_outcomes:
+  - case: new-tiling-heuristics-vtcm
+    status: COMPILE_FAILURE
+    reason: "operations with large vector sizes"
+    comment: "VTCM tiling exceeds max_stack_allocation_size on this model"

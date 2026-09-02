@@ -58,6 +58,10 @@ use_repo(python)
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
+    # requirements.txt pins torch to the "+cpu" build, which only exists on
+    # PyTorch's own index - the PyPI wheel of the same version pulls the whole
+    # nvidia-* CUDA stack. See the comment at the top of requirements.in.
+    extra_pip_args = ["--extra-index-url=https://download.pytorch.org/whl/cpu"],
     hub_name = "pypi",
     python_version = "3.11",
     requirements_lock = "//build_tools/bazel:requirements.txt",

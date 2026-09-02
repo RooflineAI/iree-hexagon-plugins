@@ -22,8 +22,7 @@ class Status(enum.StrEnum):
     ACCURACY_FAILURE = "ACCURACY_FAILURE"
 
 
-_EXPECTABLE = tuple(status for status in Status if status is not Status.PASSED)
-_EXPECTABLE_NAMES = [str(status) for status in _EXPECTABLE]
+_EXPECTABLE = tuple(str(status) for status in Status if status is not Status.PASSED)
 
 
 class Mismatch(enum.StrEnum):
@@ -44,9 +43,7 @@ def parse_status(raw: Any) -> Status:
     try:
         return Status(str(raw))
     except ValueError as err:
-        raise OutcomeError(
-            f"unknown status {raw!r}; one of {_EXPECTABLE_NAMES}"
-        ) from err
+        raise OutcomeError(f"unknown status {raw!r}; one of {_EXPECTABLE}") from err
 
 
 @dataclasses.dataclass(frozen=True)

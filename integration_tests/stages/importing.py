@@ -106,8 +106,7 @@ DECOMPOSITION_NAMES = tuple(sorted(str(op) for op in DEFAULT_DECOMPOSITIONS))
 def manifest(spec: ModelSpec) -> dict[str, Any]:
     """Everything that determined this MLIR, for the record."""
     return {
-        "model": spec.model_id,
-        "revision": spec.revision,
+        "model": spec.name,
         "dtype": spec.dtype,
         "function": spec.function,
         "externalize": spec.externalize,

@@ -4,9 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-model: microsoft/resnet-50
-# Pinned so an upstream re-upload cannot silently change the reference.
-revision: 34c2154c194f829b11125337b98c8f5f9965ff19
 dtype: float32
 
 inputs:
@@ -19,8 +16,6 @@ tolerances:
   atol: 1.0e-2
   rtol: 1.0e-2
   relative_l2_percent: 0.1
-
-tags: [hexagon, smoketest, vision]
 
 expected_outcomes:
   - case: default

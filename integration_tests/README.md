@@ -11,6 +11,10 @@ models/<org>/<name>/model.yaml   what to run, how close it has to be, known fail
 models/<org>/<name>/model.py     get_model() -> torch.nn.Module
 ```
 
+The path under `models/` **is** the model's name - what `--model` takes and what
+the test id shows. The hub id and its pinned revision live in `model.py`, which
+is what fetches the weights; `model.yaml` never repeats them.
+
 ## Running them
 
 The device suite runs under **plain pytest**, not `bazel test`. The compiler binary,
@@ -33,9 +37,8 @@ bazel build @iree//tools:iree-compile \
 pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 ```
 
-Options, all in `conftest.py`: `--model` (repeatable), `--include-tag` /
-`--exclude-tag`, `--keep-device-dir`, `--device-root`, and the four artifact
-paths.
+Options, all in `conftest.py`: `--model` (repeatable), `--keep-device-dir`,
+`--device-root`, and the four artifact paths.
 
 ## Requirements
 
@@ -51,7 +54,7 @@ paths.
 | | |
 |---|---|
 | `models/` | **data only**: `<org>/<name>/{model.yaml, model.py}` |
-| `modeltree/` | code *about* that data - `spec.py` (schema), `discover.py` (tags), `outcomes.py` (known failures) |
+| `modeltree/` | code *about* that data - `spec.py` (schema), `discover.py` (finding and selecting), `outcomes.py` (known failures) |
 | `stages/` | the pipeline, in order - `importing.py`, `compiling.py`, `running.py`, `checking.py`, plus `artifacts.py` |
 | `device/` | the only package that knows a phone exists - `adb.py`, `deploy.py`, and `tools/` (the cross-compiled helper) |
 | `tool_paths.py` | resolve an artifact path, or ask Bazel |
@@ -72,15 +75,21 @@ paths.
 
 ## Adding a model
 
+`models/HuggingFaceTB/SmolLM2-135M/model.yaml`:
+
 ```yaml
-model: HuggingFaceTB/SmolLM2-135M
-revision: 93efa2f097d58c2a74874c7e644dbc9b0cee75a2   # pin it
 dtype: float16
 inputs:
   - {shape: [1, 128], dtype: int64, generator: uniform, low: 0, high: null, seed: 0}
   - {shape: [1, 128], dtype: int64, generator: ones}
 tolerances: {atol: 2.0e-1, rtol: 5.0e-2, relative_l2_percent: 0.2}
-tags: [hexagon, llm]
+```
+
+beside a `model.py` that pins what it fetches:
+
+```python
+_MODEL_ID = "HuggingFaceTB/SmolLM2-135M"
+_REVISION = "93efa2f097d58c2a74874c7e644dbc9b0cee75a2"
 ```
 
 Add `compile_cases: [new-tiling-heuristics]` to run only some of the three

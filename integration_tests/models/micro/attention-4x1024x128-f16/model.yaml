@@ -4,7 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-model: micro/attention-4x1024x128-f16
 dtype: float16
 
 inputs:
@@ -16,8 +15,6 @@ tolerances:
   atol: 5.0e-2
   rtol: 5.0e-2
   relative_l2_percent: 1.0
-
-tags: [hexagon, op-level]
 
 expected_outcomes:
   - case: new-tiling-heuristics-vtcm

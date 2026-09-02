@@ -94,15 +94,14 @@ class SemanticCheck:
 class ModelSpec:
     """One entry of the model tree."""
 
+    # The path under models/ is the name, and the directory is
+    # where model.py and any image live.
     name: str
     directory: Path
-    model_id: str
     inputs: tuple[InputSpec, ...]
     dtype: str = "float32"
     tolerances: Tolerances = dataclasses.field(default_factory=Tolerances)
-    tags: tuple[str, ...] = ()
     expected_outcomes: tuple[ExpectedOutcome, ...] = ()
-    revision: str | None = None
     # Which compile cases to run, by name. Empty means all of them. This is how
     # a model opts out of a configuration that is not interesting for it.
     compile_cases: tuple[str, ...] = ()
@@ -149,7 +148,7 @@ _DACITE_CONFIG = dacite.Config(
 )
 
 
-def load_model_spec(directory: Path) -> ModelSpec:
+def load_model_spec(directory: Path, root: Path) -> ModelSpec:
     """Read `directory/model.yaml` into a validated `ModelSpec`."""
     yaml_path = directory / "model.yaml"
     if not yaml_path.exists():
@@ -161,16 +160,9 @@ def load_model_spec(directory: Path) -> ModelSpec:
     if not isinstance(data, dict):
         raise SpecError(f"{yaml_path}: expected a mapping at the top level")
     data = {key: value for key, value in data.items() if value is not None}
-    if "model" not in data:
-        raise SpecError(f"{yaml_path}: 'model' (the hub id) is required")
 
-    # dacite has no field aliases, so the one key whose name differs from its
-    # field is bridged here, along with the two fields that come from the tree
-    # layout rather than from the file.
-    data = dict(data)
-    model_id = str(data.pop("model"))
-    data["model_id"] = model_id
-    data["name"] = model_id
+    # There two filed are deduced from the path in the tree, not read from the yaml.
+    data["name"] = directory.relative_to(root).as_posix()
     data["directory"] = directory
 
     try:

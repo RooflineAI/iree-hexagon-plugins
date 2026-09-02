@@ -98,37 +98,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="ORG/NAME",
         help="run only this model from models/ (repeatable).",
     )
-    group.addoption(
-        "--include-tag",
-        action="append",
-        default=[],
-        metavar="TAG[,TAG...]",
-        help=(
-            "select models carrying all of these tags (repeatable, OR-ed "
-            "across repeats). Ignored when --model is given."
-        ),
-    )
-    group.addoption(
-        "--exclude-tag",
-        action="append",
-        default=[],
-        metavar="TAG[,TAG...]",
-        help="skip models carrying all of these tags (repeatable, OR-ed).",
-    )
 
 
 def _selected_specs(config: pytest.Config) -> list[ModelSpec]:
-    include = [
-        discover.parse_tag_expression(raw) for raw in config.getoption("--include-tag")
-    ]
-    exclude = [
-        discover.parse_tag_expression(raw) for raw in config.getoption("--exclude-tag")
-    ]
-    return discover.select(
-        names=config.getoption("--model") or None,
-        include=include or None,
-        exclude=exclude or None,
-    )
+    return discover.select(names=config.getoption("--model") or None)
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:

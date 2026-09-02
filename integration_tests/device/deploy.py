@@ -101,14 +101,14 @@ def deploy(
     _unpack(runtime_zip, deployment.run_dir)
     _unpack(tools_zip, deployment.run_dir)
     farf_writes = " && ".join(
-        f"printf '{_FARF_MASK}\\n' > lib/hexagon/{binary}.farf"
+        f"printf '{_FARF_MASK}\\n' > {shlex.quote(f'lib/hexagon/{binary}.farf')}"
         for binary in _ENTRY_BINARIES
     )
     chmods = " ".join(
-        f"bin/{binary}" for binary in (*_ENTRY_BINARIES, "limit_lifetime")
+        shlex.quote(f"bin/{binary}") for binary in (*_ENTRY_BINARIES, "limit_lifetime")
     )
     adb.shell(
-        f"cd {shlex.quote(deployment.run_dir)} && chmod +x {shlex.quote(chmods)} && {shlex.quote(farf_writes)}"
+        f"cd {shlex.quote(deployment.run_dir)} && chmod +x {chmods} && {farf_writes}"
     )
     return deployment
 

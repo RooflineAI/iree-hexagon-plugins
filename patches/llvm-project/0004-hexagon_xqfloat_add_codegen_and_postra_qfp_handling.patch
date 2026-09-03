@@ -1,0 +1,3644 @@
+diff --git a/llvm/lib/Target/Hexagon/CMakeLists.txt b/llvm/lib/Target/Hexagon/CMakeLists.txt
+index a2fe7c9e5f95..0f871c1f65cd 100644
+--- a/llvm/lib/Target/Hexagon/CMakeLists.txt
++++ b/llvm/lib/Target/Hexagon/CMakeLists.txt
+@@ -59,9 +59,11 @@ add_llvm_target(HexagonCodeGen
+   HexagonOptAddrMode.cpp
+   HexagonOptimizeSZextends.cpp
+   HexagonPeephole.cpp
++  HexagonPostRAHandleQFP.cpp
+   HexagonQFPOptimizer.cpp
+   HexagonRDFOpt.cpp
+   HexagonRegisterInfo.cpp
++  HexagonXQFloatGenerator.cpp
+   HexagonSelectionDAGInfo.cpp
+   HexagonSplitConst32AndConst64.cpp
+   HexagonSplitDouble.cpp
+diff --git a/llvm/lib/Target/Hexagon/Hexagon.h b/llvm/lib/Target/Hexagon/Hexagon.h
+index 8ecd3520fc66..f7242d0d843e 100644
+--- a/llvm/lib/Target/Hexagon/Hexagon.h
++++ b/llvm/lib/Target/Hexagon/Hexagon.h
+@@ -70,8 +70,9 @@ void initializeHexagonOptimizeSZextendsPass(PassRegistry &);
+ void initializeHexagonPeepholePass(PassRegistry &);
+ void initializeHexagonSplitConst32AndConst64Pass(PassRegistry &);
+ void initializeHexagonVectorPrintPass(PassRegistry &);
+-
+ void initializeHexagonQFPOptimizerPass(PassRegistry &);
++void initializeHexagonPostRAHandleQFPPass(PassRegistry &);
++void initializeHexagonXQFloatGeneratorPass(PassRegistry &);
+ 
+ Pass *createHexagonLoopIdiomPass();
+ Pass *createHexagonVectorLoopCarriedReuseLegacyPass();
+@@ -121,6 +122,8 @@ FunctionPass *createHexagonVectorPrint();
+ FunctionPass *createHexagonVExtract();
+ FunctionPass *createHexagonExpandCondsets();
+ FunctionPass *createHexagonQFPOptimizer();
++FunctionPass *createHexagonPostRAHandleQFP();
++FunctionPass *createHexagonXQFloatGenerator();
+ 
+ } // end namespace llvm;
+ 
+diff --git a/llvm/lib/Target/Hexagon/HexagonInstrInfo.cpp b/llvm/lib/Target/Hexagon/HexagonInstrInfo.cpp
+index 6c95d54bf111..5e8578a5d407 100644
+--- a/llvm/lib/Target/Hexagon/HexagonInstrInfo.cpp
++++ b/llvm/lib/Target/Hexagon/HexagonInstrInfo.cpp
+@@ -4950,6 +4950,30 @@ bool HexagonInstrInfo::isQFPInstr(MachineInstr *MI) const {
+   return isQFP32Instr(MI) || isQFP16Instr(MI);
+ }
+ 
++// Return true if the function contains any qf-generating instructions.
++bool HexagonInstrInfo::hasQFPInstrs(const MachineFunction &MF) const {
++  for (const MachineBasicBlock &MBB : MF)
++    for (const MachineInstr &MI : MBB)
++      if (isQFPInstr(const_cast<MachineInstr *>(&MI)))
++        return true;
++  return false;
++}
++
++// Returns true if A appears before B within the same basic block.
++bool HexagonInstrInfo::isMIBefore(const MachineInstr *A,
++                                  const MachineInstr *B) const {
++  if (!A || !B || A->getParent() != B->getParent())
++    return false;
++
++  for (const MachineInstr &MI : *A->getParent()) {
++    if (&MI == A)
++      return true;
++    if (&MI == B)
++      return false;
++  }
++  return false;
++}
++
+ // Addressing mode relations.
+ short HexagonInstrInfo::changeAddrMode_abs_io(short Opc) const {
+   return Opc >= 0 ? Hexagon::changeAddrMode_abs_io(Opc) : Opc;
+diff --git a/llvm/lib/Target/Hexagon/HexagonInstrInfo.h b/llvm/lib/Target/Hexagon/HexagonInstrInfo.h
+index 230f5d222845..1901b260926d 100644
+--- a/llvm/lib/Target/Hexagon/HexagonInstrInfo.h
++++ b/llvm/lib/Target/Hexagon/HexagonInstrInfo.h
+@@ -52,6 +52,9 @@ public:
+ 
+   const HexagonRegisterInfo &getRegisterInfo() const { return RegInfo; }
+ 
++  bool isMIBefore(const MachineInstr *A, const MachineInstr *B) const;
++  bool hasQFPInstrs(const MachineFunction &MF) const;
++
+   /// TargetInstrInfo overrides.
+ 
+   /// If the specified machine instruction is a direct
+diff --git a/llvm/lib/Target/Hexagon/HexagonPostRAHandleQFP.cpp b/llvm/lib/Target/Hexagon/HexagonPostRAHandleQFP.cpp
+new file mode 100644
+index 000000000000..06ee6e5fa041
+--- /dev/null
++++ b/llvm/lib/Target/Hexagon/HexagonPostRAHandleQFP.cpp
+@@ -0,0 +1,1755 @@
++//===--------------------- HexagonPostRAHandleQFP.cpp --------------------------
++//===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===---------------------------------------------------------------------===//
++// For v79 and above, we generate qf operations for HVX which includes vadd,
++// vsub and vmpy instructions. These qf operations with qf operands are fast,
++// maintain similar accuracy as IEEE and saves power.
++//
++// However, these qf operands should always be converted back to IEEE format
++// when used in non-HVX instructions. This is because of how the qf values
++// are stored in memory. qf operands have 4 extra bits. If used in non-HVX
++// operations, these bits get dropped resulting in incorrect value being
++// used. So, before use in any non-HVX operation we need to convert these
++// qf values to IEEE format.
++//
++// During register allocation, when no more physical registers are available
++// the qf operands may be spilled to memory. This instantly causes loss of
++// accuracy. This pass prevents that by:
++// 1. Inserting qf type to IEEE type conversion instructions before the spill.
++// 2. Iterating over the uses of qf def (created before the spill) and
++// changing their opcodes to handle IEEE type operands for saturating
++// instructions. This is because, the refills will use IEEE type operands, but
++// the instructions will still assume qf operands. For non-saturating
++// instructions which uses qf, we incorporate a conversion to IEEE before that.
++// 3. Iterating over the uses of qf def created by the spill and replacing
++// them with appropiate opcode (which uses IEEE operands) for saturating
++// instructions. For non-saturating instructions which uses qf,
++// we incorporate a conversion to IEEE before that.
++// 4. Iterating over the copy instructions and checking their uses,
++// inserting conversions from qf to IEEE whenever required. The conversions
++// are inserted after their reaching def since there can be multiple defs
++// for use in non-SSA form.
++//
++// To get the use-def chains, we make use of Register DataFlow Graph (RDF),
++// since after register allocation SSA form is lost. This can be done during
++// spills and fills during Frame Lowering for register allocation. However,
++// that was abandoned due to the intermediate state of the code.
++// Liveness is preserved in this pass.
++//
++// NOTE:
++// Saturating instructions: Instructions for which transformation involves
++// only changing the opcode. Eg. vmpy(qf32, sf) saturates to vmpy(sf, sf) when
++// we see that the first operand is now a sf type.
++// Non-Saturating instructions: Instructions for which conversion(s) have
++// to be inserted. Eg. Vd.f8=Vu.qf16. If the use operand is now hf type,
++// we have to insert a conversion qf16 = hf before this instruction.
++//
++// FIXME tags have been added for potential errors, along with the underlying
++// assumption.
++// FIXME Implement v81 specific optimizations as below. At the moment, we add
++// converts.
++// Vd.qf16=Vu.hf
++// Vd.qf16=Vu.qf16
++// Vd.qf32=Vu.qf32
++// Vd.qf32=Vu.sf
++//===---------------------------------------------------------------------===//
++
++#include "HexagonTargetMachine.h"
++#include "llvm/CodeGen/LiveInterval.h"
++#include "llvm/CodeGen/LiveIntervals.h"
++#include "llvm/CodeGen/LivePhysRegs.h"
++#include "llvm/CodeGen/MachineDominanceFrontier.h"
++#include "llvm/CodeGen/MachineDominators.h"
++#include "llvm/CodeGen/MachineFunction.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/CodeGen/Passes.h"
++#include "llvm/CodeGen/RDFGraph.h"
++#include "llvm/CodeGen/RDFLiveness.h"
++#include "llvm/CodeGen/RDFRegisters.h"
++#include "llvm/CodeGen/TargetInstrInfo.h"
++#include "llvm/CodeGen/TargetRegisterInfo.h"
++#include "llvm/InitializePasses.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Support/Debug.h"
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Target/TargetMachine.h"
++
++#define DEBUG_TYPE "handle-qfp"
++
++using namespace llvm;
++using namespace rdf;
++
++extern cl::opt<QFloatMode> QFloatModeValue;
++
++cl::opt<bool> DisablePostRAHandleQFloat(
++    "disable-handle-qfp", cl::init(false),
++    cl::desc("Disable handling of Qfloat spills/refills after register "
++             "allocation."));
++
++// This static function gets all reached uses of a def.
++// When it encounters a phi node, it goes over the
++// reached uses of the phi node too.
++static void getAllRealUses(NodeAddr<DefNode *> DA, NodeSet &UNodeSet,
++                           Liveness *L, DataFlowGraph *G,
++                           bool comprehensive = false) {
++  RegisterRef DR = DA.Addr->getRegRef(*G);
++  NodeAddr<StmtNode *> DefStmt = DA.Addr->getOwner(*G);
++  MachineInstr *Instr = DefStmt.Addr->getCode();
++  auto UseSet = L->getAllReachedUses(DR, DA);
++
++  for (auto UI : UseSet) {
++    NodeAddr<UseNode *> UA = G->addr<UseNode *>(UI);
++
++    /*LLVM_DEBUG(
++      NodeAddr<StmtNode *> UseStmt = UA.Addr->getOwner(*G);
++      MachineInstr* UseInstr = UseStmt.Addr->getCode();
++      if (UseInstr != nullptr)
++        {dbgs() << "\t\t[Reached Use]: "; UseInstr->dump();}
++    );*/
++
++    MachineFunction *MF = Instr->getMF();
++    const auto &HRI = MF->getSubtarget<HexagonSubtarget>().getRegisterInfo();
++    Register RR = UA.Addr->getRegRef(*G).Id;
++    if (HRI->isFakeReg(RR))
++      continue;
++
++    if (UA.Addr->getFlags() & NodeAttrs::PhiRef) {
++      NodeAddr<PhiNode *> PA = UA.Addr->getOwner(*G);
++      NodeId id = PA.Id;
++      const Liveness::RefMap &phiUse = L->getRealUses(id);
++      for (auto I : phiUse) {
++        if (!G->getPRI().alias(RegisterRef(I.first), DR))
++          continue;
++        auto phiUseSet = I.second;
++        for (auto phiUI : phiUseSet) {
++          NodeAddr<UseNode *> phiUA = G->addr<UseNode *>(phiUI.first);
++          UNodeSet.insert(phiUA.Id);
++        }
++      }
++    } else {
++      // FIXME Due to bug in RDF, check if the reaching def of the use
++      // reaches this instruction
++      if (comprehensive) {
++        UNodeSet.insert(UA.Id);
++        continue;
++      }
++      NodeAddr<StmtNode *> UseStmt = UA.Addr->getOwner(*G);
++      for (NodeAddr<UseNode *> UA : UseStmt.Addr->members_if(G->IsUse, *G)) {
++        NodeId QFPDefNode = UA.Addr->getReachingDef();
++        NodeAddr<DefNode *> RegDef = G->addr<DefNode *>(QFPDefNode);
++        // FIXME Reaching def computation error
++        if (QFPDefNode == 0)
++          continue;
++        NodeAddr<StmtNode *> RegStmt = RegDef.Addr->getOwner(*G);
++        MachineInstr *ReachDefInstr = RegStmt.Addr->getCode();
++        if (ReachDefInstr && ReachDefInstr == Instr)
++          UNodeSet.insert(UA.Id);
++      }
++    }
++  }
++}
++
++namespace llvm {
++FunctionPass *createHexagonPostRAHandleQFP();
++void initializeHexagonPostRAHandleQFPPass(PassRegistry &);
++} // namespace llvm
++
++// QF Instructions list which need to be analyzed.
++// The value of the key denotes a pair
++// pair.first|pair.second = True if IEEE type, false otherwise.
++// We only need to change the opcode to handling qf/sf
++// misuses for these, or these instructions can be 'saturated'.
++DenseMap<unsigned short, std::pair<bool, bool>> QFPSatInstsMap{
++    {Hexagon::V6_vadd_qf16_mix, {false, true}},
++    {Hexagon::V6_vadd_qf16, {false, false}},
++    {Hexagon::V6_vadd_qf32_mix, {false, true}},
++    {Hexagon::V6_vadd_qf32, {false, false}},
++    {Hexagon::V6_vsub_qf16_mix, {false, true}},
++    {Hexagon::V6_vsub_hf_mix, {true, false}},
++    {Hexagon::V6_vsub_qf16, {false, false}},
++    {Hexagon::V6_vsub_qf32_mix, {false, true}},
++    {Hexagon::V6_vsub_sf_mix, {true, false}},
++    {Hexagon::V6_vsub_qf32, {false, false}},
++    {Hexagon::V6_vmpy_qf16_mix_hf, {false, true}},
++    {Hexagon::V6_vmpy_qf16, {false, false}},
++    {Hexagon::V6_vmpy_qf32_mix_hf, {false, true}},
++    {Hexagon::V6_vmpy_qf32_qf16, {false, false}},
++    {Hexagon::V6_vmpy_qf32, {false, false}},
++    {Hexagon::V6_vmpy_rt_qf16, {false, true}},
++    // These opcodes take a single operand only.
++    // Second placeholder op is true always.
++    {Hexagon::V6_vabs_qf32_qf32, {false, true}},
++    {Hexagon::V6_vabs_qf16_qf16, {false, true}},
++    {Hexagon::V6_vneg_qf32_qf32, {false, true}},
++    {Hexagon::V6_vneg_qf16_qf16, {false, true}},
++    {Hexagon::V6_vilog2_qf32, {false, true}},
++    {Hexagon::V6_vilog2_qf16, {false, true}},
++    {Hexagon::V6_vconv_qf32_qf32, {false, true}},
++    {Hexagon::V6_vconv_qf16_qf16, {false, true}},
++};
++
++// This holds the instruction opcodes for which there are
++// no 'saturating' opcodes. The only way is to insert
++// convert instructions before them.
++SmallVector<unsigned short, 5> QFNonSatInstr{
++    Hexagon::V6_vconv_hf_qf16, Hexagon::V6_vconv_hf_qf32,
++    Hexagon::V6_vconv_sf_qf32,
++    // v81 instructions
++    Hexagon::V6_vconv_bf_qf32, Hexagon::V6_vconv_f8_qf16};
++
++namespace {
++class HexagonPostRAHandleQFP : public MachineFunctionPass {
++public:
++  static char ID;
++  HexagonPostRAHandleQFP() : MachineFunctionPass(ID) {
++    PassRegistry &R = *PassRegistry::getPassRegistry();
++    initializeHexagonPostRAHandleQFPPass(R);
++  }
++  StringRef getPassName() const override {
++    return "Hexagon handle QFloat spills and refills post RA.";
++  }
++  void getAnalysisUsage(AnalysisUsage &AU) const override {
++    MachineFunctionPass::getAnalysisUsage(AU);
++    AU.addRequired<MachineDominatorTreeWrapperPass>();
++    AU.addRequired<MachineDominanceFrontierWrapperPass>();
++    AU.setPreservesCFG();
++  }
++  bool runOnMachineFunction(MachineFunction &MF) override;
++
++private:
++  // QFUses collects the instructions which uses QF operands.
++  // These have to be deleted and transformed to opcodes
++  // to denote usage of IEEE operands.
++  // It might involve changing the order of the Register operands.
++  using QFUses = std::map<MachineInstr *, std::pair<bool, bool>>;
++  QFUses QFUsesMap;
++
++  // Holds the Register Dataglow Graph.
++  DataFlowGraph *DFG = nullptr;
++
++  // Stores spill nodes and their reaching definition instructions
++  // which generates the qf operand to be stored.
++  std::vector<std::pair<MachineInstr *, NodeAddr<DefNode *>>> SpillMIs;
++  // Stores the refill nodes consisting of load instructions.
++  std::vector<NodeAddr<DefNode *>> RefillMIs;
++
++  // Stores the type of op.
++  enum ConvOperand {
++    Undefined = 0x0,
++    Lo = 0x1,
++    Hi = 0x2,
++    HiLo = 0x3,
++  };
++  // Stores the convert instructions which take qf operands.
++  MapVector<MachineInstr *, unsigned> QFNonSatMIs;
++
++  // Stores the qf-generating vmul/vadd/etc. nodes with mutiple reaching defs
++  std::set<NodeId> PossibleMultiReachDefs;
++  // Qf generating instructions to ignore. Do not insert conversion instruction
++  // to sf/hf from qf, if the instr is present in this list; since that means
++  // a conversion has already been inserted after the instruction.
++  SmallPtrSet<MachineInstr *, 4> IgnoreInsertConvList;
++
++  // Register type
++  enum class RegType { qf32, qf16, qf32_double, qf16_double, ieee, undefined };
++  // Stores the copy instructions which their reaching def, along with the op
++  // type
++  std::map<std::pair<NodeId, NodeId>, RegType> QFCopys;
++
++  // Stores the reaching defs of copies whose result has to be converted to IEEE
++  DenseMap<MachineInstr *, RegType> ReachDefOfCopies;
++
++  // Stores copies which need to be converted back to qf. The uses of these
++  // copies feed to qf type instructions and hence can be converted back to qf
++  // type.
++  DenseMap<MachineInstr *, std::pair<NodeAddr<DefNode *>, RegType>>
++      ConvertToQfCopies;
++
++  // Subregister kill set for a doubletype use. The pair of bool,bool
++  // represents the hi and lo subregisters of the double register.
++  DenseMap<MachineInstr *, std::pair<bool, bool>> SubRegKillSet;
++
++  const HexagonInstrInfo *HII = nullptr;
++  const HexagonRegisterInfo *HRI = nullptr;
++  MachineRegisterInfo *MRI = nullptr;
++  Liveness *LV = nullptr;
++  const HexagonSubtarget *HST = nullptr;
++
++  void collectQFPStackSpill(NodeAddr<StmtNode *> *);
++  void collectQFPStackRefill(NodeAddr<StmtNode *> *);
++  void collectCopies(NodeAddr<StmtNode *> *);
++  bool HandleRefills();
++  bool HandleSpills();
++  bool HandleCopies();
++  bool HandleNonSatInstr();
++  bool HandleMultiReachingDefs();
++  bool HandleReachDefOfCopies();
++  bool HandleConvertToQfCopies();
++  RegType HasQfUses(NodeAddr<DefNode *>, MachineInstr *);
++  void collectConvQFInstr(NodeAddr<DefNode *> &);
++  void collectQFUses(NodeAddr<DefNode *>, MachineInstr *DefMI);
++  void conditionallyInsert(MachineInstr &, Register &);
++
++  // Helper functions
++  unsigned short getreplacedQFOpcode(unsigned, bool, bool);
++  MCPhysReg findAllocatableReg(MachineInstr *MI) const;
++  void insertIEEEToQF(MachineInstr *, Register, MachineOperand, bool is32bit);
++  void collectLivenessForSubregs(NodeAddr<UseNode *> &);
++  void insertInstr(MachineInstr *, unsigned, unsigned, unsigned, RegState);
++};
++} // namespace
++
++// This class handles spurious vector instrutions which do not
++// follow the ABI. For eg, vcombine(qf,qf) takes qf operands
++// instead of IEEE type. This diagnostic pass can be used
++// as a final verifier for XQF implementation. Turned off by
++// default
++char HexagonPostRAHandleQFP::ID = 0;
++
++namespace llvm {
++char &HexagonPostRAHandleQFPID = HexagonPostRAHandleQFP::ID;
++}
++
++// Check whether the instruction is added already, if not add it
++// along with the Register values and qf type.
++// If already added, then check the register values and edit them.
++void HexagonPostRAHandleQFP::conditionallyInsert(MachineInstr &MI,
++                                                 Register &DefReg) {
++  LLVM_DEBUG(dbgs() << "\nCollecting instruction using QF: "; MI.dump());
++  // check if the key exists.
++  Register Reg1 = MI.getOperand(1).getReg();
++
++  // If the use is a unary operation, make second register point to Defreg
++  // This ensures that secondOp is always true
++  Register Reg2 = MI.getNumOperands() == 2 ? DefReg : MI.getOperand(2).getReg();
++
++  if (QFUsesMap.find(&MI) != QFUsesMap.end()) {
++    auto Entry = QFUsesMap[&MI];
++    bool firstOp = ((Reg1 == DefReg) ? true : false) | Entry.first;
++    bool secondOp = ((Reg2 == DefReg) ? true : false) | Entry.second;
++    QFUsesMap[&MI] = std::make_pair(firstOp, secondOp);
++
++  } else { // encountered first time.
++    // Get the default type of the operand:
++    // True : IEEE type
++    // False : QF type
++    auto defaultPair = QFPSatInstsMap[MI.getOpcode()];
++    bool firstOp = (Reg1 == DefReg) ? true : defaultPair.first;
++    bool secondOp = (Reg2 == DefReg) ? true : defaultPair.second;
++    QFUsesMap[&MI] = std::make_pair(firstOp, secondOp);
++  }
++}
++
++unsigned short HexagonPostRAHandleQFP::getreplacedQFOpcode(unsigned srcOpcode,
++                                                           bool firstOp,
++                                                           bool secondOp) {
++  if (firstOp && secondOp) {
++    switch (srcOpcode) {
++    case Hexagon::V6_vadd_qf32:
++    case Hexagon::V6_vadd_qf32_mix:
++      return Hexagon::V6_vadd_sf;
++    case Hexagon::V6_vadd_qf16:
++    case Hexagon::V6_vadd_qf16_mix:
++      return Hexagon::V6_vadd_hf;
++
++    case Hexagon::V6_vsub_qf32:
++    case Hexagon::V6_vsub_qf32_mix:
++    case Hexagon::V6_vsub_sf_mix:
++      return Hexagon::V6_vsub_sf;
++    case Hexagon::V6_vsub_qf16:
++    case Hexagon::V6_vsub_qf16_mix:
++    case Hexagon::V6_vsub_hf_mix:
++      return Hexagon::V6_vsub_hf;
++
++    case Hexagon::V6_vmpy_qf32:
++      return Hexagon::V6_vmpy_qf32_sf;
++    case Hexagon::V6_vmpy_qf16:
++    case Hexagon::V6_vmpy_qf16_mix_hf:
++      return Hexagon::V6_vmpy_qf16_hf;
++    case Hexagon::V6_vmpy_qf32_qf16:
++    case Hexagon::V6_vmpy_qf32_mix_hf:
++      return Hexagon::V6_vmpy_qf32_hf;
++
++    case Hexagon::V6_vmpy_rt_qf16:
++      return Hexagon::V6_vmpy_rt_hf;
++    // v81 opcodes start
++    case Hexagon::V6_vabs_qf32_qf32:
++      return Hexagon::V6_vabs_qf32_sf;
++    case Hexagon::V6_vabs_qf16_qf16:
++      return Hexagon::V6_vabs_qf16_hf;
++    case Hexagon::V6_vneg_qf32_qf32:
++      return Hexagon::V6_vneg_qf32_sf;
++    case Hexagon::V6_vneg_qf16_qf16:
++      return Hexagon::V6_vneg_qf16_hf;
++    case Hexagon::V6_vilog2_qf32:
++      return Hexagon::V6_vilog2_sf;
++    case Hexagon::V6_vilog2_qf16:
++      return Hexagon::V6_vilog2_hf;
++    case Hexagon::V6_vconv_qf32_qf32:
++      return Hexagon::V6_vconv_qf32_sf;
++    case Hexagon::V6_vconv_qf16_qf16:
++      return Hexagon::V6_vconv_qf16_hf;
++      // v81 opcodes end
++
++    default:
++      llvm_unreachable("Invalid qf opcode in this scenario!");
++    }
++  } else if (firstOp) {
++    switch (srcOpcode) {
++    case Hexagon::V6_vadd_qf32:
++      return Hexagon::V6_vadd_qf32_mix; // interchange reqd
++    case Hexagon::V6_vadd_qf16:
++      return Hexagon::V6_vadd_qf16_mix; // interchange reqd
++
++    case Hexagon::V6_vsub_qf32:
++      if (HST->useHVXV81Ops())
++        return Hexagon::V6_vsub_sf_mix;
++      else if (HST->useHVXV79Ops())
++        return Hexagon::V6_vsub_sf; // conv reqd
++      else
++        llvm_unreachable("Invalid Hexagon Arch for this scenario!");
++    case Hexagon::V6_vsub_qf16:
++      if (HST->useHVXV81Ops())
++        return Hexagon::V6_vsub_hf_mix;
++      else if (HST->useHVXV79Ops())
++        return Hexagon::V6_vsub_hf; // conv reqd
++      else
++        llvm_unreachable("Invalid Hexagon Arch for this scenario!");
++    case Hexagon::V6_vsub_qf32_mix:
++      return Hexagon::V6_vsub_sf;
++    case Hexagon::V6_vsub_qf16_mix:
++      return Hexagon::V6_vsub_hf;
++
++    // This opcode does not have a mixed type. Hence if one
++    // of op1 or op2 is IEEE type and another qf type,
++    // send the opcode which takes in both as IEEE type.
++    case Hexagon::V6_vmpy_qf32:
++      return Hexagon::V6_vmpy_qf32_sf; // conv reqd
++    case Hexagon::V6_vmpy_qf16:
++      return Hexagon::V6_vmpy_qf16_mix_hf; // interchange reqd
++    case Hexagon::V6_vmpy_qf32_qf16:
++      return Hexagon::V6_vmpy_qf32_mix_hf; // interchange reqd
++
++    default:
++      return srcOpcode;
++    }
++  } else if (secondOp) {
++    switch (srcOpcode) {
++    case Hexagon::V6_vadd_qf32:
++      return Hexagon::V6_vadd_qf32_mix;
++    case Hexagon::V6_vadd_qf16:
++      return Hexagon::V6_vadd_qf16_mix;
++
++    case Hexagon::V6_vsub_qf32:
++      return Hexagon::V6_vsub_qf32_mix;
++    case Hexagon::V6_vsub_qf16:
++      return Hexagon::V6_vsub_qf16_mix;
++    case Hexagon::V6_vsub_sf_mix:
++      return Hexagon::V6_vsub_sf;
++    case Hexagon::V6_vsub_hf_mix:
++      return Hexagon::V6_vsub_hf;
++
++    case Hexagon::V6_vmpy_qf32:
++      return Hexagon::V6_vmpy_qf32_sf; // conv reqd
++
++    case Hexagon::V6_vmpy_qf16:
++      return Hexagon::V6_vmpy_qf16_mix_hf;
++    case Hexagon::V6_vmpy_qf32_qf16:
++      return Hexagon::V6_vmpy_qf32_mix_hf;
++
++    default:
++      return srcOpcode;
++    }
++  } else
++    return srcOpcode;
++}
++
++// Insert IEEE to Qf conversion instructions
++// is32bit: If true, SrcReg holds sf type, else a hf type
++void HexagonPostRAHandleQFP::insertIEEEToQF(MachineInstr *MI, Register SrcReg,
++                                            MachineOperand SrcOp,
++                                            bool is32bit = false) {
++
++  auto MBB = MI->getParent();
++  MachineInstrBuilder MIB;
++  const DebugLoc &DL = MI->getDebugLoc();
++
++  if (HST->useHVXV81Ops()) {
++    auto Op = is32bit ? Hexagon::V6_vconv_qf32_sf : Hexagon::V6_vconv_qf16_hf;
++    MIB = BuildMI(*MBB, *MI, DL, HII->get(Op), SrcReg)
++              .addReg(SrcReg, RegState::Renamable | RegState::Kill);
++    LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++               MIB.getInstr()->dump());
++
++  } else if (HST->useHVXV79Ops()) {
++    // Get an available register
++    auto V0_Reg = findAllocatableReg(MI);
++
++    MIB = BuildMI(*MBB, *MI, DL, HII->get(Hexagon::V6_vd0), V0_Reg);
++    LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++               MIB.getInstr()->dump());
++    auto Op = is32bit ? Hexagon::V6_vadd_sf : Hexagon::V6_vadd_hf;
++    MIB = BuildMI(*MBB, *MI, DL, HII->get(Op), SrcReg)
++              .addReg(SrcReg, RegState::Renamable | RegState::Kill)
++              .addReg(V0_Reg, RegState::Kill);
++    LLVM_DEBUG(dbgs() << "Inserting new instruction: "; MIB.getInstr()->dump());
++  } else
++    llvm_unreachable("Not possible to insert qf = hf/sf for this unknown\
++      subtarget!");
++}
++
++// Create a new instruction which handle sf/hf types to replace
++// qf type handling instructions.
++bool HexagonPostRAHandleQFP::HandleRefills() {
++
++  bool Changed = false;
++  LLVM_DEBUG(dbgs() << "HandleRefills: ");
++  std::vector<MachineInstr *> eraseList;
++
++  for (auto It : QFUsesMap) {
++
++    // Separately handle unary qf opcodes
++    MachineInstr *MI = It.first;
++    auto SrcOpcode = MI->getOpcode();
++    auto Pair = It.second;
++    auto SrcOp1 = MI->getOperand(1);
++    Register DestReg = MI->getOperand(0).getReg();
++    auto MBB = MI->getParent();
++    MachineInstrBuilder MIB;
++    LLVM_DEBUG(dbgs() << "\nProcessing: "; MI->dump());
++    const DebugLoc &DL = MI->getDebugLoc();
++
++    // lambda to handle unary qf operations
++    // ieee: True if the 1st operand is sf/hf type, false if qf type
++    auto HandleUnaryRefill = [&](MachineInstr *MI, bool isIeee) -> bool {
++      if (isIeee) {
++        auto finalOpcode = getreplacedQFOpcode(SrcOpcode, true, true);
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(finalOpcode), DestReg)
++                  .addReg(SrcOp1.getReg(), getRegState(SrcOp1));
++        Changed |= true;
++        LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++                   MIB.getInstr()->dump());
++      } else
++        eraseList.push_back(MI);
++      return Changed;
++    };
++
++    if (MI->getNumOperands() == 2) {
++      Changed |= HandleUnaryRefill(It.first, It.second.first);
++      continue;
++    }
++    auto SrcOp2 = MI->getOperand(2);
++
++    // lambda to handle mixed type vsub instructions for v79
++    auto HandleSub = [&](auto srcOpcode) -> bool {
++      auto ConvOp = (srcOpcode == Hexagon::V6_vsub_qf32)
++                        ? Hexagon::V6_vconv_sf_qf32
++                        : Hexagon::V6_vconv_hf_qf16;
++      auto SubOp = (ConvOp == Hexagon::V6_vconv_sf_qf32) ? Hexagon::V6_vsub_sf
++                                                         : Hexagon::V6_vsub_hf;
++
++      Register SrcOp2Reg = SrcOp2.getReg();
++      MIB = BuildMI(*MBB, *MI, DL, HII->get(ConvOp), SrcOp2Reg)
++                .addReg(SrcOp2Reg, getRegState(SrcOp2) | RegState::Kill);
++      LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++                 MIB.getInstr()->dump());
++      MIB = BuildMI(*MBB, *MI, DL, HII->get(SubOp), DestReg)
++                .addReg(SrcOp1.getReg(), getRegState(SrcOp1))
++                .addReg(SrcOp2Reg, getRegState(SrcOp2));
++      // If Op2 is not killed, it is used after this instruction.
++      // convert it back to original qf form.
++      if (!SrcOp2.isKill())
++        insertIEEEToQF(&*(++MI->getIterator()), SrcOp2.getReg(), SrcOp2);
++      return true;
++    };
++
++    // If both operands are sf type, we only need to replace the opcode.
++    if (Pair.first == true && Pair.second == true) {
++      auto finalOpcode = getreplacedQFOpcode(SrcOpcode, true, true);
++      MIB = BuildMI(*MBB, *MI, DL, HII->get(finalOpcode), DestReg)
++                .addReg(SrcOp1.getReg(), getRegState(SrcOp1))
++                .addReg(SrcOp2.getReg(), getRegState(SrcOp2));
++      Changed |= true;
++      LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++                 MIB.getInstr()->dump());
++
++    } else if (Pair.first == true && Pair.second == false) {
++      auto finalOpcode = getreplacedQFOpcode(SrcOpcode, true, false);
++
++      // If 2nd op is qf, first op is sf, convert the 2nd
++      // op to sf before inserting the vmpy instruction.
++      if (SrcOpcode == Hexagon::V6_vmpy_qf32) {
++        Register SrcOp2Reg = SrcOp2.getReg();
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(Hexagon::V6_vconv_sf_qf32),
++                      SrcOp2Reg)
++                  .addReg(SrcOp2Reg, getRegState(SrcOp2) | RegState::Kill);
++        LLVM_DEBUG(dbgs() << "\nInserting new instruction before: ";
++                   MIB.getInstr()->dump());
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(finalOpcode), DestReg)
++                  .addReg(SrcOp1.getReg(), getRegState(SrcOp1))
++                  .addReg(SrcOp2Reg, getRegState(SrcOp2));
++        // If Op2 is not killed convert back to qf, since there
++        // are uses for this qf op.
++        if (!SrcOp2.isKill())
++          insertIEEEToQF(&*(++MI->getIterator()), SrcOp2.getReg(), SrcOp2,
++                         true /* sf type reg */);
++
++        // if the opcode is mixed type, we use Op2 as first operand
++        // since that takes in qf type. Op1 is taken as second op.
++      } else if (finalOpcode == Hexagon::V6_vadd_qf16_mix ||
++                 finalOpcode == Hexagon::V6_vadd_qf32_mix ||
++                 finalOpcode == Hexagon::V6_vmpy_qf16_mix_hf ||
++                 finalOpcode == Hexagon::V6_vmpy_qf32_mix_hf) {
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(finalOpcode), DestReg)
++                  .addReg(SrcOp2.getReg(), getRegState(SrcOp2))
++                  .addReg(SrcOp1.getReg(), getRegState(SrcOp1));
++
++        // Subtracting is not associative, so if Op1 is sf/hf type and
++        // Op2 is qf type, we cannot interchange the operands.
++        // For v79, we convert Op2 to IEEE and use the non-mix type
++        // instruction for the subtraction.
++        // For v81, we have an appropiate opcode with vsub(sf/hf, qf) type
++      } else if ((SrcOpcode == Hexagon::V6_vsub_qf32 ||
++                  SrcOpcode == Hexagon::V6_vsub_qf16) &&
++                 HST->useHVXV79Ops()) {
++        Changed |= HandleSub(SrcOpcode);
++
++      } else {
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(finalOpcode), DestReg)
++                  .addReg(SrcOp1.getReg(), getRegState(SrcOp1))
++                  .addReg(SrcOp2.getReg(), getRegState(SrcOp2));
++      }
++      LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++                 MIB.getInstr()->dump());
++      Changed |= true;
++    } else if (Pair.first == false && Pair.second == true) {
++
++      auto finalOpcode = getreplacedQFOpcode(SrcOpcode, false, true);
++      // If 2nd op is sf, first op is qf, convert the 1st
++      // op to sf before inserting the vmpy instruction.
++      if (SrcOpcode == Hexagon::V6_vmpy_qf32) {
++        Register SrcOp1Reg = SrcOp1.getReg();
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(Hexagon::V6_vconv_sf_qf32),
++                      SrcOp1Reg)
++                  .addReg(SrcOp1Reg, getRegState(SrcOp1) | RegState::Kill);
++        LLVM_DEBUG(dbgs() << "\nInserting new instruction before: ";
++                   MIB.getInstr()->dump());
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(finalOpcode), DestReg)
++                  .addReg(SrcOp1Reg, getRegState(SrcOp1))
++                  .addReg(SrcOp2.getReg(), getRegState(SrcOp2));
++        LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++                   MIB.getInstr()->dump());
++        // If Op1 is not killed convert back to qf, since there
++        // are uses for this qf op.
++        if (!SrcOp1.isKill())
++          insertIEEEToQF(&*(++MI->getIterator()), SrcOp1.getReg(), SrcOp1,
++                         true /*sf type reg*/);
++      } else {
++
++        MIB = BuildMI(*MBB, *MI, DL, HII->get(finalOpcode), DestReg)
++                  .addReg(SrcOp1.getReg(), getRegState(SrcOp1))
++                  .addReg(SrcOp2.getReg(), getRegState(SrcOp2));
++        LLVM_DEBUG(dbgs() << "\nInserting new instruction: ";
++                   MIB.getInstr()->dump());
++      }
++      Changed |= true;
++    } else {
++      // Both the operands of this instructions are valid, so no use of
++      // this instruction is to be modified. We need to remove this
++      // instruction from the action map QFUsesMap.
++      eraseList.push_back(MI);
++    }
++  }
++
++  for (MachineInstr *delMI : eraseList)
++    QFUsesMap.erase(delMI);
++
++  return Changed;
++}
++
++// Insert a new instruction.
++void HexagonPostRAHandleQFP::insertInstr(MachineInstr *MI, unsigned MIOpcode,
++                                         unsigned SrcReg, unsigned DstReg,
++                                         RegState Flags) {
++
++  MachineInstrBuilder MIB;
++  MachineBasicBlock *MBB = MI->getParent();
++  DebugLoc DL = MI->getDebugLoc();
++  MachineBasicBlock::iterator MIt = MI;
++  auto MINext = ++MI->getIterator();
++  if (++MIt == MBB->end())
++    MIB = BuildMI(MBB, DL, HII->get(MIOpcode), DstReg).addReg(SrcReg, Flags);
++  else
++    MIB = BuildMI(*MBB, MINext, DL, HII->get(MIOpcode), DstReg)
++              .addReg(SrcReg, Flags);
++  LLVM_DEBUG(dbgs() << "\t\tInserting after conv: "; MIB.getInstr()->dump());
++}
++
++// Find an available vector register to store 0x0. We have reserved vector
++// register v30 to be exempted from being used during register allocation
++// for this purpose.
++MCPhysReg HexagonPostRAHandleQFP::findAllocatableReg(MachineInstr *MI) const {
++  LLVM_DEBUG(dbgs() << "\tUsing V30 register to store a vector of zeroes!");
++  return Hexagon::V30;
++}
++
++// Insert qf = sf/hf conversions before non-saturating instructions
++bool HexagonPostRAHandleQFP::HandleNonSatInstr() {
++
++  for (auto It : QFNonSatMIs) {
++    MachineInstr *MI = It.first;
++    auto MIOpcode = MI->getOpcode();
++    auto Op = MI->getOperand(1);
++    Register DefReg = Op.getReg();
++    LLVM_DEBUG(dbgs() << "Analyzing convert instruction: "; MI->dump());
++    // Handle hf = qf16.
++    // Handle f8 = qf16
++    if (MIOpcode == Hexagon::V6_vconv_hf_qf16 ||
++        MIOpcode == Hexagon::V6_vconv_f8_qf16) {
++
++      insertIEEEToQF(MI, DefReg, Op);
++      // TODO Check if there are any reaching def which is qf generating type.
++      // That op should be converted to sf/hf
++      if (!Op.isKill())
++        insertInstr(MI, Hexagon::V6_vconv_hf_qf16, DefReg, DefReg,
++                    getRegState(Op) | RegState::Kill);
++
++      // Handle hf = qf.qf.
++      // Handle bf = qf.qf
++    } else if (MIOpcode == Hexagon::V6_vconv_hf_qf32 ||
++               MIOpcode == Hexagon::V6_vconv_bf_qf32) {
++      Register DefLo = HRI->getSubReg(DefReg, Hexagon::vsub_lo);
++      Register DefHi = HRI->getSubReg(DefReg, Hexagon::vsub_hi);
++
++      if (It.second == ConvOperand::HiLo) {
++        insertIEEEToQF(MI, DefLo, Op, true /* sf type */);
++        insertIEEEToQF(MI, DefHi, Op, true /* sf type */);
++
++        // Check which subregister is live and convert it
++        // and according insert conversion for that subreg
++        auto KillState = SubRegKillSet[MI];
++        if (!KillState.first)
++          insertInstr(MI, Hexagon::V6_vconv_sf_qf32, DefHi, DefHi,
++                      getRegState(Op) | RegState::Kill);
++
++        if (!KillState.second)
++          insertInstr(MI, Hexagon::V6_vconv_sf_qf32, DefLo, DefLo,
++                      getRegState(Op) | RegState::Kill);
++
++      } else if (It.second == ConvOperand::Hi) {
++        insertIEEEToQF(MI, DefHi, Op, true /* sf type */);
++        if (!Op.isKill())
++          insertInstr(MI, Hexagon::V6_vconv_sf_qf32, DefHi, DefHi,
++                      getRegState(Op) | RegState::Kill);
++
++      } else { // It.second == ConvOperand::Lo
++        insertIEEEToQF(MI, DefLo, Op, true /* sf type */);
++        if (!Op.isKill())
++          insertInstr(MI, Hexagon::V6_vconv_sf_qf32, DefLo, DefLo,
++                      getRegState(Op) | RegState::Kill);
++      }
++      // Handle sf = qf32.
++    } else if (MIOpcode == Hexagon::V6_vconv_sf_qf32) {
++      insertIEEEToQF(MI, DefReg, Op, true /* sf type */);
++      if (!Op.isKill())
++        insertInstr(MI, Hexagon::V6_vconv_sf_qf32, DefReg, DefReg,
++                    getRegState(Op) | RegState::Kill);
++
++    } else {
++      llvm_unreachable("Unhandled non-saturating instruction!");
++    }
++  }
++
++  if (QFNonSatMIs.empty())
++    return false;
++  return true;
++}
++
++// Calculates the liveness of subregisters (whether killed or not)
++// when double register is used. This is necessary because RDF
++// carries liveness of the superreg and not the subregisters individually
++void HexagonPostRAHandleQFP::collectLivenessForSubregs(
++    NodeAddr<UseNode *> &UsedNode) {
++  RegisterRef UR = UsedNode.Addr->getRegRef(*DFG);
++  NodeAddr<StmtNode *> UseStmt = UsedNode.Addr->getOwner(*DFG);
++  MachineInstr *UseInstr = UseStmt.Addr->getCode();
++  auto UseOp = UseInstr->getOperand(1);
++  Register UseDefLo = HRI->getSubReg(UseOp.getReg(), Hexagon::vsub_lo);
++  Register UseDefHi = HRI->getSubReg(UseOp.getReg(), Hexagon::vsub_hi);
++
++  NodeSet Visited, Defs;
++  bool isHiSubRegKilled = true, isLoSubRegKilled = true;
++  const auto &P = LV->getAllReachingDefsRec(UR, UsedNode, Visited, Defs);
++
++  if (!P.second)
++    return;
++
++  for (auto RD : P.first) {
++    NodeAddr<DefNode *> RegDef = DFG->addr<DefNode *>(RD);
++    Register RR = RegDef.Addr->getRegRef(*DFG).Id;
++    if (HRI->isFakeReg(RR))
++      continue;
++    NodeAddr<StmtNode *> RegStmt = RegDef.Addr->getOwner(*DFG);
++    MachineInstr *ReachDefInstr = RegStmt.Addr->getCode();
++    if (ReachDefInstr == nullptr)
++      continue;
++
++    // If the reaching def is WReg, then the kill flag in the use is correct
++    // since there is no subreg
++    Register DefReg = ReachDefInstr->getOperand(0).getReg();
++    if (Hexagon::HvxWRRegClass.contains(DefReg)) {
++      if (!UseOp.isKill())
++        isHiSubRegKilled = isLoSubRegKilled = false;
++
++      // If the reaching ref is VReg, the liveness might be different between
++      // each of the subreg. Handle them individually.
++      // Find the other uses after this use for the reaching def. If it exists,
++      // the subregister is live after the use.
++      // NOTE: Assumption: The uses are in order in RDF.
++    } else {
++      NodeSet UseSet;
++      getAllRealUses(RegDef, UseSet, LV, DFG);
++      for (auto UIntr : UseSet) {
++        NodeAddr<UseNode *> UA = DFG->addr<UseNode *>(UIntr);
++        NodeAddr<StmtNode *> UseStmt = UA.Addr->getOwner(*DFG);
++        MachineInstr *UseMI = UseStmt.Addr->getCode();
++        if (UseMI == nullptr)
++          continue;
++        // When we reach the use set a flag to see if there are other uses
++        // after this. If yes, then the register is not killed.
++        if (UseMI == UseInstr)
++          continue;
++        if (HII->isMIBefore(UseInstr, UseMI) && DefReg == UseDefLo) {
++          isLoSubRegKilled = false;
++          break;
++        }
++        if (HII->isMIBefore(UseInstr, UseMI) && DefReg == UseDefHi) {
++          isHiSubRegKilled = false;
++          break;
++        }
++      }
++    }
++  }
++  SubRegKillSet[UseInstr] = std::make_pair(isHiSubRegKilled, isLoSubRegKilled);
++}
++
++// Store all refill instructions.
++void HexagonPostRAHandleQFP::collectQFPStackRefill(
++    NodeAddr<StmtNode *> *StNode) {
++  NodeAddr<DefNode *> DfNode =
++      StNode->Addr->members_if(DFG->IsDef, *DFG).front();
++  MachineInstr *MI = StNode->Addr->getCode();
++  // Check if operand to this instruction is a frame index.
++  const MachineOperand &OpFI = MI->getOperand(1);
++  if (!OpFI.isFI())
++    return;
++
++  // LLVM_DEBUG(dbgs() << "\n[Stack Refill]: Collecting: "; MI->dump());
++  RefillMIs.push_back(DfNode);
++}
++
++// Iterate over the uses of the qf generating instruction in RDG graph
++// If we get a qf to IEEE convert instruction, add it to a list.
++void HexagonPostRAHandleQFP::collectConvQFInstr(NodeAddr<DefNode *> &RegDef) {
++
++  NodeSet UseSet;
++  NodeAddr<StmtNode *> DefStmt = RegDef.Addr->getOwner(*DFG);
++  MachineInstr *DefInstr = DefStmt.Addr->getCode();
++  getAllRealUses(RegDef, UseSet, LV, DFG);
++  for (auto UI : UseSet) {
++    NodeAddr<UseNode *> UA = DFG->addr<UseNode *>(UI);
++    if (UA.Addr->getFlags() & NodeAttrs::PhiRef)
++      continue;
++    NodeAddr<StmtNode *> UseStmt = UA.Addr->getOwner(*DFG);
++    MachineInstr *QFConvInstr = UseStmt.Addr->getCode();
++    if (std::find(QFNonSatInstr.begin(), QFNonSatInstr.end(),
++                  QFConvInstr->getOpcode()) != QFNonSatInstr.end()) {
++
++      // The use is a double register type. But the def can be hi/lo or double
++      // type. So conversion needs to be inserted only for the type
++      // which is in IEEE form.
++      auto UseReg = QFConvInstr->getOperand(1).getReg();
++      auto DefReg = DefInstr->getOperand(0).getReg();
++      if (Hexagon::HvxWRRegClass.contains(UseReg)) {
++
++        collectLivenessForSubregs(UA);
++        unsigned Op = ConvOperand::Undefined;
++        if (QFNonSatMIs.contains(QFConvInstr))
++          Op = QFNonSatMIs[QFConvInstr];
++
++        // Def is double type
++        if (Hexagon::HvxWRRegClass.contains(DefReg))
++          Op = ConvOperand::HiLo;
++        // Def is lo of double type
++        else if (DefReg == HRI->getSubReg(UseReg, Hexagon::vsub_lo))
++          Op |= ConvOperand::Lo;
++        // Def is hi of double type
++        else
++          Op |= ConvOperand::Hi;
++        QFNonSatMIs[QFConvInstr] = Op;
++      } else // for other def-use, BothOp is used as default
++        QFNonSatMIs[QFConvInstr] = ConvOperand::HiLo;
++
++      IgnoreInsertConvList.insert(DefInstr);
++      LLVM_DEBUG(std::string OpType = ""; switch (QFNonSatMIs[QFConvInstr]) {
++        case ConvOperand::HiLo:
++          OpType = "HiLo Op";
++          break;
++        case ConvOperand::Lo:
++          OpType = "Lo Op";
++          break;
++        case ConvOperand::Hi:
++          OpType = "Hi Op";
++          break;
++        default:
++          OpType = "Undefined";
++      } dbgs() << "Collecting convert instruction with type "
++               << OpType << " : ";
++                 QFConvInstr->dump());
++    }
++  }
++}
++
++// Check if the COPY statements use came from a def which generates
++// a qf type. If yes, collect it in a vector. Also, collect copies
++// with reaching def other copies (nested copies).
++void HexagonPostRAHandleQFP::collectCopies(NodeAddr<StmtNode *> *StNode) {
++
++  NodeAddr<DefNode *> CopyDef =
++      StNode->Addr->members_if(DFG->IsDef, *DFG).front();
++  MachineInstr *CopyInstr = StNode->Addr->getCode();
++  LLVM_DEBUG(dbgs() << "\nAnalyzing copy: "; StNode->Addr->getCode()->dump());
++
++  for (NodeAddr<UseNode *> UA : StNode->Addr->members_if(DFG->IsUse, *DFG)) {
++    RegisterRef UR = UA.Addr->getRegRef(*DFG);
++    NodeSet Visited, Defs;
++    const auto &P = LV->getAllReachingDefsRec(UR, UA, Visited, Defs);
++    if (!P.second) {
++      LLVM_DEBUG({
++        dbgs() << "*** Unable to collect all reaching defs for use ***\n"
++               << PrintNode<UseNode *>(UA, *DFG) << '\n';
++      });
++      continue;
++    }
++
++    // Note: there can be multiple reaching defs of the copy
++    for (auto RD : P.first) {
++      NodeAddr<DefNode *> RegDef = DFG->addr<DefNode *>(RD);
++      Register RR = RegDef.Addr->getRegRef(*DFG).Id;
++      if (HRI->isFakeReg(RR))
++        continue;
++      NodeAddr<StmtNode *> RegStmt = RegDef.Addr->getOwner(*DFG);
++      MachineInstr *ReachDefInstr = RegStmt.Addr->getCode();
++      if (ReachDefInstr == nullptr)
++        continue;
++      LLVM_DEBUG(dbgs() << "\t[Reaching Def]: "; ReachDefInstr->dump());
++
++      // If the reaching def is a COPY,collect it with reg type ieee
++      if (ReachDefInstr->getOpcode() == TargetOpcode::COPY) {
++        auto pairKey = std::make_pair(CopyDef.Id, RegDef.Id);
++        QFCopys[pairKey] = RegType::ieee;
++        continue;
++      }
++
++      // If the reaching def is a qf instr, collect the copy.
++      // reg type is selected based on the op
++      auto RegT = RegType::undefined;
++      if (HII->isQFPInstr(ReachDefInstr)) {
++        if (HII->isQFP32Instr(ReachDefInstr)) {
++          // check whether the copies register is hvxWR or hvxVR type
++          // NOTE: Assumption: A copy's reaching def shall not be 2,
++          // i.e., for each of the subregister.
++          if (Hexagon::HvxWRRegClass.contains(
++                  ReachDefInstr->getOperand(0).getReg()))
++            RegT = RegType::qf32_double;
++          else
++            RegT = RegType::qf32;
++        } else if (HII->isQFP16Instr(ReachDefInstr)) {
++          // Check if qf16 instruction outputs double-wide register
++          if (Hexagon::HvxWRRegClass.contains(
++                  ReachDefInstr->getOperand(0).getReg())) {
++            RegT = RegType::qf16_double;
++          } else {
++            RegT = RegType::qf16;
++          }
++        }
++      } else {
++        // if the copy involves non-qf vector registers collect it too
++        Register CopyReg = CopyInstr->getOperand(1).getReg();
++        if (Hexagon::HvxWRRegClass.contains(CopyReg) ||
++            Hexagon::HvxVRRegClass.contains(CopyReg))
++          RegT = RegType::ieee;
++        else
++          continue;
++      }
++      auto pairKey = std::make_pair(CopyDef.Id, RegDef.Id);
++      QFCopys[pairKey] = RegT;
++    }
++  }
++}
++
++// Inserts an qf instruction to a list. These instruction
++// values are spilled to the stack.
++void HexagonPostRAHandleQFP::collectQFPStackSpill(
++    NodeAddr<StmtNode *> *StNode) {
++
++  MachineInstr *MI = StNode->Addr->getCode();
++  LLVM_DEBUG(dbgs() << "\n[Stack Spill]: Analyzing: "; MI->dump());
++  // Check if operand to this instruction is a frame index.
++  const MachineOperand &OpFI = MI->getOperand(0);
++  if (!OpFI.isFI())
++    return;
++
++  // Pre-RegAlloc
++  //%46:hvxwr = V6_vmpy_qf32_hf %7:hvxvr, %10:hvxvr
++  // PS_vstorerw_ai %stack.3, 0, %46:hvxwr :: (store (s2048) into %stack.3,
++  // align 128)
++  // Post-RegAlloc
++  // renamable $w4 = V6_vmpy_qf32_hf killed renamable $v1, renamable $v0
++  // PS_vstorerw_ai %stack.3, 0, renamable $w4 :: (store (s2048) into %stack.3,
++  // align 128)
++
++  if (!MI->getOperand(2).isReg())
++    return;
++
++  // Iterate over the operands of the store instruction to get their reaching
++  // defs
++  NodeId QFPDefNode = 0;
++  for (NodeAddr<UseNode *> UA : StNode->Addr->members_if(DFG->IsUse, *DFG)) {
++    QFPDefNode = UA.Addr->getReachingDef();
++
++    // Get the defining instruction node(s)
++    NodeAddr<DefNode *> RegDef = DFG->addr<DefNode *>(QFPDefNode);
++    assert(QFPDefNode != 0 && "Reaching def computation error");
++    NodeAddr<StmtNode *> RegStmt = RegDef.Addr->getOwner(*DFG);
++    MachineInstr *ReachDefInstr = RegStmt.Addr->getCode();
++    if (ReachDefInstr == nullptr)
++      continue;
++    LLVM_DEBUG(dbgs() << "[Stack Spill]:\tReaching Def of operand:";
++               ReachDefInstr->dump());
++    // Reaching Def cannot be a phi instruction.
++    if (RegDef.Addr->getFlags() & NodeAttrs::PhiRef)
++      continue;
++
++    if (!HII->isQFPInstr(ReachDefInstr))
++      continue;
++
++    auto RR = RegDef.Addr->getRegRef(*DFG).Id;
++    if (HRI->isFakeReg(RR))
++      continue;
++
++    LLVM_DEBUG(dbgs() << "Found a QFPStackSpill via \n"; MI->dump();
++               dbgs() << "The corresponding XQF instruction is:\n";
++               ReachDefInstr->dump());
++
++    // Collect the spills.
++    SpillMIs.push_back(std::make_pair(MI, RegDef));
++  }
++}
++
++// Find the uses of qf generating instructions and conditionally add them
++// to a list.
++void HexagonPostRAHandleQFP::collectQFUses(NodeAddr<DefNode *> RegDef,
++                                           MachineInstr *DefMI) {
++
++  NodeSet UseSet;
++  LLVM_DEBUG(dbgs() << " Finding uses of: "; DefMI->dump(););
++  getAllRealUses(RegDef, UseSet, LV, DFG);
++
++  for (auto UI : UseSet) {
++    NodeAddr<UseNode *> UA = DFG->addr<UseNode *>(UI);
++    if (UA.Addr->getFlags() & NodeAttrs::PhiRef)
++      continue;
++    NodeAddr<StmtNode *> UseStmt = UA.Addr->getOwner(*DFG);
++    MachineInstr *UseMI = UseStmt.Addr->getCode();
++    LLVM_DEBUG(dbgs() << "\t\t\t[Reached Use of QF operand]: "; UseMI->dump());
++
++    Register UsedReg = UA.Addr->getRegRef(*DFG).Id;
++    if (QFPSatInstsMap.find(UseMI->getOpcode()) != QFPSatInstsMap.end()) {
++      if (PossibleMultiReachDefs.count(UseStmt.Id) == 0) {
++        PossibleMultiReachDefs.insert(UseStmt.Id);
++        LLVM_DEBUG(dbgs() << "\n[Collect instr with possible multidef]:";
++                   UseMI->dump());
++      }
++      conditionallyInsert(*UseMI, UsedReg);
++    }
++  }
++}
++
++// Process the list which can have multiple definitions. A possible case
++// can be reaching defs to be a copy and a qf-generating instr respectively.
++// Only handle the qf-generating instruction by inserting convert to sf/hf
++// after it. Additionally, then handle the reached uses of this reaching
++// def since the type has changed to sf/hf from qf after the conversion.
++bool HexagonPostRAHandleQFP::HandleMultiReachingDefs() {
++
++  bool Changed = false;
++  // Note: It may seem this loop can further add to PossibleMultiReachDefs.
++  // But it is not expected to since if any instruction has multiple
++  // definitions it should already be present in it.
++  for (auto It : PossibleMultiReachDefs) {
++    NodeAddr<StmtNode *> Stmt = DFG->addr<StmtNode *>(It);
++    MachineInstr *Instr = Stmt.Addr->getCode();
++    // get the op type for the original instruction.
++    // True is sf/hf, false is qf
++    auto Pair = QFUsesMap[Instr];
++
++    unsigned short UseNo = 1;
++    // Iterate over the operands
++    for (NodeAddr<UseNode *> UA : Stmt.Addr->members_if(DFG->IsUse, *DFG)) {
++
++      // If the type is qf for the operand,
++      // we skip since there is no scope for mismatch
++      if ((UseNo == 1 && Pair.first == false) ||
++          (UseNo == 2 && Pair.second == false)) {
++        ++UseNo;
++        continue;
++      }
++
++      RegisterRef UR = UA.Addr->getRegRef(*DFG);
++      NodeSet Visited, Defs;
++      const auto &P = LV->getAllReachingDefsRec(UR, UA, Visited, Defs);
++      if (!P.second) {
++        LLVM_DEBUG({
++          dbgs() << "*** Unable to collect all reaching defs for use ***\n"
++                 << PrintNode<UseNode *>(UA, *DFG) << '\n';
++        });
++        continue;
++      }
++
++      // Iterate over the reaching defs and process the ones which
++      // generate qf. Ignore the ones which have already been handled
++      for (auto RD : P.first) {
++        NodeAddr<DefNode *> RegDef = DFG->addr<DefNode *>(RD);
++
++        // Ignore fake reaches
++        auto RR = RegDef.Addr->getRegRef(*DFG).Id;
++        if (HRI->isFakeReg(RR))
++          continue;
++
++        NodeAddr<StmtNode *> RegStmt = RegDef.Addr->getOwner(*DFG);
++        MachineInstr *ReachDefInstr = RegStmt.Addr->getCode();
++
++        if (ReachDefInstr == nullptr)
++          continue;
++
++        if (!HII->isQFPInstr(ReachDefInstr))
++          continue;
++        if (IgnoreInsertConvList.find(ReachDefInstr) !=
++            IgnoreInsertConvList.end())
++          continue;
++        LLVM_DEBUG(dbgs() << "[Multidef] Handling reaching def:";
++                   ReachDefInstr->dump());
++
++        auto *MBB = ReachDefInstr->getParent();
++        auto &dl = ReachDefInstr->getDebugLoc();
++        auto NextReachMI = ++ReachDefInstr->getIterator();
++        auto DefOp = ReachDefInstr->getOperand(0);
++        Register OpReg = DefOp.getReg();
++        MachineInstrBuilder MIB;
++
++        // For double vector regs, two conversions are inserted. Single
++        // conversion for qf32 type
++        if (HII->isQFP32Instr(ReachDefInstr)) {
++          // if the reaching def is a qf double type
++          if (Hexagon::HvxWRRegClass.contains(
++                  ReachDefInstr->getOperand(0).getReg())) {
++            Register RegLo = HRI->getSubReg(OpReg, Hexagon::vsub_lo);
++            Register RegHi = HRI->getSubReg(OpReg, Hexagon::vsub_hi);
++            MIB = BuildMI(*MBB, NextReachMI, dl,
++                          HII->get(Hexagon::V6_vconv_sf_qf32), RegLo)
++                      .addReg(RegLo, RegState::Renamable | RegState::Kill);
++            LLVM_DEBUG(dbgs() << "[MultiDef] Inserting convert instruction: ";
++                       MIB.getInstr()->dump());
++            MIB = BuildMI(*MBB, NextReachMI, dl,
++                          HII->get(Hexagon::V6_vconv_sf_qf32), RegHi)
++                      .addReg(RegHi, RegState::Renamable | RegState::Kill);
++          } else { // If the reaching def is a qf type
++            MIB = BuildMI(*MBB, NextReachMI, dl,
++                          HII->get(Hexagon::V6_vconv_sf_qf32), OpReg)
++                      .addReg(OpReg, RegState::Renamable | RegState::Kill);
++          }
++        }
++        if (HII->isQFP16Instr(ReachDefInstr)) {
++          MIB = BuildMI(*MBB, NextReachMI, dl,
++                        HII->get(Hexagon::V6_vconv_hf_qf16), OpReg)
++                    .addReg(OpReg, RegState::Renamable | RegState::Kill);
++        }
++        LLVM_DEBUG(dbgs() << "[MultiDef] Inserting convert instruction: ";
++                   MIB.getInstr()->dump(); dbgs() << "\tafter instruction: ";
++                   ReachDefInstr->dump());
++
++        // find the uses of the newly transformed to sf/hf and handle
++        // accordingly. Uses can be vmul/vadd/etc. types or converts which take
++        // in qf types.
++        collectQFUses(RegDef, ReachDefInstr);
++        collectConvQFInstr(RegDef);
++        IgnoreInsertConvList.insert(ReachDefInstr);
++        Changed = true;
++      }
++      UseNo++;
++    }
++  }
++  return Changed;
++}
++
++bool HexagonPostRAHandleQFP::HandleConvertToQfCopies() {
++  if (ConvertToQfCopies.empty())
++    return false;
++
++  LLVM_DEBUG(
++      dbgs() << "\n*** Inserting convert to qf for selected copies ***\n");
++
++  // Any reached use of the copy should not already be collected to be
++  // converted to IEEE. If present, it means that the reached use has
++  // other reaching def with type IEEE, other than this copy.
++  auto CanTransform = [&](MachineInstr *MI, unsigned OpNo) -> bool {
++    if (QFUsesMap.find(MI) != QFUsesMap.end()) {
++      auto Entry = QFUsesMap[MI];
++      if (OpNo == 1 && Entry.first == true)
++        return false;
++      if (OpNo == 2 && Entry.second == true)
++        return false;
++    }
++    return true;
++  };
++
++  for (auto It : ConvertToQfCopies) {
++    NodeSet UseSet;
++    getAllRealUses(It.second.first, UseSet, LV, DFG);
++
++    bool transform = true;
++    for (auto UI : UseSet) {
++      NodeAddr<UseNode *> UA = DFG->addr<UseNode *>(UI);
++      if (UA.Addr->getFlags() & NodeAttrs::PhiRef)
++        continue;
++      NodeAddr<StmtNode *> UseStmt = UA.Addr->getOwner(*DFG);
++      MachineInstr *UseMI = UseStmt.Addr->getCode();
++      unsigned OpNo = UA.Addr->getOp().getOperandNo();
++
++      if (!CanTransform(UseMI, OpNo)) {
++        transform = false;
++        break;
++      }
++    }
++
++    if (transform) {
++
++      LLVM_DEBUG(dbgs() << "\n[HandleConvertToQfCopies]\tProcessing Copy:";
++                 It.first->dump());
++      auto CopyOp = It.first->getOperand(0);
++      auto NextMIIter = std::next(It.first->getIterator());
++      switch (It.second.second) {
++      case RegType::qf32_double: {
++        Register DefLo = HRI->getSubReg(CopyOp.getReg(), Hexagon::vsub_lo);
++        Register DefHi = HRI->getSubReg(CopyOp.getReg(), Hexagon::vsub_hi);
++        insertIEEEToQF(&*NextMIIter, DefLo, CopyOp, /*is32bit=*/true);
++        insertIEEEToQF(&*NextMIIter, DefHi, CopyOp, /*is32bit=*/true);
++        break;
++      }
++      case RegType::qf16_double: {
++        Register DefLo = HRI->getSubReg(CopyOp.getReg(), Hexagon::vsub_lo);
++        Register DefHi = HRI->getSubReg(CopyOp.getReg(), Hexagon::vsub_hi);
++        insertIEEEToQF(&*NextMIIter, DefLo, CopyOp, /*is32bit=*/false);
++        insertIEEEToQF(&*NextMIIter, DefHi, CopyOp, /*is32bit=*/false);
++        break;
++      }
++      case RegType::qf16:
++        insertIEEEToQF(&*NextMIIter, CopyOp.getReg(), CopyOp,
++                       /*is32bit=*/false);
++        break;
++      case RegType::qf32:
++        insertIEEEToQF(&*NextMIIter, CopyOp.getReg(), CopyOp, /*is32bit=*/true);
++        break;
++      default:
++        break;
++      }
++    } else {
++      collectQFUses(It.second.first, It.first);
++      collectConvQFInstr(It.second.first);
++    }
++  }
++  return true;
++}
++
++bool HexagonPostRAHandleQFP::HandleReachDefOfCopies() {
++  if (ReachDefOfCopies.empty())
++    return false;
++
++  MachineInstrBuilder MIB;
++  for (auto It : ReachDefOfCopies) {
++    auto *MBB = It.first->getParent();
++    auto &dl = It.first->getDebugLoc();
++    auto NextMI = ++(It.first)->getIterator();
++    auto RegOp = It.first->getOperand(0);
++    Register OpReg = RegOp.getReg();
++
++    if (It.second == RegType::qf32)
++      MIB =
++          BuildMI(*MBB, NextMI, dl, HII->get(Hexagon::V6_vconv_sf_qf32), OpReg)
++              .addReg(OpReg, RegState::Renamable | RegState::Kill);
++    else if (It.second == RegType::qf16)
++      MIB =
++          BuildMI(*MBB, NextMI, dl, HII->get(Hexagon::V6_vconv_hf_qf16), OpReg)
++              .addReg(OpReg, RegState::Renamable | RegState::Kill);
++    else if (It.second == RegType::qf32_double) {
++      Register RegLo = HRI->getSubReg(OpReg, Hexagon::vsub_lo);
++      Register RegHi = HRI->getSubReg(OpReg, Hexagon::vsub_hi);
++      MIB =
++          BuildMI(*MBB, NextMI, dl, HII->get(Hexagon::V6_vconv_sf_qf32), RegLo)
++              .addReg(RegLo, RegState::Renamable | RegState::Kill);
++      LLVM_DEBUG(dbgs() << "Inserting convert instruction: ";
++                 MIB.getInstr()->dump());
++      MIB =
++          BuildMI(*MBB, NextMI, dl, HII->get(Hexagon::V6_vconv_sf_qf32), RegHi)
++              .addReg(RegHi, RegState::Renamable | RegState::Kill);
++    } else if (It.second == RegType::qf16_double) {
++      Register RegLo = HRI->getSubReg(OpReg, Hexagon::vsub_lo);
++      Register RegHi = HRI->getSubReg(OpReg, Hexagon::vsub_hi);
++      MIB =
++          BuildMI(*MBB, NextMI, dl, HII->get(Hexagon::V6_vconv_hf_qf16), RegLo)
++              .addReg(RegLo, RegState::Renamable | RegState::Kill);
++      LLVM_DEBUG(dbgs() << "Inserting convert instruction: ";
++                 MIB.getInstr()->dump());
++      MIB =
++          BuildMI(*MBB, NextMI, dl, HII->get(Hexagon::V6_vconv_hf_qf16), RegHi)
++              .addReg(RegHi, RegState::Renamable | RegState::Kill);
++    }
++    LLVM_DEBUG(dbgs() << "Inserting convert instruction: ";
++               MIB.getInstr()->dump(); dbgs() << "\tafter instruction: ";
++               It.first->dump());
++  }
++  return true;
++}
++
++HexagonPostRAHandleQFP::RegType
++HexagonPostRAHandleQFP::HasQfUses(NodeAddr<DefNode *> CopyDef,
++                                  MachineInstr *CopyMI) {
++  NodeSet UseSet;
++  getAllRealUses(CopyDef, UseSet, LV, DFG);
++
++  if (UseSet.size() == 0)
++    return RegType::undefined;
++
++  bool hasQf16Use = false;
++  bool hasQf32Use = false;
++
++  LLVM_DEBUG(dbgs() << "[COPY]\nUses of the copy are: ");
++  for (auto UI : UseSet) {
++    NodeAddr<UseNode *> UA = DFG->addr<UseNode *>(UI);
++    if (UA.Addr->getFlags() & NodeAttrs::PhiRef)
++      continue;
++    NodeAddr<StmtNode *> UseStmt = UA.Addr->getOwner(*DFG);
++    MachineInstr *UseMI = UseStmt.Addr->getCode();
++    unsigned OpNo = UA.Addr->getOp().getOperandNo();
++
++    LLVM_DEBUG(dbgs() << "\nCopy's use: "; UseMI->dump());
++    // Any reached use should not be a non-qf instruction
++    if (!HII->usesQFOperand(UseMI, OpNo))
++      return RegType::ieee;
++
++    // Determine the qf type from the use
++    if (HII->usesQF16Operand(UseMI, OpNo))
++      hasQf16Use = true;
++    else if (HII->usesQF32Operand(UseMI, OpNo))
++      hasQf32Use = true;
++
++    // Any reached use should not already be converted to IEEE.
++    // If present, it means that the reached use has other reaching def
++    // other than the copy.
++    if (QFUsesMap.find(UseMI) != QFUsesMap.end()) {
++      auto Entry = QFUsesMap[UseMI];
++      if (OpNo == 1 && Entry.first == true)
++        return RegType::ieee;
++      if (OpNo == 2 && Entry.second == true)
++        return RegType::ieee;
++    }
++  }
++
++  // Set the output type based on uses
++  if (hasQf16Use) {
++    // Check if copy destination is double-wide
++    if (Hexagon::HvxWRRegClass.contains(CopyMI->getOperand(0).getReg()))
++      return RegType::qf16_double;
++    else
++      return RegType::qf16;
++  } else if (hasQf32Use) {
++    if (Hexagon::HvxWRRegClass.contains(CopyMI->getOperand(0).getReg()))
++      return RegType::qf32_double;
++    else
++      return RegType::qf32;
++  }
++
++  return RegType::undefined;
++}
++
++// Go through the collected copies and insert conversion to sf/hf
++// conditionally *after their reaching defs*. This is done because there
++// can be mutliple reaching defs of the copies. Also, check for the uses
++// of the reaching def and handle qf uses too by changing opcode or
++// inserting converts.
++// Additionally, check for the uses of the copy
++// and handle them via changing opcode or inserting converts.
++bool HexagonPostRAHandleQFP::HandleCopies() {
++
++  bool Changed = false;
++
++  // If a convert is inserted after a reaching def, add it to ignorelist.
++  // This is because this reaching def can be reaching def of other copies
++  // due to non-SSA form.
++  for (auto It : QFCopys) {
++
++    // Get details of the copy node
++    NodeAddr<DefNode *> CopyNode = DFG->addr<DefNode *>(It.first.first);
++    NodeAddr<StmtNode *> StNode = CopyNode.Addr->getOwner(*DFG);
++    [[maybe_unused]] auto *CopyMI = StNode.Addr->getCode();
++    LLVM_DEBUG(dbgs() << "\nHandling Reaching Defs of COPY: "; CopyMI->dump();
++               std::string Type; switch (It.second) {
++                 case RegType::qf32_double:
++                   Type = "qf32_double";
++                   break;
++                 case RegType::qf32:
++                   Type = "qf32";
++                   break;
++                 case RegType::qf16:
++                   Type = "qf16";
++                   break;
++                 case RegType::qf16_double:
++                   Type = "qf16_double";
++                   break;
++                 default:
++                   Type = "ieee";
++               } dbgs() << "\t Type: "
++                        << Type << "\n");
++
++    // insert convert to IEEE after the reaching def if it generates qf type
++    RegType RTy = It.second;
++    if (RTy != RegType::ieee) {
++
++      // get details of the reaching def node
++      NodeAddr<DefNode *> ReachDefNode = DFG->addr<DefNode *>(It.first.second);
++      NodeAddr<StmtNode *> StNode = ReachDefNode.Addr->getOwner(*DFG);
++      auto *ReachingDef = StNode.Addr->getCode();
++
++      if (IgnoreInsertConvList.find(ReachingDef) != IgnoreInsertConvList.end())
++        continue;
++
++      // Collect the reaching defs to be processed later.
++      ReachDefOfCopies.insert(std::make_pair(ReachingDef, RTy));
++
++      // Process the reached uses of the reaching def now for
++      // incorrect usage, since the register type has changed
++      // following the conversion.
++      LLVM_DEBUG(dbgs() << "\n[COPY]\tAnalyzing uses of the reaching defs \
++        of the copy...");
++      collectQFUses(ReachDefNode, ReachingDef);
++      collectConvQFInstr(ReachDefNode);
++      IgnoreInsertConvList.insert(ReachingDef);
++      Changed = true;
++    }
++  }
++
++  // Loop through copies with qf uses
++  for (auto It : QFCopys) {
++
++    // Get details of the copy node
++    NodeAddr<DefNode *> CopyNode = DFG->addr<DefNode *>(It.first.first);
++    NodeAddr<StmtNode *> StNode = CopyNode.Addr->getOwner(*DFG);
++    auto *CopyMI = StNode.Addr->getCode();
++    LLVM_DEBUG(dbgs() << "\nHandling COPY: "; CopyMI->dump());
++    RegType RTy = It.second;
++
++    // Process the reached uses of the copy to find any incorrect
++    // qf uses. If the copy's uses are all qf types, we need to convert
++    // its result back to qf
++    // FIXME: don't include the copy if its the last instruction since
++    // it is *probably* not possible to insert via BuildMI at the end of BB
++    RTy = HasQfUses(CopyNode, CopyMI);
++    if (RTy != RegType::ieee && RTy != RegType::undefined &&
++        (++CopyMI->getIterator() != CopyMI->getParent()->end())) {
++      if (!ConvertToQfCopies.contains(CopyMI)) {
++        ConvertToQfCopies[CopyMI] = std::make_pair(CopyNode, RTy);
++        LLVM_DEBUG(dbgs() << "\n[ConvertToQfCopies]\tAdded copy: ";
++                   CopyMI->dump(); std::string Type; switch (RTy) {
++                     case RegType::qf32_double:
++                       Type = "qf32_double";
++                       break;
++                     case RegType::qf32:
++                       Type = "qf32";
++                       break;
++                     case RegType::qf16:
++                       Type = "qf16";
++                       break;
++                     case RegType::qf16_double:
++                       Type = "qf16_double";
++                       break;
++                     default:
++                       Type = "ieee";
++                   } dbgs() << "\t Type: "
++                            << Type << "\n");
++      }
++      continue;
++    }
++    LLVM_DEBUG(dbgs() << "\n[COPY]\tAnalyzing uses of the copy...");
++    collectQFUses(CopyNode, CopyMI);
++    collectConvQFInstr(CopyNode);
++  }
++
++  Changed |= HandleReachDefOfCopies();
++  Changed |= HandleMultiReachingDefs();
++  Changed |= HandleConvertToQfCopies();
++
++  return Changed;
++}
++
++// Inserts conversion instruction sf/hf = qf before spilling
++// Uses the same physical register for conversion.
++// Additinally checks for the uses of the register; and
++// conditionally store them to handle later.
++bool HexagonPostRAHandleQFP::HandleSpills() {
++
++  LLVM_DEBUG(dbgs() << "\n[Handling Spill]\n");
++  bool Changed = false;
++  for (auto It : SpillMIs) {
++
++    MachineInstr *MI = It.first;
++    auto OpC = MI->getOpcode();
++
++    auto NodeDef = It.second;
++    NodeAddr<StmtNode *> Stmt = NodeDef.Addr->getOwner(*DFG);
++    MachineInstr *DefMI = Stmt.Addr->getCode();
++    auto RegOp = MI->getOperand(2);
++    Register DefR = RegOp.getReg();
++
++    // handles widened qf16/qf32 instructions.
++    if (OpC == Hexagon::PS_vstorerw_ai) {
++      if (!Hexagon::HvxWRRegClass.contains(DefR))
++        assert(false && " Unhandled Vector Register class passed\n");
++      // Walk through the uses of DefLo and DefHi and if there is QFP
++      // instructions, the instruction needs to be updated to use sf operands
++      // instead of qf operands.
++      collectQFUses(NodeDef, DefMI);
++
++      if (IgnoreInsertConvList.find(DefMI) != IgnoreInsertConvList.end())
++        continue;
++
++      // Collect the reached uses of ReachDefInstr
++      // which are sf/hf = qf conversion instructions.
++      collectConvQFInstr(NodeDef);
++      Register DefLo = HRI->getSubReg(DefR, Hexagon::vsub_lo);
++      Register DefHi = HRI->getSubReg(DefR, Hexagon::vsub_hi);
++
++      // Create two copy instructions, one each for Hi and Lo conditionally.
++      // Liveness is the same is for the store instruction for the register.
++      // If both are double registers, two insertions are done.
++      // If one of the subregs are reaching to the store, conversion is done
++      // for that subreg.
++      Register DReg = DefMI->getOperand(0).getReg();
++      if (HII->isQFP16Instr(DefMI)) {
++        if (DefLo == DReg || Hexagon::HvxWRRegClass.contains(DReg))
++          insertInstr(DefMI, Hexagon::V6_vconv_hf_qf16, DefLo, DefLo,
++                      getRegState(RegOp) | RegState::Kill);
++
++        if (DefHi == DReg || Hexagon::HvxWRRegClass.contains(DReg))
++          insertInstr(DefMI, Hexagon::V6_vconv_hf_qf16, DefHi, DefHi,
++                      getRegState(RegOp) | RegState::Kill);
++      } else if (HII->isQFP32Instr(DefMI)) {
++        if (DefLo == DReg || Hexagon::HvxWRRegClass.contains(DReg))
++          insertInstr(DefMI, Hexagon::V6_vconv_sf_qf32, DefLo, DefLo,
++                      getRegState(RegOp) | RegState::Kill);
++
++        if (DefHi == DReg || Hexagon::HvxWRRegClass.contains(DReg))
++          insertInstr(DefMI, Hexagon::V6_vconv_sf_qf32, DefHi, DefHi,
++                      getRegState(RegOp) | RegState::Kill);
++      }
++      IgnoreInsertConvList.insert(DefMI);
++      Changed = true;
++
++      // Handles instructions which output qf32 type.
++    } else if (OpC == Hexagon::PS_vstorerv_ai && HII->isQFP32Instr(DefMI)) {
++      collectQFUses(NodeDef, DefMI);
++      if (IgnoreInsertConvList.find(DefMI) != IgnoreInsertConvList.end())
++        continue;
++      collectConvQFInstr(NodeDef);
++
++      insertInstr(DefMI, Hexagon::V6_vconv_sf_qf32, DefR, DefR,
++                  getRegState(RegOp) | RegState::Kill);
++
++      IgnoreInsertConvList.insert(DefMI);
++      Changed = true;
++
++      // Handles instructions which output qf16 type.
++    } else if (OpC == Hexagon::PS_vstorerv_ai && HII->isQFP16Instr(DefMI)) {
++      collectQFUses(NodeDef, DefMI);
++      if (IgnoreInsertConvList.find(DefMI) != IgnoreInsertConvList.end())
++        continue;
++      collectConvQFInstr(NodeDef);
++
++      insertInstr(DefMI, Hexagon::V6_vconv_hf_qf16, DefR, DefR,
++                  getRegState(RegOp) | RegState::Kill);
++
++      IgnoreInsertConvList.insert(DefMI);
++      Changed = true;
++    } else {
++      LLVM_DEBUG(MI->dump());
++      llvm_unreachable("This case is not handled. Look above for MI\n");
++    }
++  }
++  return Changed;
++}
++
++bool HexagonPostRAHandleQFP::runOnMachineFunction(MachineFunction &MF) {
++
++  if (DisablePostRAHandleQFloat)
++    return false;
++
++  LLVM_DEBUG(
++      dbgs() << "\n=== Entering Hexagon Fixup QF spills and refills pass ===\n"
++             << "Mode: ";
++      switch (QFloatModeValue) {
++        case QFloatMode::StrictIEEE:
++          dbgs() << "Strict IEEE";
++          break;
++        case QFloatMode::IEEE:
++          dbgs() << "IEEE";
++          break;
++        case QFloatMode::Lossy:
++          dbgs() << "Lossy";
++          break;
++        default:
++          dbgs() << "Legacy";
++          break;
++      };
++      dbgs() << "\n";);
++  bool Changed = false;
++
++  auto &_HST = MF.getSubtarget<HexagonSubtarget>();
++  if (!_HST.useHVXOps())
++    return false;
++
++  HII = _HST.getInstrInfo();
++
++  // If the mode is legacy, the function may not contain qf instructions
++  // check if this pass is required to run for legacy mode.
++  if (QFloatModeValue == QFloatMode::Legacy)
++    if (!HII->hasQFPInstrs(MF))
++      return false;
++
++  HRI = _HST.getRegisterInfo();
++  MRI = &MF.getRegInfo();
++  const auto &MDF = getAnalysis<MachineDominanceFrontierWrapperPass>().getMDF();
++  MachineDominatorTree *MDT =
++      &getAnalysis<MachineDominatorTreeWrapperPass>().getDomTree();
++  HST = &_HST;
++
++  // We need Register Dataflow Graph(RDG) to calculate reaching definitions
++  // since the Machine code is not in SSA.
++  // DDG holds the graph on which we iterate for the nodes.
++  DataFlowGraph G(MF, *HII, *HRI, *MDT, MDF);
++  G.build();
++  DFG = &G;
++
++  Liveness L(*MRI, *DFG);
++  L.computePhiInfo();
++  LV = &L;
++
++  // Find and save the list of QFP stack spills.
++  // For refills store all refill instructions to process conditionally later.
++  NodeAddr<FuncNode *> FA = DFG->getFunc();
++  LLVM_DEBUG(dbgs() << "==== [RefMap#]=====:\n "
++                    << Print<NodeAddr<FuncNode *>>(FA, *DFG) << "\n");
++  for (NodeAddr<BlockNode *> BA : FA.Addr->members(*DFG)) {
++    for (auto IA : BA.Addr->members(*DFG)) {
++
++      if (!DFG->IsCode<NodeAttrs::Stmt>(IA))
++        continue;
++
++      // 'SA' holds the Statement node which contains the machine instruction.
++      NodeAddr<StmtNode *> SA = IA;
++      MachineInstr *I = SA.Addr->getCode();
++
++      switch (I->getOpcode()) {
++      case Hexagon::PS_vstorerw_ai:
++      case Hexagon::PS_vstorerv_ai:
++        collectQFPStackSpill(&SA);
++        break;
++      case Hexagon::PS_vloadrw_ai:
++      case Hexagon::PS_vloadrv_ai:
++        collectQFPStackRefill(&SA);
++        break;
++      case TargetOpcode::COPY:
++        collectCopies(&SA);
++        break;
++      default:
++        break;
++      }
++    }
++  }
++
++  // Walk through the spills and insert converts when necessary.
++  // Additionally, walk though the uses of the converts and
++  // store them conditionally for later processing.
++  LLVM_DEBUG(dbgs() << "\nHandling spills....");
++  Changed |= HandleSpills();
++  SpillMIs.clear();
++
++  // Walk through the uses of the refill instructions.
++  // Process them if they are used as qf operands.
++  LLVM_DEBUG(dbgs() << "\nCollecting refills....\n");
++  for (NodeAddr<DefNode *> DfNode : RefillMIs) {
++
++    NodeAddr<StmtNode *> Stmt = DfNode.Addr->getOwner(*DFG);
++    MachineInstr *DefMI = Stmt.Addr->getCode();
++    collectQFUses(DfNode, DefMI);
++    collectConvQFInstr(DfNode);
++  }
++  RefillMIs.clear();
++
++  LLVM_DEBUG(dbgs() << "\nHandling copies....");
++  Changed |= HandleCopies();
++  QFCopys.clear();
++  PossibleMultiReachDefs.clear();
++  ReachDefOfCopies.clear();
++  ConvertToQfCopies.clear();
++
++  LLVM_DEBUG(dbgs() << "\n === QF Uses map === "; for (auto It : QFUsesMap) {
++    dbgs() << "\nInstruction: ";
++    It.first->dump();
++    dbgs() << "\t Property: " << It.second.first << " ," << It.second.second;
++  });
++
++  // Insert new opcodes as applicable for the refill uses.
++  // Delete the original instructions.
++  Changed |= HandleRefills();
++
++  // Handle non-saturating instructions by inserting convert(s) from sf to qf.
++  Changed |= HandleNonSatInstr();
++  QFNonSatMIs.clear();
++  // Cleanup
++  for (auto It : QFUsesMap)
++    It.first->eraseFromParent();
++  QFUsesMap.clear();
++  IgnoreInsertConvList.clear();
++
++  return Changed;
++}
++
++//===----------------------------------------------------------------------===//
++//                         Public Constructor Functions
++//===----------------------------------------------------------------------===//
++INITIALIZE_PASS_BEGIN(HexagonPostRAHandleQFP, "handle-qfp-spills-refills",
++                      "Hexagon Post RA Handle QFloat", false, false)
++INITIALIZE_PASS_DEPENDENCY(MachineDominatorTreeWrapperPass)
++INITIALIZE_PASS_DEPENDENCY(MachineDominanceFrontierWrapperPass)
++INITIALIZE_PASS_END(HexagonPostRAHandleQFP, "handle-qfp-spills-refills",
++                    "Hexagon PostRA Handle QFloat", false, false)
++
++FunctionPass *llvm::createHexagonPostRAHandleQFP() {
++  return new HexagonPostRAHandleQFP();
++}
+diff --git a/llvm/lib/Target/Hexagon/HexagonTargetMachine.cpp b/llvm/lib/Target/Hexagon/HexagonTargetMachine.cpp
+index 733234ab9468..174d79603499 100644
+--- a/llvm/lib/Target/Hexagon/HexagonTargetMachine.cpp
++++ b/llvm/lib/Target/Hexagon/HexagonTargetMachine.cpp
+@@ -40,6 +40,10 @@ static cl::opt<bool>
+ static cl::opt<bool> EnableRDFOpt("rdf-opt", cl::Hidden, cl::init(true),
+                                   cl::desc("Enable RDF-based optimizations"));
+ 
++static cl::opt<bool> EnablePostRAHandleQFP(
++    "hexagon-handle-qfloat", cl::init(true), cl::Hidden,
++    cl::desc("Fix up QFloat spills and reloads after register allocation"));
++
+ cl::opt<unsigned> RDFFuncBlockLimit(
+     "rdf-bb-limit", cl::Hidden, cl::init(1000),
+     cl::desc("Basic block limit for a function for RDF optimizations"));
+@@ -156,6 +160,19 @@ static cl::opt<bool> EnableInstSimplify("hexagon-instsimplify", cl::Hidden,
+                                         cl::init(true),
+                                         cl::desc("Enable instsimplify"));
+ 
++cl::opt<QFloatMode> QFloatModeValue(
++    "hexagon-qfloat-mode", cl::desc("Specify the qfloat mode to operate on."),
++    cl::Hidden, cl::init(QFloatMode::Legacy),
++    cl::values(
++        clEnumValN(QFloatMode::StrictIEEE, "strict-ieee",
++                   "Enable code generation for qfloat strict IEEE-754 mode"),
++        clEnumValN(QFloatMode::IEEE, "ieee",
++                   "Enable code generation for qfloat IEEE-754 mode"),
++        clEnumValN(QFloatMode::Lossy, "lossy",
++                   "Enable code generation for qfloat lossy-subnormals mode"),
++        clEnumValN(QFloatMode::Legacy, "legacy",
++                   "Enable code generation for qfloat legacy mode")));
++
+ /// HexagonTargetMachineModule - Note that this is used on hosts that
+ /// cannot link in a library unless there are references into the
+ /// library.  In particular, it seems that it is not possible to get
+@@ -231,6 +248,8 @@ LLVMInitializeHexagonTarget() {
+   initializeHexagonSplitConst32AndConst64Pass(PR);
+   initializeHexagonVectorPrintPass(PR);
+   initializeHexagonQFPOptimizerPass(PR);
++  initializeHexagonXQFloatGeneratorPass(PR);
++  initializeHexagonPostRAHandleQFPPass(PR);
+ }
+ 
+ HexagonTargetMachine::HexagonTargetMachine(const Target &T, const Triple &TT,
+@@ -398,12 +417,17 @@ void HexagonPassConfig::addIRPasses() {
+ 
+ bool HexagonPassConfig::addInstSelector() {
+   HexagonTargetMachine &TM = getHexagonTargetMachine();
++  const HexagonSubtarget *HST = TM.getHexagonSubtarget();
+   bool NoOpt = (getOptLevel() == CodeGenOptLevel::None);
+ 
+   if (!NoOpt)
+     addPass(createHexagonOptimizeSZextends());
+ 
+   addPass(createHexagonISelDag(TM, getOptLevel()));
++  // Run the QFloat mode code generation pass only if v79 or greater.
++  // Do not run this pass, if legacy mode is passed on command line.
++  if (HST->useHVXV79Ops() && (QFloatModeValue != QFloatMode::Legacy))
++    addPass(createHexagonXQFloatGenerator());
+ 
+   if (!NoOpt) {
+     if (EnableVExtractOpt)
+@@ -430,7 +454,10 @@ bool HexagonPassConfig::addInstSelector() {
+       addPass(createHexagonGenInsert());
+     if (EnableEarlyIf)
+       addPass(createHexagonEarlyIfConversion());
+-    addPass(createHexagonQFPOptimizer());
++    // For v75 or below, or if legacy mode is requested, run QFPOptizer pass
++    // to preserve backward compatibility.
++    if (!HST->useHVXV79Ops() || (QFloatModeValue == QFloatMode::Legacy))
++      addPass(createHexagonQFPOptimizer());
+   }
+ 
+   return false;
+@@ -468,6 +495,9 @@ void HexagonPassConfig::addPreRegAlloc() {
+ }
+ 
+ void HexagonPassConfig::addPostRegAlloc() {
++  if (EnablePostRAHandleQFP)
++    addPass(createHexagonPostRAHandleQFP());
++
+   if (getOptLevel() != CodeGenOptLevel::None) {
+     if (EnableRDFOpt)
+       addPass(createHexagonRDFOpt());
+diff --git a/llvm/lib/Target/Hexagon/HexagonTargetMachine.h b/llvm/lib/Target/Hexagon/HexagonTargetMachine.h
+index 98a21bbba479..5d4a461e4db9 100644
+--- a/llvm/lib/Target/Hexagon/HexagonTargetMachine.h
++++ b/llvm/lib/Target/Hexagon/HexagonTargetMachine.h
+@@ -21,6 +21,8 @@
+ 
+ namespace llvm {
+ 
++enum class QFloatMode { StrictIEEE, IEEE, Lossy, Legacy };
++
+ class HexagonTargetMachine : public CodeGenTargetMachineImpl {
+   std::unique_ptr<TargetLoweringObjectFile> TLOF;
+   HexagonSubtarget Subtarget;
+@@ -33,6 +35,7 @@ public:
+                        std::optional<CodeModel::Model> CM, CodeGenOptLevel OL,
+                        bool JIT);
+   ~HexagonTargetMachine() override;
++  const HexagonSubtarget *getHexagonSubtarget() const { return &Subtarget; }
+   const HexagonSubtarget *getSubtargetImpl(const Function &F) const override;
+ 
+   void registerPassBuilderCallbacks(PassBuilder &PB) override;
+diff --git a/llvm/lib/Target/Hexagon/HexagonXQFloatGenerator.cpp b/llvm/lib/Target/Hexagon/HexagonXQFloatGenerator.cpp
+new file mode 100644
+index 000000000000..460976cdfd7b
+--- /dev/null
++++ b/llvm/lib/Target/Hexagon/HexagonXQFloatGenerator.cpp
+@@ -0,0 +1,1683 @@
++//===-------------------- HexagonXQFloatGenerator.cpp --------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This pass enables generation of XQFloat instructions. XQF instructions
++// are more efficient, but can be less precise in comparison to IEEE ones.
++// Based on the accuracy preservation of the generated code, we enabled four
++// modes - Strict IEEE-754 compliant, IEEE-754 compliant, Lossy subnormals and
++// legacy mode.
++//
++// Strict IEEE mode adheres to similar accuracy and precision as of IEEE-754.
++//
++// IEEE-754 compliant mode excludes IEEE-754 overflows and lower precision
++// subnormals due to larger dynamic range than IEEE-754.
++// All subnormals have extra precision.
++//
++// Lossy subnormals mode without normalization result in a loss of accuracy.
++// This provides greater precision than a clamp of subnormals to 0.
++// If dataset excludes subnormals, it behavas as IEEE-754 compliant mode.
++//
++// The direct mode has a loss of 1 bit of accuracy compared to IEEE-754.
++//
++// V79 replaces the prior internal HVX floating point format for floating-point
++// arithmetic. The new internal HVX floating-point format yields results
++// identical to IEEE-754 round-to-even mode. The new format contains more bits
++// than IEEE-754, which optionally produces results with greater range and
++// accuracy. Only the HVX vector registers use the HVX floating-point format.
++// Memory maintains all floating-point data in IEEE-754 format,
++// and all loads/stores use the IEEE-754 format. A subset of HVX floating-point
++// operations transform IEEE-754 floating-point data to HVX floating-point data.
++// Subsequent HVX floating-point instructions may consume operands in the HVX
++// floating-point without conversion to IEEE-754, which allows for performant
++// & energy efficient code. The program does not need to switch between formats
++// continuously. The program must convert the HVX floating-point results to
++// IEEE-754 prior to storing to memory.
++
++// HVX floating-point achieves IEEE-754 compliance through normalization.
++// The program may skip normalization when faster calculation is desired, and
++// IEEE-754 compliance isn’t required. HVX floating-point contains two input
++// types: qf32, single precision floating point, and qf16, half precision
++// floating point. In Hexagon, IEEE-754 contains two input types: sf, single
++// precision floating point, and hf, half precision floating point.
++//
++// Only HVX floating-point source and destination instructions use HVX
++// floating-point values. Instructions specify the HVX floating-point format
++// with the qf16 and qf32 identifier. A source vector register will drop the
++// extended state of a HVX floating-point value when an instruction reads the
++// source vector register without the qf16 or qf32 identifier. A destination
++// vector register will reset its extended state when an instruction writes to
++// a vector register without the qf16 or qf32 identifier. When dropping the
++// extended state, the floating-point value loses accuracy. The program may
++// preserve the floating-point value by converting HVX floating-point values
++// to IEEE-754 values. Compiler must convert HVX floating-point values to
++// IEEE-754 values before using as an input to stores, permutes, shifts, and
++// any other operations that do not source the HVX floating-point format.
++//
++// Depending on the desired results, HVX floating-point operations may have
++// some requirements on the input sources. The HVX floating-point values
++// require normalization to achieve IEEE-754 compliance, while faster operations
++// may skip normalization. The program normalizes HVX floating-point values
++// before subsequent HVX floating-point operations, so the floating-point value
++// does not lose precision. The program also obtains results identical to
++// IEEE-754 by converting all HVX floating-point results to IEEE-754 format
++// before consumed in any subsequent operation. There are however cases where
++// this conversion is redundant, or the differences between IEEE-754 and HVX
++// floating-point may not be a concern.
++//
++// The conversion logic can be understood by the table below:
++//
++// ================================================================================================================================================
++//            |                              | |                               |
++//            |    Inputs to add/subtarct    |                  Inputs to
++//            multiplication instuctions              |     Non-HVX floating
++//            point    | |    instructions              | |          instruction
++//            | |                              | | |
++// ===============================================================================================================================================|
++// Sources    | IEEE-  | HVX      | HVX      | sf        | qf32      | qf32 | hf
++// | qf16     | qf16     | IEE-754 | HVX      | HVX      |
++//            |  754   | floating | floating |           | from      | from | |
++//            from     | from     |         | floating | floating | |        |
++//            point    | point    |           | mult      | adder     | | mult
++//            | adder    |         | point    | point    | |        | from     |
++//            from     |           |           |           |          | | | |
++//            from     | from     | |        | multi    | adder    |           |
++//            |           |          |          |          |         | mult |
++//            adder    | |        |          |          |           | | | | | |
++//            |          |          |
++// ===============================================================================================================================================|
++// Strict     | Direct | Convert  | Convert  | Normalize | Convert   | Convert
++// | widening | Convert  | Convert  | Direct  | Convert  | Convert  | IEEE-754
++// | Use    | to       | to       |           | to IEEE   | to IEEE   | multiply
++// | to IEEE, | to IEEE, | use     | to       | to       | compliance |        |
++// IEEE     | IEEE     |           | then      | then      | then     | widening
++// | widening |         | IEEE     | IEEE     |
++//            |        |          |          |           | normalize | normalize
++//            | convert  | multiply,| multiply,|         |          |          |
++//            |        |          |          |           |           | | to IEEE
++//            | convert  | convert  |         |          |          | |        |
++//            |          |           |           |           |          | to
++//            IEEE  | to IEEE  |         |          |          |
++// -----------------------------------------------------------------------------------------------------------------------------------------------|
++// IEEE-754   | Direct | Direct   | Direct   | Normalize | Direct    | Normalize
++// | Widening | Direct   | Widening | Direct  | Convert  | Convert  | compliance
++// | Use    | Use      | Use      |           | use       |           | multiply
++// | use      | multiply | use     | to IEEE  | to IEEE  |
++// -----------------------------------------------------------------------------------------------------------------------------------------------|
++// Lossy      | Direct | Direct   | Direct   | Direct    | Direct    | Normalize
++// | Direct   | Direct   | Widening | Direct  | Convert  | Convert  | Subnormals
++// | Use    | Use      | Use      | Use       | use       |           | use |
++// use      | multiply | use     | to IEEE  | to IEEE  |
++// -----------------------------------------------------------------------------------------------------------------------------------------------|
++// Direct     | Direct | Direct   | Direct   | Direct    | Direct    | Direct |
++// Direct   | Direct   | Direct   | Direct  | Direct   | Direct   | Lossy      |
++// Use    | Use      | Use      | Use       | use       | use       | use      |
++// use      | use      | use     | use      | use      |
++// -----------------------------------------------------------------------------------------------------------------------------------------------|
++//
++// For v81, the normalization sequence changes. Instead of multiplying 0
++// and -0, a simple copy operation normalizes the unnormal value. Both
++// qf and IEEE-754 value can be unnormal.
++// Additionally for v81, we have two new vsub instructions which are handled.
++
++#define HEXAGON_XQFLOAT_GENERATOR "XQFloat Generator pass"
++
++#include "Hexagon.h"
++#include "HexagonInstrInfo.h"
++#include "HexagonSubtarget.h"
++#include "HexagonTargetMachine.h"
++#include "llvm/ADT/SmallPtrSet.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/ADT/Statistic.h"
++#include "llvm/CodeGen/MachineBasicBlock.h"
++#include "llvm/CodeGen/MachineFunction.h"
++#include "llvm/CodeGen/MachineFunctionPass.h"
++#include "llvm/CodeGen/MachineInstr.h"
++#include "llvm/CodeGen/MachineOperand.h"
++#include "llvm/CodeGen/Passes.h"
++#include "llvm/IR/DebugLoc.h"
++#include "llvm/Pass.h"
++#include "llvm/Support/CommandLine.h"
++#include "llvm/Support/Debug.h"
++#include "llvm/Support/raw_ostream.h"
++#include <vector>
++
++#define DEBUG_TYPE "hexagon-xqf-gen"
++
++using namespace llvm;
++
++extern cl::opt<QFloatMode> QFloatModeValue;
++
++// Master flag to enable XQF generations
++cl::opt<bool> EnableHVXXQFloat("enable-xqf-gen", cl::init(false),
++                               cl::desc("Enable XQFloat generations"));
++// This vector contains the opcodes which generate qf32 from add/subtract
++static constexpr unsigned XQFPAdd32[] = {
++    // vector add instructions
++    Hexagon::V6_vadd_sf, Hexagon::V6_vadd_qf32, Hexagon::V6_vadd_qf32_mix,
++
++    // vector subtract instructions
++    Hexagon::V6_vsub_qf32, Hexagon::V6_vsub_qf32_mix, Hexagon::V6_vsub_sf,
++    Hexagon::V6_vsub_sf_mix};
++
++// This vector contains the opcodes which generate qf16 from add/subtract
++static constexpr unsigned XQFPAdd16[] = {
++    // vector add instructions
++    Hexagon::V6_vadd_hf, Hexagon::V6_vadd_qf16, Hexagon::V6_vadd_qf16_mix,
++
++    // vector subtract intrutions
++    Hexagon::V6_vsub_hf, Hexagon::V6_vsub_qf16, Hexagon::V6_vsub_qf16_mix,
++    Hexagon::V6_vsub_hf_mix};
++
++// This vector contains the opcodes which generate qf32 from multiplication
++static constexpr unsigned XQFPMult32[] = {
++    Hexagon::V6_vmpy_qf32, Hexagon::V6_vmpy_qf32_qf16, Hexagon::V6_vmpy_qf32_hf,
++    Hexagon::V6_vmpy_qf32_sf, Hexagon::V6_vmpy_qf32_mix_hf};
++// This vector contains the opcodes which generate qf16 from multiplication
++static constexpr unsigned XQFPMult16[] = {Hexagon::V6_vmpy_qf16,
++                                          Hexagon::V6_vmpy_qf16_hf,
++                                          Hexagon::V6_vmpy_qf16_mix_hf};
++
++namespace llvm {
++FunctionPass *createHexagonXQFloatGenerator();
++void initializeHexagonXQFloatGeneratorPass(PassRegistry &);
++} // namespace llvm
++
++namespace {
++
++struct HexagonXQFloatGenerator : public MachineFunctionPass {
++public:
++  static char ID;
++  HexagonXQFloatGenerator() : MachineFunctionPass(ID) {}
++
++  bool runOnMachineFunction(MachineFunction &MF) override;
++
++  StringRef getPassName() const override { return HEXAGON_XQFLOAT_GENERATOR; }
++
++  void getAnalysisUsage(AnalysisUsage &AU) const override {
++    MachineFunctionPass::getAnalysisUsage(AU);
++  }
++
++private:
++  // Handle each XQF optimization level
++  bool HandleStrictIEEE(MachineFunction &);
++  bool HandleCompliantIEEE(MachineFunction &);
++  bool HandleLossySubnormals(MachineFunction &);
++  bool HandleLossyLegacy(MachineFunction &);
++
++  // Checkers functions for input operands
++  bool checkIfInputFromAdder32(Register Reg);
++  bool checkIfInputFromAdder16(Register Reg);
++  bool checkIfInputFromMult32(Register Reg);
++  bool checkIfInputFromMult16(Register Reg);
++  bool deleteList();
++
++  // Helper functions for conversion/normalization/widening
++  bool widenMultiplicationInputF16(MachineInstr &, Register &, Register &,
++                                   Register &, bool);
++  bool widenMultiplicationInputF16Rt(MachineInstr &, Register &, Register &,
++                                     Register &);
++  void widenMultiplyInputHF(MachineInstr &, Register &, Register &, Register &);
++  bool normalizeMultiplicationInputF32(MachineInstr &, Register &, Register &,
++                                       Register &, Register &, bool &);
++  void normalizeMultiplicationInputSF(MachineInstr &, Register &, Register &,
++                                      Register &, Register &, bool &);
++  bool convertNormalizeMultOp32(MachineInstr &, Register &, Register &,
++                                Register &, Register &, bool &);
++  bool convertWidenMultOp16(MachineInstr &, Register &, Register &, Register &,
++                            bool);
++  bool convertWidenMultOp32(MachineInstr &, Register &, Register &, Register &,
++                            bool);
++  void createPrologInstructions(MachineInstr &, Register &);
++  bool convertAddOpToIEEE16(MachineInstr &, Register &, Register &, Register &,
++                            bool, bool, bool);
++  bool convertAddOpToIEEE32(MachineInstr &, Register &, Register &, Register &,
++                            bool, bool, bool);
++  void generateQF16FromQF32(MachineInstr &, Register &, Register &);
++  bool convertIfInputToNonHVX(MachineInstr &, bool);
++  void createConvertInstr(MachineInstr *, Register &, Register &, bool);
++
++  // V81 specific normalization function
++  bool V81normalizeMultF32(MachineInstr &, Register &, Register &, Register &,
++                           bool, bool, bool);
++
++  const HexagonSubtarget *HST = nullptr;
++  const HexagonInstrInfo *HII = nullptr;
++  MachineRegisterInfo *MRI = nullptr;
++
++  SmallVector<MachineInstr *, 16>
++      OriginalMI; // Hold the instructions to be deleted
++};
++
++// This class removes redundant vector convert instructions from qf to hf/sf.
++// Additionally, it relaces use of sf/hf registers with qf types.
++// The resulting code is complete without dangling instructions.
++// FIXME: Liveness is not preserved.
++char HexagonXQFloatGenerator::ID = 0;
++
++} // namespace
++
++INITIALIZE_PASS(HexagonXQFloatGenerator, "hexagon-xqfloat-generator",
++                HEXAGON_XQFLOAT_GENERATOR, false, false)
++
++FunctionPass *llvm::createHexagonXQFloatGenerator() {
++  return new HexagonXQFloatGenerator();
++}
++
++// Returns true if qf32 input is from an adder/subtract unit
++bool HexagonXQFloatGenerator::checkIfInputFromAdder32(Register Reg) {
++  MachineInstr *Def = MRI->getVRegDef(Reg);
++  if (!Def)
++    return false;
++
++  // If the definition is a copy, we need to analyze its def again
++  if (Def->getOpcode() == TargetOpcode::COPY) {
++    Register SrcReg = Def->getOperand(1).getReg();
++    if (SrcReg.isValid())
++      return checkIfInputFromAdder32(SrcReg);
++    return false;
++  } else if (Def->getOpcode() == TargetOpcode::REG_SEQUENCE) {
++    Register SrcReg1 = Def->getOperand(1).getReg();
++    Register SrcReg2 = Def->getOperand(2).getReg();
++    bool isTrue = false;
++    if (SrcReg1.isValid())
++      isTrue = checkIfInputFromAdder32(SrcReg1);
++    if (SrcReg2.isValid())
++      isTrue |= checkIfInputFromAdder32(SrcReg2);
++    return isTrue;
++  } else
++    return llvm::is_contained(XQFPAdd32, Def->getOpcode());
++}
++
++// Returns true if qf16 input is from an adder/subtract unit
++bool HexagonXQFloatGenerator::checkIfInputFromAdder16(Register Reg) {
++  MachineInstr *Def = MRI->getVRegDef(Reg);
++  if (!Def)
++    return false;
++
++  // if the definition is a copy, we need to analyze its def again
++  if (Def->getOpcode() == TargetOpcode::COPY) {
++    Register SrcReg = Def->getOperand(1).getReg();
++    if (SrcReg.isValid())
++      return checkIfInputFromAdder16(SrcReg);
++    return false;
++  } else
++    return llvm::is_contained(XQFPAdd16, Def->getOpcode());
++}
++
++// Returns true if qf32 input is from a multiplier unit
++bool HexagonXQFloatGenerator::checkIfInputFromMult32(Register Reg) {
++  MachineInstr *Def = MRI->getVRegDef(Reg);
++  if (!Def)
++    return false;
++
++  // if the definition is a copy, we need to analyze its def again
++  if (Def->getOpcode() == TargetOpcode::COPY) {
++    Register SrcReg = Def->getOperand(1).getReg();
++    if (SrcReg.isValid())
++      return checkIfInputFromMult32(SrcReg);
++    return false;
++  } else if (Def->getOpcode() == TargetOpcode::REG_SEQUENCE) {
++    Register SrcReg1 = Def->getOperand(1).getReg();
++    Register SrcReg2 = Def->getOperand(2).getReg();
++    bool isTrue = false;
++    if (SrcReg1.isValid())
++      isTrue |= checkIfInputFromMult32(SrcReg1);
++    if (SrcReg2.isValid())
++      isTrue |= checkIfInputFromMult32(SrcReg2);
++    return isTrue;
++  } else
++    return llvm::is_contained(XQFPMult32, Def->getOpcode());
++}
++
++// Returns true if qf16 input is from a multiplier unit
++bool HexagonXQFloatGenerator::checkIfInputFromMult16(Register Reg) {
++  MachineInstr *Def = MRI->getVRegDef(Reg);
++  if (!Def)
++    return false;
++
++  // if the definition is a copy, we need to analyze its def again
++  if (Def->getOpcode() == TargetOpcode::COPY) {
++    Register SrcReg = Def->getOperand(1).getReg();
++    if (SrcReg.isValid())
++      return checkIfInputFromMult16(SrcReg);
++    return false;
++  } else
++    return llvm::is_contained(XQFPMult16, Def->getOpcode());
++}
++
++// Generates sf = qf32 instruction or hf = qf16 intruction
++void HexagonXQFloatGenerator::createConvertInstr(MachineInstr *UseMI,
++                                                 Register &NewR, Register &OldR,
++                                                 bool is32bit) {
++  const DebugLoc &DL = UseMI->getDebugLoc();
++  MachineBasicBlock *MBB = UseMI->getParent();
++  NewR = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  if (is32bit)
++    BuildMI(*MBB, *UseMI, DL, HII->get(Hexagon::V6_vconv_sf_qf32), NewR)
++        .addReg(OldR);
++  else
++    BuildMI(*MBB, *UseMI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), NewR)
++        .addReg(OldR);
++}
++
++// Generate HVX to IEEE conversion instruction for all non-HVX uses
++bool HexagonXQFloatGenerator::convertIfInputToNonHVX(MachineInstr &MI,
++                                                     bool is32bit) {
++  Register NewR;
++  bool Changed = false;
++  ;
++  Register Dest = MI.getOperand(0).getReg();
++
++  // Iterate over all uses of the Def we are analyzing
++  for (auto &MO : make_range(MRI->use_begin(Dest), MRI->use_end())) {
++    MachineInstr *UseMI = MO.getParent();
++    // Omit if the use is a REG_SEQUENCE instruction, since the only
++    // use of REG_SEQUENCE in qf context is transforming to IEEE.
++    // Omit for use in DBG instructions.
++    // Omit for use in PHI instructions since PHI result can be used as a qf
++    // operand.
++    if (UseMI->getOpcode() == TargetOpcode::REG_SEQUENCE ||
++        UseMI->getOpcode() == TargetOpcode::DBG_VALUE ||
++        UseMI->getOpcode() == TargetOpcode::DBG_LABEL ||
++        UseMI->getOpcode() == TargetOpcode::PHI)
++      continue;
++
++    // If 32-bit operand
++    if (is32bit) {
++      // If it is a copy instruction, we need to analyze it uses
++      if (UseMI->getOpcode() == TargetOpcode::COPY)
++        return convertIfInputToNonHVX(*UseMI, /* 32 bit */ true);
++      if (!HII->usesQFOperand(UseMI)) {
++        createConvertInstr(UseMI, NewR, Dest, /*32 bit*/ true);
++        MO.setReg(NewR);
++        Changed = true;
++      }
++      // If 16-bit operand
++    } else {
++      // If it is a copy instruction, we need to analyze it uses
++      if (UseMI->getOpcode() == TargetOpcode::COPY)
++        return convertIfInputToNonHVX(*UseMI, /* 16 bit */ false);
++      if (!HII->usesQFOperand(UseMI)) {
++        createConvertInstr(UseMI, NewR, Dest, /*16 bit*/ false);
++        MO.setReg(NewR);
++        Changed = true;
++      }
++    }
++  }
++  return Changed;
++}
++
++// generate qf16 = qf32 via:
++// hf = qf32
++// V0 = #0
++// qf16 = vsub(hf,V0)
++void HexagonXQFloatGenerator::generateQF16FromQF32(MachineInstr &MI,
++                                                   Register &Dest,
++                                                   Register &SrcReg) {
++
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  Register convertReg = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf32), convertReg)
++      .addReg(SrcReg);
++  Register VR0 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vd0), VR0);
++
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vsub_hf), Dest)
++      .addReg(convertReg)
++      .addReg(VR0);
++}
++
++// Widen qf16 = vmpy(hf, hf) result unconditionally
++void HexagonXQFloatGenerator::widenMultiplyInputHF(MachineInstr &MI,
++                                                   Register &Reg1,
++                                                   Register &Reg2,
++                                                   Register &Dest) {
++  Register output_mpy = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_hf), output_mpy)
++      .addReg(Reg1)
++      .addReg(Reg2);
++  generateQF16FromQF32(MI, Dest, output_mpy);
++}
++
++// Widen vmpy(qf16, qf16/hf) result conditionally
++bool HexagonXQFloatGenerator::widenMultiplicationInputF16(MachineInstr &MI,
++                                                          Register &Reg1,
++                                                          Register &Reg2,
++                                                          Register &Dest,
++                                                          bool twoOps) {
++  bool firstconvert = false, secondconvert = false;
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  // We widen only that operand which comes from add/subtract unit.
++  if (checkIfInputFromAdder16(Reg1))
++    firstconvert = true;
++  // twoOps == true suggest 2nd operand is qf16, else it is hf
++  if (twoOps && checkIfInputFromAdder16(Reg2))
++    secondconvert = true;
++
++  Register widenReg;
++  // if either operands from add/subtract unit, we widen
++  if (twoOps) {
++    if (firstconvert || secondconvert) {
++      widenReg = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_qf16), widenReg)
++          .addReg(Reg1)
++          .addReg(Reg2);
++    } else {
++      return false;
++    }
++  } else {
++    if (firstconvert) {
++      widenReg = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_mix_hf), widenReg)
++          .addReg(Reg1)
++          .addReg(Reg2);
++    } else {
++      return false;
++    }
++  }
++
++  // generate qf16 = qf32
++  generateQF16FromQF32(MI, Dest, widenReg);
++
++  return true;
++}
++
++// Handle qf16 = vmpy(qf16, Rt)
++// For strict IEEE mode, convert the qf16 to IEEE before widening
++bool HexagonXQFloatGenerator::widenMultiplicationInputF16Rt(MachineInstr &MI,
++                                                            Register &Reg1,
++                                                            Register &Reg2,
++                                                            Register &Dest) {
++  // If the first input is not from an adder, for strict-ieee check if
++  // input from mult, else return false.
++  if (!checkIfInputFromAdder16(Reg1)) {
++    if (QFloatModeValue == QFloatMode::StrictIEEE) {
++      if (!checkIfInputFromMult16(Reg1))
++        return false;
++    } else
++      return false;
++  }
++
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  Register VSplatReg = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_lvsplatw), VSplatReg).addReg(Reg2);
++
++  Register widenReg = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++  if (QFloatModeValue == QFloatMode::StrictIEEE) {
++    Register VHf = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VHf).addReg(Reg1);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_hf), widenReg)
++        .addReg(VHf)
++        .addReg(VSplatReg);
++  } else {
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_mix_hf), widenReg)
++        .addReg(Reg1)
++        .addReg(VSplatReg);
++  }
++
++  // generate qf16 = qf32
++  generateQF16FromQF32(MI, Dest, widenReg);
++  return true;
++}
++
++// Handle qf32 = vadd/vsub(qf32/sf, qf32/sf)
++// Handle vadd/vsub instructions with qf32 operands conditionally
++// isAdd:  true if an add instruction is analyzed, false for subtract
++// isFirstOpQf: true if 1st operand is qf32 type, false if sf type
++// isSecOpQf: true if 2nd operand is qf32 type, false if sf type
++bool HexagonXQFloatGenerator::convertAddOpToIEEE32(
++    MachineInstr &MI, Register &Reg1, Register &Reg2, Register &Dest,
++    bool isAdd, bool isFirstOpQf, bool isSecOpQf) {
++
++  Register VR1;
++  Register VR2;
++  bool firstconvert = false, secondconvert = false;
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  // If the first operand is qf32 type
++  if (isFirstOpQf) {
++    // If the first operand is from add/sub/mul unit,
++    // generate IEEE conversion instruction sf = qf32
++    if (checkIfInputFromAdder32(Reg1) || checkIfInputFromMult32(Reg1)) {
++      VR1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_sf_qf32), VR1)
++          .addReg(Reg1);
++      firstconvert = true;
++    }
++  }
++
++  // If 2nd operand is of qf32 type
++  if (isSecOpQf) {
++    // If the second operand is from add/sub/mul unit,
++    // generate IEEE conversion instruction
++    if (checkIfInputFromAdder32(Reg2) || checkIfInputFromMult32(Reg2)) {
++      VR2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_sf_qf32), VR2)
++          .addReg(Reg2);
++      secondconvert = true;
++    }
++  }
++
++  // If both operands are qf32 type, use V6_v[add/sub]_sf instruction
++  // If one of them is of sf type, use V6_v[add/sub]_qf32_mix instruction
++  // Output is qf32
++  if (isFirstOpQf && isSecOpQf) {
++    if (firstconvert && secondconvert) {
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_sf : Hexagon::V6_vsub_sf), Dest)
++          .addReg(VR1)
++          .addReg(VR2);
++    } else if (firstconvert) {
++      if (isAdd)
++        BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32_mix), Dest)
++            .addReg(Reg2)
++            .addReg(VR1);
++      // For vsub type, for v81 we use a different opcode,
++      // for v79, we convert the 2nd op to IEEE too.
++      else {
++        if (HST->useHVXV81Ops())
++          BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vsub_sf_mix), Dest)
++              .addReg(VR1)
++              .addReg(Reg2);
++        else {
++          VR2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++          BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_sf_qf32), VR2)
++              .addReg(Reg2);
++          BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vsub_sf), Dest)
++              .addReg(VR1)
++              .addReg(VR2);
++        }
++      }
++    } else if (secondconvert) {
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_qf32_mix
++                             : Hexagon::V6_vsub_qf32_mix),
++              Dest)
++          .addReg(Reg1)
++          .addReg(VR2);
++    } else { // none of the inputs is from an add/sub/mul unit
++      return false;
++    }
++    // handle vadd/vsub when the 1st op of original instruction is qf type
++  } else if (isFirstOpQf) {
++    if (firstconvert)
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_sf : Hexagon::V6_vsub_sf), Dest)
++          .addReg(VR1)
++          .addReg(Reg2);
++    else
++      return false;
++    // handle vadd/vsub when the 2nd op of original instruction is qf type
++  } else if (isSecOpQf) {
++    if (secondconvert)
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_sf : Hexagon::V6_vsub_sf), Dest)
++          .addReg(Reg1)
++          .addReg(VR2);
++    else
++      return false;
++  } else
++    return false;
++  return true;
++}
++
++// Handle qf16 = vadd/vsub(qf16, qf16/hf)
++// Handle vadd/vsub instructions with qf16 operands conditionally
++// isAdd:  true if an add instruction is analyzed, false for subtract
++// isFirstOpQf: true if 1st operand is qf16 type, false if hf type
++// isSecOpQf: true if 2nd operand is qf16 type, false if hf type
++bool HexagonXQFloatGenerator::convertAddOpToIEEE16(
++    MachineInstr &MI, Register &Reg1, Register &Reg2, Register &Dest,
++    bool isAdd, bool isFirstOpQf, bool isSecOpQf) {
++
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++  Register VR1;
++  Register VR2;
++  bool firstconvert = false, secondconvert = false;
++
++  // If the first qf16 operand is from add/sub/mul unit,
++  // generate IEEE conversion instruction
++  if (isFirstOpQf) {
++    if (checkIfInputFromAdder16(Reg1) || checkIfInputFromMult16(Reg1)) {
++      VR1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VR1)
++          .addReg(Reg1);
++      firstconvert = true;
++    }
++  }
++  if (isSecOpQf) {
++    // If the second operand is from add/sub/mul unit,
++    // generate IEEE conversion instruction
++    if (checkIfInputFromAdder16(Reg2) || checkIfInputFromMult16(Reg2)) {
++      VR2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VR2)
++          .addReg(Reg2);
++      secondconvert = true;
++    }
++  }
++
++  // If both operands are qf16 type, use V6_v[add/sub]_hf instruction
++  // If one of them is of hf type, use V6_v[add/sub]_qf16_mix instruction
++  // Output is qf16
++  if (isFirstOpQf && isSecOpQf) {
++    if (firstconvert && secondconvert) {
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_hf : Hexagon::V6_vsub_hf), Dest)
++          .addReg(VR1)
++          .addReg(VR2);
++    } else if (firstconvert) {
++      if (isAdd)
++        BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf16_mix), Dest)
++            .addReg(Reg2)
++            .addReg(VR1);
++      // For vsub type, for v81 we use a different opcode,
++      // for v79, we convert the 2nd op to IEEE too.
++      else {
++        if (HST->useHVXV81Ops())
++          BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vsub_hf_mix), Dest)
++              .addReg(VR1)
++              .addReg(Reg2);
++        else {
++          VR2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++          BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VR2)
++              .addReg(Reg2);
++          BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vsub_hf), Dest)
++              .addReg(VR1)
++              .addReg(VR2);
++        }
++      }
++    } else if (secondconvert) {
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_qf16_mix
++                             : Hexagon::V6_vsub_qf16_mix),
++              Dest)
++          .addReg(Reg1)
++          .addReg(VR2);
++    } else { // none of the inputs is from an add/sub/mul unit
++      return false;
++    }
++    // handle vadd/vsub when the 1st op of original instruction is qf type
++  } else if (isFirstOpQf) {
++    if (firstconvert)
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_hf : Hexagon::V6_vsub_hf), Dest)
++          .addReg(VR1)
++          .addReg(Reg2);
++    else
++      return false;
++    // handle vadd/vsub when the 2nd op of original instruction is qf type
++  } else if (isSecOpQf) {
++    if (secondconvert)
++      BuildMI(MBB, MI, DL,
++              HII->get(isAdd ? Hexagon::V6_vadd_hf : Hexagon::V6_vsub_hf), Dest)
++          .addReg(Reg1)
++          .addReg(VR2);
++    else
++      return false;
++  } else
++    return false;
++  return true;
++}
++
++// Create the prolog
++// v0 = #0
++// R1 = #0x80000000
++// v1.sf = vsplat(R1)
++// v2.sf = vmpy(v0.sf, v1.sf)
++void HexagonXQFloatGenerator::createPrologInstructions(MachineInstr &MI,
++                                                       Register &R_mpy) {
++
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  Register VR0 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vd0), VR0);
++
++  Register R_0 = MRI->createVirtualRegister(&Hexagon::IntRegsRegClass);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::A2_tfrsi), R_0).addImm(0x80000000);
++
++  Register VR_0 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_lvsplatw), VR_0).addReg(R_0);
++
++  R_mpy = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_sf), R_mpy)
++      .addReg(VR0)
++      .addReg(VR_0);
++}
++
++bool HexagonXQFloatGenerator::V81normalizeMultF32(
++    MachineInstr &MI, Register &Reg1, Register &Reg2, Register &Dest,
++    bool firstconvert, bool secondconvert, bool strictieee) {
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++  Register input_mpy1, input_mpy2;
++
++  auto Op =
++      strictieee ? Hexagon::V6_vconv_qf32_sf : Hexagon::V6_vconv_qf32_qf32;
++
++  // Normalize both input operands
++  if (firstconvert && secondconvert) {
++    input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    BuildMI(MBB, MI, DL, HII->get(Op), input_mpy1).addReg(Reg1);
++    BuildMI(MBB, MI, DL, HII->get(Op), input_mpy2).addReg(Reg2);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy1)
++        .addReg(input_mpy2);
++  }
++  // Normalize only first operand
++  else if (firstconvert) {
++    input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    BuildMI(MBB, MI, DL, HII->get(Op), input_mpy1).addReg(Reg1);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy1)
++        .addReg(Reg2);
++  }
++  // Normalize only second operand
++  else if (secondconvert) {
++    input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    BuildMI(MBB, MI, DL, HII->get(Op), input_mpy2).addReg(Reg2);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(Reg1)
++        .addReg(input_mpy2);
++  } else
++    // we do nothing if the inputs are not from adder/sub/mult unit
++    return false;
++
++  return true;
++}
++
++// Normalize qf32 = vmpy(sf, sf) instruction unconditionally
++void HexagonXQFloatGenerator::normalizeMultiplicationInputSF(
++    MachineInstr &MI, Register &Src1, Register &Src2, Register &Dest,
++    Register &R_mpy, bool &PrologCreated) {
++
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  if (HST->useHVXV81Ops()) {
++    Register input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    Register input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    // Normalize both inputs
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_qf32_sf), input_mpy1)
++        .addReg(Src1);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_qf32_sf), input_mpy2)
++        .addReg(Src2);
++    // Add the new vmpy
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy1)
++        .addReg(input_mpy2);
++    return;
++  }
++
++  if (!PrologCreated) {
++    createPrologInstructions(MI, R_mpy);
++    PrologCreated = true;
++  }
++
++  Register input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  Register input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++  // Normalize both inputs
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32_mix), input_mpy1)
++      .addReg(R_mpy)
++      .addReg(Src1);
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32_mix), input_mpy2)
++      .addReg(R_mpy)
++      .addReg(Src2);
++  // Add the new vmpy
++  BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++      .addReg(input_mpy1)
++      .addReg(input_mpy2);
++}
++
++// Convert and normalize qf32 = vmpy(qf32, qf32) instructions conditionally
++bool HexagonXQFloatGenerator::convertNormalizeMultOp32(
++    MachineInstr &MI, Register &Reg1, Register &Reg2, Register &Dest,
++    Register &R_mpy, bool &PrologCreated) {
++
++  Register VR1, VR2;
++  bool firstconvert = false, secondconvert = false;
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  // If the first operand is from add/subtract/multiply unit, generate IEEE
++  // conversion instruction
++  if (checkIfInputFromAdder32(Reg1) || checkIfInputFromMult32(Reg1)) {
++    VR1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_sf_qf32), VR1).addReg(Reg1);
++    firstconvert = true;
++  }
++
++  if (checkIfInputFromAdder32(Reg2) || checkIfInputFromMult32(Reg2)) {
++    VR2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_sf_qf32), VR2).addReg(Reg2);
++    secondconvert = true;
++  }
++
++  if (HST->useHVXV81Ops()) {
++    if (firstconvert && secondconvert)
++      return V81normalizeMultF32(MI, VR1, VR2, Dest, true, true, true);
++    else if (firstconvert)
++      return V81normalizeMultF32(MI, VR1, Reg2, Dest, true, false, true);
++    else if (secondconvert)
++      return V81normalizeMultF32(MI, Reg1, VR2, Dest, false, true, true);
++    else
++      return false;
++  }
++
++  // create prolog if not already created
++  if (!PrologCreated && (firstconvert || secondconvert)) {
++    createPrologInstructions(MI, R_mpy);
++    PrologCreated = true;
++  }
++
++  Register input_mpy1, input_mpy2;
++
++  // Normalize both IEEE converts
++  if (firstconvert && secondconvert) {
++    input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32_mix), input_mpy1)
++        .addReg(R_mpy)
++        .addReg(VR1);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32_mix), input_mpy2)
++        .addReg(R_mpy)
++        .addReg(VR2);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy1)
++        .addReg(input_mpy2);
++    // Normalize only first operand
++  } else if (firstconvert) {
++    input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32_mix), input_mpy1)
++        .addReg(R_mpy)
++        .addReg(VR1);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy1)
++        .addReg(Reg2);
++    // Normalize only second operand
++  } else if (secondconvert) {
++    input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32_mix), input_mpy2)
++        .addReg(R_mpy)
++        .addReg(VR2);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy2)
++        .addReg(Reg2);
++  } else {
++    // we do nothing if the inputs are not fromadder/subtracter/multiplier unit
++    return false;
++  }
++  return true;
++}
++
++// Convert to IEEE and widen qf16 = vmpy(qf16/hf, qf16) conditionally
++// Then convert qf32 to qf16
++// twoOps: true if the first operand is qf type, false if hf type
++bool HexagonXQFloatGenerator::convertWidenMultOp16(MachineInstr &MI,
++                                                   Register &Reg1,
++                                                   Register &Reg2,
++                                                   Register &Dest,
++                                                   bool twoOps) {
++
++  Register VR1, VR2, output_mpy;
++  bool firstconvert = false,
++       secondconvert = false; // normalize with hf or qf16 operands
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  // If the first operand is from add/sub/mul unit,
++  // generate IEEE conversion instruction
++  if (checkIfInputFromAdder16(Reg1) || checkIfInputFromMult16(Reg1)) {
++    VR1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VR1).addReg(Reg1);
++    firstconvert = true;
++  }
++
++  if (twoOps) {
++    if (checkIfInputFromAdder16(Reg2) || checkIfInputFromMult16(Reg2)) {
++      VR2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VR2)
++          .addReg(Reg2);
++      secondconvert = true;
++    }
++  }
++
++  if (twoOps) {
++    // Both operands have been converted to IEEE
++    if (firstconvert && secondconvert) {
++      output_mpy = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_hf), output_mpy)
++          .addReg(VR1)
++          .addReg(VR2);
++      // Only one operand has been converted to IEEE
++    } else if (firstconvert) {
++      output_mpy = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_mix_hf), output_mpy)
++          .addReg(Reg2)
++          .addReg(VR1);
++    } else if (secondconvert) {
++      output_mpy = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_mix_hf), output_mpy)
++          .addReg(Reg1)
++          .addReg(VR2);
++    } else {
++      // Neither have to be transformed
++      return false;
++    }
++  } else {
++    if (firstconvert) {
++      output_mpy = MRI->createVirtualRegister(&Hexagon::HvxWRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_hf), output_mpy)
++          .addReg(VR1)
++          .addReg(Reg2);
++    } else
++      return false;
++  }
++
++  // convert qf32 to qf16
++  generateQF16FromQF32(MI, Dest, output_mpy);
++
++  return true;
++}
++
++// Convert to IEEE and perform qf32 = vmpy(qf16/hf, qf16) conditionally
++// Final output is qf32 type
++bool HexagonXQFloatGenerator::convertWidenMultOp32(MachineInstr &MI,
++                                                   Register &Reg1,
++                                                   Register &Reg2,
++                                                   Register &Dest,
++                                                   bool twoOps) {
++  Register VR1, VR2;
++  bool firstconvert = false,
++       secondconvert = false; // normalize with hf or qf16 operands
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  // If the first operand is from add/subtract/multiply unit, generate IEEE
++  // conversion instruction
++  if (checkIfInputFromAdder16(Reg1) || checkIfInputFromMult16(Reg1)) {
++    VR1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VR1).addReg(Reg1);
++    firstconvert = true;
++  }
++
++  if (twoOps) {
++    if (checkIfInputFromAdder16(Reg2) || checkIfInputFromMult16(Reg2)) {
++      VR2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vconv_hf_qf16), VR2)
++          .addReg(Reg2);
++      secondconvert = true;
++    }
++  }
++
++  if (twoOps) {
++    // Both operands have been converted to IEEE
++    if (firstconvert && secondconvert) {
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_hf), Dest)
++          .addReg(VR1)
++          .addReg(VR2);
++      // Only one operand has been converted to IEEE
++    } else if (firstconvert) {
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_mix_hf), Dest)
++          .addReg(Reg2)
++          .addReg(VR1);
++    } else if (secondconvert) {
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_mix_hf), Dest)
++          .addReg(Reg1)
++          .addReg(VR2);
++    } else
++      // Neither have to be transformed
++      return false;
++  } else {
++    if (firstconvert)
++      BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32_hf), Dest)
++          .addReg(VR1)
++          .addReg(Reg2);
++    else
++      return false;
++  }
++
++  return true;
++}
++
++// Normalize instructions of type qf32 = vmpy(qf32, qf32)
++bool HexagonXQFloatGenerator::normalizeMultiplicationInputF32(
++    MachineInstr &MI, Register &Reg1, Register &Reg2, Register &Dest,
++    Register &R_mpy, bool &PrologCreated) {
++  bool firstconvert = false, secondconvert = false;
++  MachineBasicBlock &MBB = *MI.getParent();
++  const DebugLoc &DL = MI.getDebugLoc();
++
++  // We normalize only that operand which comes from add/subtract unit.
++  if (checkIfInputFromAdder32(Reg1))
++    firstconvert = true;
++  if (checkIfInputFromAdder32(Reg2))
++    secondconvert = true;
++
++  // v81 normalization
++  if (HST->useHVXV81Ops())
++    return V81normalizeMultF32(MI, Reg1, Reg2, Dest, firstconvert,
++                               secondconvert, false);
++
++  // create normalization operand conditionally for v79
++  if ((!PrologCreated && (firstconvert || secondconvert))) {
++    createPrologInstructions(MI, R_mpy);
++    PrologCreated = true;
++  }
++
++  Register input_mpy1, input_mpy2;
++
++  // Normalize both input operands
++  if (firstconvert && secondconvert) {
++    input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++    input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32), input_mpy1)
++        .addReg(R_mpy)
++        .addReg(Reg1);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32), input_mpy2)
++        .addReg(R_mpy)
++        .addReg(Reg2);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy1)
++        .addReg(input_mpy2);
++    // Normalize only first operand
++  } else if (firstconvert) {
++    input_mpy1 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32), input_mpy1)
++        .addReg(R_mpy)
++        .addReg(Reg1);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy1)
++        .addReg(Reg2);
++    // Normalize only second operand
++  } else if (secondconvert) {
++    input_mpy2 = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vadd_qf32), input_mpy2)
++        .addReg(R_mpy)
++        .addReg(Reg2);
++    BuildMI(MBB, MI, DL, HII->get(Hexagon::V6_vmpy_qf32), Dest)
++        .addReg(input_mpy2)
++        .addReg(Reg1);
++  } else {
++    // we do nothing if the inputs are not from adder/subtracter/multiplier unit
++    return false;
++  }
++
++  return true;
++}
++
++bool HexagonXQFloatGenerator::deleteList() {
++  if (OriginalMI.empty())
++    return false;
++  bool Changed = false;
++  for (MachineInstr *origMI : OriginalMI) {
++    LLVM_DEBUG(dbgs() << "deleting redundant instruction");
++    LLVM_DEBUG(origMI->dump());
++    origMI->eraseFromParent();
++    Changed = true;
++  }
++  OriginalMI.clear();
++  return Changed;
++}
++
++// Parent function to handle Loosy subnormal transformations
++bool HexagonXQFloatGenerator::HandleLossySubnormals(MachineFunction &MF) {
++  bool Changed = false;
++  Register R_mpy;
++  for (auto &MBB : MF) {
++    bool PrologCreated = false;
++    for (auto &MI : MBB) {
++      Changed |= deleteList();
++      // Skip if the instruction does not have two operands,
++      // or is a bundle instruction
++      // or is a debug instruction
++      if (MI.getNumOperands() != 3 || MI.isDebugInstr())
++        continue;
++      auto Op1 = MI.getOperand(1);
++      if (!Op1.isReg())
++        continue;
++      auto Op2 = MI.getOperand(2);
++      if (!Op2.isReg())
++        continue;
++      auto Op0 = MI.getOperand(0);
++      if (!Op0.isReg())
++        continue;
++      Register Reg1 = Op1.getReg();
++      Register Reg2 = Op2.getReg();
++      Register Dest = Op0.getReg();
++
++      // FIXME Do not process physical registers as operands
++      if (!Reg1.isVirtual() || !Reg2.isVirtual() || !Dest.isVirtual())
++        continue;
++
++      switch (MI.getOpcode()) {
++      // qf32 = vmpy(qf32, qf32)
++      // Normalize one or both input operands
++      // if from add/sub unit
++      case Hexagon::V6_vmpy_qf32:
++        if (normalizeMultiplicationInputF32(MI, Reg1, Reg2, Dest, R_mpy,
++                                            PrologCreated))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++
++      // qf16 = vmpy(qf16, qf16)
++      // Widening multiply to qf32 and convert back to qf16
++      // if any of the operands are from add/sub unit
++      case Hexagon::V6_vmpy_qf16:
++        if (widenMultiplicationInputF16(MI, Reg1, Reg2, Dest, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf16 = vmpy(qf16, Rt.hf)
++      // Splat Rt to vector and then widening multiply
++      // and then convert back to qf16
++      // if first operand is from add/sub unit
++      case Hexagon::V6_vmpy_rt_qf16:
++        if (widenMultiplicationInputF16Rt(MI, Reg1, Reg2, Dest))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf16 = vmpy(qf16, hf)
++      // Widening multiply to qf32 and convert back to qf16
++      // if first operand is from add/sub unit
++      case Hexagon::V6_vmpy_qf16_mix_hf:
++        if (widenMultiplicationInputF16(MI, Reg1, Reg2, Dest, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      // Check if use of qf32 generating add/sub/mul instructions
++      // are used as non-HVX operands.
++      // If yes, convert the use to IEEE
++      case Hexagon::V6_vadd_sf:
++      case Hexagon::V6_vadd_qf32:
++      case Hexagon::V6_vadd_qf32_mix:
++      case Hexagon::V6_vsub_sf:
++      case Hexagon::V6_vsub_qf32:
++      case Hexagon::V6_vsub_qf32_mix:
++      case Hexagon::V6_vsub_sf_mix:
++      case Hexagon::V6_vmpy_qf32_qf16:
++      case Hexagon::V6_vmpy_qf32_hf:
++      case Hexagon::V6_vmpy_qf32_mix_hf:
++      case Hexagon::V6_vmpy_rt_sf:
++      case Hexagon::V6_vmpy_qf32_sf:
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      // Check if use of qf16 generating add/sub/mul instructions
++      // are used as non-HVX operands.
++      // If yes, convert the use to IEEE
++      case Hexagon::V6_vadd_hf:
++      case Hexagon::V6_vsub_hf:
++      case Hexagon::V6_vadd_qf16:
++      case Hexagon::V6_vsub_qf16:
++      case Hexagon::V6_vadd_qf16_mix:
++      case Hexagon::V6_vsub_qf16_mix:
++      case Hexagon::V6_vsub_hf_mix:
++      case Hexagon::V6_vmpy_qf16_hf:
++      case Hexagon::V6_vmpy_rt_hf:
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      default:
++        break;
++      }
++    }
++  }
++  if (OriginalMI.empty() || !Changed)
++    return false;
++  return true;
++}
++
++// Parent function to handle all IEEE-754 compliant transformations
++bool HexagonXQFloatGenerator::HandleCompliantIEEE(MachineFunction &MF) {
++  bool Changed = false;
++  Register R_mpy;
++  for (auto &MBB : MF) {
++    bool PrologCreated = false;
++    for (auto &MI : MBB) {
++      Changed |= deleteList();
++      // Skip if the instruction does not have two operands,
++      // or is a bundle instruction
++      // or is a debug instruction
++      if (MI.getNumOperands() != 3 || MI.isDebugInstr())
++        continue;
++
++      auto Op1 = MI.getOperand(1);
++      if (!Op1.isReg())
++        continue;
++      auto Op2 = MI.getOperand(2);
++      if (!Op2.isReg())
++        continue;
++      auto Op0 = MI.getOperand(0);
++      if (!Op0.isReg())
++        continue;
++      Register Reg1 = Op1.getReg();
++      Register Reg2 = Op2.getReg();
++      Register Dest = Op0.getReg();
++      Register VRtSplat;
++
++      // FIXME Do not process physical registers as operands
++      if (!Reg1.isVirtual() || !Reg2.isVirtual() || !Dest.isVirtual())
++        continue;
++
++      switch (MI.getOpcode()) {
++
++      // ==== Handle multiplication instructions ====
++
++      // qf32 = vmpy(sf, Rt.sf)
++      // Splat Rt to a vector
++      // Normalize both input operands unconditionally
++      case Hexagon::V6_vmpy_rt_sf:
++        VRtSplat = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++        BuildMI(MBB, MI, MI.getDebugLoc(), HII->get(Hexagon::V6_lvsplatw),
++                VRtSplat)
++            .addReg(Reg2);
++        normalizeMultiplicationInputSF(MI, Reg1, VRtSplat, Dest, R_mpy,
++                                       PrologCreated);
++        OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++
++      // qf32 = vmpy(sf, sf)
++      // Normalize both operands unconditionally
++      case Hexagon::V6_vmpy_qf32_sf:
++        normalizeMultiplicationInputSF(MI, Reg1, Reg2, Dest, R_mpy,
++                                       PrologCreated);
++        OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++
++      // qf32 = vmpy(qf32, qf32)
++      // Normalize one or both input operands
++      // if from add/sub unit
++      case Hexagon::V6_vmpy_qf32:
++        if (normalizeMultiplicationInputF32(MI, Reg1, Reg2, Dest, R_mpy,
++                                            PrologCreated))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++
++      // qf16 = vmpy(hf, rt)
++      // Splat Rt to vector and then widening multiply
++      case Hexagon::V6_vmpy_rt_hf:
++        VRtSplat = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++        BuildMI(MBB, MI, MI.getDebugLoc(), HII->get(Hexagon::V6_lvsplatw),
++                VRtSplat)
++            .addReg(Reg2);
++        widenMultiplyInputHF(MI, Reg1, VRtSplat, Dest);
++        OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // Widening multiply
++      // qf16 = vmpy(hf, hf)
++      case Hexagon::V6_vmpy_qf16_hf:
++        widenMultiplyInputHF(MI, Reg1, Reg2, Dest);
++        OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf16 = vmpy(qf16, qf16)
++      // Widening multiply to qf32 and convert back to qf16
++      // if any of the operands are from add/sub unit
++      case Hexagon::V6_vmpy_qf16:
++        if (widenMultiplicationInputF16(MI, Reg1, Reg2, Dest, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf16 = vmpy(qf16, Rt.hf)
++      // Splat Rt to vector and then widening multiply
++      // and then convert back to qf16
++      // if first operand is from add/sub unit
++      case Hexagon::V6_vmpy_rt_qf16:
++        if (widenMultiplicationInputF16Rt(MI, Reg1, Reg2, Dest))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf16 = vmpy(qf16, hf)
++      // Widening multiply to qf32 and convert back to qf16
++      // if first operand is from add/sub unit
++      case Hexagon::V6_vmpy_qf16_mix_hf:
++        if (widenMultiplicationInputF16(MI, Reg1, Reg2, Dest, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // Check if use of qf32/qf16 generating add/sub/mul
++      // instructions are used as non-HVX operands.
++      // If yes, convert the use to IEEE
++      case Hexagon::V6_vadd_sf:
++      case Hexagon::V6_vadd_qf32:
++      case Hexagon::V6_vadd_qf32_mix:
++      case Hexagon::V6_vsub_sf:
++      case Hexagon::V6_vsub_qf32:
++      case Hexagon::V6_vsub_qf32_mix:
++      case Hexagon::V6_vsub_sf_mix:
++      case Hexagon::V6_vmpy_qf32_qf16:
++      case Hexagon::V6_vmpy_qf32_hf:
++      case Hexagon::V6_vmpy_qf32_mix_hf:
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      case Hexagon::V6_vadd_hf:
++      case Hexagon::V6_vsub_hf:
++      case Hexagon::V6_vadd_qf16:
++      case Hexagon::V6_vsub_qf16:
++      case Hexagon::V6_vadd_qf16_mix:
++      case Hexagon::V6_vsub_qf16_mix:
++      case Hexagon::V6_vsub_hf_mix:
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      default:
++        break;
++      }
++    }
++  }
++  if (OriginalMI.empty() || !Changed)
++    return false;
++  return true;
++}
++
++// Parent function to do strict IEEE transformations
++bool HexagonXQFloatGenerator::HandleStrictIEEE(MachineFunction &MF) {
++
++  bool Changed = false;
++  Register R_mpy;
++  for (auto &MBB : MF) {
++    bool PrologCreated = false;
++    for (auto &MI : MBB) {
++      Changed |= deleteList();
++      // Skip if the instruction does not have two operands,
++      // or is a bundle instruction
++      // or is a debug instruction
++      if (MI.getNumOperands() != 3 || MI.isDebugInstr())
++        continue;
++
++      auto Op1 = MI.getOperand(1);
++      if (!Op1.isReg())
++        continue;
++      auto Op2 = MI.getOperand(2);
++      if (!Op2.isReg())
++        continue;
++      auto Op0 = MI.getOperand(0);
++      if (!Op0.isReg())
++        continue;
++      Register Reg1 = Op1.getReg();
++      Register Reg2 = Op2.getReg();
++      Register Dest = Op0.getReg();
++      Register VRtSplat;
++
++      // FIXME Do not process physical registers as operands
++      if (!Reg1.isVirtual() || !Reg2.isVirtual() || !Dest.isVirtual())
++        continue;
++
++      switch (MI.getOpcode()) {
++      // ==== Handle add/subtract instructions ====
++      // Convert one or both the input operands to IEEE 32-bit
++      // if from add/sub/mult unit(s)
++      // qf32 = vadd(qf32, qf32)
++      case Hexagon::V6_vadd_qf32:
++        if (convertAddOpToIEEE32(MI, Reg1, Reg2, Dest, true, true, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      // qf32 = vsub(qf32, qf32)
++      case Hexagon::V6_vsub_qf32:
++        if (convertAddOpToIEEE32(MI, Reg1, Reg2, Dest, false, true, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      // Convert only the first input operand to IEEE 32-bit
++      // if it is from add/sub/mult unit
++      // qf32 = vadd(qf32, sf)
++      case Hexagon::V6_vadd_qf32_mix:
++        if (convertAddOpToIEEE32(MI, Reg1, Reg2, Dest, true, true, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      // qf32 = vsub(qf32, sf)
++      case Hexagon::V6_vsub_qf32_mix:
++        if (convertAddOpToIEEE32(MI, Reg1, Reg2, Dest, false, true, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      // qf32 = vsub(sf, qf32)
++      case Hexagon::V6_vsub_sf_mix:
++        if (convertAddOpToIEEE32(MI, Reg1, Reg2, Dest, false, false, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++        break;
++
++      // Convert one or both the input operands to IEEE 16-bit
++      // if from add/sub/mult unit(s)
++      // qf16 = vadd(qf16, qf16)
++      case Hexagon::V6_vadd_qf16:
++        if (convertAddOpToIEEE16(MI, Reg1, Reg2, Dest, true, true, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      // qf16 = vsub(qf16, qf16)
++      case Hexagon::V6_vsub_qf16:
++        if (convertAddOpToIEEE16(MI, Reg1, Reg2, Dest, false, true, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      // Convert only the first input operand IEEE 16-bit
++      // if it is from add/sub/mul unit
++      // qf16 = vadd(qf16, hf)
++      case Hexagon::V6_vadd_qf16_mix:
++        if (convertAddOpToIEEE16(MI, Reg1, Reg2, Dest, true, true, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      // qf16 = vsub(qf16, hf)
++      case Hexagon::V6_vsub_qf16_mix:
++        if (convertAddOpToIEEE16(MI, Reg1, Reg2, Dest, false, true, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      // qf16 = vsub(hf, qf16)
++      case Hexagon::V6_vsub_hf_mix:
++        if (convertAddOpToIEEE16(MI, Reg1, Reg2, Dest, false, false, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // ==== Handle multiplication instructions ====
++
++      // qf32 = vmpy(sf, Rt.sf)
++      // Splat Rt to a vector
++      // Normalize both input operands unconditionally
++      case Hexagon::V6_vmpy_rt_sf:
++        VRtSplat = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++        BuildMI(MBB, MI, MI.getDebugLoc(), HII->get(Hexagon::V6_lvsplatw),
++                VRtSplat)
++            .addReg(Reg2);
++        normalizeMultiplicationInputSF(MI, Reg1, VRtSplat, Dest, R_mpy,
++                                       PrologCreated);
++        OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++
++      // Normalize both operands unconditionally
++      // qf32 = vmpy(sf, sf)
++      case Hexagon::V6_vmpy_qf32_sf:
++        normalizeMultiplicationInputSF(MI, Reg1, Reg2, Dest, R_mpy,
++                                       PrologCreated);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        OriginalMI.push_back(&MI);
++        break;
++
++      // Convert one or both input operands to IEEE 32-bit
++      // if from add/sub/mult unit and normalize
++      // qf32 = vmpy(qf32, qf32)
++      case Hexagon::V6_vmpy_qf32:
++        if (convertNormalizeMultOp32(MI, Reg1, Reg2, Dest, R_mpy,
++                                     PrologCreated))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++
++      // Convert one or both input operands to IEEE 16-bit
++      // if from mul/add/sub unit;
++      // then widening multiply to generate qf32
++      // then convert to qf16
++      // qf16 = vmpy(qf16, qf16)
++      case Hexagon::V6_vmpy_qf16:
++        if (convertWidenMultOp16(MI, Reg1, Reg2, Dest, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // Convert one or both input operands to IEEE 16-bit
++      // if from mul/add/sub unit;
++      // then widening multiply to generate qf32
++      // qf32 = vmpy(qf16, qf16)
++      case Hexagon::V6_vmpy_qf32_qf16:
++        if (convertWidenMultOp32(MI, Reg1, Reg2, Dest, true))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++
++      // qf16 = vmpy(hf, rt)
++      // Splat Rt to vector and then widening multiply
++      case Hexagon::V6_vmpy_rt_hf:
++        VRtSplat = MRI->createVirtualRegister(&Hexagon::HvxVRRegClass);
++        BuildMI(MBB, MI, MI.getDebugLoc(), HII->get(Hexagon::V6_lvsplatw),
++                VRtSplat)
++            .addReg(Reg2);
++        widenMultiplyInputHF(MI, Reg1, VRtSplat, Dest);
++        OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // Widening multiply, then convert to IEEE
++      // qf16 = vmpy(hf, hf)
++      case Hexagon::V6_vmpy_qf16_hf:
++        widenMultiplyInputHF(MI, Reg1, Reg2, Dest);
++        OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf16 = vmpy(qf16, Rt.hf)
++      // Splat Rt to vector and then widening multiply
++      // and then convert back to qf16
++      // if first operand is from add/sub unit
++      case Hexagon::V6_vmpy_rt_qf16:
++        if (widenMultiplicationInputF16Rt(MI, Reg1, Reg2, Dest))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf16 = vmpy(qf16, hf)
++      // Convert only the first input operans to IEEE 16-bit
++      // if from mul/add/sub unit;
++      // then widening multiply to generate qf32
++      // then convert back to qf16
++      case Hexagon::V6_vmpy_qf16_mix_hf:
++        if (convertWidenMultOp16(MI, Reg1, Reg2, Dest, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++
++      // qf32 = vmpy(qf16, hf)
++      // Convert only the first input operans to IEEE 16-bit
++      // if from mul/add/sub unit;
++      // then widening multiply to generate qf32
++      case Hexagon::V6_vmpy_qf32_mix_hf:
++        if (convertWidenMultOp32(MI, Reg1, Reg2, Dest, false))
++          OriginalMI.push_back(&MI);
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      // Check if use of qf32/qf16 generating add/sub/mul
++      // instructions are used as non-HVX operands.
++      // If yes, convert the use to IEEE
++      case Hexagon::V6_vadd_sf:
++      case Hexagon::V6_vsub_sf:
++        Changed |= convertIfInputToNonHVX(MI, true);
++        break;
++      case Hexagon::V6_vadd_hf:
++      case Hexagon::V6_vsub_hf:
++        Changed |= convertIfInputToNonHVX(MI, false);
++        break;
++      default:
++        break;
++      }
++    }
++  }
++  if (OriginalMI.empty() || !Changed)
++    return false;
++  return true;
++}
++
++// There is no conversions in lossy mode
++bool HexagonXQFloatGenerator::HandleLossyLegacy(MachineFunction &MF) {
++  return false;
++}
++
++bool HexagonXQFloatGenerator::runOnMachineFunction(MachineFunction &MF) {
++  if (!EnableHVXXQFloat || (QFloatModeValue == QFloatMode::Legacy))
++    return false;
++
++  bool Changed = false;
++  HST = &MF.getSubtarget<HexagonSubtarget>();
++  HII = HST->getInstrInfo();
++  MRI = &MF.getRegInfo();
++
++  switch (QFloatModeValue) {
++  case QFloatMode::StrictIEEE:
++    LLVM_DEBUG(dbgs() << "\nGenerating code for STRICT-IEEE mode.\n");
++    Changed = HandleStrictIEEE(MF);
++    break;
++  case QFloatMode::IEEE:
++    LLVM_DEBUG(dbgs() << "\nGenerating code for IEEE mode.\n");
++    Changed = HandleCompliantIEEE(MF);
++    break;
++  case QFloatMode::Lossy:
++    LLVM_DEBUG(dbgs() << "\nGenerating code for LOSSY mode.\n");
++    Changed = HandleLossySubnormals(MF);
++    break;
++  case QFloatMode::Legacy:
++    LLVM_DEBUG(dbgs() << "\nGenerating code for LEGACY mode.\n");
++    Changed = HandleLossyLegacy(MF);
++    break;
++  }
++  LLVM_DEBUG(dbgs() << "...fine");
++
++  // Delete the original instructions
++  for (MachineInstr *origMI : OriginalMI) {
++    LLVM_DEBUG(origMI->dump());
++    origMI->eraseFromParent();
++  }
++  OriginalMI.clear();
++
++  return Changed;
++}

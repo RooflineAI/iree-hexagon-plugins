@@ -24,9 +24,13 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
+#include "llvm/IR/DiagnosticHandler.h"
+#include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -53,6 +57,49 @@ namespace {
 
 static constexpr char kQueryFunctionName[] =
     "iree_hal_executable_library_query";
+
+// LLVM only knows a function's final frame size, including register spills,
+// after register allocation. Use its `warn-stack-size` diagnostic to enforce a
+// per-function frame limit during object generation.
+//
+// This is not a whole-call-chain stack analysis: it does not add the frames of
+// callers and callees that can be live at the same time. Module-local call
+// chains can still exceed the DSP stack while every individual frame is below
+// the limit.
+static llvm::cl::opt<unsigned> clHexagonFailOnStackFramesLargerThan(
+    "iree-hexagon-fail-on-stack-frames-larger-than",
+    llvm::cl::desc(
+        "Fail compilation if any individual Hexagon function's final stack "
+        "frame (locals and register spills measured after register allocation) "
+        "exceeds the specified byte count. This is a per-frame check; it does "
+        "not sum frames across a call chain. Set to 0 to disable."),
+    llvm::cl::init(12 * 1024));
+
+// Records the per-function stack-size diagnostics LLVM emits during codegen.
+// Non stack diagnostics fall through (return false) to LLVM's default printing.
+class StackSizeDiagnosticHandler : public llvm::DiagnosticHandler {
+public:
+  struct Violation {
+    std::string function;
+    uint64_t stackSize;
+  };
+
+  explicit StackSizeDiagnosticHandler(std::vector<Violation> &violations)
+      : violations(violations) {}
+
+  bool handleDiagnostics(const llvm::DiagnosticInfo &info) override {
+    if (info.getKind() != llvm::DK_StackSize) {
+      return false;
+    }
+    const auto &stackDiag = llvm::cast<llvm::DiagnosticInfoStackSize>(info);
+    violations.push_back(
+        {stackDiag.getFunction().getName().str(), stackDiag.getStackSize()});
+    return true;
+  }
+
+private:
+  std::vector<Violation> &violations;
+};
 
 static void dumpMLIRModuleToPath(llvm::StringRef path, llvm::StringRef baseName,
                                  llvm::StringRef suffix,
@@ -452,9 +499,42 @@ mlir::LogicalResult serializeHexagonExecutable(
                                serializationOptions.dumpBaseName);
   }
 
+  // Ask LLVM to report defined functions whose final frame exceeds the
+  // configured per-frame limit. PrologEpilogInserter evaluates this attribute
+  // after register allocation, when both fixed stack objects and spills are
+  // known. The diagnostic handler records those reports so serialization can
+  // return an MLIR error after object generation.
+  std::vector<StackSizeDiagnosticHandler::Violation> stackViolations;
+  const unsigned stackFrameLimit = clHexagonFailOnStackFramesLargerThan;
+  if (stackFrameLimit > 0) {
+    std::string thresholdStr = std::to_string(stackFrameLimit);
+    for (llvm::Function &func : llvmModule->functions()) {
+      if (func.isDeclaration()) {
+        continue;
+      }
+      func.addFnAttr("warn-stack-size", thresholdStr);
+    }
+    context.setDiagnosticHandler(
+        std::make_unique<StackSizeDiagnosticHandler>(stackViolations),
+        /*RespectFilters=*/false);
+  }
+
   llvm::SmallVector<Artifact> objectFiles =
       generateObjectFiles(*llvmModule, *targetMachine, variantOp,
                           serializationOptions, libraryName);
+
+  if (!stackViolations.empty()) {
+    InFlightDiagnostic diag =
+        variantOp.emitOpError()
+        << "Hexagon function stack frame exceeds the configured limit of "
+        << stackFrameLimit << " B. Offending "
+        << (stackViolations.size() == 1 ? "function:" : "functions:");
+    for (const auto &violation : stackViolations) {
+      diag.attachNote() << violation.function << ": " << violation.stackSize
+                        << " B frame (includes register spills)";
+    }
+    return failure();
+  }
 
   // Here we are linking any objects defined as a hal.executable.objects in
   // the IR

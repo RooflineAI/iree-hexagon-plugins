@@ -55,6 +55,8 @@ iree_lit_test_suite(
             "integration/encoding_resolver_generated_attribute.mlir",
             "target/executable_generation_and_dumping.mlir",
             "target/plugin_registration.mlir",
+            "target/stack_frame_diagnostics.mlir",
+            "target/stack_frame_transitive_calls.mlir",
             "target/target_attribute_embedding.mlir",
         ],
         include = [

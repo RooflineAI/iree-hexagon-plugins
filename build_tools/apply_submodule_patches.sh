@@ -25,6 +25,7 @@ patches_dir="${repo_root}/patches"
 submodules=(
     "iree:third-party/iree"
     "hexagon-mlir:third-party/hexagon-mlir"
+    "llvm-project:third-party/llvm-project"
 )
 
 for entry in "${submodules[@]}"; do

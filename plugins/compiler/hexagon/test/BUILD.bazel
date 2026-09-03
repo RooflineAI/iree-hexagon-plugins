@@ -30,8 +30,20 @@ iree_lit_test_suite(
             "codegen/encoding/profiler_marker_ops.mlir",
             "codegen/pipelines/hexagon_lower_executable_target.mlir",
             "codegen/pipelines/hexagon_lower_executable_target_vtcm.mlir",
-            "codegen/strategy/hexagon_select_lowering_strategy.mlir",
-            "codegen/strategy/hexagon_select_lowering_strategy_vtcm.mlir",
+            "codegen/strategy/hexagon_dispatch_analysis_dimension_unification.mlir",
+            "codegen/strategy/hexagon_dispatch_preflight.mlir",
+            "codegen/strategy/hexagon_dispatch_preflight_existing_config_failure.mlir",
+            "codegen/strategy/hexagon_plan_encoding_inner_parallel.mlir",
+            "codegen/strategy/hexagon_plan_verification_last_tiling_anchor.mlir",
+            "codegen/strategy/hexagon_root_tile_propagation.mlir",
+            "codegen/strategy/hexagon_strategy_buffer_copy.mlir",
+            "codegen/strategy/hexagon_strategy_contraction.mlir",
+            "codegen/strategy/hexagon_strategy_convolution.mlir",
+            "codegen/strategy/hexagon_strategy_default.mlir",
+            "codegen/strategy/hexagon_strategy_generic.mlir",
+            "codegen/strategy/hexagon_target_info.mlir",
+            "codegen/strategy/hexagon_vtcm_planning.mlir",
+            "codegen/strategy/hexagon_vtcm_planning_fallback.mlir",
             "codegen/transforms/apply_vtcm_tiling.mlir",
             "codegen/transforms/fold_dispatch_output_staging.mlir",
             "codegen/transforms/insert_profiler_markers.mlir",
@@ -55,6 +67,10 @@ iree_lit_test_suite(
             "integration/*.mlir",
         ],
         exclude = [
+            # These require the HMX matmul pipeline and its command-line flag.
+            "codegen/strategy/hexagon_non_root_tile_selection.mlir",
+            "codegen/strategy/hexagon_vtcm_planning_hmx.mlir",
+            "codegen/strategy/hexagon_vtcm_planning_required.mlir",
             # Tested separately with target_compatible_with restriction because
             # they invoke `readelf`, which is only available on Linux.
             "target/native_runtime_linking_keeps_undefined_symbols.mlir",

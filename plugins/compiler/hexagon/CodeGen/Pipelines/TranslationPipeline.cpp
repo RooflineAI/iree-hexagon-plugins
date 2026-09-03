@@ -33,7 +33,7 @@ static llvm::cl::opt<bool> clHexagonEnableVTCMTiling(
     "iree-hexagon-enable-vtcm-tiling",
     llvm::cl::desc("Enable Hexagon VTCM tiling before bufferization in the "
                    "pipelines using it."),
-    llvm::cl::init(false));
+    llvm::cl::init(true));
 
 static llvm::cl::opt<bool> clHexagonUseHexagonMlirLinalgLowering(
     "iree-hexagon-use-hexagon-mlir-linalg-lowering",

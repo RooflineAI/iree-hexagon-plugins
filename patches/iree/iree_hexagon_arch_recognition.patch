@@ -1,0 +1,13 @@
+diff --git a/build_tools/cmake/iree_macros.cmake b/build_tools/cmake/iree_macros.cmake
+index 8a6ddddf9c..fc359fde46 100644
+--- a/build_tools/cmake/iree_macros.cmake
++++ b/build_tools/cmake/iree_macros.cmake
+@@ -78,6 +78,8 @@ elseif(_IREE_UNNORMALIZED_ARCH_LOWERCASE STREQUAL "riscv64")
+   set(IREE_ARCH "riscv_64")
+ elseif(_IREE_UNNORMALIZED_ARCH_LOWERCASE STREQUAL "riscv32")
+   set(IREE_ARCH "riscv_32")
++elseif(_IREE_UNNORMALIZED_ARCH_LOWERCASE STREQUAL "hexagon")
++  set(IREE_ARCH "hexagon")
+ elseif(_IREE_UNNORMALIZED_ARCH_LOWERCASE STREQUAL "")
+   set(IREE_ARCH "")
+   message(WARNING "Performance advisory: architecture-specific code paths "

@@ -56,12 +56,12 @@ struct HexagonSession
 
   void populateHALTargetDevices(HAL::TargetDeviceList &targets) override {
     targets.add("hexagon",
-                [=, this]() { return createHexagonTargetDevice(options); });
+                [this, options=options]() { return createHexagonTargetDevice(options); });
   }
 
   void populateHALTargetBackends(HAL::TargetBackendList &targets) override {
     targets.add("hexagon",
-                [=, this]() { return createHexagonTargetBackend(options); });
+                [this, options=options]() { return createHexagonTargetBackend(options); });
   }
 };
 

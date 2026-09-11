@@ -11,6 +11,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-cmake:
+    runs-on:
+      group: qualcomm
+      labels: qc-large
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install clang-19
+        run: |
+          wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install NDK 28
+        run: |
+          sdkmanager --install "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      - name: Apply patches
+        run: |
+          build_tools/apply_submodule_patches.sh
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Build and package with CMake+Ninja
+        run: |
+          build_tools/cmake/build_and_package.sh build-artifacts-cmake
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-cmake
+          path: build-artifacts-cmake
+          retention-days: 1
+
   build:
     runs-on:
       group: qualcomm

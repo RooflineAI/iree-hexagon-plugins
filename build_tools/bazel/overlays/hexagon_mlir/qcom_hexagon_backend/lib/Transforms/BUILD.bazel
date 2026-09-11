@@ -53,6 +53,9 @@ hexagon_mlir_overlay_library(
         "-Wno-deprecated-declarations",
         # Some upstream passes assign attrs while probing side conditions.
         "-Wno-unused-but-set-variable",
+        # Several passes declare locals (e.g. for clarity/debugging) that
+        # aren't read on every path.
+        "-Wno-unused-variable",
     ],
     deps = [
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",

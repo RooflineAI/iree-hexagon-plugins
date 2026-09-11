@@ -1,0 +1,19 @@
+diff --git a/runtime/src/iree/async/CMakeLists.txt b/runtime/src/iree/async/CMakeLists.txt
+index 1211e7c415..f319a4b169 100644
+--- a/runtime/src/iree/async/CMakeLists.txt
++++ b/runtime/src/iree/async/CMakeLists.txt
+@@ -98,12 +98,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+   list(APPEND _platform_platform_deps iree::async::platform::posix)
+ elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+   list(APPEND _platform_platform_deps iree::async::platform::posix)
++elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
++  list(APPEND _platform_platform_deps iree::async::platform::posix)
+ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+   list(APPEND _platform_platform_deps iree::async::platform::iocp)
+ elseif(IREE_ARCH STREQUAL "wasm_32")
+   list(APPEND _platform_platform_deps iree::async::platform::js::proactor)
+-else()
+-  list(APPEND _platform_platform_deps iree::async::platform::posix)
+ endif()
+ iree_cc_library(
+   NAME

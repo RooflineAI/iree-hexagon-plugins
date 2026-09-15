@@ -33,6 +33,16 @@ for entry in "${submodules[@]}"; do
     submodule_relpath="${entry#*:}"
     submodule_dir="${repo_root}/${submodule_relpath}"
 
+    # Already-applied detection is performed one patch at a time. This only
+    # works when later patches do not modify files or context introduced by an
+    # earlier patch: otherwise the earlier patch is neither forward-applicable
+    # nor independently reverse-applicable from the final tree. The robust
+    # alternative is to construct the expected final tree by applying the
+    # complete series to the pinned base in a temporary Git index, then compare
+    # the current tree with both that tree and the base tree. This patch
+    # mechanism is intended to be temporary, so such occurrences are expected to
+    # be squashed into one patch to keep the implementation small. Keep future
+    # patch files independent, or squash an overlapping series into one patch.
     for patch in "${patches_dir}/${patch_subdir}"/*.patch; do
         name="$(basename "${patch}")"
         if git -C "${submodule_dir}" apply -p1 --reverse --check "${patch}" 2>/dev/null; then

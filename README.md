@@ -23,7 +23,10 @@ build_tools/update_submodules.py
 ```
 
 Run the helper again after a submodule pin changes. It is safe to re-run when
-the submodules and patches are already up to date.
+the submodules and patches are already up to date. IREE's nested LLVM,
+StableHLO, and torch-mlir paths are linked to this repository's matching
+top-level submodules so that both Bazel and CMake share the same source
+checkouts.
 
 ## Dependencies
 

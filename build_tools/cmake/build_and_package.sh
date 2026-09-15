@@ -95,12 +95,16 @@ cp "${BUILD_ROOT}/llvm/bin/ld.lld" "${OUT_DIR}/"
 
 # --- host tree: iree-compile, iree-opt, ... (+ the Hexagon compiler plugin)
 # Explicitly turn on the Hexagon LLVM backend (off by default).
+# IREE's nested LLVM, StableHLO, and torch-mlir paths are symlinks to this
+# repo's matching top-level submodules, so git still reports those nested
+# gitlinks as uninitialized even though their sources are available.
 cmake -S "${IREE_SRC}" -B "${BUILD_ROOT}/host" \
   "${COMMON_FLAGS[@]}" \
   "${HOST_COMPILER_FLAGS[@]}" \
   -DLLVM_TARGETS_TO_BUILD=Hexagon \
   -DIREE_BUILD_COMPILER=ON \
-  -DIREE_BUILD_TESTS=ON
+  -DIREE_BUILD_TESTS=ON \
+  -DIREE_ERROR_ON_MISSING_SUBMODULES=OFF
 cmake --build "${BUILD_ROOT}/host" --target \
   iree-compile iree-opt iree-dump-module iree-dump-parameters iree-encode-parameters \
   iree_hexagon_plugins_plugins_runtime_hexagon_test_{bindings,command_buffer,cmd_{barrier,copy,dispatch,fill}}_serialize_test \

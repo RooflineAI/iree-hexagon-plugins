@@ -310,3 +310,7 @@ jobs:
       - build-cmake
       - build-bazel
     runs-on: ubuntu-24.04
+    steps:
+      - name: gatekeeper
+        run: |
+          true

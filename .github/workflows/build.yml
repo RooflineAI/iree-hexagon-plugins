@@ -19,7 +19,7 @@ jobs:
       - &checkout-with-submodules
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
 
       - &install-clang-19
         name: Install clang-19
@@ -31,6 +31,8 @@ jobs:
       - &setup-android-sdk
         name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools"
 
       - &install-ndk-28
         name: Install NDK 28

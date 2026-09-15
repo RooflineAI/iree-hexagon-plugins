@@ -122,12 +122,14 @@ build_tree() {
   local extra_flags=("${@:4}")
   if [[ "${tracy}" == "1" ]]; then
     extra_flags+=(-DIREE_ENABLE_RUNTIME_TRACING=ON -DIREE_TRACING_PROVIDER=tracy)
-    # The Hexagon runtime uses IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1.
-    # We need it to be effective from the beginning, also in IREE's cmake
-    # configure, so set it globally.
+    # The Hexagon runtime uses IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1. We
+    # need it to be effective from the beginning, also in IREE's cmake
+    # configure, so set it globally -- via CMAKE_PROJECT_INCLUDE rather than
+    # CMAKE_C_FLAGS/CMAKE_CXX_FLAGS, since those would otherwise overwrite
+    # (not add to) whatever flags the active toolchain file -- Hexagon's or
+    # the Android NDK's -- already seeded there on this first configure.
     extra_flags+=(
-      -DCMAKE_C_FLAGS=-DIREE_TRACING_EXPERIMENTAL_CONTEXT_API=1
-      -DCMAKE_CXX_FLAGS=-DIREE_TRACING_EXPERIMENTAL_CONTEXT_API=1
+      -DCMAKE_PROJECT_INCLUDE="${REPO_ROOT}/cmake/TracyExperimentalContextApi.cmake"
     )
   fi
   cmake -S "${IREE_SRC}" -B "${build_dir}" \

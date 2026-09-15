@@ -73,7 +73,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: build-artifacts-bazel
+          name: build-artifacts-cmake
           path: build-artifacts
 
       - &prep_build_artifacts
@@ -252,7 +252,7 @@ jobs:
           do
             cp $(bazel cquery --output=files "config($TARGET, target)") build-artifacts-bazel
           done
-          chmod -R u+w build-artifacts
+          chmod -R u+w build-artifacts-bazel
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

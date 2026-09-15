@@ -304,3 +304,9 @@ jobs:
       - *integration_tests
 
       - *leave_overlay
+
+  gatekeeper:
+    needs:
+      - build-cmake
+      - build-bazel
+    runs-on: ubuntu-24.04

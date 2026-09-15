@@ -307,8 +307,8 @@ jobs:
 
   gatekeeper:
     needs:
-      - build-cmake
-      - build-bazel
+      - test-cmake
+      - test-bazel
     runs-on: ubuntu-24.04
     steps:
       - name: gatekeeper

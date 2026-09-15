@@ -111,25 +111,11 @@ for TOOL in iree-compile iree-opt iree-dump-module iree-dump-parameters iree-enc
 done
 
 # --- Hexagon-DSP tree: the DSP-side skeleton .so ---------------------------
-cmake -S "${IREE_SRC}" -B "${BUILD_ROOT}/dsp" \
-  "${COMMON_FLAGS[@]}" \
-  -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/cmake/HexagonToolchain.cmake" \
-  -DIREE_BUILD_COMPILER=OFF \
-  -DIREE_BUILD_TESTS=OFF \
-  -DIREE_BUILD_SAMPLES=OFF
-# Mangled from iree_hexagon_plugins::plugins::runtime::hexagon::dsp::hexagon_dsp_skel
-# (see iree_package_name() in third-party/iree/build_tools/cmake/iree_macros.cmake).
-cmake --build "${BUILD_ROOT}/dsp" \
-  --target iree_hexagon_plugins_plugins_runtime_hexagon_dsp_hexagon_dsp_skel \
-  -- -k 0
-DSP_SKEL_SO="${BUILD_ROOT}/dsp/runtime/plugins/iree_hexagon_plugins/plugins/runtime/hexagon/dsp/libhexagon_dsp_skel.so"
-ls -l "$DSP_SKEL_SO"
-
-# --- Android tree(s): the ARM side of the Hexagon HAL driver ---------------
-build_android_tree() {
+build_tree() {
   local build_dir="$1"
   local tracy="$2"
-  local extra_flags=()
+  local target="$3"
+  local extra_flags="${@:4}"
   if [[ "${tracy}" == "1" ]]; then
     extra_flags+=(-DIREE_ENABLE_RUNTIME_TRACING=ON -DIREE_TRACING_PROVIDER=tracy)
     # The Hexagon runtime uses IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1.
@@ -142,6 +128,40 @@ build_android_tree() {
   fi
   cmake -S "${IREE_SRC}" -B "${build_dir}" \
     "${COMMON_FLAGS[@]}" \
+    "${extra_flags[@]}"
+  cmake --build "${build_dir}" -- -k 0
+}
+build_dsp_tree() {
+  local build_dir="$1"
+  local tracy="$2"
+  local extra_flags=()
+  build_tree "$build_dir" "$tracy" \
+    iree_hexagon_plugins_plugins_runtime_hexagon_dsp_hexagon_dsp_skel \
+    -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/cmake/HexagonToolchain.cmake" \
+    -DIREE_BUILD_COMPILER=OFF \
+    -DIREE_BUILD_TESTS=OFF \
+    -DIREE_BUILD_SAMPLES=OFF \
+    "${extra_flags[@]}"
+}
+build_dsp_tree "${BUILD_ROOT}/dsp" 0
+build_dsp_tree "${BUILD_ROOT}/dsp-tracy" 1
+DSP_SKEL_SO="${BUILD_ROOT}/dsp/runtime/plugins/iree_hexagon_plugins/plugins/runtime/hexagon/dsp/libhexagon_dsp_skel.so"
+DSP_SKEL_SO_TRACY="${BUILD_ROOT}/dsp-tracy/runtime/plugins/iree_hexagon_plugins/plugins/runtime/hexagon/dsp/libhexagon_dsp_skel.so"
+ls -l "$DSP_SKEL_SO" "$DSP_SKEL_SO_TRACY"
+
+# --- Android tree(s): the ARM side of the Hexagon HAL driver ---------------
+build_android_tree() {
+  local build_dir="$1"
+  local tracy="$2"
+  local extra_flags=()
+  # Build the default `all` target rather than naming iree-run-module/
+  # iree-benchmark-module/limit_lifetime explicitly, for the same
+  # name-mangling reason as the DSP tree above (limit_lifetime is one of our
+  # own plugin targets); IREE_BUILD_COMPILER=OFF and IREE_BUILD_TESTS=OFF
+  # already keep this configure's `all` scoped to just the runtime tools and
+  # the Hexagon HAL driver / device tools.
+  build_tree "$build_dir", "$tracy" \
+    all \
     -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a \
     -DANDROID_PLATFORM=android-28 \
@@ -152,13 +172,6 @@ build_android_tree() {
     -DIREE_HEXAGON_ANDROID_BUILD=ON \
     -DIREE_EXTERNAL_HAL_DRIVERS=hexagon \
     "${extra_flags[@]}"
-  # Build the default `all` target rather than naming iree-run-module/
-  # iree-benchmark-module/limit_lifetime explicitly, for the same
-  # name-mangling reason as the DSP tree above (limit_lifetime is one of our
-  # own plugin targets); IREE_BUILD_COMPILER=OFF and IREE_BUILD_TESTS=OFF
-  # already keep this configure's `all` scoped to just the runtime tools and
-  # the Hexagon HAL driver / device tools.
-  cmake --build "${build_dir}" -- -k 0
 }
 build_android_tree "${BUILD_ROOT}/android" 0
 build_android_tree "${BUILD_ROOT}/android-tracy" 1
@@ -191,7 +204,7 @@ package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android_tracy.zip" \
   "bin/iree-run-module" "${BUILD_ROOT}/android-tracy/tools/iree-run-module" \
   "bin/iree-benchmark-module" "${BUILD_ROOT}/android-tracy/tools/iree-benchmark-module" \
   "lib/libc++_shared.so" "${LIBCXX_SHARED}" \
-  "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO}"
+  "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO_TRACY}"
 
 package_zip "${OUT_DIR}/device_tools_aarch64_android.zip" \
   "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)"

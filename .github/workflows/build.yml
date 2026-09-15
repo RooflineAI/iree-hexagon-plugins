@@ -16,25 +16,30 @@ jobs:
       group: qualcomm
       labels: qc-large
     steps:
-      - uses: actions/checkout@v4
+      - &checkout-with-submodules
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install clang-19
+      - &install-clang-19
+        name: Install clang-19
         run: |
           wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           chmod +x /tmp/llvm.sh
           sudo /tmp/llvm.sh 19
 
-      - name: Set up Android SDK
+      - &setup-android-sdk
+        name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install NDK 28
+      - &install-ndk-28
+        name: Install NDK 28
         run: |
           sdkmanager --install "ndk;28.2.13676358"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
-      - name: Apply patches
+      - &apply-patches
+        name: Apply patches
         run: |
           build_tools/apply_submodule_patches.sh
 
@@ -52,85 +57,8 @@ jobs:
           path: build-artifacts-cmake
           retention-days: 1
 
-  build:
-    runs-on:
-      group: qualcomm
-      labels: qc-large
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install clang-19
-        run: |
-          wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-
-      - name: Install NDK 28
-        run: |
-          sdkmanager --install "ndk;28.2.13676358"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-
-      - name: Apply patches
-        run: |
-          build_tools/apply_submodule_patches.sh
-
-      - name: Configure bazelrc
-        run: |
-          cat - >configured.bazelrc <<EOF
-          build --action_env CC=/usr/lib/llvm-19/bin/clang
-          build --action_env CXX=/usr/lib/llvm-19/bin/clang++
-          build --config=generic_clang
-          build --incompatible_strict_action_env
-          EOF
-
-      - uses: bazel-contrib/setup-bazel@0.15.0
-        with:
-          bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
-          repository-cache: true
-
-
-      - name: Build
-        run: |
-          TARGETS=(
-            @iree//tools:iree-compile
-            @iree//tools:iree-dump-module
-            @iree//tools:iree-dump-parameters
-            @iree//tools:iree-encode-parameters
-            @iree//tools:iree-opt
-            @iree//tools:iree-run-module
-            @iree//tools:iree-benchmark-module
-            @llvm-project//lld:ld.lld
-            //integration_tests/device/tools:device_tools_aarch64_android
-            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
-            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
-          )
-          bazel build --verbose_failures "${TARGETS[@]}"
-          mkdir build-artifacts
-          for TARGET in "${TARGETS[@]}"
-          do
-            cp $(bazel cquery --output=files "config($TARGET, target)") build-artifacts
-          done
-          chmod -R u+w build-artifacts
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: build-artifacts
-          retention-days: 1
-
-      - name: Unit tests
-        run: |
-          bazel test //...
-
-  test:
-    needs: build
+  test-cmake:
+    needs: build-cmake
     runs-on:
       group: qualcomm
       labels: qc-small
@@ -146,15 +74,17 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: build-artifacts
+          name: build-artifacts-bazel
           path: build-artifacts
 
-      - name: Prepare build artifacts
+      - &prep_build_artifacts
+        name: Prepare build artifacts
         run: |
           chmod +x build-artifacts/iree-* build-artifacts/ld.lld
           ls -l build-artifacts
 
-      - name: Install pinned platform-tools
+      - &install_pinned_platform_tools
+        name: Install pinned platform-tools
         env:
           PLATFORM_TOOLS_VERSION: "37.0.1"
           PLATFORM_TOOLS_SHA256: d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1
@@ -175,13 +105,15 @@ jobs:
           # Appended last so it precedes the SDK's own copy on PATH.
           echo "${RUNNER_TEMP}/platform-tools" >> "$GITHUB_PATH"
 
-      - name: Verify Android
+      - &verify_android
+        name: Verify Android
         run: |
           adb version
           echo $ANDROID_NDK_HOME
           ls $ANDROID_NDK_HOME
 
-      - name: Join the phone overlay
+      - &join_phone_overlay
+        name: Join the phone overlay
         if: env.PHONE_ACCESS == 'true'
         env:
           TS_AUTHKEY: ${{ secrets.HEADSCALE_AUTHKEY }}
@@ -218,7 +150,8 @@ jobs:
           fi
           tailscale status
 
-      - name: Point adb at the phone rig
+      - &point_adb_at_phone_rig
+        name: Point adb at the phone rig
         if: env.PHONE_ACCESS == 'true'
         run: |
           # The rig runs the adb server; this job must never start its own.
@@ -227,7 +160,8 @@ jobs:
           echo "ADB_SERVER_SOCKET=tcp:100.64.0.2:5037" >> "$GITHUB_ENV"
           echo "ANDROID_SERIAL=2c82b852" >> "$GITHUB_ENV"
 
-      - name: Check the phone is reachable
+      - &check_phone_reachable
+        name: Check the phone is reachable
         if: env.PHONE_ACCESS == 'true'
         run: |
           adb devices -l
@@ -238,19 +172,22 @@ jobs:
           # server left behind by a bare `adb` command run there.
           adb shell getprop ro.product.model
 
-      - name: Install UV
+      - &install_uv
+        name: Install UV
         if: env.PHONE_ACCESS == 'true'
         uses: astral-sh/setup-uv@v3
         with:
           python-version: "3.11"
           enable-cache: false
 
-      - name: Setup environment for integration tests
+      - &setup_test_env
+        name: Setup environment for integration tests
         if: env.PHONE_ACCESS == 'true'
         run: |
           build_tools/create_test_venv.sh
 
-      - name: Integration tests
+      - &integration_tests
+        name: Integration tests
         if: env.PHONE_ACCESS == 'true'
         run: |
           .venv/bin/pytest integration_tests/ -v -rA \
@@ -259,6 +196,112 @@ jobs:
           --device-tools-zip=build-artifacts/device_tools_aarch64_android.zip \
           --lld=build-artifacts/ld.lld
 
-      - name: Leave the overlay
+      - &leave_overlay
+        name: Leave the overlay
         if: always()
         run: sudo tailscale logout || true
+
+  build-bazel:
+    runs-on:
+      group: qualcomm
+      labels: qc-large
+    steps:
+      - *checkout-with-submodules
+
+      - *install-clang-19
+
+      - *setup-android-sdk
+
+      - *install-ndk-28
+
+      - *apply-patches
+
+      - name: Configure bazelrc
+        run: |
+          cat - >configured.bazelrc <<EOF
+          build --action_env CC=/usr/lib/llvm-19/bin/clang
+          build --action_env CXX=/usr/lib/llvm-19/bin/clang++
+          build --config=generic_clang
+          build --incompatible_strict_action_env
+          EOF
+
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+
+
+      - name: Build
+        run: |
+          TARGETS=(
+            @iree//tools:iree-compile
+            @iree//tools:iree-dump-module
+            @iree//tools:iree-dump-parameters
+            @iree//tools:iree-encode-parameters
+            @iree//tools:iree-opt
+            @iree//tools:iree-run-module
+            @iree//tools:iree-benchmark-module
+            @llvm-project//lld:ld.lld
+            //integration_tests/device/tools:device_tools_aarch64_android
+            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
+            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
+          )
+          bazel build --verbose_failures "${TARGETS[@]}"
+          mkdir build-artifacts-bazel
+          for TARGET in "${TARGETS[@]}"
+          do
+            cp $(bazel cquery --output=files "config($TARGET, target)") build-artifacts-bazel
+          done
+          chmod -R u+w build-artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-bazel
+          path: build-artifacts-bazel
+          retention-days: 1
+
+      - name: Unit tests
+        run: |
+          bazel test //...
+
+  test-bazel:
+    needs: build-bazel
+    runs-on:
+      group: qualcomm
+      labels: qc-small
+    env:
+      # Fork PRs never receive secrets, so they cannot hold an overlay key and
+      # cannot reach the phone. That is the boundary working as intended, not
+      # something to route around: pull_request_target would hand a fork's code
+      # our credentials. Forks still get the full build, just no device steps.
+      PHONE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts-bazel
+          path: build-artifacts
+
+      - *prep_build_artifacts
+
+      - *install_pinned_platform_tools
+
+      - *verify_android
+
+      - *join_phone_overlay
+
+      - *point_adb_at_phone_rig
+
+      - *check_phone_reachable
+
+      - *install_uv
+
+      - *setup_test_env
+
+      - *integration_tests
+
+      - *leave_overlay

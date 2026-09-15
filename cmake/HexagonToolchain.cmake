@@ -66,6 +66,12 @@ foreach(_dir ${_HEXAGON_SDK_RELATIVE_INCLUDE_DIRS})
   string(APPEND _HEXAGON_SDK_ISYSTEM_FLAGS " -isystem ${HEXAGON_SDK_ROOT}/${_dir}")
 endforeach()
 
+# The Hexagon SDK toolchain has no <alloca.h> anywhere in its include tree
+# (unlike glibc/bionic/musl); IREE's iree/base/allocator.h unconditionally
+# includes it on non-Windows platforms. Shim it in ahead of everything else.
+string(PREPEND _HEXAGON_SDK_ISYSTEM_FLAGS
+  " -isystem ${IREE_HEXAGON_PLUGINS_ROOT}/build_tools/cmake/hexagon_libc_shims")
+
 # Builtin include dirs (relative to the compiler's own directory, from
 # `clang -x c(++) -E -v /dev/null`'s output against the SDK's bundled clang).
 set(_HEXAGON_BUILTIN_C_ISYSTEM_FLAGS
@@ -78,7 +84,7 @@ set(_HEXAGON_BUILTIN_CXX_ISYSTEM_FLAGS
 )
 
 set(_HEXAGON_COMMON_FLAGS
-  "-mv${_HEXAGON_MV} -fdata-sections -fstack-protector -fpic -D__V_DYNAMIC__ -mhvx -mhvx-length=128B -DIREE_TIME_NOW_FN=\"\{ return 0; \}\" -DIREE_CPUINFO_TARGET=\\\"\\\" -DIREE_TASK_CPUINFO_DISABLED=1${_HEXAGON_SDK_ISYSTEM_FLAGS}"
+  "-mv${_HEXAGON_MV} -fdata-sections -fstack-protector -fpic -D__V_DYNAMIC__ -mhvx -mhvx-length=128B -DIREE_TIME_NOW_FN=\"\{ return 0; \}\" -DIREE_CPUINFO_TARGET=\\\"\\\" -DIREE_TASK_CPUINFO_DISABLED=1 -DIREE_PLATFORM_GENERIC=1${_HEXAGON_SDK_ISYSTEM_FLAGS}"
 )
 
 set(CMAKE_C_FLAGS_INIT "${_HEXAGON_COMMON_FLAGS}${_HEXAGON_BUILTIN_C_ISYSTEM_FLAGS}")

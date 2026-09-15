@@ -11,3 +11,34 @@ index 8a6ddddf9c..fc359fde46 100644
  elseif(_IREE_UNNORMALIZED_ARCH_LOWERCASE STREQUAL "")
    set(IREE_ARCH "")
    message(WARNING "Performance advisory: architecture-specific code paths "
+diff --git a/runtime/src/iree/base/target_platform.h b/runtime/src/iree/base/target_platform.h
+index 834a6dd95a..19fbf7ec09 100644
+--- a/runtime/src/iree/base/target_platform.h
++++ b/runtime/src/iree/base/target_platform.h
+@@ -71,6 +71,7 @@ enum iree_arch_enum_e {
+   IREE_ARCH_ENUM_WASM_64,
+   IREE_ARCH_ENUM_X86_32,
+   IREE_ARCH_ENUM_X86_64,
++  IREE_ARCH_ENUM_HEXAGON,
+ };
+ 
+ #if defined(__arm64) || defined(__aarch64__) || defined(_M_ARM64) || \
+@@ -117,10 +118,17 @@ enum iree_arch_enum_e {
+ #define IREE_ARCH_X86_64 1
+ #endif  // X86
+ 
++#if defined(__hexagon__)
++#define IREE_ARCH "hexagon"
++#define IREE_ARCH_ENUM IREE_ARCH_ENUM_HEXAGON
++#define IREE_ARCH_HEXAGON 1
++#endif  // HEXAGON
++
+ #if !defined(IREE_ARCH_ARM_32) && !defined(IREE_ARCH_ARM_64) &&     \
+     !defined(IREE_ARCH_RISCV_32) && !defined(IREE_ARCH_RISCV_64) && \
+     !defined(IREE_ARCH_WASM_32) && !defined(IREE_ARCH_WASM_64) &&   \
+-    !defined(IREE_ARCH_X86_32) && !defined(IREE_ARCH_X86_64)
++    !defined(IREE_ARCH_X86_32) && !defined(IREE_ARCH_X86_64) &&     \
++    !defined(IREE_ARCH_HEXAGON)
+ #error Unknown architecture.
+ #endif  // all archs
+ 

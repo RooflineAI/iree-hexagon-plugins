@@ -17,6 +17,9 @@ hexagon_mlir_overlay_library(
     copts = [
         # hexagon-mlir still uses deprecated IRRewriter::create APIs.
         "-Wno-deprecated-declarations",
+        # A few operand/result type locals are computed for clarity but
+        # aren't read on every path.
+        "-Wno-unused-variable",
     ],
     deps = [
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",

@@ -119,7 +119,7 @@ build_tree() {
   local build_dir="$1"
   local tracy="$2"
   local target="$3"
-  local extra_flags="${@:4}"
+  local extra_flags=("${@:4}")
   if [[ "${tracy}" == "1" ]]; then
     extra_flags+=(-DIREE_ENABLE_RUNTIME_TRACING=ON -DIREE_TRACING_PROVIDER=tracy)
     # The Hexagon runtime uses IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1.
@@ -138,14 +138,12 @@ build_tree() {
 build_dsp_tree() {
   local build_dir="$1"
   local tracy="$2"
-  local extra_flags=()
   build_tree "$build_dir" "$tracy" \
     iree_hexagon_plugins_plugins_runtime_hexagon_dsp_hexagon_dsp_skel \
     -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/cmake/HexagonToolchain.cmake" \
     -DIREE_BUILD_COMPILER=OFF \
     -DIREE_BUILD_TESTS=OFF \
-    -DIREE_BUILD_SAMPLES=OFF \
-    "${extra_flags[@]}"
+    -DIREE_BUILD_SAMPLES=OFF
 }
 build_dsp_tree "${BUILD_ROOT}/dsp" 0
 build_dsp_tree "${BUILD_ROOT}/dsp-tracy" 1
@@ -157,7 +155,6 @@ ls -l "$DSP_SKEL_SO" "$DSP_SKEL_SO_TRACY"
 build_android_tree() {
   local build_dir="$1"
   local tracy="$2"
-  local extra_flags=()
   # Build the default `all` target rather than naming iree-run-module/
   # iree-benchmark-module/limit_lifetime explicitly, for the same
   # name-mangling reason as the DSP tree above (limit_lifetime is one of our
@@ -174,8 +171,7 @@ build_android_tree() {
     -DIREE_BUILD_TESTS=OFF \
     -DIREE_BUILD_SAMPLES=OFF \
     -DIREE_HEXAGON_ANDROID_BUILD=ON \
-    -DIREE_EXTERNAL_HAL_DRIVERS=hexagon \
-    "${extra_flags[@]}"
+    -DIREE_EXTERNAL_HAL_DRIVERS=hexagon
 }
 build_android_tree "${BUILD_ROOT}/android" 0
 build_android_tree "${BUILD_ROOT}/android-tracy" 1

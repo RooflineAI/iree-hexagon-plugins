@@ -133,7 +133,7 @@ build_tree() {
   cmake -S "${IREE_SRC}" -B "${build_dir}" \
     "${COMMON_FLAGS[@]}" \
     "${extra_flags[@]}"
-  cmake --build "${build_dir}" -- -k 0
+  cmake --build "${build_dir}" --target "${target}" -- -k 0
 }
 build_dsp_tree() {
   local build_dir="$1"
@@ -164,7 +164,7 @@ build_android_tree() {
   # own plugin targets); IREE_BUILD_COMPILER=OFF and IREE_BUILD_TESTS=OFF
   # already keep this configure's `all` scoped to just the runtime tools and
   # the Hexagon HAL driver / device tools.
-  build_tree "$build_dir", "$tracy" \
+  build_tree "$build_dir" "$tracy" \
     all \
     -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a \

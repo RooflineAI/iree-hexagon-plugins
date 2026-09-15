@@ -104,7 +104,8 @@ cmake -S "${IREE_SRC}" -B "${BUILD_ROOT}/host" \
   -DLLVM_TARGETS_TO_BUILD=Hexagon \
   -DIREE_BUILD_COMPILER=ON \
   -DIREE_BUILD_TESTS=ON \
-  -DIREE_ERROR_ON_MISSING_SUBMODULES=OFF
+  -DIREE_ERROR_ON_MISSING_SUBMODULES=OFF \
+  -DIREE_LINK_COMPILER_SHARED_LIBRARY=OFF
 cmake --build "${BUILD_ROOT}/host" --target \
   iree-compile iree-opt iree-dump-module iree-dump-parameters iree-encode-parameters \
   iree_hexagon_plugins_plugins_runtime_hexagon_test_{bindings,command_buffer,cmd_{barrier,copy,dispatch,fill}}_serialize_test \

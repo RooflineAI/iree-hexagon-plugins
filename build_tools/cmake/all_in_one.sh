@@ -4,10 +4,20 @@ set -eux -o pipefail
 
 SCRIPT_DIR=$(dirname "$0")
 
-if ! which cmake || ! which ninja
+PKGS=()
+for TOOL_PKG in cmake ninja,ninja-build unzip xz,xzip-utils
+do
+  TOOL=${TOOL_PKG%,*}
+  PKG=${TOOL_PKG#*,}
+  if ! which "$TOOL"
+  then
+    PKGS+=($PKG)
+  fi
+done
+if (( ${#PKGS[@]} > 0 ))
 then
   sudo apt-get update
-  sudo apt-get install -y cmake ninja-build
+  sudo apt-get install -y "${PKGS[@]}"
 fi
 
 if [[ ! -r /usr/lib/llvm-19/bin/clang ]]
@@ -15,12 +25,6 @@ then
   wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
   chmod +x /tmp/llvm.sh
   sudo /tmp/llvm.sh 19
-fi
-
-if ! which unzip
-then
-  sudo apt-get update
-  sudo apt-get install -y unzip
 fi
 
 NDK_VERSION=r28c

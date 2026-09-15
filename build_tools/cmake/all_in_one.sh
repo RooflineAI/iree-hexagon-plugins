@@ -37,7 +37,7 @@ then
   sudo mv "/opt/android-ndk-${NDK_VERSION}" "$ANDROID_NDK_HOME"
 fi
 
-"$SCRIPT_DIR/../apply_submodule_patches.sh"
+"$SCRIPT_DIR/../update_submodules.py"
 
 "$SCRIPT_DIR/build_and_package.sh"
 

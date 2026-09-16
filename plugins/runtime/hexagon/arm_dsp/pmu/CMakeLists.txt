@@ -16,6 +16,9 @@ iree_cc_library(
   HDRS
     "hexagon_pmu_events_ids.h"
     "hexagon_pmu_events_table.inc"
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../..>"
   PUBLIC
 )
 

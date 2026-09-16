@@ -10,11 +10,10 @@
 
 iree_add_all_subdirs()
 
-set(HEXAGON_FLATCC_TOOL_BINARY iree-flatcc-cli)
+set(IREE_FLATCC_TOOL_BINARY iree-flatcc-cli)
 if(IREE_HOST_BIN_DIR)
-  set(HEXAGON_FLATCC_TOOL_BINARY "${IREE_HOST_BIN_DIR}/iree-flatcc-cli")
+  set(IREE_FLATCC_TOOL_BINARY "${IREE_HOST_BIN_DIR}/iree-flatcc-cli")
 endif()
-
 add_custom_command(
   OUTPUT
     "${CMAKE_CURRENT_BINARY_DIR}/hexagon_executable_def_reader.h"
@@ -22,11 +21,17 @@ add_custom_command(
     "${CMAKE_CURRENT_BINARY_DIR}/hexagon_executable_def_verifier.h"
     "${CMAKE_CURRENT_BINARY_DIR}/flatbuffers_common_reader.h"
     "${CMAKE_CURRENT_BINARY_DIR}/flatbuffers_common_builder.h"
-  COMMAND ${HEXAGON_FLATCC_TOOL_BINARY} --common --reader --builder --verifier
-      -o "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/hexagon_executable_def.fbs"
+  COMMAND
+    "${IREE_FLATCC_TOOL_BINARY}"
+    "--common"
+    "--reader"
+    "--builder"
+    "--verifier"
+    "-o${CMAKE_CURRENT_BINARY_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/hexagon_executable_def.fbs"
   DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/hexagon_executable_def.fbs"
-    ${HEXAGON_FLATCC_TOOL_BINARY}
+    ${IREE_FLATCC_TOOL_BINARY}
   VERBATIM
 )
 add_custom_target(hexagon_executable_def_gen_gen DEPENDS

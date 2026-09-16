@@ -19,17 +19,15 @@ iree_cc_library(
     "profiler.h"
   DEPS
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::pmu::hexagon_pmu_events
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 
-iree_package_name(_PACKAGE_NAME)
-# iree_tracing_context_t (used unconditionally once
-# IREE_HAL_HEXAGON_ENABLE_PROFILER is defined) is only actually declared when
-# IREE_ENABLE_RUNTIME_TRACING pulls in iree/base/tracing/tracy.h -- the
-# "tracy" IREE_TRACING_PROVIDER alone (the default, even with tracing
-# disabled) is not enough.
+iree_package_ns(_PACKAGE_NS)
 if(IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy")
-  target_compile_definitions(${_PACKAGE_NAME}_hexagon_arm_dsp INTERFACE IREE_HAL_HEXAGON_ENABLE_PROFILER)
+  target_compile_definitions(${_PACKAGE_NS}::hexagon_arm_dsp PRIVATE IREE_HAL_HEXAGON_ENABLE_PROFILER)
 endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

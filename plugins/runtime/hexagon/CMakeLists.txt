@@ -63,6 +63,9 @@ iree_cc_library(
     iree_hexagon_plugins::plugins::runtime::hexagon::schemas::hexagon_executable_def_c_fbs
     iree_hexagon_plugins::plugins::runtime::hexagon::serialize::serialize_plugin
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"
   PUBLIC
 )
 
@@ -70,15 +73,9 @@ endif()
 
 if(IREE_HEXAGON_ANDROID_BUILD)
 iree_package_name(_PACKAGE_NAME)
-# iree_tracing_context_t (used unconditionally once
-# IREE_HAL_HEXAGON_ENABLE_PROFILER is defined) is only actually declared when
-# IREE_ENABLE_RUNTIME_TRACING pulls in iree/base/tracing/tracy.h -- the
-# "tracy" IREE_TRACING_PROVIDER alone (the default, even with tracing
-# disabled) is not enough.
+# ALWAYSLINK: ${_PACKAGE_NAME}_hexagon itself is an INTERFACE
+# target; the real compiled objects live in its ".objects" twin.
 if(IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy")
-  # ALWAYSLINK: ${_PACKAGE_NAME}_hexagon itself is an INTERFACE target (see
-  # iree_cc_library.cmake); the real compiled objects (and thus the only
-  # place PRIVATE compile definitions can apply) are in its ".objects" twin.
   target_compile_definitions(${_PACKAGE_NAME}_hexagon.objects PRIVATE IREE_HAL_HEXAGON_ENABLE_PROFILER IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1)
 endif()
 

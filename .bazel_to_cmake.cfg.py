@@ -98,6 +98,34 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             )
         return resolved
 
+    def _includes_for_strip_include_prefix(self, strip_include_prefix):
+        # The base converter's cc_library() accepts (and silently drops, via
+        # **kwargs) strip_include_prefix -- it has no translation for it at
+        # all. The CMake equivalent is an INCLUDES entry for the same
+        # directory Bazel strips to, expressed relative to the CMakeLists.txt
+        # being generated (see _convert_includes_block, which wraps each
+        # entry in a $<BUILD_INTERFACE:${CMAKE_CURRENT_{SOURCE,BINARY}_DIR}/
+        # ...> pair).
+        if not strip_include_prefix:
+            return None
+        build_dir = self._build_dir
+        if not os.path.isabs(build_dir):
+            build_dir = os.path.join(self._repo_root, build_dir)
+        if strip_include_prefix.startswith("/"):
+            # Leading "/": workspace(repo-root)-relative.
+            prefix_abs = os.path.join(
+                self._repo_root, *strip_include_prefix.lstrip("/").split("/")
+            )
+        else:
+            # No leading "/": Bazel resolves it relative to the *package*
+            # (this BUILD file's own directory), not the repo root -- e.g.
+            # strip_include_prefix = "." means "this directory is already
+            # the include root", which must stay a "."/"." INCLUDES pair,
+            # not 7 "../"s up to the repo root.
+            prefix_abs = os.path.join(build_dir, *strip_include_prefix.split("/"))
+        rel = os.path.relpath(prefix_abs, build_dir).replace(os.sep, "/")
+        return [rel]
+
     def _normalize_label(self, src):
         # The base implementation treats any leading "/" as (the start of) a
         # Bazel "//"-rooted label and lstrip()s it unconditionally, mangling
@@ -213,12 +241,17 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         defines=None,
         target_compatible_with=None,
         alwayslink=None,
+        includes=None,
+        strip_include_prefix=None,
         **kwargs,
     ):
         android_only = self._is_arm_hexagon_top_library(name)
         if android_only:
             self._converter.body += "if(IREE_HEXAGON_ANDROID_BUILD)\n"
         defines, extra_defines = self._split_select_defines(defines)
+        extra_includes = self._includes_for_strip_include_prefix(strip_include_prefix)
+        if extra_includes:
+            includes = list(includes or []) + extra_includes
         super().cc_library(
             name=name,
             hdrs=self._redirect_overlay_paths(hdrs),
@@ -227,6 +260,7 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             defines=defines,
             target_compatible_with=target_compatible_with,
             alwayslink=alwayslink,
+            includes=includes,
             **kwargs,
         )
         if android_only:
@@ -369,23 +403,14 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
                     continue
                 cond = self._convert_select_condition(label)
                 defs = " ".join(values)
-                # This extra IREE_ENABLE_RUNTIME_TRACING condition (beyond
-                # the generic, defines-block-only _emit_extra_defines() used
-                # for cc_library targets) is repo-specific knowledge with no
-                # Bazel-side equivalent: iree_tracing_context_t (used
-                # unconditionally once IREE_HAL_HEXAGON_ENABLE_PROFILER is
-                # defined) is only actually declared when
-                # IREE_ENABLE_RUNTIME_TRACING pulls in
-                # iree/base/tracing/tracy.h -- the "tracy" IREE_TRACING_PROVIDER
-                # alone (the default, even with tracing disabled) is not
-                # enough.
+                # cond already ANDs in IREE_ENABLE_RUNTIME_TRACING for the
+                # tracy label (see _convert_platform_condition) -- without
+                # it, iree_tracing_context_t (used unconditionally once
+                # IREE_HAL_HEXAGON_ENABLE_PROFILER is defined) would be
+                # referenced without ever being declared in a
+                # tracing-disabled configure.
                 self._converter.body += (
-                    "# iree_tracing_context_t (used unconditionally once\n"
-                    "# IREE_HAL_HEXAGON_ENABLE_PROFILER is defined) is only actually declared when\n"
-                    "# IREE_ENABLE_RUNTIME_TRACING pulls in iree/base/tracing/tracy.h -- the\n"
-                    '# "tracy" IREE_TRACING_PROVIDER alone (the default, even with tracing\n'
-                    "# disabled) is not enough.\n"
-                    f"if(IREE_ENABLE_RUNTIME_TRACING AND {cond})\n"
+                    f"if({cond})\n"
                     f"  target_compile_definitions(${{_PACKAGE_NAME}}_{name} PRIVATE {defs})\n"
                     f"endif()\n\n"
                 )
@@ -433,6 +458,16 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         )
         self._emit_platform_guard_end(target_compatible_with)
 
+    # The flatcc driver binary has no plain-library CMake target under the
+    # name the base target map gives it (bazel_to_cmake_targets.py maps
+    # "@com_github_dvidelabs_flatcc//:flatcc" to the "flatcc" *library*
+    # target, not the "iree-flatcc-cli" tool binary that this genrule's
+    # $(location)/tools actually need) -- and, unlike an ordinary library
+    # dep, it needs cross-compile-aware host-tool resolution, mirroring
+    # IREE core's own build_tools/cmake/flatbuffer_c_library.cmake.
+    _FLATCC_TOOL_LABEL = "@com_github_dvidelabs_flatcc//:flatcc"
+    _FLATCC_TOOL_VAR = "IREE_FLATCC_TOOL_BINARY"
+
     def genrule(self, name, srcs=None, outs=None, cmd=None, tools=None, **kwargs):
         # No existing bazel_to_cmake handler for plain genrule (IREE itself
         # only ever uses its own higher-level macros). This repo has exactly
@@ -442,10 +477,13 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # general Bazel genrule interpreter.
         srcs = srcs or []
         tools = tools or []
+        uses_flatcc = self._FLATCC_TOOL_LABEL in tools
 
         def _location(label):
             if label in srcs:
                 return f"${{CMAKE_CURRENT_SOURCE_DIR}}/{label}"
+            if label == self._FLATCC_TOOL_LABEL:
+                return "${" + self._FLATCC_TOOL_VAR + "}"
             return self._targets.convert_target(label)[0]
 
         resolved_cmd = cmd.replace("$(RULEDIR)", "${CMAKE_CURRENT_BINARY_DIR}")
@@ -456,12 +494,46 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         srcs_block = "\n".join(
             f'    "${{CMAKE_CURRENT_SOURCE_DIR}}/{s}"' for s in srcs
         )
-        tool_targets = [self._targets.convert_target(t)[0] for t in tools]
+        tool_targets = [
+            "${" + self._FLATCC_TOOL_VAR + "}" if t == self._FLATCC_TOOL_LABEL
+            else self._targets.convert_target(t)[0]
+            for t in tools
+        ]
         tools_block = "\n".join(f"    {t}" for t in tool_targets)
+
+        flatcc_setup = ""
+        if uses_flatcc:
+            # Cross-compile-aware host-tool resolution (mirrors
+            # flatbuffer_c_library.cmake in IREE core): natively, the plain
+            # target name is used directly as a COMMAND token below, which
+            # CMake resolves to that executable target's build output at
+            # generate time; when cross-compiling, IREE_HOST_BIN_DIR points
+            # at the already-built host tools tree instead.
+            flatcc_setup = (
+                f"set({self._FLATCC_TOOL_VAR} iree-flatcc-cli)\n"
+                f"if(IREE_HOST_BIN_DIR)\n"
+                f'  set({self._FLATCC_TOOL_VAR} "${{IREE_HOST_BIN_DIR}}/iree-flatcc-cli")\n'
+                f"endif()\n"
+            )
+            # The tool must be its own COMMAND token (not embedded in a
+            # single shell string) for CMake's target-name-to-output-path
+            # substitution to apply in the native (non-cross-compiling)
+            # case -- so split into argv instead of the generic
+            # `sh -c <whole cmd>` used below. Plain CMake double-quoting
+            # (not shlex/shell quoting -- there is no shell here) is enough:
+            # none of these argv tokens contain embedded double quotes.
+            command_block = "\n".join(
+                f'    "{arg}"' for arg in shlex.split(resolved_cmd)
+            )
+            command = f"  COMMAND\n{command_block}\n"
+        else:
+            command = f"  COMMAND sh -c {shlex.quote(resolved_cmd)}\n"
+
         self._converter.body += (
+            f"{flatcc_setup}"
             f"add_custom_command(\n"
             f"  OUTPUT\n{outs_block}\n"
-            f"  COMMAND sh -c {shlex.quote(resolved_cmd)}\n"
+            f"{command}"
             f"  DEPENDS\n{srcs_block}\n{tools_block}\n"
             f"  VERBATIM\n"
             f")\n"
@@ -672,13 +744,18 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             ("//constraints:cpu_hexagon", "//constraints:os_qurt")
         ):
             return "IREE_HEXAGON_MLIR_DSP_BUILD"
-        # Tracy-enabled config_setting (mirrors how IREE's own generated
-        # runtime/src/iree/base/tracing/CMakeLists.txt guards its tracy-only
-        # sources/defines).
+        # Tracy-enabled config_setting. IREE_TRACING_PROVIDER is only
+        # meaningful when IREE_ENABLE_RUNTIME_TRACING is on -- mirrors how
+        # IREE's own generated runtime/src/iree/base/tracing/CMakeLists.txt
+        # nests its "tracy" branch inside `if(IREE_ENABLE_RUNTIME_TRACING)`;
+        # without the AND, a IREE_TRACING_PROVIDER=tracy + tracing-disabled
+        # config would still define IREE_HAL_HEXAGON_ENABLE_PROFILER and
+        # reference iree_tracing_context_t, which is only actually declared
+        # once IREE_ENABLE_RUNTIME_TRACING pulls in iree/base/tracing/tracy.h.
         if constraint_label.endswith(
             "runtime/src/iree/base/tracing:_tracy_enable"
         ):
-            return 'IREE_TRACING_PROVIDER STREQUAL "tracy"'
+            return 'IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy"'
         # target_compatible_with = select({"@android_ndk_detect//:android_ndk_available":
         # [], "//conditions:default": ["@platforms//:incompatible"]}) gates
         # Bazel targets in a single unified build graph that spans every

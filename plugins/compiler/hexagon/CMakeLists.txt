@@ -21,6 +21,9 @@ iree_cc_library(
     iree::compiler::PluginAPI
     iree_hexagon_plugins::plugins::compiler::hexagon::Target::HexagonSession
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"
   PUBLIC
 )
 

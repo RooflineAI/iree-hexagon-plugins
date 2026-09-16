@@ -28,6 +28,9 @@ iree_cc_library(
     iree::compiler::Dialect::Encoding::Utils
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 
@@ -92,7 +95,7 @@ iree_cc_library(
     MLIRBufferizationPipelines
     MLIRBufferizationToMemRef
     MLIRComplexToStandard
-    MLIRConvertToLLVMPass
+    MLIRConvertToLLVM
     MLIRFuncDialect
     MLIRFunctionInterfaces
     MLIRIR
@@ -140,6 +143,9 @@ iree_cc_library(
     iree::compiler::Utils
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 

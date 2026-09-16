@@ -8,9 +8,6 @@
 # To disable autogeneration for this file entirely, delete this header.        #
 ################################################################################
 
-add_subdirectory(runtime)
-if(IREE_BUILD_COMPILER)
-  add_subdirectory(compiler)
-endif()
+iree_add_all_subdirs()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

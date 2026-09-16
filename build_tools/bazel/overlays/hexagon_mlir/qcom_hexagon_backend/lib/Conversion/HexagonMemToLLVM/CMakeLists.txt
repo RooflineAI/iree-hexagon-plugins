@@ -22,7 +22,7 @@ iree_cc_library(
     LLVMSupport
     MLIRAnalysis
     MLIRArithDialect
-    MLIRConvertToLLVMPass
+    MLIRConvertToLLVM
     MLIRIR
     MLIRLLVMCommonConversion
     MLIRLLVMDialect

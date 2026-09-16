@@ -20,6 +20,9 @@ iree_cc_library(
     hexagon_sdk::qurt_headers
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::hexagon_arm_dsp
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::pmu::hexagon_pmu_events
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../..>"
   PUBLIC
 )
 

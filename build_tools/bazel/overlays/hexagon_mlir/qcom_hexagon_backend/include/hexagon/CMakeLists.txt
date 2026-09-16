@@ -26,6 +26,9 @@ iree_cc_library(
     HexagonCommonHeaders
   HDRS
     ":CommonHeaders"
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/.>"
   PUBLIC
 )
 
@@ -47,6 +50,9 @@ iree_cc_library(
     ":HexKLHeaders"
   DEPS
     ::HexKLTableGen
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/.>"
   PUBLIC
 )
 
@@ -66,6 +72,9 @@ iree_cc_library(
     HexKLTransformsHeadersLib
   HDRS
     ":HexKLTransformsHeaders"
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/.>"
   PUBLIC
 )
 
@@ -88,6 +97,9 @@ iree_cc_library(
   DEPS
     ::HexagonMemTableGen
     hexagon_mlir::include::mlir::Interfaces::CopyOpInterface
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/.>"
   PUBLIC
 )
 
@@ -113,6 +125,9 @@ iree_cc_library(
     ::HexKLToLLVMConversionPassIncGen
     ::HexagonMemToLLVMConversionPassIncGen
     ::LinalgToLLVMConversionPassIncGen
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/.>"
   PUBLIC
 )
 
@@ -134,6 +149,9 @@ iree_cc_library(
     ":TransformsHeaders"
   DEPS
     ::TransformsPassIncGen
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/.>"
   PUBLIC
 )
 

@@ -53,11 +53,6 @@ endif()
 
 if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 iree_package_name(_PACKAGE_NAME)
-# iree_tracing_context_t (used unconditionally once
-# IREE_HAL_HEXAGON_ENABLE_PROFILER is defined) is only actually declared when
-# IREE_ENABLE_RUNTIME_TRACING pulls in iree/base/tracing/tracy.h -- the
-# "tracy" IREE_TRACING_PROVIDER alone (the default, even with tracing
-# disabled) is not enough.
 if(IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy")
   target_compile_definitions(${_PACKAGE_NAME}_hexagon_dsp_skel PRIVATE IREE_HAL_HEXAGON_ENABLE_PROFILER)
 endif()

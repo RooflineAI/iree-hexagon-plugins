@@ -21,6 +21,9 @@ iree_cc_library(
     LLVMSupport
     iree::compiler::Utils
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 
@@ -37,6 +40,9 @@ iree_cc_library(
     LLVMTarget
     iree::compiler::plugins::target::LLVMCPU::LLVMTargetOptions
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 
@@ -53,6 +59,9 @@ iree_cc_library(
     MLIRSupport
     iree::compiler::Dialect::HAL::Target
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 
@@ -88,6 +97,9 @@ iree_cc_library(
     iree_hexagon_plugins::plugins::compiler::hexagon::Target::Linking::HexagonLinkerTool
     iree_hexagon_plugins::plugins::runtime::hexagon::schemas::hexagon_executable_def_c_fbs
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 
@@ -112,6 +124,9 @@ iree_cc_library(
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::codegen
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 
@@ -137,6 +152,9 @@ iree_cc_library(
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::codegen
   ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   PUBLIC
 )
 

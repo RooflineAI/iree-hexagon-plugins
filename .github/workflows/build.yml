@@ -18,36 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - &update-submodules
-        name: Update submodules
-        run: |
-          build_tools/update_submodules.py
-
-      - &install-clang-19
-        name: Install clang-19
-        run: |
-          wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
-
-      - &setup-android-sdk
-        name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: "platform-tools"
-
-      - &install-ndk-28
-        name: Install NDK 28
-        run: |
-          sdkmanager --install "ndk;28.2.13676358"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
       - name: Build and package with CMake+Ninja
         run: |
-          build_tools/cmake/build_and_package.sh build-artifacts-cmake
+          build_tools/cmake/all_in_one.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -207,13 +180,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - *update-submodules
+      - name: Update submodules
+        run: |
+          build_tools/update_submodules.py
 
-      - *install-clang-19
+      - name: Install clang-19
+        run: |
+          wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19
 
-      - *setup-android-sdk
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools"
 
-      - *install-ndk-28
+      - name: Install NDK 28
+        run: |
+          sdkmanager --install "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
 
       - name: Configure bazelrc
         run: |

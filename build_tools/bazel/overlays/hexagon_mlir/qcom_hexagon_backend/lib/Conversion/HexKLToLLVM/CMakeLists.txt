@@ -22,7 +22,7 @@ iree_cc_library(
   DEPS
     LLVMSupport
     MLIRAnalysis
-    MLIRConvertToLLVM
+    MLIRConvertToLLVMPass
     MLIRFuncDialect
     MLIRIR
     MLIRLLVMCommonConversion

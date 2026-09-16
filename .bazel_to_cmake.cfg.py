@@ -809,6 +809,15 @@ class CustomTargetConverter(bazel_to_cmake_targets.TargetConverter):
                 # this specific ":ld.lld" binary sub-target that the plugin's
                 # lit tests reference directly as a tool.
                 "@llvm-project//lld:ld.lld": ["${IREE_LLD_TARGET}"],
+                # MLIR's Bazel overlay (third_party/llvm-project/utils/bazel/
+                # llvm-project-overlay/mlir/BUILD.bazel) names this library
+                # "ConvertToLLVM" (wrapping
+                # lib/Conversion/ConvertToLLVM/ConvertToLLVMPass.cpp), but
+                # MLIR's own CMakeLists.txt still calls the actual library
+                # MLIRConvertToLLVMPass -- a Bazel/CMake naming mismatch
+                # upstream, not something the base converter's generic
+                # "MLIR" + name fallback can get right on its own.
+                "@llvm-project//mlir:ConvertToLLVM": ["MLIRConvertToLLVMPass"],
                 # Hexagon SDK (fetched/exposed by cmake/HexagonSDK.cmake).
                 "@hexagon_sdk//:qaic": ["hexagon_sdk::qaic"],
                 "@hexagon_sdk//:incs_tree": [],  # consumed via HEXAGON_SDK_INCS_TREE_DIR, not a link dep

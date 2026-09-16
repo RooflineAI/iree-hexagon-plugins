@@ -95,7 +95,7 @@ iree_cc_library(
     MLIRBufferizationPipelines
     MLIRBufferizationToMemRef
     MLIRComplexToStandard
-    MLIRConvertToLLVM
+    MLIRConvertToLLVMPass
     MLIRFuncDialect
     MLIRFunctionInterfaces
     MLIRIR

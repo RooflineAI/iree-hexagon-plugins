@@ -71,3 +71,19 @@ add_dependencies(${_PACKAGE_NAME}_hexagon_dsp_skel hexagon_dsp_interface_gen)
 endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
+
+if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
+iree_package_name(_PACKAGE_NAME)
+# iree_cc_library() compiles all objects with -fvisibility=hidden
+# (IREE_DEFAULT_COPTS) and only re-adds -fvisibility=default when the
+# *global* BUILD_SHARED_LIBS is ON. This target opts into SHARED
+# individually while the project builds with BUILD_SHARED_LIBS=OFF, so that
+# override never happens and every symbol -- including the FastRPC-required
+# hexagon_dsp_skel_handle_invoke -- ends up hidden, which makes the DSP's
+# adsprpc loader fail with "Undefined symbol" at runtime.
+if(IREE_SUPPORTS_VISIBILITY_DEFAULT)
+  target_compile_options(${_PACKAGE_NAME}_hexagon_dsp_skel.objects PRIVATE
+    "-fvisibility=default"
+  )
+endif()
+endif()

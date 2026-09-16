@@ -87,3 +87,21 @@ if(IREE_SUPPORTS_VISIBILITY_DEFAULT)
   )
 endif()
 endif()
+
+if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
+iree_package_name(_PACKAGE_NAME)
+# hexagon_mlir::bin::runtime::runtime_lib (HexagonCAPI.cpp) defines
+# hexagon_runtime_{alloc,free}_{1d,2d} and hexagon_runtime_copy, called only
+# from HexKLAPI.cpp in that same static archive -- nothing in this skel's own
+# link graph references them, so the linker's normal demand-driven archive
+# extraction drops that whole object file. These are ABI entry points only
+# ever resolved via PLT from a separately dlopen'd, JIT-compiled kernel .so,
+# so force the linker to retain them explicitly.
+target_link_options(${_PACKAGE_NAME}_hexagon_dsp_skel PRIVATE
+  "-Wl,-u,hexagon_runtime_alloc_1d"
+  "-Wl,-u,hexagon_runtime_alloc_2d"
+  "-Wl,-u,hexagon_runtime_free_1d"
+  "-Wl,-u,hexagon_runtime_free_2d"
+  "-Wl,-u,hexagon_runtime_copy"
+)
+endif()

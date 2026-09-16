@@ -51,3 +51,19 @@ endif()
 endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
+
+if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
+iree_package_name(_PACKAGE_NAME)
+# iree_cc_library()'s ALWAYSLINK branch has the same -fvisibility=hidden bug
+# as its SHARED branch: it only re-adds -fvisibility=default when the
+# *global* BUILD_SHARED_LIBS is ON, which this project never sets. This
+# library defines hexagon_runtime_malloc/free etc., which get statically
+# linked into the hexagon_dsp_skel SHARED library; without this, they stay
+# hidden in the final .so and the DSP loader fails to resolve them when
+# dlopen'ing a compiled kernel that imports them via PLT.
+if(IREE_SUPPORTS_VISIBILITY_DEFAULT)
+  target_compile_options(${_PACKAGE_NAME}_hexagon_rt_library.objects PRIVATE
+    "-fvisibility=default"
+  )
+endif()
+endif()

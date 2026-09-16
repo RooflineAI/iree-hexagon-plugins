@@ -43,9 +43,9 @@ endif()
 
 if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 iree_package_name(_PACKAGE_NAME)
+# ALWAYSLINK: ${_PACKAGE_NAME}_hexagon_rt_library itself is an INTERFACE
+# target; the real compiled objects live in its ".objects" twin.
 if(IREE_HEXAGON_PLAYGROUND_PROFILER)
-  # ALWAYSLINK: ${_PACKAGE_NAME}_hexagon_rt_library itself is an INTERFACE
-  # target; the real compiled objects live in its ".objects" twin.
   target_compile_definitions(${_PACKAGE_NAME}_hexagon_rt_library.objects PRIVATE IREE_HAL_HEXAGON_ENABLE_PROFILER)
 endif()
 endif()

@@ -10,14 +10,18 @@
 
 iree_add_all_subdirs()
 
-if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 # runtime_lib is a PUBLIC library depended on by hexagon_rt_library and
 # hexagon_dsp_skel
 set(IREE_INSTALL_LIBRARY_TARGETS_DEFAULT_EXPORT_SET "Runtime")
 set(IREE_INSTALL_LIBRARY_TARGETS_DEFAULT_COMPONENT "IREEDevLibraries-Runtime")
+if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 iree_cc_library(
   NAME
     runtime_lib
+  COPTS
+    "-Wno-unused-variable"
+    "-DLLVM_DISABLE_ABI_BREAKING_CHECKS_ENFORCING=1"
+    "-flax-vector-conversions"
   HDRS
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/UserDMA/RingBuffer.h"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/UserDMA/UserDMA.h"
@@ -53,10 +57,6 @@ iree_cc_library(
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/src/HexagonBufferAlias.cpp"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/src/HexagonCAPI.cpp"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/src/VTCMPool.cpp"
-  COPTS
-    "-Wno-unused-variable"
-    "-DLLVM_DISABLE_ABI_BREAKING_CHECKS_ENFORCING=1"
-    "-flax-vector-conversions"
   DEPS
     hexagon_sdk::hexagon_toolchain_bit_headers
     hexagon_sdk::qhl_hvx_headers
@@ -68,8 +68,11 @@ iree_cc_library(
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/multithreading/fake_includes>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/multithreading/fake_includes>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/include>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../build_tools/cmake/hexagon_llvm_headers_stub>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../../../../../../build_tools/cmake/hexagon_llvm_headers_stub>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../third-party/iree/third_party/llvm-project/llvm/include>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../../../../../../third-party/iree/third_party/llvm-project/llvm/include>"
   PUBLIC
 )
 endif()

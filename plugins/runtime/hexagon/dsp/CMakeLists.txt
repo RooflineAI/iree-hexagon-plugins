@@ -44,9 +44,7 @@ iree_cc_library(
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
   SHARED
 )
-endif()
 
-if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 iree_package_name(_PACKAGE_NAME)
 set_target_properties(${_PACKAGE_NAME}_hexagon_dsp_skel PROPERTIES
   OUTPUT_NAME "hexagon_dsp_skel"

@@ -123,7 +123,9 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             return None, defines
         return defines, None
 
-    def _emit_extra_defines(self, name, extra_defines, target_compatible_with):
+    def _emit_extra_defines(
+        self, name, extra_defines, target_compatible_with, alwayslink=False
+    ):
         if extra_defines is None:
             return
         # The target this refers to only exists inside its own
@@ -139,17 +141,32 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # enclosing package's namespace at CMake-configure time);
         # target_compile_definitions() is a bare CMake builtin that needs the
         # real resolved target name, so compute it the same way
-        # iree_cc_library does internally: via iree_package_ns().
+        # iree_cc_library does internally: via iree_package_ns() -- except
+        # for an ALWAYSLINK library, where ${_PACKAGE_NS}::name (and its
+        # underlying ${_PACKAGE_NAME}_name) is only an INTERFACE target
+        # (iree_cc_library.cmake's ALWAYSLINK branch); INTERFACE targets
+        # cannot carry a PRIVATE compile definition at all, and even if they
+        # could, it wouldn't apply to the actual compiled objects, which
+        # live in the ".objects" twin instead.
         self._emit_platform_guard_begin(target_compatible_with)
+        if alwayslink:
+            self._converter.body += (
+                "iree_package_name(_PACKAGE_NAME)\n"
+                f"# ALWAYSLINK: ${{_PACKAGE_NAME}}_{name} itself is an INTERFACE\n"
+                "# target; the real compiled objects live in its \".objects\" twin.\n"
+            )
+            target_name = "${_PACKAGE_NAME}_" + name + ".objects"
+        else:
+            self._converter.body += "iree_package_ns(_PACKAGE_NS)\n"
+            target_name = "${_PACKAGE_NS}::" + name
         for label, values in extra_defines.conditions.items():
             if label == "//conditions:default" or not values:
                 continue
             cond = self._convert_select_condition(label)
             defs = " ".join(values)
             self._converter.body += (
-                f"iree_package_ns(_PACKAGE_NS)\n"
                 f"if({cond})\n"
-                f"  target_compile_definitions(${{_PACKAGE_NS}}::{name} PRIVATE {defs})\n"
+                f"  target_compile_definitions({target_name} PRIVATE {defs})\n"
                 f"endif()\n\n"
             )
         self._emit_platform_guard_end(target_compatible_with)
@@ -195,6 +212,7 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         textual_hdrs=None,
         defines=None,
         target_compatible_with=None,
+        alwayslink=None,
         **kwargs,
     ):
         android_only = self._is_arm_hexagon_top_library(name)
@@ -208,12 +226,15 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             textual_hdrs=self._redirect_overlay_paths(textual_hdrs),
             defines=defines,
             target_compatible_with=target_compatible_with,
+            alwayslink=alwayslink,
             **kwargs,
         )
         if android_only:
             self._converter.body += "endif()\n\n"
             self._converter.body += "if(IREE_HEXAGON_ANDROID_BUILD)\n"
-        self._emit_extra_defines(name, extra_defines, target_compatible_with)
+        self._emit_extra_defines(
+            name, extra_defines, target_compatible_with, alwayslink=bool(alwayslink)
+        )
         if android_only:
             self._converter.body += "endif()\n\n"
 
@@ -235,7 +256,13 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
     )
 
     def cc_binary(
-        self, name=None, srcs=None, defines=None, target_compatible_with=None, **kwargs
+        self,
+        name=None,
+        srcs=None,
+        defines=None,
+        target_compatible_with=None,
+        linkshared=None,
+        **kwargs,
     ):
         defines, extra_defines = self._split_select_defines(defines)
         needs_interface_gen_dep = bool(srcs) and self._HEXAGON_DSP_SKEL_C_LABEL in srcs
@@ -244,20 +271,124 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
                 self._HEXAGON_DSP_SKEL_C_PATH if s == self._HEXAGON_DSP_SKEL_C_LABEL else s
                 for s in srcs
             ]
-        super().cc_binary(
-            name=name,
-            srcs=self._redirect_overlay_paths(srcs),
-            defines=defines,
-            target_compatible_with=target_compatible_with,
-            **kwargs,
-        )
-        self._emit_extra_defines(name, extra_defines, target_compatible_with)
+        srcs = self._redirect_overlay_paths(srcs)
+        if linkshared:
+            self._emit_shared_cc_binary(
+                name=name,
+                srcs=srcs,
+                defines=defines,
+                extra_defines=extra_defines,
+                target_compatible_with=target_compatible_with,
+                **kwargs,
+            )
+        else:
+            super().cc_binary(
+                name=name,
+                srcs=srcs,
+                defines=defines,
+                target_compatible_with=target_compatible_with,
+                **kwargs,
+            )
+            self._emit_extra_defines(name, extra_defines, target_compatible_with)
         if needs_interface_gen_dep:
+            # add_dependencies() rejects an ALIAS target outright ("Cannot
+            # add target-level dependencies to alias target ...") -- unlike
+            # target_compile_definitions() et al, which happily accept one
+            # (see _emit_extra_defines()). Needs the real, package-name
+            # (not package-namespace/alias) target name.
             self._emit_platform_guard_begin(target_compatible_with)
             self._converter.body += (
-                f"iree_package_ns(_PACKAGE_NS)\n"
-                f"add_dependencies(${{_PACKAGE_NS}}::{name} hexagon_dsp_interface_gen)\n\n"
+                f"iree_package_name(_PACKAGE_NAME)\n"
+                f"add_dependencies(${{_PACKAGE_NAME}}_{name} hexagon_dsp_interface_gen)\n\n"
             )
+            self._emit_platform_guard_end(target_compatible_with)
+
+    def _emit_shared_cc_binary(
+        self,
+        name,
+        srcs=None,
+        copts=None,
+        deps=None,
+        defines=None,
+        extra_defines=None,
+        includes=None,
+        target_compatible_with=None,
+        **kwargs,
+    ):
+        # The base converter's cc_binary() (bazel_to_cmake_converter.py) has
+        # no concept of Bazel's linkshared=True at all: it accepts (and
+        # silently drops, via **kwargs) the flag and always emits a plain
+        # iree_cc_binary(), never a shared object. CMake's iree_cc_library()
+        # macro is what actually knows how to opt a single target into
+        # SHARED while the rest of the build stays STATIC (see
+        # iree_cc_library.cmake and its SHARED keyword) -- hexagon_dsp_skel
+        # (the only linkshared=True cc_binary in this repo) needs exactly
+        # that, so translate it to a SHARED iree_cc_library() instead of
+        # silently producing a non-shared iree_cc_binary() that leaves the
+        # DSP-side FastRPC .so entirely unbuilt in its expected shared form.
+        if self._should_skip_target(**kwargs):
+            return
+        name_block = self._convert_string_arg_block("NAME", name, quote=False)
+        srcs_block = self._convert_srcs_block(srcs)
+        copts_block = self._convert_string_list_block("COPTS", copts, sort=False)
+        deps_block, platform_deps_block = self._convert_platform_select_deps(name, deps)
+        defines_block = self._convert_string_list_block("DEFINES", defines)
+        includes_block = self._convert_includes_block(includes)
+
+        self._emit_platform_guard_begin(target_compatible_with)
+        if platform_deps_block:
+            self._converter.body += platform_deps_block
+        self._converter.body += (
+            f"iree_cc_library(\n"
+            f"{name_block}"
+            f"{srcs_block}"
+            f"{copts_block}"
+            f"{deps_block}"
+            f"{defines_block}"
+            f"{includes_block}"
+            f"  SHARED\n)\n\n"
+        )
+        # iree_cc_library() names the CMake target (and, by default, its
+        # output file) after the full package path, unlike a bare Bazel
+        # binary name -- restore the plain name so packaging steps that
+        # expect exactly "lib<name>.so" (matching what Bazel's cc_binary
+        # would have produced) keep working.
+        self._converter.body += (
+            f"iree_package_name(_PACKAGE_NAME)\n"
+            f"set_target_properties(${{_PACKAGE_NAME}}_{name} PROPERTIES\n"
+            f'  OUTPUT_NAME "{name}"\n'
+            f")\n"
+        )
+        self._emit_platform_guard_end(target_compatible_with)
+
+        if extra_defines is not None:
+            self._emit_platform_guard_begin(target_compatible_with)
+            self._converter.body += "iree_package_name(_PACKAGE_NAME)\n"
+            for label, values in extra_defines.conditions.items():
+                if label == "//conditions:default" or not values:
+                    continue
+                cond = self._convert_select_condition(label)
+                defs = " ".join(values)
+                # This extra IREE_ENABLE_RUNTIME_TRACING condition (beyond
+                # the generic, defines-block-only _emit_extra_defines() used
+                # for cc_library targets) is repo-specific knowledge with no
+                # Bazel-side equivalent: iree_tracing_context_t (used
+                # unconditionally once IREE_HAL_HEXAGON_ENABLE_PROFILER is
+                # defined) is only actually declared when
+                # IREE_ENABLE_RUNTIME_TRACING pulls in
+                # iree/base/tracing/tracy.h -- the "tracy" IREE_TRACING_PROVIDER
+                # alone (the default, even with tracing disabled) is not
+                # enough.
+                self._converter.body += (
+                    "# iree_tracing_context_t (used unconditionally once\n"
+                    "# IREE_HAL_HEXAGON_ENABLE_PROFILER is defined) is only actually declared when\n"
+                    "# IREE_ENABLE_RUNTIME_TRACING pulls in iree/base/tracing/tracy.h -- the\n"
+                    '# "tracy" IREE_TRACING_PROVIDER alone (the default, even with tracing\n'
+                    "# disabled) is not enough.\n"
+                    f"if(IREE_ENABLE_RUNTIME_TRACING AND {cond})\n"
+                    f"  target_compile_definitions(${{_PACKAGE_NAME}}_{name} PRIVATE {defs})\n"
+                    f"endif()\n\n"
+                )
             self._emit_platform_guard_end(target_compatible_with)
 
     def filegroup(self, name, srcs, **kwargs):
@@ -349,9 +480,61 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         all_deps = list(deps or []) + list(hdr_deps or [])
         self.cc_library(deps=all_deps, alwayslink=True, **kwargs)
 
-    def hexagon_mlir_overlay_library(self, deps=None, hdr_deps=None, **kwargs):
-        all_deps = list(deps or []) + list(hdr_deps or [])
-        self.cc_library(deps=all_deps, **kwargs)
+    # runtime_lib (build_tools/bazel/overlays/hexagon_mlir/qcom_hexagon_backend/
+    # bin/runtime) is the one hexagon_mlir_overlay_library() target also built
+    # in the DSP-only CMake tree (cmake/HexagonToolchain.cmake,
+    # IREE_BUILD_COMPILER=OFF), where LLVM/MLIR itself is never configured at
+    # all. Its hdr_deps=["@llvm-project//mlir:LLVMSupportHeaders"] (a handful
+    # of llvm::StringMap/ADT includes used by multithreading/StringMap.cpp
+    # etc.) has no real CMake target to link against there -- every other
+    # hexagon_mlir_overlay_library() target only builds in the host/compiler
+    # tree (IREE_BUILD_COMPILER=ON), where LLVM is already configured and the
+    # generic hdr_deps-folded-into-deps handling below resolves fine. Swap in
+    # the copts/include-path equivalent instead of a link dependency on a
+    # target that doesn't exist in that tree (build_tools/cmake/
+    # hexagon_llvm_headers_stub stands in for the handful of ADT headers
+    # actually needed).
+    _RUNTIME_LIB_NO_LLVM_TREE_COPTS = [
+        "-Wno-unused-variable",
+        "-DLLVM_DISABLE_ABI_BREAKING_CHECKS_ENFORCING=1",
+        "-flax-vector-conversions",
+    ]
+    _RUNTIME_LIB_NO_LLVM_TREE_INCLUDES = [
+        "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/include",
+        "../../../../../../../build_tools/cmake/hexagon_llvm_headers_stub",
+        "../../../../../../../third-party/iree/third_party/llvm-project/llvm/include",
+    ]
+
+    def hexagon_mlir_overlay_library(
+        self, name=None, deps=None, hdr_deps=None, copts=None, includes=None, **kwargs
+    ):
+        is_runtime_lib_no_llvm_tree = name == "runtime_lib" and hdr_deps
+        if is_runtime_lib_no_llvm_tree:
+            all_deps = list(deps or [])
+            copts = list(copts or []) + self._RUNTIME_LIB_NO_LLVM_TREE_COPTS
+            includes = list(includes or []) + self._RUNTIME_LIB_NO_LLVM_TREE_INCLUDES
+            # Pure CMake install/export config with no Bazel-side equivalent
+            # (Bazel has no concept of an install export set or component) --
+            # runtime_lib is depended on by hexagon_rt_library and
+            # hexagon_dsp_skel outside its own package, so it needs to be
+            # installed/exported like any other PUBLIC library, in the same
+            # "Runtime" export set as the rest of this repo's runtime
+            # libraries. Must precede the iree_cc_library() call itself
+            # (these variables are read at ADD-time, not appended
+            # afterward), so this can't live below the preserved-content
+            # marker.
+            self._converter.body += (
+                "# runtime_lib is a PUBLIC library depended on by "
+                "hexagon_rt_library and\n"
+                "# hexagon_dsp_skel\n"
+                'set(IREE_INSTALL_LIBRARY_TARGETS_DEFAULT_EXPORT_SET "Runtime")\n'
+                'set(IREE_INSTALL_LIBRARY_TARGETS_DEFAULT_COMPONENT "IREEDevLibraries-Runtime")\n'
+            )
+        else:
+            all_deps = list(deps or []) + list(hdr_deps or [])
+        self.cc_library(
+            name=name, deps=all_deps, copts=copts, includes=includes, **kwargs
+        )
 
     def pkg_files(self, *args, **kwargs):
         # rules_pkg packaging + platform_aliases.bzl transitions have no
@@ -403,6 +586,17 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             raise NotImplementedError(
                 f"cc_import({name}) needs static_library or shared_library"
             )
+        # convert_target() resolves a package-relative ":name" reference to
+        # the literal placeholder "::name" (see _convert_to_cmake_path) --
+        # correct only inside an iree_cc_library()/iree_cc_binary() DEPS
+        # list, where the macro itself calls iree_package_ns() internally to
+        # resolve the "::" prefix at CMake-configure time. This emits a bare
+        # add_library() instead, which has no such resolution, so it needs
+        # the same iree_package_ns(_PACKAGE_NS) bootstrap plus the expanded
+        # "${_PACKAGE_NS}::name" spelled out explicitly.
+        if cmake_name.startswith("::"):
+            self._converter.body += "iree_package_ns(_PACKAGE_NS)\n"
+            cmake_name = "${_PACKAGE_NS}" + cmake_name
         self._converter.body += (
             f"add_library({cmake_name} ALIAS {aliased})\n\n"
         )

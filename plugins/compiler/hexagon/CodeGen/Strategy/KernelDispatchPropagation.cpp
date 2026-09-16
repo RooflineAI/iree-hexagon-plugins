@@ -321,7 +321,7 @@ static void overlayRootVectorIntent(Operation *op, OpLoweringPlan &plan,
                                         ? staticLoopRanges[localDim]
                                         : ShapedType::kDynamic);
 
-    auto warnMismatchedPlan = [&]() {
+    auto warnMismatchedPlan = [&op, localDim = localDim]() {
       op->emitWarning() << "skipping propagated vector intent for local dim "
                         << localDim
                         << ": lowering plan has inconsistent tile vector sizes";

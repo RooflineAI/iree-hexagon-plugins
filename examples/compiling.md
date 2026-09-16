@@ -4,6 +4,8 @@ No Hexagon hardware is required for anything on this page.
 
 ## 1. Build the compiler
 
+### Bazel
+
 As a first step, build the iree-compile executable:
 
 ```sh
@@ -15,6 +17,19 @@ The bazel output points to the compiled binary. It can also be resolved through:
 ```sh
 IREE_COMPILE="$PWD/$(bazel cquery --output=files @iree//tools:iree-compile 2>/dev/null | head -n1)"
 "$IREE_COMPILE" --version
+```
+
+### Cmake & Ninja
+
+Perform the cmake & ninja build:
+
+```sh
+build_tools/cmake/all_in_one.sh
+```
+
+Set the variable for the IREE compiler:
+```sh
+IREE_COMPILE="$PWD/build-artifacts-cmake/iree-compile"
 ```
 
 ## 2. Choose an example

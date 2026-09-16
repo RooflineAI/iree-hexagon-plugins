@@ -23,7 +23,10 @@ build_tools/update_submodules.py
 ```
 
 Run the helper again after a submodule pin changes. It is safe to re-run when
-the submodules and patches are already up to date.
+the submodules and patches are already up to date. IREE's nested LLVM,
+StableHLO, and torch-mlir paths are linked to this repository's matching
+top-level submodules so that both Bazel and CMake share the same source
+checkouts.
 
 ## Dependencies
 
@@ -54,7 +57,7 @@ build --incompatible_strict_action_env
 EOF
 ```
 
-## Building
+## Building with Bazel
 
 ### Compiler
 
@@ -77,6 +80,28 @@ A variant including tracing can be built using:
 
 ```sh
 bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
+```
+
+## Building with Cmake and Ninja
+
+Compiling using cmake and ninja need multiple steps to build the host tools,
+because some come from LLVM directly and some from IREE repo. Building the
+runtime needs to happen as a cross-build to Android arm64 plus a cross-build
+of the DSP side parts to Hexagon. The following script contains the commands
+to build the host tools from compilation and the runtime:
+
+```sh
+export ANDROID_NDK_HOME="/opt/android-sdk/ndk/${NDK_FOLDER}"
+build_tools/cmake/build_and_package.sh
+```
+
+### All in a One
+
+There is also a script that performs all steps required after just having cloned
+the repo:
+
+```sh
+build_tools/cmake/all_in_one.sh
 ```
 
 ## Examples

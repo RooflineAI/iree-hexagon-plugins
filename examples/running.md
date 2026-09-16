@@ -38,7 +38,9 @@ NDK installed (see the top-level [README](../README.md)). Verify the device firs
 adb devices
 ```
 
-### 1.1 Build and deploy the runtime
+### Build the runtime
+
+#### Bazel
 
 The runtime is cross-compiled for Android AArch64 plus the DSP and packaged as a zip.
 It does not depend on which example you picked, so this only needs doing once:
@@ -49,6 +51,22 @@ bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
 RUNTIME_ZIP="$PWD/$(bazel cquery --output=files \
   //plugins/runtime/hexagon:hexagon_runtime_aarch64_android 2>/dev/null | head -n1)"
 ```
+
+#### Cmake & Ninja
+
+Perform the cmake & ninja build:
+
+```sh
+build_tools/cmake/all_in_one.sh
+```
+
+Set the variable for the IREE runtime:
+
+```sh
+RUNTIME_ZIP="$PWD/build-artifacts-cmake/hexagon_runtime_aarch64_android.zip"
+```
+
+### Deploy the runtime
 
 Push and unpack it:
 
@@ -71,13 +89,13 @@ The zip contains:
 | `lib/hexagon/libhexagon_dsp_skel.so` | The DSP-side runtime. |
 | `lib/libc++_shared.so` | NDK C++ runtime, required to match the build. |
 
-### 1.2 Push the model
+### Push the model
 
 ```sh
 adb push "$OUT/$EXAMPLE.vmfb" "$REMOTE_DIR/"
 ```
 
-### 1.3 Run
+### Run
 
 `DSP_LIBRARY_PATH` must point at the directory holding `libhexagon_dsp_skel.so`:
 
@@ -108,19 +126,42 @@ adb logcat -s adsprpc
 
 ## Profiling with Tracy
 
-Build the tracing variant of the runtime and deploy it the same way:
+### Build the Tracy-enabled runtime
+
+#### Bazel
+
+Build the tracing variant of the IREE runtime:
 
 ```sh
 bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 
-RUNTIME_ZIP="$PWD/$(bazel cquery --output=files \
+RUNTIME_ZIP_TRACY="$PWD/$(bazel cquery --output=files \
   //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy 2>/dev/null | head -n1)"
+```
 
+#### Cmake & Ninja
+
+Perform the cmake & ninja build:
+
+```sh
+build_tools/cmake/all_in_one.sh
+```
+
+Set the variable for the tracing variant of the IREE runtime:
+```sh
+RUNTIME_ZIP_TRACY="$PWD/build-artifacts-cmake/hexagon_runtime_aarch64_android_tracy.zip"
+```
+
+### Deploy the runtime
+
+Deploying work exactly as above, just using the different ZIP file:
+
+```sh
 REMOTE_DIR=/data/local/tmp/hexagon-example
 
 adb shell "rm -rf '$REMOTE_DIR/bin' '$REMOTE_DIR/lib'"
 adb shell "mkdir -p '$REMOTE_DIR'"
-adb push "$RUNTIME_ZIP" "$REMOTE_DIR"
+adb push "$RUNTIME_ZIP_TRACY" "$REMOTE_DIR"
 adb shell "unzip -o '$REMOTE_DIR/hexagon_runtime_aarch64_android_tracy.zip' -d '$REMOTE_DIR'"
 adb shell "chmod +x '$REMOTE_DIR/bin/iree-run-module'"
 ```

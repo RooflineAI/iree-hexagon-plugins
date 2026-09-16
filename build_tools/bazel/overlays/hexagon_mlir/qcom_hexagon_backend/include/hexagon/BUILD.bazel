@@ -207,8 +207,7 @@ gentbl_cc_library(
     tbl_outs = {
         "Transforms/Passes.h.inc": [
             "-gen-pass-decls",
-            "--name",
-            "Transforms",
+            "--name=Transforms",
         ],
     },
     tblgen = "@llvm-project//mlir:mlir-tblgen",
@@ -223,8 +222,7 @@ gentbl_cc_library(
     tbl_outs = {
         "Conversion/AffineToLLVM/Passes.h.inc": [
             "-gen-pass-decls",
-            "--name",
-            "AffineToLLVM",
+            "--name=AffineToLLVM",
         ],
     },
     tblgen = "@llvm-project//mlir:mlir-tblgen",
@@ -239,8 +237,7 @@ gentbl_cc_library(
     tbl_outs = {
         "Conversion/LinalgToLLVM/Passes.h.inc": [
             "-gen-pass-decls",
-            "--name",
-            "LinalgToLLVM",
+            "--name=LinalgToLLVM",
         ],
     },
     tblgen = "@llvm-project//mlir:mlir-tblgen",
@@ -255,8 +252,7 @@ gentbl_cc_library(
     tbl_outs = {
         "Conversion/DMAToLLVM/Passes.h.inc": [
             "-gen-pass-decls",
-            "--name",
-            "DMAToLLVM",
+            "--name=DMAToLLVM",
         ],
     },
     tblgen = "@llvm-project//mlir:mlir-tblgen",
@@ -271,8 +267,7 @@ gentbl_cc_library(
     tbl_outs = {
         "Conversion/HexagonMemToLLVM/Passes.h.inc": [
             "-gen-pass-decls",
-            "--name",
-            "HexagonMemToLLVM",
+            "--name=HexagonMemToLLVM",
         ],
     },
     tblgen = "@llvm-project//mlir:mlir-tblgen",
@@ -287,8 +282,7 @@ gentbl_cc_library(
     tbl_outs = {
         "Conversion/HexKLToLLVM/Passes.h.inc": [
             "-gen-pass-decls",
-            "--name",
-            "HexKLToLLVM",
+            "--name=HexKLToLLVM",
         ],
     },
     tblgen = "@llvm-project//mlir:mlir-tblgen",

@@ -3,3 +3,19 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_cmake_extra_content")
+
+iree_cmake_extra_content(
+    content = """
+# Match runtime/src/CMakeLists.txt's own EXPORT_SET/COMPONENT (not calling
+# iree_setup_c_src_root() again here, which would also reset the package-name
+# root this repo's own root CMakeLists.txt already established). Needed so
+# PUBLIC libraries under here (e.g. DriverModuleLib) are members of the same
+# "Runtime" install(EXPORT ...) set as the IREE targets that depend on them
+# (e.g. iree::hal::drivers::drivers) -- required for CMake's export-set
+# validation at generate time even when nothing ever runs `cmake --install`.
+set(IREE_INSTALL_LIBRARY_TARGETS_DEFAULT_EXPORT_SET "Runtime")
+set(IREE_INSTALL_LIBRARY_TARGETS_DEFAULT_COMPONENT "IREEDevLibraries-Runtime")
+""",
+)

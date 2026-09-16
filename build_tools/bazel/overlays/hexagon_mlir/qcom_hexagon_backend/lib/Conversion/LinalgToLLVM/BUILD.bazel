@@ -31,6 +31,9 @@ hexagon_mlir_overlay_library(
         "-Wno-unused-but-set-variable",
         # Upstream contains mixed &&/|| conditions without explicit grouping.
         "-Wno-logical-op-parentheses",
+        # A few conversion patterns compute values that end up unused on some
+        # paths.
+        "-Wno-unused-variable",
     ],
     hdr_deps = [
         "@llvm-project//llvm:Support",

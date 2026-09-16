@@ -1,5 +1,8 @@
 /bazel-*
+/build/
 /build-artifacts/
+/build-artifacts-bazel/
+/build-artifacts-cmake/
 /configured.bazelrc
 /MODULE.bazel.lock
 .vscode

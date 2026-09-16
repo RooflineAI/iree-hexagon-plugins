@@ -49,6 +49,7 @@ export HEXKL_ROOT="${BUILD_ROOT}/hexkl"
 if [[ ! -d "${HEXKL_ROOT}" ]]; then
   _hexkl_outer_zip="Hexagon_KL.Core.1.0.0.Linux-Any.zip"
   _hexkl_inner_zip="hexkl-1.0.0-beta1-6.4.0.0.zip"
+  _hexkl_inner_zip_sha256="409add79ec895e8eb8062e3fc2bb9d74d548e5288fde729cc5d3376f0437dfd9"
   _hexkl_tmp="$(mktemp -d)"
   curl -sL "https://softwarecenter.qualcomm.com/api/download/software/tools/Hexagon_KL/Linux/1.0.0/${_hexkl_outer_zip}" \
     -o "${_hexkl_tmp}/outer.zip"
@@ -59,6 +60,7 @@ if [[ ! -d "${HEXKL_ROOT}" ]]; then
   else
     _hexkl_inner_zip_path="${_hexkl_tmp}/extracted/Hexagon_KL.Core.1.0.0.Linux-Any/${_hexkl_inner_zip}"
   fi
+  echo "${_hexkl_inner_zip_sha256}  ${_hexkl_inner_zip_path}" | sha256sum -c -
   unzip -q "${_hexkl_inner_zip_path}" -d "${_hexkl_tmp}/extracted"
   if [[ ! -d "${_hexkl_tmp}/extracted/hexkl_addon" \
         && -d "${_hexkl_tmp}/extracted/hexkl-1.0.0-beta1-6.4.0.0/hexkl_addon" ]]; then

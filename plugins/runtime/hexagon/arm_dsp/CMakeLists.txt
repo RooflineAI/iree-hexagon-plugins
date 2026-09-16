@@ -25,9 +25,9 @@ iree_cc_library(
   PUBLIC
 )
 
-iree_package_ns(_PACKAGE_NS)
+iree_package_name(_PACKAGE_NAME)
 if(IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy")
-  target_compile_definitions(${_PACKAGE_NS}::hexagon_arm_dsp PRIVATE IREE_HAL_HEXAGON_ENABLE_PROFILER)
+  target_compile_definitions(${_PACKAGE_NAME}_hexagon_arm_dsp INTERFACE IREE_HAL_HEXAGON_ENABLE_PROFILER)
 endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

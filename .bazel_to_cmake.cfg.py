@@ -152,7 +152,12 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         return defines, None
 
     def _emit_extra_defines(
-        self, name, extra_defines, target_compatible_with, alwayslink=False
+        self,
+        name,
+        extra_defines,
+        target_compatible_with,
+        alwayslink=False,
+        header_only=False,
     ):
         if extra_defines is None:
             return
@@ -164,29 +169,41 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # descends into every subdirectory regardless of which toolchain
         # tree is being configured).
         #
-        # ":name"-relative dep strings like "::hexagon" are only meaningful
-        # inside iree_cc_library()'s own DEPS parsing (which prepends the
-        # enclosing package's namespace at CMake-configure time);
-        # target_compile_definitions() is a bare CMake builtin that needs the
-        # real resolved target name, so compute it the same way
-        # iree_cc_library does internally: via iree_package_ns() -- except
-        # for an ALWAYSLINK library, where ${_PACKAGE_NS}::name (and its
-        # underlying ${_PACKAGE_NAME}_name) is only an INTERFACE target
-        # (iree_cc_library.cmake's ALWAYSLINK branch); INTERFACE targets
-        # cannot carry a PRIVATE compile definition at all, and even if they
-        # could, it wouldn't apply to the actual compiled objects, which
-        # live in the ".objects" twin instead.
+        # target_compile_definitions() is a bare CMake builtin, so it needs
+        # the real, package-name (not package-namespace "::" alias) target
+        # name -- add_custom_command's add_dependencies() et al happily
+        # accept an ALIAS target, but target_compile_definitions() flatly
+        # rejects one ("target_compile_definitions can not be used on an
+        # ALIAS target"), and ${_PACKAGE_NS}::name is always an ALIAS
+        # (iree_cc_library.cmake's iree_add_alias_library() call) pointing
+        # at ${_PACKAGE_NAME}_name.
+        #
+        # Which keyword applies to that real target further depends on how
+        # iree_cc_library.cmake actually built it:
+        # - ALWAYSLINK: ${_PACKAGE_NAME}_name itself is an INTERFACE target
+        #   propagating objects; the real compiled objects (and thus the
+        #   only place a PRIVATE define can apply) live in its ".objects"
+        #   twin instead.
+        # - header-only (no srcs): ${_PACKAGE_NAME}_name IS an INTERFACE
+        #   target directly (no ".objects" twin at all) -- only the
+        #   INTERFACE keyword is legal on it.
+        # - otherwise: a normal STATIC/SHARED target -- PRIVATE applies
+        #   directly.
         self._emit_platform_guard_begin(target_compatible_with)
+        self._converter.body += "iree_package_name(_PACKAGE_NAME)\n"
         if alwayslink:
             self._converter.body += (
-                "iree_package_name(_PACKAGE_NAME)\n"
                 f"# ALWAYSLINK: ${{_PACKAGE_NAME}}_{name} itself is an INTERFACE\n"
                 "# target; the real compiled objects live in its \".objects\" twin.\n"
             )
             target_name = "${_PACKAGE_NAME}_" + name + ".objects"
+            keyword = "PRIVATE"
+        elif header_only:
+            target_name = "${_PACKAGE_NAME}_" + name
+            keyword = "INTERFACE"
         else:
-            self._converter.body += "iree_package_ns(_PACKAGE_NS)\n"
-            target_name = "${_PACKAGE_NS}::" + name
+            target_name = "${_PACKAGE_NAME}_" + name
+            keyword = "PRIVATE"
         for label, values in extra_defines.conditions.items():
             if label == "//conditions:default" or not values:
                 continue
@@ -194,7 +211,7 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             defs = " ".join(values)
             self._converter.body += (
                 f"if({cond})\n"
-                f"  target_compile_definitions({target_name} PRIVATE {defs})\n"
+                f"  target_compile_definitions({target_name} {keyword} {defs})\n"
                 f"endif()\n\n"
             )
         self._emit_platform_guard_end(target_compatible_with)
@@ -267,7 +284,11 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             self._converter.body += "endif()\n\n"
             self._converter.body += "if(IREE_HEXAGON_ANDROID_BUILD)\n"
         self._emit_extra_defines(
-            name, extra_defines, target_compatible_with, alwayslink=bool(alwayslink)
+            name,
+            extra_defines,
+            target_compatible_with,
+            alwayslink=bool(alwayslink),
+            header_only=not bool(srcs),
         )
         if android_only:
             self._converter.body += "endif()\n\n"

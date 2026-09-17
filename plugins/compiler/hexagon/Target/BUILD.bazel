@@ -151,6 +151,7 @@ hexagon_plugin_library(
         ":HexagonTargetBackend",
         ":HexagonTargetDevice",
         "//plugins/compiler/hexagon/CodeGen:codegen",
+        "//plugins/compiler/hexagon/CodeGen:HexagonBufferizationExternalModels",
         "//plugins/compiler/hexagon/CodeGen:HexagonEncodingExternalModels",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonDialectLibs",

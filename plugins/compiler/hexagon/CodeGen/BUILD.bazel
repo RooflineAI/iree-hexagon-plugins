@@ -13,6 +13,26 @@ package(
 )
 
 hexagon_plugin_library(
+    name = "HexagonBufferizationExternalModels",
+    srcs = [
+        "Bufferization/HexagonBufferizableOpInterfaceImpl.cpp",
+    ],
+    hdrs = [
+        "Bufferization/HexagonBufferizableOpInterfaceImpl.h",
+    ],
+    hdr_deps = [
+        "@llvm-project//mlir:IR",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
+        "@llvm-project//mlir:BufferizationDialect",
+        "@llvm-project//mlir:BufferizationInterfaces",
+        "@llvm-project//mlir:BufferizationTransforms",
+    ],
+)
+
+hexagon_plugin_library(
     name = "HexagonEncodingExternalModels",
     srcs = [
         "Encoding/HexagonEncodingExternalModels.cpp",

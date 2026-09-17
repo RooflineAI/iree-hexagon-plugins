@@ -24,10 +24,15 @@ iree_lit_test_suite(
     timeout = "short",
     srcs = enforce_glob(
         [
+            "codegen/bufferization/hmx_ops.mlir",
             "codegen/conversion/dispatch_config_legality.mlir",
             "codegen/conversion/lower_profiler_markers.mlir",
             "codegen/encoding/encoder_and_materializer_registration.mlir",
             "codegen/encoding/profiler_marker_ops.mlir",
+            "codegen/ir/hmx_fusion_interface.mlir",
+            "codegen/ir/hmx_ops.mlir",
+            "codegen/ir/hmx_ops_invalid.mlir",
+            "codegen/ir/hmx_tiling_interface.mlir",
             "codegen/pipelines/hexagon_lower_executable_target.mlir",
             "codegen/pipelines/hexagon_lower_executable_target_vtcm.mlir",
             "codegen/strategy/hexagon_dispatch_analysis_dimension_unification.mlir",
@@ -60,8 +65,10 @@ iree_lit_test_suite(
             "target/target_attribute_embedding.mlir",
         ],
         include = [
+            "codegen/bufferization/*.mlir",
             "codegen/conversion/*.mlir",
             "codegen/encoding/*.mlir",
+            "codegen/ir/*.mlir",
             "codegen/pipelines/*.mlir",
             "codegen/strategy/*.mlir",
             "codegen/transforms/*.mlir",

@@ -11,7 +11,9 @@ include "hexagon/CodeGen/IR/HexagonAttrs.td"
 include "hexagon/CodeGen/IR/HexagonDialect.td"
 include "hexagon/CodeGen/IR/HexagonTypes.td"
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/TilingInterface.td"
 
 //===----------------------------------------------------------------------===//
 // Base op class.
@@ -140,7 +142,8 @@ def IREEHexagon_VTCMEmptyOp :
     materialized in VTCM after tiling is complete.
 
     This op is analogous to a VTCM-placed `tensor.empty` at the tensor IR
-    level.
+    level. It is expected to be lowered to
+    `bufferization.alloc_tensor` before bufferization.
 
     For more information, read the description from its sister op `IREEHexagon_StageToVTCMOp`.
   }];
@@ -157,6 +160,308 @@ def IREEHexagon_VTCMEmptyOp :
   let assemblyFormat = [{
     `(` $dynamicSizes `)` attr-dict `:` type($result)
   }];
+
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// HMX compute operations.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_HmxMatmulOp :
+    IREEHexagon_Op<"hmx.matmul",
+                   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = [{
+    Buffer-level HMX matmul over operands already in the HMX tile layout.
+  }];
+  let description = [{
+    Side-effecting buffer form of the HMX tensor-unit multiply. Tensor-level
+    tiling uses `hmx.tensor_matmul`; bufferization converts it to this op, which
+    writes the accumulator read-out into `acc`. `HexagonExpandHmxMatmulPass`
+    expands this op into the real HMX op sequence (`hmx.acc.zero`, K-loop of
+    `hmx.mma`, and `hmx.acc.read`).
+  }];
+
+  let arguments = (ins
+    AnyMemRef:$lhs,
+    AnyMemRef:$rhs,
+    AnyMemRef:$acc
+  );
+
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)`
+    `outs` `(` $acc `:` type($acc) `)` attr-dict
+  }];
+
+  let hasVerifier = 1;
+}
+
+def IREEHexagon_HmxPackOp :
+    IREEHexagon_Op<"hmx.pack",
+                   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Buffer-level in-tile row-pair interleave into the HMX layout";
+  let description = [{
+    Side-effecting buffer form of the HMX input layout transform. Tensor-level
+    tiling uses `hmx.tensor_pack`; bufferization converts it to this op, which
+    writes into `dest`.
+  }];
+
+  let arguments = (ins
+    AnyMemRef:$source,
+    AnyMemRef:$dest,
+    I64Attr:$dim
+  );
+
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
+    attr-dict
+  }];
+
+  let hasVerifier = 1;
+}
+
+def IREEHexagon_HmxUnpackOp :
+    IREEHexagon_Op<"hmx.unpack",
+                   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Buffer-level unpack HMX accumulator read-out into destination";
+  let description = [{
+    Side-effecting buffer form of the HMX accumulator read-out layout transform.
+    Tensor-level tiling uses `hmx.tensor_unpack`; bufferization converts it to
+    this op, which adds the unpacked product into `dest`.
+  }];
+
+  let arguments = (ins
+    AnyMemRef:$source,
+    AnyMemRef:$dest,
+    I64Attr:$dim
+  );
+
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
+    attr-dict
+  }];
+
+  let hasVerifier = 1;
+}
+
+def IREEHexagon_TensorHmxMatmulOp :
+    IREEHexagon_Op<"hmx.tensor_matmul",
+                   [AllTypesMatch<["acc", "result"]>,
+                    DestinationStyleOpInterface,
+                    DeclareOpInterfaceMethods<TilingInterface,
+                       ["getIterationDomain",
+                        "getLoopIteratorTypes",
+                        "isOpFusableWithConsumerSlice",
+                        "getResultTilePosition",
+                        "getTiledImplementation",
+                        "getIterationDomainTileFromResultTile",
+                        "generateResultTileValue"]>,
+                    Pure]> {
+  let summary = [{
+    Tensor-level HMX matmul placeholder over packed operands.
+  }];
+  let description = [{
+    Pure tensor form used for tiling/fusion before bufferization. It consumes
+    `lhs`/`rhs` operands in HMX tile-major layout and reduces over the whole K
+    tile grid into the accumulator-read tensor `acc`. The `acc` DPS operand
+    supplies the result shape and destination storage, but its contents are not
+    read: HMX accumulation starts from cleared hardware register state and fully
+    overwrites the accumulator-read tensor. A logical matmul initializer,
+    including bias or other non-zero contents, must instead be passed as the
+    destination of `hmx.tensor_unpack`, which adds the unpacked product to that
+    initializer.
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$lhs,
+    AnyRankedTensor:$rhs,
+    AnyRankedTensor:$acc
+  );
+
+  let results = (outs
+    AnyRankedTensor:$result
+  );
+
+  let assemblyFormat = [{
+    `ins` `(` $lhs `,` $rhs `:` type($lhs) `,` type($rhs) `)`
+    `outs` `(` $acc `:` type($acc) `)` attr-dict `->` type($result)
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::MutableOperandRange getDpsInitsMutable() { return getAccMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def IREEHexagon_TensorHmxPackOp :
+    IREEHexagon_Op<"hmx.tensor_pack",
+                   [AllTypesMatch<["dest", "result"]>,
+                    DestinationStyleOpInterface, Pure]> {
+  let summary = "Tensor-level in-tile row-pair interleave into HMX layout";
+  let description = [{
+    Pure tensor form of the HMX input layout transform. It interleaves `source`
+    along dimension `dim` by a factor of 2 into `dest`; bufferization converts
+    it to side-effecting `hmx.pack`.
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$source,
+    AnyRankedTensor:$dest,
+    I64Attr:$dim
+  );
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let assemblyFormat = [{
+    `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
+    attr-dict `->` type($result)
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::MutableOperandRange getDpsInitsMutable() { return getDestMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def IREEHexagon_TensorHmxUnpackOp :
+    IREEHexagon_Op<"hmx.tensor_unpack",
+                   [AllTypesMatch<["dest", "result"]>,
+                    DestinationStyleOpInterface,
+                    DeclareOpInterfaceMethods<TilingInterface,
+                       ["getIterationDomain",
+                        "getLoopIteratorTypes",
+                        "isOpFusableWithProducerSlices",
+                        "getResultTilePosition",
+                        "getTiledImplementation",
+                        "getTiledImplementationFromOperandTiles",
+                        "getIterationDomainTileFromOperandTiles",
+                        "generateResultTileValue"]>,
+                    Pure]> {
+  let summary = "Tensor-level unpack HMX accumulator read-out";
+  let description = [{
+    Pure tensor form of the HMX accumulator read-out layout transform.
+    De-interleaves `source` along dimension `dim`
+    (splitting the trailing size-2 tile back out), the mirror of the input
+    interleave applied to the accumulator read-out. In the HMX matmul lowering,
+    the hardware accumulator is computed from zero; this tensor op models adding
+    the unpacked product into `dest`, preserving the original linalg.matmul
+    init value.
+  }];
+
+  let arguments = (ins
+    AnyRankedTensor:$source,
+    AnyRankedTensor:$dest,
+    I64Attr:$dim
+  );
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let assemblyFormat = [{
+    `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
+    attr-dict `->` type($result)
+  }];
+
+  let extraClassDeclaration = [{
+    ::mlir::MutableOperandRange getDpsInitsMutable() { return getDestMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// HMX tensor-unit primitives (post-bufferization).
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_HmxAccZeroOp :
+    IREEHexagon_Op<"hmx.acc.zero", [MemoryEffects<[MemWrite]>]> {
+  let summary = "Clear the HMX accumulator, producing a zeroed accumulator value";
+  let description = [{
+    Models `Q6_mxclracc_hf`: clears the HMX accumulator register state and
+    yields a fresh accumulator SSA value. The memory-write effect pins ordering
+    against the other HMX ops (all touch the single global accumulator).
+  }];
+
+  let results = (outs IREEHexagon_HmxAccType:$acc);
+
+  let assemblyFormat = "attr-dict `:` qualified(type($acc))";
+}
+
+def IREEHexagon_HmxAccSetupReadOp :
+    IREEHexagon_Op<"hmx.acc.setup_read", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Program HMX accumulator read conversion state";
+  let description = [{
+    Programs the bias/scale state consumed by `hmx.acc.read`. For the FP16
+    read-out path this is a pass-through bias block in VTCM: scale=1.0 and all
+    other terms zero. The setup is separate from `hmx.acc.read` because the
+    hardware state persists and should be initialized once before the tile loop,
+    not reloaded for every accumulator read.
+  }];
+
+  let arguments = (ins AnyMemRef:$config);
+
+  let results = (outs);
+
+  let assemblyFormat = "$config attr-dict `:` type($config)";
+
+  let hasVerifier = 1;
+}
+
+def IREEHexagon_HmxMmaOp :
+    IREEHexagon_Op<"hmx.mma",
+                   [AllTypesMatch<["accIn", "accOut"]>,
+                    MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "One 32x32x32 HMX multiply-accumulate into the accumulator";
+  let description = [{
+    Models one activation/weight multiply pair
+    (`Q6_activation_hf_mxmem_RR` + `Q6_weight_hf_mxmem_RR`): reads one HMX-layout
+    activation tile (`lhs`) and weight tile (`rhs`) from VTCM and accumulates
+    their product into `accIn`, yielding the updated accumulator `accOut`.
+  }];
+
+  let arguments = (ins
+    AnyMemRef:$lhs,
+    AnyMemRef:$rhs,
+    IREEHexagon_HmxAccType:$accIn
+  );
+
+  let results = (outs IREEHexagon_HmxAccType:$accOut);
+
+  let assemblyFormat = [{
+    $lhs `,` $rhs `,` $accIn attr-dict `:`
+    type($lhs) `,` type($rhs) `,` qualified(type($accIn)) `->`
+    qualified(type($accOut))
+  }];
+
+  let hasVerifier = 1;
+}
+
+def IREEHexagon_HmxAccReadOp :
+    IREEHexagon_Op<"hmx.acc.read", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Read the HMX accumulator out to a VTCM buffer";
+  let description = [{
+    Models `Q6_mxmem_AR_after_hf`: converts/reads the accumulator register state
+    and writes it into the destination VTCM buffer `dest`. Destination-passing
+    style (no SSA result); consumers read `dest`.
+  }];
+
+  let arguments = (ins
+    IREEHexagon_HmxAccType:$acc,
+    AnyMemRef:$dest
+  );
+
+  let results = (outs);
+
+  let assemblyFormat = "$acc `,` $dest attr-dict `:` qualified(type($acc)) `,` type($dest)";
+
+  let hasVerifier = 1;
 }
 
 #endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONOPS

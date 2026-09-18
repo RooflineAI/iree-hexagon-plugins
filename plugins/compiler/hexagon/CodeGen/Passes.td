@@ -49,6 +49,18 @@ def HexagonLowerHmxToCallsPass :
   }];
 }
 
+def HexagonConvertMatmulToHmxPass :
+    InterfacePass<"iree-hexagon-convert-matmul-to-hmx",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Convert eligible f16 linalg.matmul operations into tensor-level HMX ops.
+      Runs after VTCM tiling and before LLVMCPU inner tiling. Inputs and output
+      must originate from Hexagon VTCM staging operations. Static, ragged, and
+      bounded dynamic dimensions are padded to complete HMX tiles by the pack
+      kernels. Results may be f16 or f32.
+  }];
+}
+
 def HexagonConvertToLLVMPass :
     Pass<"iree-hexagon-convert-to-llvm", "mlir::ModuleOp"> {
   let summary =

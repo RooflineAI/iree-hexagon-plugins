@@ -56,6 +56,8 @@ iree_lit_test_suite(
             "codegen/strategy/hexagon_vtcm_planning_hmx.mlir",
             "codegen/strategy/hexagon_vtcm_planning_required.mlir",
             "codegen/transforms/apply_vtcm_tiling.mlir",
+            "codegen/transforms/expand_hmx_matmul.mlir",
+            "codegen/transforms/expand_hmx_matmul_invalid.mlir",
             "codegen/transforms/fold_dispatch_output_staging.mlir",
             "codegen/transforms/convert_matmul_to_hmx.mlir",
             "codegen/transforms/convert_matmul_to_hmx_tile_and_fuse.mlir",

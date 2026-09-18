@@ -61,6 +61,18 @@ def HexagonConvertMatmulToHmxPass :
   }];
 }
 
+def HexagonExpandHmxMatmulPass :
+    InterfacePass<"iree-hexagon-expand-hmx-matmul",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Expand the bufferized iree_hexagon.hmx.matmul (whole-K reduction for one
+      32x32 output tile) into the real HMX op sequence: an hmx.acc.zero, a K
+      reduction loop of hmx.mma over the per-k activation/weight tiles, and a
+      final hmx.acc.read into the accumulator buffer. Runs after bufferization,
+      on VTCM memrefs.
+  }];
+}
+
 def HexagonConvertToLLVMPass :
     Pass<"iree-hexagon-convert-to-llvm", "mlir::ModuleOp"> {
   let summary =

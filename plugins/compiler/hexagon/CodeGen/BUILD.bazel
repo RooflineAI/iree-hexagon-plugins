@@ -147,6 +147,7 @@ hexagon_plugin_library(
         "Strategy/KernelDispatch.cpp",
         "Transforms/FoldDispatchOutputStaging.cpp",
         "Transforms/HexagonConvertMatmulToHmx.cpp",
+        "Transforms/HexagonExpandHmxMatmul.cpp",
         "Transforms/HexagonVTCMTiling.cpp",
         "Transforms/InsertProfilerMarkers.cpp",
         "Transforms/LowerVTCMStaging.cpp",

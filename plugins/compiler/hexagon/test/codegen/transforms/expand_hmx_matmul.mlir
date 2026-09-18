@@ -18,6 +18,8 @@
 // CHECK:         scf.yield %[[NEXT]]
 // CHECK:       }
 // CHECK:       iree_hexagon.hmx.acc.read %[[ACC]], %[[SCRATCH]]
+// CHECK:       hexagonmem.dealloc %[[CONFIG]] : memref<2048xi8, 1 : i32>
+// CHECK:       return
 // CHECK-NOT:   iree_hexagon.hmx.matmul
 func.func @expand_multi_k() {
   %lhs = hexagonmem.alloc() {alignment = 2048 : i64} : memref<1x16x16x32x2xf16, 1>

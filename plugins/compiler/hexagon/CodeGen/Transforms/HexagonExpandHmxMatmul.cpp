@@ -206,6 +206,21 @@ struct HexagonExpandHmxMatmulPass final
         return signalPassFailure();
       }
     }
+
+    // The configuration buffer is introduced after buffer deallocation has
+    // already run, so give it an explicit function-scoped lifetime. Keep it
+    // alive through all HMX accumulator reads and release it on every function
+    // exit. Note that this is not strictly necessary and deallocation could
+    // happen just afterregister accumulation configuration has finished.
+    for (Block &block : funcOp.getFunctionBody()) {
+      Operation *terminator = block.getTerminator();
+      if (!terminator->hasTrait<OpTrait::ReturnLike>()) {
+        continue;
+      }
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPoint(terminator);
+      hexagonmem::DeallocOp::create(rewriter, terminator->getLoc(), config);
+    }
   }
 
   LogicalResult

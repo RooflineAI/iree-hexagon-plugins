@@ -63,9 +63,8 @@ enum class LoopPeelingSupport {
   Unconditional,
 };
 
-/// Machine-readable subset of downstream pipeline semantics needed by plan
-/// verification and encoding. This replaces the pass-consumption table that is
-/// currently maintained only in comments.
+/// Subset of downstream pipeline semantics needed by plan
+/// verification and encoding.
 struct PipelineContract {
   /// Returns the loop-tiling scope that consumes `level`.
   LoopTilingScope getLoopTilingScope(ComputeTileLevel level) const;

@@ -165,3 +165,39 @@ hal.executable private @test_data_tiling {
     }
   }
 }
+
+// -----
+
+// CHECK-LABEL: IR Dump After HexagonConvertMatmulToHmxPass
+// CHECK: func.func @matmul_dispatch
+
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, link_embedded = false, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
+#config_fill = #iree_cpu.lowering_config<vector_common_parallel = [16, 16]>
+#config_matmul = #iree_cpu.lowering_config<distribution = [1, 1, 0], vector_common_parallel = [16, 16, 0], vector_reduction = [0, 0, 1]>
+#translation = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Mmt4dTilingExpert>>
+
+hal.executable private @test {
+  hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
+    builtin.module {
+      func.func @matmul_dispatch() attributes {translation_info = #translation} {
+        %cst = arith.constant 0.000000e+00 : f32
+        %c0 = arith.constant 0 : index
+        %c256 = arith.constant 256 : index
+        %lhs = hal.interface.binding.subspan layout(#pipeline_layout) binding(0) alignment(64) offset(%c0) flags("ReadOnly|Indirect") : !iree_tensor_ext.dispatch.tensor<readonly:tensor<16x4xf32>>
+        %rhs = hal.interface.binding.subspan layout(#pipeline_layout) binding(0) alignment(64) offset(%c256) flags("ReadOnly|Indirect") : !iree_tensor_ext.dispatch.tensor<readonly:tensor<4x16xf32>>
+        %out = hal.interface.binding.subspan layout(#pipeline_layout) binding(1) alignment(64) offset(%c0) flags(Indirect) : !iree_tensor_ext.dispatch.tensor<writeonly:tensor<16x16xf32>>
+
+        %lhs_t = iree_tensor_ext.dispatch.tensor.load %lhs, offsets = [0, 0], sizes = [16, 4], strides = [1, 1] : !iree_tensor_ext.dispatch.tensor<readonly:tensor<16x4xf32>> -> tensor<16x4xf32>
+        %rhs_t = iree_tensor_ext.dispatch.tensor.load %rhs, offsets = [0, 0], sizes = [4, 16], strides = [1, 1] : !iree_tensor_ext.dispatch.tensor<readonly:tensor<4x16xf32>> -> tensor<4x16xf32>
+
+        %init = tensor.empty() : tensor<16x16xf32>
+        %filled = linalg.fill {lowering_config = #config_fill} ins(%cst : f32) outs(%init : tensor<16x16xf32>) -> tensor<16x16xf32>
+        %result = linalg.matmul {lowering_config = #config_matmul} ins(%lhs_t, %rhs_t : tensor<16x4xf32>, tensor<4x16xf32>) outs(%filled : tensor<16x16xf32>) -> tensor<16x16xf32>
+
+        iree_tensor_ext.dispatch.tensor.store %result, %out, offsets = [0, 0], sizes = [16, 16], strides = [1, 1] : tensor<16x16xf32> -> !iree_tensor_ext.dispatch.tensor<writeonly:tensor<16x16xf32>>
+        return
+      }
+    }
+  }
+}

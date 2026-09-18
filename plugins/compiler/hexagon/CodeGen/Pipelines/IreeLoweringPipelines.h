@@ -42,7 +42,12 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
     mlir::OpPassManager &funcPassManager,
     const HexagonPipelineOptions &pipelineOpt);
 
-void addHexagonMmt4dTilingExpertPassPipeline(
+// Expert pipeline that lowers f16 matmul/contraction dispatches onto the HMX
+// tensor unit. It is selected (behind the iree-hexagon-enable-hmx-matmul flag)
+// through a repurposed CPU dispatch slot. The pipeline stages operands in VTCM,
+// converts each matmul to the HMX tile layout, lowers the tensor-unit
+// computation, and materializes the required DMA operations.
+void addHexagonHmxMatmulExpertPassPipeline(
     mlir::OpPassManager &funcPassManager,
     const HexagonPipelineOptions &pipelineOpt);
 

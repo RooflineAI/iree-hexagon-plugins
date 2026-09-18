@@ -53,12 +53,9 @@ getPipelineContract(IREE::CPU::LoweringPipeline pipeline) {
     contract.loopPeeling = LoopPeelingSupport::TranslationInfoControlled;
     return contract;
   case Pipeline::Mmt4dTilingExpert:
-    // Hexagon repurposes this otherwise-unused CPU pipeline slot for the HMX
-    // pipeline being developed upstack. That pipeline currently peels
-    // unconditionally, but its padding and remainder handling are still under
-    // development.
-    // TODO: Update this contract together with the HMX pipeline once its final
-    // peeling-versus-padding behavior has been decided.
+    // Hexagon repurposes this CPU pipeline slot for HMX. HMX pack operations
+    // zero-pad partial tiles and unpack clips the result to its logical bounds,
+    // so this pipeline does not peel loops.
     contract.requiresUniqueRootAnchor = true;
     contract.cacheParallel = LoopTilingScope::EveryConfiguredOperation;
     contract.vectorCommonParallel = LoopTilingScope::Root;
@@ -68,7 +65,6 @@ getPipelineContract(IREE::CPU::LoweringPipeline pipeline) {
     contract.usesConfiguredVectorSizes = true;
     contract.supportsIndependentNonRootComputeTiles = true;
     contract.vtcmRequirement = VTCMRequirement::Required;
-    contract.loopPeeling = LoopPeelingSupport::Unconditional;
     return contract;
   case Pipeline::ConvTileAndDecomposeExpert:
     contract.requiresUniqueRootAnchor = true;

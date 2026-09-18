@@ -1,0 +1,29 @@
+# Copyright 2026 RooflineAI GmbH
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cc_library(
+    name = "hmx_ukernels",
+    srcs = ["hmx.c"],
+    hdrs = ["api.h"],
+    copts = [
+        "-Xclang",
+        "-target-feature",
+        "-Xclang",
+        "+hmxv79",
+    ],
+    includes = ["../../../.."],
+    target_compatible_with = [
+        "//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
+    ],
+    # Generated executables reference these symbols, but the skeleton itself
+    # does not. Retain all entry points for loader-time symbol resolution.
+    alwayslink = True,
+)

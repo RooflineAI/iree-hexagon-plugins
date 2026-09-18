@@ -55,6 +55,7 @@ cc_binary(
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
         "//plugins/runtime/hexagon/dsp/pmu:hexagon_pmu_helpers",
         "//plugins/runtime/hexagon/dsp/rt:hexagon_rt_library",
+        "//plugins/runtime/hexagon/dsp/ukernel/hmx:hmx_ukernels",
         "//plugins/runtime/hexagon/interface:hexagon_dsp_skel_hdr_lib",
         "@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib",
         "@iree//runtime/src/iree/hal/local:executable_library",

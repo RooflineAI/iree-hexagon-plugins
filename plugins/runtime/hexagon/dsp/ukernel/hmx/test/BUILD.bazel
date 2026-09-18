@@ -1,0 +1,54 @@
+# Copyright 2026 RooflineAI GmbH
+
+load("//build_tools/bazel:hexagon_sim_test.bzl", "hexagon_sim_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load(":test_defs.bzl", "hmx_test_module")
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+_HEXAGON_COMPAT = [
+    "//constraints:cpu_hexagon",
+    "//constraints:os_qurt",
+]
+
+cc_library(
+    name = "test_support",
+    srcs = ["test_support.c"],
+    hdrs = ["test_support.h"],
+    copts = ["-std=gnu99"],
+    target_compatible_with = _HEXAGON_COMPAT,
+)
+
+hmx_test_module(
+    name = "pack_test_module",
+    src = "pack_test.c",
+)
+
+hmx_test_module(
+    name = "unpack_test_module",
+    src = "unpack_test.c",
+)
+
+hmx_test_module(
+    name = "accumulator_test_module",
+    src = "accumulator_test.c",
+)
+
+hexagon_sim_test(
+    name = "hmx_pack_sim_test",
+    module = ":pack_test_module",
+)
+
+hexagon_sim_test(
+    name = "hmx_unpack_sim_test",
+    module = ":unpack_test_module",
+)
+
+hexagon_sim_test(
+    name = "hmx_accumulator_sim_test",
+    module = ":accumulator_test_module",
+)

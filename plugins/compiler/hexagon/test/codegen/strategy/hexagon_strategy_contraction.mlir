@@ -1,7 +1,6 @@
 // Test written to reflect current Hexagon selector policy.
 //
-// This file exercises the non-VTCM, non-HMX strategy policies. Dedicated tests
-// cover those opt-in paths below the planner boundary.
+// This file exercises the non-VTCM, non-HMX strategy policies.
 //
 // RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \

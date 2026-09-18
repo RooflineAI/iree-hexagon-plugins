@@ -3,6 +3,7 @@
 //
 // RUN: not iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
+// RUN:   --iree-hexagon-enable-hmx-matmul=false \
 // RUN:   --mlir-print-ir-after-failure \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   %s -o /dev/null 2>&1 | FileCheck %s

@@ -1,5 +1,6 @@
 // RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling \
+// RUN:   --iree-hexagon-enable-hmx-matmul=false \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   --split-input-file %s | FileCheck %s
 

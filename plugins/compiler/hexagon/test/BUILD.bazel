@@ -26,7 +26,10 @@ iree_lit_test_suite(
         [
             "codegen/bufferization/hmx_ops.mlir",
             "codegen/conversion/dispatch_config_legality.mlir",
+            "codegen/conversion/lower_hmx_to_calls.mlir",
+            "codegen/conversion/lower_hmx_to_calls_invalid.mlir",
             "codegen/conversion/lower_profiler_markers.mlir",
+            "codegen/conversion/mark_hmx_native_runtime_links.mlir",
             "codegen/encoding/encoder_and_materializer_registration.mlir",
             "codegen/encoding/profiler_marker_ops.mlir",
             "codegen/ir/hmx_fusion_interface.mlir",
@@ -38,6 +41,7 @@ iree_lit_test_suite(
             "codegen/strategy/hexagon_dispatch_analysis_dimension_unification.mlir",
             "codegen/strategy/hexagon_dispatch_preflight.mlir",
             "codegen/strategy/hexagon_dispatch_preflight_existing_config_failure.mlir",
+            "codegen/strategy/hexagon_non_root_tile_selection.mlir",
             "codegen/strategy/hexagon_plan_encoding_inner_parallel.mlir",
             "codegen/strategy/hexagon_plan_verification_last_tiling_anchor.mlir",
             "codegen/strategy/hexagon_root_tile_propagation.mlir",
@@ -49,6 +53,8 @@ iree_lit_test_suite(
             "codegen/strategy/hexagon_target_info.mlir",
             "codegen/strategy/hexagon_vtcm_planning.mlir",
             "codegen/strategy/hexagon_vtcm_planning_fallback.mlir",
+            "codegen/strategy/hexagon_vtcm_planning_hmx.mlir",
+            "codegen/strategy/hexagon_vtcm_planning_required.mlir",
             "codegen/transforms/apply_vtcm_tiling.mlir",
             "codegen/transforms/fold_dispatch_output_staging.mlir",
             "codegen/transforms/insert_profiler_markers.mlir",
@@ -76,10 +82,6 @@ iree_lit_test_suite(
             "integration/*.mlir",
         ],
         exclude = [
-            # These require the HMX matmul pipeline and its command-line flag.
-            "codegen/strategy/hexagon_non_root_tile_selection.mlir",
-            "codegen/strategy/hexagon_vtcm_planning_hmx.mlir",
-            "codegen/strategy/hexagon_vtcm_planning_required.mlir",
             # Tested separately with target_compatible_with restriction because
             # they invoke `readelf`, which is only available on Linux.
             "target/native_runtime_linking_keeps_undefined_symbols.mlir",

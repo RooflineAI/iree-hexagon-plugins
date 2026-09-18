@@ -2,6 +2,7 @@
 // not inherit root tiles, cache tiles, or distribution tiles.
 //
 // RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN:   --iree-hexagon-enable-hmx-matmul \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   --split-input-file %s | FileCheck %s
 

@@ -40,7 +40,15 @@ static llvm::cl::opt<bool> clHexagonUseHexagonMlirLinalgLowering(
     llvm::cl::desc("Replace IREE's lowering by hexagon mlir's completely."),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
+    "iree-hexagon-enable-hmx-matmul",
+    llvm::cl::desc("Route eligible f16 matmul/contraction dispatches through "
+                   "the HMX (tensor unit) expert pipeline."),
+    llvm::cl::init(false));
+
 bool isHexagonVTCMTilingEnabled() { return clHexagonEnableVTCMTiling; }
+
+bool isHexagonHmxMatmulEnabled() { return clHexagonEnableHmxMatmul; }
 
 bool isHexagonMlirLinalgLoweringEnabled() {
   return clHexagonUseHexagonMlirLinalgLowering;

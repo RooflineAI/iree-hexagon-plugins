@@ -14,6 +14,7 @@ namespace mlir::iree_compiler::hexagon::codegen {
 LogicalResult initHexagonLaunchConfig(FunctionOpInterface funcOp) {
   planning::PlanningOptions options;
   options.enableVTCM = isHexagonVTCMTilingEnabled();
+  options.enableHmxMatmul = isHexagonHmxMatmulEnabled();
   return planning::configureDispatch(funcOp, options);
 }
 

@@ -40,6 +40,15 @@ def HexagonLowerVTCMStagingPass :
   }];
 }
 
+def HexagonLowerHmxToCallsPass :
+    Pass<"iree-hexagon-lower-hmx-to-calls", "mlir::ModuleOp"> {
+  let summary = [{
+      Validate the bufferized HMX runtime ABI, lower HMX layout and accumulator
+      primitives to native DSP kernel calls, and remove the opaque accumulator
+      token.
+  }];
+}
+
 def HexagonConvertToLLVMPass :
     Pass<"iree-hexagon-convert-to-llvm", "mlir::ModuleOp"> {
   let summary =

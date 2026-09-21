@@ -33,4 +33,3 @@ func.func @reject_unalignable_block_argument(
       outs(%acc : memref<16x32x2xf16, 1>)
   return
 }
-

@@ -7,7 +7,7 @@
 // unified dimension, and the producer would then be bounded by n's tile of 1
 // instead of k's tile of 32 - scalarizing its innermost dimension.
 //
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
 // RUN:   --iree-hexagon-enable-hmx-matmul=false \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \

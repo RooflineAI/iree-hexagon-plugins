@@ -1,7 +1,7 @@
 // HMX has a mandatory VTCM contract. Selecting it while VTCM is disabled is a
 // planning error.
 //
-// RUN: not iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: not iree-opt \
 // RUN:   --iree-hexagon-enable-hmx-matmul \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
 // RUN:   --mlir-print-ir-after-failure \

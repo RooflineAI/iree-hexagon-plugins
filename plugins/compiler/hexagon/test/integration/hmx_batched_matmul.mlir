@@ -5,7 +5,7 @@
 
 // RUN: rm -f %t.vmfb
 // RUN: iree-compile %s \
-// RUN:   --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN:   \
 // RUN:   --iree-hal-target-device=hexagon \
 // RUN:   --iree-hexagon-v=79 \
 // RUN:   --iree-hexagon-features=+hvxv79,+hvx-length128b \

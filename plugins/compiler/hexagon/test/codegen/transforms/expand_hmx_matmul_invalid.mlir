@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-expand-hmx-matmul))' \
 // RUN:   --split-input-file --verify-diagnostics %s
 

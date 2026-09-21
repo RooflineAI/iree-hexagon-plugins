@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --one-shot-bufferize='bufferize-function-boundaries' \
 // RUN:   --split-input-file %s | FileCheck %s
 

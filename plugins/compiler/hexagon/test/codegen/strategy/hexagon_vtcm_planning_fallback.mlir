@@ -2,7 +2,7 @@
 // cannot derive a tile, planning continues without VTCM and preserves the
 // strategy's ordinary cache/compute decisions.
 //
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling \
 // RUN:   --iree-hexagon-enable-hmx-matmul=false \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \

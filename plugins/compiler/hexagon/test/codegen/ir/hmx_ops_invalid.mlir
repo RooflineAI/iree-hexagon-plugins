@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --split-input-file --verify-diagnostics %s
 
 // expected-error @+1 {{expected the fixed HMX accumulator type 32x32xf32}}

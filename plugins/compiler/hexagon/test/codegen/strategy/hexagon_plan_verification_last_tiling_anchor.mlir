@@ -2,7 +2,7 @@
 // on either side of the distribution root. Verify end-to-end that a live
 // producer before the root is tiled at its inner-parallel level.
 //
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
 // RUN:   --mlir-disable-threading \
 // RUN:   --mlir-print-ir-after=iree-llvmcpu-tile-and-fuse-producer-consumer \

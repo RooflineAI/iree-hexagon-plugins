@@ -2,7 +2,7 @@
 //
 // This file exercises the non-VTCM, non-HMX strategy policies.
 //
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   --split-input-file %s | FileCheck %s

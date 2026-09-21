@@ -1,22 +1,19 @@
 // Exercise the post-register-allocation per-frame diagnostic with a fixed
 // stack object that cannot be optimized away.
 
-// RUN: not iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-backends=hexagon \
+// RUN: not iree-opt \
 // RUN:   --iree-hexagon-fail-on-stack-frames-larger-than=4096 \
-// RUN:   --pass-pipeline='builtin.module(iree-hal-transformation-pipeline)' \
+// RUN:   --iree-hal-serialize-all-executables \
 // RUN:   %s 2>&1 | FileCheck %s --check-prefix=FRAME
 
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-backends=hexagon \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-fail-on-stack-frames-larger-than=0 \
-// RUN:   --pass-pipeline='builtin.module(iree-hal-transformation-pipeline)' \
+// RUN:   --iree-hal-serialize-all-executables \
 // RUN:   %s -o /dev/null
 
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
-// RUN:   --iree-hal-target-backends=hexagon \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-fail-on-stack-frames-larger-than=8192 \
-// RUN:   --pass-pipeline='builtin.module(iree-hal-transformation-pipeline)' \
+// RUN:   --iree-hal-serialize-all-executables \
 // RUN:   %s -o /dev/null
 
 // FRAME: error: 'hal.executable.variant' op Hexagon function stack frame exceeds the configured limit of 4096 B

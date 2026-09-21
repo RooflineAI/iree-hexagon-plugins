@@ -1,7 +1,11 @@
 # Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:hexagon_sim_test.bzl", "hexagon_sim_test")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//build_tools/bazel:hexagon_sim_test.bzl", "hexagon_sim_test")
 load(":test_defs.bzl", "hmx_test_module")
 
 package(

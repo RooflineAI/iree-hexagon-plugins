@@ -1,7 +1,7 @@
 // Existing per-op lowering configs are rejected before planning. The failed
 // pass must preserve the existing config and must not add translation info.
 //
-// RUN: not iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: not iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
 // RUN:   --iree-hexagon-enable-hmx-matmul=false \
 // RUN:   --mlir-print-ir-after-failure \

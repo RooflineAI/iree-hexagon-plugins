@@ -44,6 +44,7 @@ HEXAGON_DEFAULT_COMPILE_CASES: tuple[CompileCase, ...] = (
         extra_flags=(
             "--iree-hexagon-launch-config-selector=hexagon",
             "--iree-hexagon-enable-vtcm-tiling",
+            "--iree-hexagon-enable-hmx-matmul=true",
         ),
     ),
 )

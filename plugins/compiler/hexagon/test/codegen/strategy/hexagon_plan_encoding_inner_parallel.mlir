@@ -4,7 +4,7 @@
 // hexagon_plan_verification_last_tiling_anchor.mlir covers the opposite
 // ordering, which the current pipeline cannot consume.
 //
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
 // RUN:   --iree-hexagon-enable-hmx-matmul=false \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 """Runs a shared-object test module in the Hexagon v79 QuRT simulator."""
 
 from __future__ import annotations

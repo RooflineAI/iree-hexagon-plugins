@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --split-input-file %s | FileCheck %s
 
 // This file tests the HMX dialect surface in isolation.

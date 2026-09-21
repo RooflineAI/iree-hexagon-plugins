@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-lower-hmx-to-calls)' \
 // RUN:   --split-input-file --verify-diagnostics %s
 

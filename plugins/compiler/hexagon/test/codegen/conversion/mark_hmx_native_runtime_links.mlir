@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-mark-native-runtime-links %s | FileCheck %s
 
 // Every call emitted by HexagonLowerHmxToCalls must remain a native unresolved

@@ -1,7 +1,13 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 """Build definitions for tests run in the Hexagon simulator."""
 
 load("@aspect_rules_py//py:defs.bzl", "py_test")
-load("//build_tools/bazel/platform_aliases.bzl", "hexagon_platform_alias")
+load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 
 _HOST_COMPAT = [
     "@platforms//cpu:x86_64",

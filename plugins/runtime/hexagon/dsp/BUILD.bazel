@@ -5,9 +5,9 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
-load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_import.bzl", "cc_import")
+load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 
 package(
     default_visibility = ["//visibility:public"],

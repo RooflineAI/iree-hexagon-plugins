@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-convert-matmul-to-hmx))' \
 // RUN:   --split-input-file %s | FileCheck %s
 

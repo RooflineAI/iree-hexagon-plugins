@@ -83,7 +83,7 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
   // VTCM capacity and layout policy remain owned by the Hexagon lowering
   // utility; this planning stage records its result in the dispatch plan.
   std::optional<SmallVector<int64_t>> tileSizes =
-      hexagon::determineTileSizes(linalgOp);
+      ::mlir::hexagon::determineTileSizes(linalgOp);
   if (!tileSizes) {
     return handleUnavailableVTCM(context, dispatchShape, contract,
                                  "failed to derive required VTCM tile sizes",

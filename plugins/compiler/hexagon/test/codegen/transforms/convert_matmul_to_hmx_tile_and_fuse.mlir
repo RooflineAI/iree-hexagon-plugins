@@ -1,4 +1,4 @@
-// RUN: iree-opt --iree-load-plugin=hexagon=$ROOF_HEXAGON_COMPILER_PLUGIN \
+// RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-convert-matmul-to-hmx,iree-llvmcpu-tile-and-fuse-producer-consumer{tiling-level=vector_common_parallel},canonicalize,cse))' \
 // RUN:   %s | FileCheck %s
 

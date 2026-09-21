@@ -1,0 +1,40 @@
+diff --git a/qcom_hexagon_backend/bin/runtime/UserDMA/UserDMA.cc b/qcom_hexagon_backend/bin/runtime/UserDMA/UserDMA.cc
+index 70ceca9..1b2b8a7 100644
+--- a/qcom_hexagon_backend/bin/runtime/UserDMA/UserDMA.cc
++++ b/qcom_hexagon_backend/bin/runtime/UserDMA/UserDMA.cc
+@@ -96,6 +96,35 @@ uint32_t UserDMA::copy2D(void *src, AddrSpace srcAS, void *dst, AddrSpace dstAS,
+                          uint32_t dstStride, bool bypassCacheSrc,
+                          bool bypassCacheDst, bool isOrdered,
+                          uint32_t cacheAllocationPolicy, DMAStatus *status) {
++  // The Hexagon UserDMA 2D descriptor stores ROI width/height and src/dst
++  // strides in 16-bit fields (see DESC_*_MASK in UserDMADescriptors.h). If any
++  // of them exceeds 0xFFFF the value is silently truncated by the dmaDescSet*
++  // helpers, which corrupts the transfer (e.g. only the first row lands at the
++  // right address). Fall back to issuing one 1D transfer per row, computing the
++  // per-row addresses in full-width host arithmetic so no 16-bit field is used.
++  // Each row is waited on before issuing the next so the descriptor ring never
++  // fills, at the cost of serializing the copy.
++  constexpr uint32_t kDesc2DFieldMax = 0xFFFF;
++  if (width > kDesc2DFieldMax || height > kDesc2DFieldMax ||
++      srcStride > kDesc2DFieldMax || dstStride > kDesc2DFieldMax) {
++    uint32_t token = 0;
++    auto *srcBytes = static_cast<uint8_t *>(src);
++    auto *dstBytes = static_cast<uint8_t *>(dst);
++    for (uint32_t row = 0; row < height; ++row) {
++      DMAStatus rowStatus = DMAFailure;
++      token = copy(srcBytes + static_cast<uint64_t>(row) * srcStride, srcAS,
++                   dstBytes + static_cast<uint64_t>(row) * dstStride, dstAS,
++                   width, bypassCacheSrc, bypassCacheDst, &rowStatus);
++      if (rowStatus != DMASuccess) {
++        *status = rowStatus;
++        return 0;
++      }
++      if (row != height - 1)
++        wait(token);
++    }
++    *status = DMASuccess;
++    return token;
++  }
+ 
+   *status = DMAFailure;
+ 

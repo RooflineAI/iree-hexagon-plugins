@@ -122,17 +122,16 @@ it currently has two different pipelines under development that are likely to be
 
 ### `CodeGen/Strategy/`
 
-> This folder is about to be completely reworked. Please do not invest any time on it!
-
 This directory contains passes centered about deciding how a dispatch should be lowered,
 not about performing the lowering itself. It is currently only usable when triggering the
 IreeLoweringPipelines for translation using the appropriate flags.
-This pattern is copied from the LLVMCPU plugin, and in a *highly* experimental state.
 
 - `HexagonSelectLoweringStrategy.cpp`
   - pass wrapper that drives strategy selection.
 - `KernelDispatch.*`
   - actual launch-config and lowering-config policy logic.
+- `Planning/` contains the implementation of the pass that drives strategy selection
+  See [`Planning/README.md`](CodeGen/Strategy/Planning/README.md) for more information about it.
 
 ### `CodeGen/Conversion/` and `CodeGen/Transforms/`
 

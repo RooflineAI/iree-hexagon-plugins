@@ -62,11 +62,14 @@ iree_cc_library(
     hexagon_sdk::qhl_hvx_headers
     hexagon_sdk::qurt_headers
     hexkl::hexkl_micro_v79
+  ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/multithreading/fake_includes>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/multithreading/fake_includes>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../third-party/hexagon-mlir>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../../../../../../third-party/hexagon-mlir>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/include>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../../build_tools/cmake/hexagon_llvm_headers_stub>"

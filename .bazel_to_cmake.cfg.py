@@ -315,6 +315,8 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         name=None,
         srcs=None,
         defines=None,
+        linkopts=None,
+        features=None,
         target_compatible_with=None,
         linkshared=None,
         **kwargs,
@@ -328,10 +330,31 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             ]
         srcs = self._redirect_overlay_paths(srcs)
         if linkshared:
+            # Bazel's -default_cpp_link feature suppresses the C++ driver's
+            # implicit runtime libraries by selecting the C linker driver, so
+            # the target can select them explicitly in linkopts.
+            late_linkopts = None
+            # The skeleton's own sources are C, but its always-linked Hexagon
+            # MLIR runtime dependency contains C++. Keep the C++ driver and
+            # its runtime libraries for that production shared object.
+            linker_language = "CXX" if needs_interface_gen_dep else None
+            if features and "-default_cpp_link" in features:
+                # CMake emits target_link_options before object files. Static
+                # archives there would be scanned too early and leave their
+                # symbols unresolved, so preserve the Bazel ordering by
+                # emitting the library-selection portion after the target's
+                # objects and dependencies via target_link_libraries().
+                linkopts = list(linkopts or [])
+                late_linkopts = [opt for opt in linkopts if opt != "-static-libgcc"]
+                linkopts = [opt for opt in linkopts if opt == "-static-libgcc"]
+                linker_language = "C"
             self._emit_shared_cc_binary(
                 name=name,
                 srcs=srcs,
                 defines=defines,
+                linkopts=linkopts,
+                late_linkopts=late_linkopts,
+                linker_language=linker_language,
                 extra_defines=extra_defines,
                 target_compatible_with=target_compatible_with,
                 **kwargs,
@@ -341,7 +364,9 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
                 name=name,
                 srcs=srcs,
                 defines=defines,
+                linkopts=linkopts,
                 target_compatible_with=target_compatible_with,
+                features=features,
                 **kwargs,
             )
             self._emit_extra_defines(name, extra_defines, target_compatible_with)
@@ -365,8 +390,12 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         copts=None,
         deps=None,
         defines=None,
+        linkopts=None,
+        late_linkopts=None,
+        linker_language=None,
         extra_defines=None,
         includes=None,
+        testonly=None,
         target_compatible_with=None,
         **kwargs,
     ):
@@ -377,8 +406,8 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # macro is what actually knows how to opt a single target into
         # SHARED while the rest of the build stays STATIC (see
         # iree_cc_library.cmake and its SHARED keyword) -- hexagon_dsp_skel
-        # (the only linkshared=True cc_binary in this repo) needs exactly
-        # that, so translate it to a SHARED iree_cc_library() instead of
+        # and the simulator test modules need exactly that, so translate them
+        # to SHARED iree_cc_library() targets instead of
         # silently producing a non-shared iree_cc_binary() that leaves the
         # DSP-side FastRPC .so entirely unbuilt in its expected shared form.
         if self._should_skip_target(**kwargs):
@@ -388,7 +417,11 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         copts_block = self._convert_string_list_block("COPTS", copts, sort=False)
         deps_block, platform_deps_block = self._convert_platform_select_deps(name, deps)
         defines_block = self._convert_string_list_block("DEFINES", defines)
+        linkopts_block = self._convert_string_list_block(
+            "LINKOPTS", linkopts, sort=False
+        )
         includes_block = self._convert_includes_block(includes)
+        testonly_block = self._convert_option_block("TESTONLY", testonly)
 
         self._emit_platform_guard_begin(target_compatible_with)
         if platform_deps_block:
@@ -400,7 +433,9 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             f"{copts_block}"
             f"{deps_block}"
             f"{defines_block}"
+            f"{linkopts_block}"
             f"{includes_block}"
+            f"{testonly_block}"
             f"  SHARED\n)\n\n"
         )
         # iree_cc_library() names the CMake target (and, by default, its
@@ -408,12 +443,27 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # binary name -- restore the plain name so packaging steps that
         # expect exactly "lib<name>.so" (matching what Bazel's cc_binary
         # would have produced) keep working.
+        linker_language_property = (
+            f"  LINKER_LANGUAGE {linker_language}\n" if linker_language else ""
+        )
         self._converter.body += (
             f"iree_package_name(_PACKAGE_NAME)\n"
+            f"if(TARGET ${{_PACKAGE_NAME}}_{name})\n"
             f"set_target_properties(${{_PACKAGE_NAME}}_{name} PROPERTIES\n"
             f'  OUTPUT_NAME "{name}"\n'
+            f"{linker_language_property}"
             f")\n"
         )
+        if late_linkopts:
+            private_link_block = self._convert_string_list_block(
+                "PRIVATE", late_linkopts, sort=False
+            )
+            self._converter.body += (
+                f"target_link_libraries(${{_PACKAGE_NAME}}_{name}\n"
+                f"{private_link_block}"
+                f")\n"
+            )
+        self._converter.body += "endif()\n"
         self._emit_platform_guard_end(target_compatible_with)
 
         if extra_defines is not None:
@@ -436,6 +486,46 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
                     f"endif()\n\n"
                 )
             self._emit_platform_guard_end(target_compatible_with)
+
+    def hmx_test_module(self, name, src):
+        # HMX unit tests are C-only shared objects loaded by the SDK's
+        # run_main_on_hexagon_sim executable. Expand the Starlark convenience
+        # macro to the same underlying target shape so the normal cc_binary
+        # conversion handles the Hexagon platform guard and shared linkage.
+        self.cc_binary(
+            name=name,
+            srcs=[src],
+            copts=["-std=gnu99", "-fvisibility=default"],
+            deps=[
+                ":test_support",
+                "//plugins/runtime/hexagon/dsp/ukernel/hmx:hmx_ukernels",
+            ],
+            linkshared=True,
+            testonly=True,
+            target_compatible_with=[
+                "//constraints:cpu_hexagon",
+                "//constraints:os_qurt",
+            ],
+        )
+
+    def hexagon_sim_test(self, name, module, tags=None):
+        # The shared module is cross-compiled in this same DSP CMake tree, but
+        # the test command itself is a host Python process driving hexagon-sim.
+        # iree_hexagon_sim_test() encapsulates the SDK paths and CTest setup.
+        if self._should_skip_target(tags=tags):
+            return
+        name_block = self._convert_string_arg_block("NAME", name, quote=False)
+        module_block = self._convert_single_target_block("MODULE", module)
+        labels_block = self._convert_string_list_block("LABELS", tags)
+        self._converter.body += (
+            "iree_hexagon_sim_test(\n"
+            f"{name_block}"
+            f"{module_block}"
+            f"{labels_block}"
+            "  TIMEOUT\n"
+            "    300\n"
+            ")\n\n"
+        )
 
     def filegroup(self, name, srcs, **kwargs):
         super().filegroup(name, self._redirect_overlay_paths(srcs), **kwargs)
@@ -593,6 +683,10 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         "-flax-vector-conversions",
     ]
     _RUNTIME_LIB_NO_LLVM_TREE_INCLUDES = [
+        # Bazel adds the root of the synthetic @hexagon-mlir repository for
+        # headers consumed with a repository-relative include such as
+        # qcom_hexagon_backend/bin/runtime/UserDMA/UserDMA.h.
+        "../../../../../../../third-party/hexagon-mlir",
         "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/bin/runtime/include",
         "../../../../../../../build_tools/cmake/hexagon_llvm_headers_stub",
         "../../../../../../../third-party/iree/third_party/llvm-project/llvm/include",
@@ -626,7 +720,12 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         else:
             all_deps = list(deps or []) + list(hdr_deps or [])
         self.cc_library(
-            name=name, deps=all_deps, copts=copts, includes=includes, **kwargs
+            name=name,
+            deps=all_deps,
+            copts=copts,
+            includes=includes,
+            alwayslink=True,
+            **kwargs,
         )
 
     def pkg_files(self, *args, **kwargs):

@@ -90,11 +90,12 @@ set(_HEXAGON_COMMON_FLAGS
 set(CMAKE_C_FLAGS_INIT "${_HEXAGON_COMMON_FLAGS}${_HEXAGON_BUILTIN_C_ISYSTEM_FLAGS}")
 set(CMAKE_CXX_FLAGS_INIT "${_HEXAGON_COMMON_FLAGS}${_HEXAGON_BUILTIN_CXX_ISYSTEM_FLAGS}")
 
-# hexagon_sdk_dynamic_lib_flags: only the DSP-side skeleton .so
-# (hexagon_dsp_skel) is ever produced by this toolchain; no cc_binary
-# executables are built for Hexagon in this repo.
+# Shared-link flags common to the DSP skeleton and simulator test modules.
+# Do not put a C++ runtime here: the C++ linker driver selects it for the DSP
+# skeleton, while the C-only test modules must remain loadable by the SDK's
+# self-contained run_main_on_hexagon_sim executable.
 set(CMAKE_SHARED_LINKER_FLAGS_INIT
-  "-mv${_HEXAGON_MV} -Wl,--defsym=ISDB_TRUSTED_FLAG=2 -Wl,--defsym=ISDB_SECURE_FLAG=2 -Wl,--no-threads -fpic -Wl,-Bsymbolic -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=free -Wl,--wrap=realloc -Wl,--wrap=memalign -lstdc++ -lm"
+  "-mv${_HEXAGON_MV} -Wl,--defsym=ISDB_TRUSTED_FLAG=2 -Wl,--defsym=ISDB_SECURE_FLAG=2 -Wl,--no-threads -fpic -Wl,-Bsymbolic -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=free -Wl,--wrap=realloc -Wl,--wrap=memalign"
 )
 
 # This is the DSP-only configure tree: guards plugins/runtime/hexagon's

@@ -27,7 +27,12 @@ cc_binary(
     srcs = ["userdma_stride_overflow_test.cc"],
     # The imported Hexagon MLIR RingBuffer header stores the return value of
     # posix_memalign only for assertions, which are disabled in opt builds.
-    copts = ["-Wno-unused-variable"],
+    copts = [
+        # run_main_on_hexagon_sim resolves main() from this shared object via
+        # dlsym; keep it exported when CMake's default visibility is hidden.
+        "-fvisibility=default",
+        "-Wno-unused-variable",
+    ],
     features = ["-default_cpp_link"],
     linkopts = [
         "-Wl,-Bstatic",

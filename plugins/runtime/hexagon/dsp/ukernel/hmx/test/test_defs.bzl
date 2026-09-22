@@ -19,7 +19,12 @@ def hmx_test_module(name, src):
         name = name,
         testonly = True,
         srcs = [src],
-        copts = ["-std=gnu99"],
+        # run_main_on_hexagon_sim resolves main() with dlsym after loading the
+        # module, so keep the entry point visible under strict build defaults.
+        copts = [
+            "-std=gnu99",
+            "-fvisibility=default",
+        ],
         # The modules are C-only. Avoid the toolchain's default C++ runtime
         # dependency so run_main can use its built-in C and compiler runtimes.
         features = ["-default_cpp_link"],

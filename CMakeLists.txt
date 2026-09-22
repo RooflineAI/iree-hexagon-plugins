@@ -32,6 +32,7 @@ if(IREE_HEXAGON_MLIR_DSP_BUILD)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/HexagonSDK.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/build_tools/cmake/iree_hexagon_sim_test.cmake")
 # Only the DSP cross-build tree (cmake/HexagonToolchain.cmake, which sets
 # this cache var) needs HexKL (hexagon-mlir overlay's bin/runtime).
 if(IREE_HEXAGON_MLIR_DSP_BUILD)

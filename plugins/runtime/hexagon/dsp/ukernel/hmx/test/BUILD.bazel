@@ -21,6 +21,7 @@ _HEXAGON_COMPAT = [
 
 cc_library(
     name = "test_support",
+    testonly = True,
     srcs = ["test_support.c"],
     hdrs = ["test_support.h"],
     copts = ["-std=gnu99"],

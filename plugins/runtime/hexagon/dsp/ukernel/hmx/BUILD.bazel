@@ -17,10 +17,15 @@ cc_library(
     srcs = ["hmx.c"],
     hdrs = ["api.h"],
     copts = [
-        "-Xclang",
-        "-target-feature",
-        "-Xclang",
-        "+hmxv79",
+        # IREE's CMake defaults to -fno-lax-vector-conversions, but the
+        # Qualcomm HVX headers pass same-width vector typedefs with different
+        # integer element types (for example, vector<long> to an intrinsic
+        # expecting vector<int>). Allow the implicit bitcasts required by
+        # those wrappers, scoped to this HMX target.
+        # Note that this is not really needed in the bazel build
+        "-flax-vector-conversions=integer",
+        "-Xclang=-target-feature",
+        "-Xclang=+hmxv79",
     ],
     includes = ["../../../.."],
     target_compatible_with = [

@@ -38,6 +38,7 @@ iree_cc_library(
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::hexagon_arm_dsp
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::pmu::hexagon_pmu_helpers
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::rt::hexagon_rt_library
+    iree_hexagon_plugins::plugins::runtime::hexagon::dsp::ukernel::hmx::hmx_ukernels
     iree_hexagon_plugins::plugins::runtime::hexagon::interface::hexagon_dsp_skel_hdr_lib
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"

@@ -12,6 +12,25 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
+    HexagonBufferizationExternalModels
+  HDRS
+    "Bufferization/HexagonBufferizableOpInterfaceImpl.h"
+  SRCS
+    "Bufferization/HexagonBufferizableOpInterfaceImpl.cpp"
+  DEPS
+    MLIRBufferizationDialect
+    MLIRBufferizationTransforms
+    MLIRIR
+    iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
+  ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     HexagonEncodingExternalModels
   HDRS
     "Encoding/HexagonEncodingExternalModels.h"
@@ -45,6 +64,64 @@ iree_tablegen_library(
 
 iree_cc_library(
   NAME
+    DispatchPlanner
+  HDRS
+    "Strategy/Planning/ComputeTileSelection.h"
+    "Strategy/Planning/DecisionTrace.h"
+    "Strategy/Planning/DispatchAnalysis.h"
+    "Strategy/Planning/DispatchPlanTypes.h"
+    "Strategy/Planning/DispatchPlanner.h"
+    "Strategy/Planning/PipelineContract.h"
+    "Strategy/Planning/PlanEncoding.h"
+    "Strategy/Planning/PlanVerification.h"
+    "Strategy/Planning/RootTilePropagation.h"
+    "Strategy/Planning/Strategies/Strategy.h"
+    "Strategy/Planning/Strategies/StrategySupport.h"
+    "Strategy/Planning/StrategySelection.h"
+    "Strategy/Planning/VTCMPlanning.h"
+  SRCS
+    "Strategy/Planning/ComputeTileSelection.cpp"
+    "Strategy/Planning/DecisionTrace.cpp"
+    "Strategy/Planning/DispatchAnalysis.cpp"
+    "Strategy/Planning/DispatchPlanTypes.cpp"
+    "Strategy/Planning/DispatchPlanner.cpp"
+    "Strategy/Planning/PipelineContract.cpp"
+    "Strategy/Planning/PlanEncoding.cpp"
+    "Strategy/Planning/PlanVerification.cpp"
+    "Strategy/Planning/RootTilePropagation.cpp"
+    "Strategy/Planning/Strategies/BufferCopyStrategy.cpp"
+    "Strategy/Planning/Strategies/ContractionStrategy.cpp"
+    "Strategy/Planning/Strategies/ConvolutionStrategy.cpp"
+    "Strategy/Planning/Strategies/DefaultStrategy.cpp"
+    "Strategy/Planning/Strategies/GenericStrategy.cpp"
+    "Strategy/Planning/Strategies/StrategySupport.cpp"
+    "Strategy/Planning/StrategySelection.cpp"
+    "Strategy/Planning/VTCMPlanning.cpp"
+  DEPS
+    LLVMSupport
+    MLIRAnalysis
+    MLIRFunctionInterfaces
+    MLIRIR
+    MLIRIndexingMapOpInterface
+    MLIRLinalgDialect
+    MLIRTilingInterface
+    hexagon_mlir::HexagonLoweringSupport
+    iree::compiler::Codegen::Dialect::CPU::IR::IREECPUDialect
+    iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
+    iree::compiler::Codegen::LLVMCPU
+    iree::compiler::Codegen::Utils
+    iree::compiler::Dialect::HAL::IR
+    iree::compiler::Dialect::Util::IR
+    iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
+  ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     codegen
   HDRS
     "Conversion/HexagonConvertToLLVM.h"
@@ -59,6 +136,7 @@ iree_cc_library(
     "Strategy/KernelDispatch.h"
   SRCS
     "Conversion/HexagonConvertToLLVM.cpp"
+    "Conversion/HexagonLowerHmxToCalls.cpp"
     "Conversion/HexagonRuntimeLinking.cpp"
     "Conversion/MarkHexagonNativeRuntimeLinks.cpp"
     "Passes.cpp"
@@ -71,23 +149,21 @@ iree_cc_library(
     "Pipelines/TranslationPipeline.cpp"
     "Strategy/HexagonSelectLoweringStrategy.cpp"
     "Strategy/KernelDispatch.cpp"
-    "Strategy/KernelDispatchEncoding.cpp"
-    "Strategy/KernelDispatchEncoding.h"
-    "Strategy/KernelDispatchHeuristics.cpp"
-    "Strategy/KernelDispatchHeuristics.h"
-    "Strategy/KernelDispatchPropagation.cpp"
-    "Strategy/KernelDispatchPropagation.h"
-    "Strategy/KernelDispatchTypes.h"
     "Transforms/FoldDispatchOutputStaging.cpp"
+    "Transforms/HexagonConvertMatmulToHmx.cpp"
+    "Transforms/HexagonExpandHmxMatmul.cpp"
     "Transforms/HexagonVTCMTiling.cpp"
     "Transforms/InsertProfilerMarkers.cpp"
     "Transforms/LowerVTCMStaging.cpp"
     "Transforms/PromoteDMATagAllocToStack.cpp"
   DEPS
+    ::DispatchPlanner
     ::PassesIncGen
     LLVMSupport
     MLIRAffineDialect
     MLIRAffineToStandard
+    MLIRAnalysis
+    MLIRArithDialect
     MLIRArithToArmSME
     MLIRArmSMEToLLVM
     MLIRArmSMEToSCF
@@ -95,6 +171,8 @@ iree_cc_library(
     MLIRBufferizationPipelines
     MLIRBufferizationToMemRef
     MLIRComplexToStandard
+    MLIRControlFlowDialect
+    MLIRControlFlowTransforms
     MLIRConvertToLLVMPass
     MLIRFuncDialect
     MLIRFunctionInterfaces
@@ -117,6 +195,7 @@ iree_cc_library(
     MLIRTilingInterface
     MLIRTransformDialect
     MLIRTransformUtils
+    MLIRValueBoundsOpInterface
     MLIRVectorDialect
     MLIRVectorToArmSME
     MLIRVectorToLLVM

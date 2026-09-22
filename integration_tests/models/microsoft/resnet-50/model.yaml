@@ -17,8 +17,10 @@ tolerances:
   rtol: 1.0e-2
   relative_l2_percent: 0.1
 
+compile_cases: [hexagon, hexagon-vtcm-hmx, llvmcpu-baseline]
+
 expected_outcomes:
-  - case: default
+  - case: llvmcpu-baseline
     status: ACCURACY_FAILURE
     reason: "relative L2 error 2.9"
     comment: "generic LLVMCPU launch-config selector; measured 2026-08-27"

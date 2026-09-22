@@ -23,6 +23,11 @@ from integration_tests.device.deploy import (
 )
 from integration_tests.modeltree import discover
 from integration_tests.modeltree.spec import ModelSpec
+from integration_tests.stages.compiling import (
+    COMPILE_CASE_NAMES,
+    COMPILE_CASES_BY_NAME,
+    CompileCase,
+)
 from integration_tests.tool_paths import (
     DEVICE_TOOLS_TARGET,
     IREE_COMPILE_TARGET,
@@ -95,6 +100,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="ORG/NAME",
         help="run only this model from models/ (repeatable).",
     )
+    group.addoption(
+        "--compile-case",
+        action="append",
+        default=[],
+        choices=COMPILE_CASE_NAMES,
+        metavar="NAME",
+        help=(
+            "run only this compile case from each selected model's configured "
+            "cases (repeatable)."
+        ),
+    )
 
 
 def _selected_specs(config: pytest.Config) -> list[ModelSpec]:
@@ -106,6 +122,25 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if "model_spec" not in metafunc.fixturenames:
         return
     specs = _selected_specs(metafunc.config)
+    if "compile_case" in metafunc.fixturenames:
+        requested = set(metafunc.config.getoption("--compile-case"))
+        pairs: list[tuple[ModelSpec, CompileCase]] = []
+        for spec in specs:
+            for case_name in spec.compile_cases:
+                if not requested or case_name in requested:
+                    pairs.append((spec, COMPILE_CASES_BY_NAME[case_name]))
+        if not pairs:
+            raise pytest.UsageError(
+                "no model/compile-case combinations match --model and "
+                "--compile-case"
+            )
+        metafunc.parametrize(
+            ("model_spec", "compile_case"),
+            pairs,
+            ids=[f"{spec.name}-{case.name}" for spec, case in pairs],
+            scope="session",
+        )
+        return
     metafunc.parametrize(
         "model_spec", specs, ids=[spec.name for spec in specs], scope="session"
     )

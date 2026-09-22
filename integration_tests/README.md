@@ -37,8 +37,8 @@ bazel build @iree//tools:iree-compile \
 pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 ```
 
-Options, all in `conftest.py`: `--model` (repeatable), `--keep-device-dir`,
-`--device-root`, and the four artifact paths.
+Options, all in `conftest.py`: `--model` and `--compile-case` (both
+repeatable), `--keep-device-dir`, `--device-root`, and the four artifact paths.
 
 ## Requirements
 
@@ -91,8 +91,22 @@ _MODEL_ID = "HuggingFaceTB/SmolLM2-135M"
 _REVISION = "93efa2f097d58c2a74874c7e644dbc9b0cee75a2"
 ```
 
-Add `compile_cases: [new-tiling-heuristics]` to run only some of the three
-configurations.
+With no `compile_cases`, a model runs both `hexagon` and
+`hexagon-vtcm-hmx`. Add an explicit list to narrow or extend that matrix. The
+`llvmcpu-baseline` case is opt-in; for example:
+
+* `hexagon`: Hexagon launch configuration, with VTCM tiling and HMX disabled.
+
+* `hexagon-vtcm-hmx`: Hexagon launch configuration, with both features enabled.
+
+* `llvmcpu-baseline`: LLVMCPU launch configuration, with both features disabled.
+
+```yaml
+compile_cases: [hexagon, hexagon-vtcm-hmx, llvmcpu-baseline]
+```
+
+Use `--compile-case=hexagon-vtcm-hmx` to filter a test invocation to one of a
+model's configured cases.
 
 For a classifier on a real photograph, `generator: image` plus a
 `semantic_check`:
@@ -110,7 +124,7 @@ A model may record known failures:
 
 ```yaml
 expected_outcomes:
-  - case: default            # or "*" for every case
+  - case: llvmcpu-baseline   # or "*" for every case
     status: ACCURACY_FAILURE # or COMPILE_FAILURE, RUNTIME_FAILURE
     reason: "relative L2 error 2.9"
     comment: "generic LLVMCPU launch-config selector; measured 2026-08-27"

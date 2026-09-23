@@ -1,0 +1,16 @@
+--- refresh.template.py
++++ refresh.template.py
+@@ -614,6 +614,13 @@
+     """Gets the ({source files}, {header files}) clangd should be told the command applies to."""
+ 
+     # Getting the source file is a little trickier than it might seem.
++
++    # Skip precompiled header actions (e.g. -xc++-header). These compile .h
++    # files which don't match any recognised source extension, and they aren't
++    # useful for compile_commands.json / clangd anyway.
++    if '-xc++-header' in compile_action.arguments:
++        return set(), set()
++
+ 
+     # First, we do the obvious thing: Filter args to those that look like source files.
+     source_file_candidates = [arg for arg in compile_action.arguments if not arg.startswith('-') and arg.endswith(_get_files.source_extensions)]

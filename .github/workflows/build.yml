@@ -1,34 +1,40 @@
 name: build
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 jobs:
+  pre-commit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+          enable-cache: false
+      - name: Run pre-commit checks
+        run: |
+          uvx pre-commit run --all-files --show-diff-on-failure
   build-cmake:
     runs-on:
       group: qualcomm
       labels: qc-large
     steps:
       - uses: actions/checkout@v4
-
       - name: Build and package with CMake+Ninja
         run: |
           build_tools/cmake/all_in_one.sh
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts-cmake
           path: build-artifacts-cmake
           retention-days: 1
-
   test-cmake:
     needs: build-cmake
     runs-on:
@@ -42,19 +48,16 @@ jobs:
       PHONE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts-cmake
           path: build-artifacts
-
       - &prep_build_artifacts
         name: Prepare build artifacts
         run: |
           chmod +x build-artifacts/iree-* build-artifacts/ld.lld
           ls -l build-artifacts
-
       - &install_pinned_platform_tools
         name: Install pinned platform-tools
         env:
@@ -76,14 +79,12 @@ jobs:
           unzip -q "${zip}" -d "${RUNNER_TEMP}"
           # Appended last so it precedes the SDK's own copy on PATH.
           echo "${RUNNER_TEMP}/platform-tools" >> "$GITHUB_PATH"
-
       - &verify_android
         name: Verify Android
         run: |
           adb version
-          echo $ANDROID_NDK_HOME
-          ls $ANDROID_NDK_HOME
-
+          echo "$ANDROID_NDK_HOME"
+          ls "$ANDROID_NDK_HOME"
       - &join_phone_overlay
         name: Join the phone overlay
         if: env.PHONE_ACCESS == 'true'
@@ -121,7 +122,6 @@ jobs:
             exit 1
           fi
           tailscale status
-
       - &point_adb_at_phone_rig
         name: Point adb at the phone rig
         if: env.PHONE_ACCESS == 'true'
@@ -131,7 +131,6 @@ jobs:
           # load-bearing the moment a second one is.
           echo "ADB_SERVER_SOCKET=tcp:100.64.0.2:5037" >> "$GITHUB_ENV"
           echo "ANDROID_SERIAL=2c82b852" >> "$GITHUB_ENV"
-
       - &check_phone_reachable
         name: Check the phone is reachable
         if: env.PHONE_ACCESS == 'true'
@@ -143,7 +142,6 @@ jobs:
           # the rig is holding the phone's USB interface, usually a stray adb
           # server left behind by a bare `adb` command run there.
           adb shell getprop ro.product.model
-
       - &install_uv
         name: Install UV
         if: env.PHONE_ACCESS == 'true'
@@ -151,13 +149,11 @@ jobs:
         with:
           python-version: "3.11"
           enable-cache: false
-
       - &setup_test_env
         name: Setup environment for integration tests
         if: env.PHONE_ACCESS == 'true'
         run: |
           build_tools/create_test_venv.sh
-
       - &integration_tests
         name: Integration tests
         if: env.PHONE_ACCESS == 'true'
@@ -167,39 +163,32 @@ jobs:
           --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
           --device-tools-zip=build-artifacts/device_tools_aarch64_android.zip \
           --lld=build-artifacts/ld.lld
-
       - &leave_overlay
         name: Leave the overlay
         if: always()
         run: sudo tailscale logout || true
-
   build-bazel:
     runs-on:
       group: qualcomm
       labels: qc-large
     steps:
       - uses: actions/checkout@v4
-
       - name: Update submodules
         run: |
           build_tools/update_submodules.py
-
       - name: Install clang-19
         run: |
           wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           chmod +x /tmp/llvm.sh
           sudo /tmp/llvm.sh 19
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: "platform-tools"
-
       - name: Install NDK 28
         run: |
           sdkmanager --install "ndk;28.2.13676358"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-
       - name: Configure bazelrc
         run: |
           cat - >configured.bazelrc <<EOF
@@ -208,14 +197,11 @@ jobs:
           build --config=generic_clang
           build --incompatible_strict_action_env
           EOF
-
       - uses: bazel-contrib/setup-bazel@0.15.0
         with:
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}
           repository-cache: true
-
-
       - name: Build
         run: |
           TARGETS=(
@@ -235,21 +221,21 @@ jobs:
           mkdir build-artifacts-bazel
           for TARGET in "${TARGETS[@]}"
           do
-            cp $(bazel cquery --output=files "config($TARGET, target)") build-artifacts-bazel
+            mapfile -t target_files < <(
+              bazel cquery --output=files "config($TARGET, target)"
+            )
+            cp "${target_files[@]}" build-artifacts-bazel
           done
           chmod -R u+w build-artifacts-bazel
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts-bazel
           path: build-artifacts-bazel
           retention-days: 1
-
       - name: Unit tests
         run: |
           bazel test //...
-
   test-bazel:
     needs: build-bazel
     runs-on:
@@ -263,35 +249,24 @@ jobs:
       PHONE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts-bazel
           path: build-artifacts
-
       - *prep_build_artifacts
-
       - *install_pinned_platform_tools
-
       - *verify_android
-
       - *join_phone_overlay
-
       - *point_adb_at_phone_rig
-
       - *check_phone_reachable
-
       - *install_uv
-
       - *setup_test_env
-
       - *integration_tests
-
       - *leave_overlay
-
   gatekeeper:
     needs:
+      - pre-commit
       - test-cmake
       - test-bazel
     runs-on: ubuntu-24.04

@@ -4,8 +4,26 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
+
 package(
     default_visibility = ["//visibility:public"],
 )
 
 exports_files(["lit.cfg.py"])
+
+# Generates compile_commands.json for clangd and other C/C++ tooling. The
+# Android and Hexagon aliases carry their own platform transitions, allowing a
+# single database to cover the host compiler plugin and both runtime halves.
+refresh_compile_commands(
+    name = "refresh_compile_commands",
+    exclude_headers = "all",
+    targets = {
+        "//plugins/compiler/...": "",
+        "//plugins/runtime/hexagon/test/...": "",
+        "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android": "",
+        "//plugins/runtime/hexagon/dsp:hexagon_dsp_skel_cross": "",
+        "@iree//tools:iree-compile": "",
+        "@iree//tools:iree-opt": "",
+    },
+)

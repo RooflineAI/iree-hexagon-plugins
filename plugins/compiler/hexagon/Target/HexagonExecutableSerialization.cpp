@@ -7,12 +7,12 @@
 #include "hexagon/Target/HexagonExecutableSerialization.h"
 #include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 
-#include "hexagon/Target/HexagonLLVMTarget.h"
-#include "hexagon/Target/Linking/HexagonLinkerTool.h"
 #include "compiler/plugins/target/LLVMCPU/LLVMIRPasses.h"
 #include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
 #include "compiler/plugins/target/LLVMCPU/LibraryBuilder.h"
 #include "compiler/plugins/target/LLVMCPU/LinkerTool.h"
+#include "hexagon/Target/HexagonLLVMTarget.h"
+#include "hexagon/Target/Linking/HexagonLinkerTool.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "iree/compiler/Utils/FlatbufferUtils.h"
 // Generated flatcc builder for the Hexagon executable-def flatbuffer (host-
@@ -42,7 +42,8 @@
 
 // TODO: There is a lot of code that is calling on functions from the
 // LLVMCPUTarget plugin, especially during linking. This also includes other
-// files inside the hexagon plugin. This will have to be revisited in the future...
+// files inside the hexagon plugin. This will have to be revisited in the
+// future...
 
 namespace mlir::iree_compiler::hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
@@ -387,9 +388,10 @@ static std::optional<Artifacts> linkArtifacts(
   const bool allowNativeUndefinedSymbols =
       variantOp->hasAttr(codegen::kNativeRuntimeLinkVariantAttrName);
 
-  auto linkerTool = mlir::iree_compiler::hexagon::target::linking::
-      createHexagonLinkerTool(targetMachine.getTargetTriple(), linkerOptions,
-                              allowNativeUndefinedSymbols);
+  auto linkerTool =
+      mlir::iree_compiler::hexagon::target::linking::createHexagonLinkerTool(
+          targetMachine.getTargetTriple(), linkerOptions,
+          allowNativeUndefinedSymbols);
 
   auto linkedArtifactsOption =
       linkerTool->linkDynamicLibrary(libraryName, objectFiles);

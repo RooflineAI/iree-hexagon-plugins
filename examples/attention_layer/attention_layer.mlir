@@ -36,7 +36,7 @@ module @module {
       linalg.yield %37 : f32
     } -> tensor<4x1024x128xf32>
     %8 = tensor.empty() : tensor<4x128x1024xf32>
-    %transposed = linalg.transpose ins(%5 : tensor<4x1024x128xf32>) outs(%8 : tensor<4x128x1024xf32>) permutation = [0, 2, 1] 
+    %transposed = linalg.transpose ins(%5 : tensor<4x1024x128xf32>) outs(%8 : tensor<4x128x1024xf32>) permutation = [0, 2, 1]
     %9 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel", "parallel"]} ins(%transposed : tensor<4x128x1024xf32>) outs(%8 : tensor<4x128x1024xf32>) {
     ^bb0(%in: f32, %out: f32):
       %36 = arith.truncf %cst_3 : f64 to f32
@@ -124,4 +124,3 @@ module @module {
     util.return %1 : !hal.buffer_view
   }
 }
-

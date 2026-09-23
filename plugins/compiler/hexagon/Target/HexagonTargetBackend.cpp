@@ -11,10 +11,10 @@
 #include "hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
 #include "hexagon/CodeGen/Pipelines/LinkingPipeline.h"
 #include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
-#include "hexagon/Target/HexagonExecutableSerialization.h"
-#include "hexagon/Target/HexagonLLVMTarget.h"
 #include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
+#include "hexagon/Target/HexagonExecutableSerialization.h"
+#include "hexagon/Target/HexagonLLVMTarget.h"
 #include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
@@ -94,16 +94,15 @@ public:
   void buildTranslationPassPipeline(HAL::ExecutableTargetAttr targetAttr,
                                     mlir::OpPassManager &passManager) override {
     (void)targetAttr;
-    mlir::iree_compiler::hexagon::codegen::
-        buildHexagonTranslationPassPipeline(passManager);
+    mlir::iree_compiler::hexagon::codegen::buildHexagonTranslationPassPipeline(
+        passManager);
   }
 
   void buildLinkingPassPipeline(mlir::OpPassManager &passManager) override {
     // Passing the backend name ensures the link pass actually gathers
     // Hexagon executables instead of skipping with an empty target filter.
-    mlir::iree_compiler::hexagon::codegen::
-        buildHexagonLinkingPassPipeline(
-            passManager, std::make_optional<std::string>("hexagon"));
+    mlir::iree_compiler::hexagon::codegen::buildHexagonLinkingPassPipeline(
+        passManager, std::make_optional<std::string>("hexagon"));
   }
 
   mlir::LogicalResult

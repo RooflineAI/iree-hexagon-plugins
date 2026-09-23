@@ -33,8 +33,7 @@ struct HexagonSession
           HexagonSession, HexagonOptions,
           mlir::iree_compiler::PluginActivationPolicy::DefaultActivated> {
   static void registerPasses() {
-    mlir::iree_compiler::hexagon::codegen::
-        registerHexagonCodeGenPasses();
+    mlir::iree_compiler::hexagon::codegen::registerHexagonCodeGenPasses();
   };
 
   void onRegisterDialects(mlir::DialectRegistry &registry) override {
@@ -59,20 +58,21 @@ struct HexagonSession
   }
 
   void populateHALTargetDevices(HAL::TargetDeviceList &targets) override {
-    targets.add("hexagon",
-                [this, options=options]() { return createHexagonTargetDevice(options); });
+    targets.add("hexagon", [this, options = options]() {
+      return createHexagonTargetDevice(options);
+    });
   }
 
   void populateHALTargetBackends(HAL::TargetBackendList &targets) override {
-    targets.add("hexagon",
-                [this, options=options]() { return createHexagonTargetBackend(options); });
+    targets.add("hexagon", [this, options = options]() {
+      return createHexagonTargetBackend(options);
+    });
   }
 };
 
 } // namespace
 
-bool registerHexagonPlugin(
-    mlir::iree_compiler::PluginRegistrar *registrar) {
+bool registerHexagonPlugin(mlir::iree_compiler::PluginRegistrar *registrar) {
   registrar->registerPlugin<HexagonSession>("hexagon");
   return true;
 }

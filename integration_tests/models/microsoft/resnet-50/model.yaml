@@ -5,20 +5,16 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 dtype: float32
-
 inputs:
   - shape: [1, 3, 224, 224]
     dtype: float32
     generator: normal
     seed: 0
-
 tolerances:
   atol: 1.0e-2
   rtol: 1.0e-2
   relative_l2_percent: 0.1
-
 compile_cases: [hexagon, hexagon-vtcm-hmx, llvmcpu-baseline]
-
 expected_outcomes:
   - case: llvmcpu-baseline
     status: ACCURACY_FAILURE

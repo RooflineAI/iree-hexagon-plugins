@@ -108,7 +108,6 @@ def deploy(
     return deployment
 
 
-
 def cleanup(deployment: Deployment) -> None:
     """Remove this run's directory, tolerating a device that has gone away."""
     try:

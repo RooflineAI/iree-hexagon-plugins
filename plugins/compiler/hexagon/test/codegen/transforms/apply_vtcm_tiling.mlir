@@ -150,7 +150,7 @@ func.func @configured_matmul_mixed(%lhs: tensor<4x4xf32>, %rhs: tensor<4x8xf32>,
 // -----
 
 // Softmax function extracted from an attention layer.
-// This test makes sure that copies are properly spawned and ordered 
+// This test makes sure that copies are properly spawned and ordered
 // and that all operations are included into the tile-wide tiling
 
 // No fill or generic before the forall: the producer chain moved inside.

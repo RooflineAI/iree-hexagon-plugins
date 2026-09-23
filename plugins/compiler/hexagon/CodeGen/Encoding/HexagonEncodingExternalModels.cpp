@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// TODO: This file is currently unused and served for experimentation purposes in the past.
-// It needs to be rewritten to make use of encodings in Hexagon.
+// TODO: This file is currently unused and served for experimentation purposes
+// in the past. It needs to be rewritten to make use of encodings in Hexagon.
 // This is the description of the CPUEncodingExternalModels.cpp file that this
 // one is modeled after
 

@@ -5,13 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 dtype: float16
-
 inputs:
   - {shape: [64, 64], dtype: float16, generator: normal, seed: 0}
   - {shape: [64, 65], dtype: float16, generator: normal, seed: 1}
-
 compile_cases: [hexagon-vtcm-hmx]
-
 tolerances:
   atol: 5.0e-2
   rtol: 5.0e-3

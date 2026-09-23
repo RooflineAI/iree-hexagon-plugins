@@ -1,13 +1,16 @@
 --- refresh.template.py
 +++ refresh.template.py
-@@ -614,6 +614,13 @@
+@@ -614,6 +614,16 @@
      """Gets the ({source files}, {header files}) clangd should be told the command applies to."""
  
      # Getting the source file is a little trickier than it might seem.
 +
-+    # Skip precompiled header actions (e.g. -xc++-header). These compile .h
-+    # files which don't match any recognised source extension, and they aren't
-+    # useful for compile_commands.json / clangd anyway.
++    # Bazel's parse_headers feature emits -xc++-header actions with only a
++    # header input. Hedron finds no recognized source extension and otherwise
++    # fails its source_file_candidates assertion. These actions are not useful
++    # in compile_commands.json, so skip them. Remove this workaround once the
++    # upstream fix lands:
++    # https://github.com/hedronvision/bazel-compile-commands-extractor/pull/262
 +    if '-xc++-header' in compile_action.arguments:
 +        return set(), set()
 +

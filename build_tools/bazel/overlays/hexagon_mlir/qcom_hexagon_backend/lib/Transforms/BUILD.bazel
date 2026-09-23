@@ -57,15 +57,6 @@ hexagon_mlir_overlay_library(
         # aren't read on every path.
         "-Wno-unused-variable",
     ],
-    deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:TransformsHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexagonMem/IR:HexagonMem",
-    ],
     hdr_deps = [
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:AffineDialect",
@@ -108,5 +99,14 @@ hexagon_mlir_overlay_library(
         "@llvm-project//mlir:Transforms",
         "@llvm-project//mlir:VectorDialect",
         "@llvm-project//mlir:VectorTransforms",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:TransformsHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexagonMem/IR:HexagonMem",
     ],
 )

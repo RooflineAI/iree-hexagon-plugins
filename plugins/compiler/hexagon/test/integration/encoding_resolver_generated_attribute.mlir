@@ -1,5 +1,5 @@
 // Verify SpecializeEncodings materializes the hexagon resolver with correct encoding_info
-// and that the isSerialized function from HexagonSerializableAttr returns true when appropriate 
+// and that the isSerialized function from HexagonSerializableAttr returns true when appropriate
 // (EncodeHostTensors does not fail and eliminates stream.tensor.sizeof as a result)
 // This test checks integration of multiple passes the lowering pipeline depends on and correct working of all of them
 

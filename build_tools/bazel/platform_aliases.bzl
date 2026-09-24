@@ -97,7 +97,7 @@ def aarch64_android_tracy_platform_alias(*, name, actual, tags = None, target_co
 # buildifier: disable=unused-variable
 _hexagon_platform_alias, _hexagon_platform_alias_internal = with_cfg(_alias).set("platforms", [Label("//platform:hexagon")]).build()
 
-def hexagon_platform_alias(*, name, actual, tags = None):
+def hexagon_platform_alias(*, name, actual, tags = None, testonly = False):
     """
     Define an alias to be built with hexagon platform.
 
@@ -105,6 +105,11 @@ def hexagon_platform_alias(*, name, actual, tags = None):
     the hexagon platform (i.e. using the hexagon toolchain) - independent of
     the selected platform for the entire build.
 
-    Use like regular alias(name = ..., actual = ..., [tags = ...])
+    Use like regular alias(name = ..., actual = ..., [tags = ...], [testonly = ...])
     """
-    _hexagon_platform_alias(name = name, actual = actual, tags = tags)
+    _hexagon_platform_alias(
+        name = name,
+        actual = actual,
+        tags = tags,
+        testonly = testonly,
+    )

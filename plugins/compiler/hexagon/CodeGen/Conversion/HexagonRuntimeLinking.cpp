@@ -15,7 +15,6 @@
 #include "llvm/ADT/StringMap.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {
-namespace IREE = mlir::iree_compiler::IREE;
 
 const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
   static const llvm::StringSet<> names = [] {
@@ -28,6 +27,14 @@ const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
     set.insert(mlir::hexagonmem::getCopyFnName());
     set.insert("hexagon_runtime_profiler_zone_begin");
     set.insert("hexagon_runtime_profiler_zone_end");
+    set.insert("iree_hexagon_hmx_pack_f16");
+    set.insert("iree_hexagon_hmx_pack_transposed_f16");
+    set.insert("iree_hexagon_hmx_unpack_acc_f16_to_f32");
+    set.insert("iree_hexagon_hmx_unpack_acc_f16_to_f16");
+    set.insert("iree_hexagon_hmx_acc_setup_read_f16");
+    set.insert("iree_hexagon_hmx_acc_clear_f16");
+    set.insert("iree_hexagon_hmx_mma_f16");
+    set.insert("iree_hexagon_hmx_acc_read_f16");
     return set;
   }();
   return names;

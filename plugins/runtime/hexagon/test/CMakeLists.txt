@@ -10,6 +10,49 @@
 
 iree_add_all_subdirs()
 
+if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
+iree_cc_library(
+  NAME
+    userdma_stride_overflow_test_module
+  SRCS
+    "userdma_stride_overflow_test.cc"
+  COPTS
+    "-fvisibility=default"
+    "-Wno-unused-variable"
+  DEPS
+    hexagon_mlir::bin::runtime::runtime_lib
+  LINKOPTS
+    "-static-libgcc"
+  TESTONLY
+  SHARED
+)
+
+iree_package_name(_PACKAGE_NAME)
+if(TARGET ${_PACKAGE_NAME}_userdma_stride_overflow_test_module)
+set_target_properties(${_PACKAGE_NAME}_userdma_stride_overflow_test_module PROPERTIES
+  OUTPUT_NAME "userdma_stride_overflow_test_module"
+  LINKER_LANGUAGE C
+)
+target_link_libraries(${_PACKAGE_NAME}_userdma_stride_overflow_test_module
+  PRIVATE
+    "-Wl,-Bstatic"
+    "-lstdc++"
+    "-lc++abi"
+    "-Wl,-Bdynamic"
+    "-lm"
+)
+endif()
+endif()
+
+iree_hexagon_sim_test(
+  NAME
+    userdma_stride_overflow_sim_test
+  MODULE
+    ::userdma_stride_overflow_test_module
+  TIMEOUT
+    300
+)
+
 iree_cc_library(
   NAME
     serialize_test_utils

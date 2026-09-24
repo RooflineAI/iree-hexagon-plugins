@@ -5,9 +5,9 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
-load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_import.bzl", "cc_import")
+load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -55,6 +55,7 @@ cc_binary(
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
         "//plugins/runtime/hexagon/dsp/pmu:hexagon_pmu_helpers",
         "//plugins/runtime/hexagon/dsp/rt:hexagon_rt_library",
+        "//plugins/runtime/hexagon/dsp/ukernel/hmx:hmx_ukernels",
         "//plugins/runtime/hexagon/interface:hexagon_dsp_skel_hdr_lib",
         "@hexagon-mlir//qcom_hexagon_backend/bin/runtime:runtime_lib",
         "@iree//runtime/src/iree/hal/local:executable_library",

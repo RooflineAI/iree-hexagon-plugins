@@ -33,14 +33,22 @@ static llvm::cl::opt<bool> clHexagonEnableVTCMTiling(
     "iree-hexagon-enable-vtcm-tiling",
     llvm::cl::desc("Enable Hexagon VTCM tiling before bufferization in the "
                    "pipelines using it."),
-    llvm::cl::init(false));
+    llvm::cl::init(true));
 
 static llvm::cl::opt<bool> clHexagonUseHexagonMlirLinalgLowering(
     "iree-hexagon-use-hexagon-mlir-linalg-lowering",
     llvm::cl::desc("Replace IREE's lowering by hexagon mlir's completely."),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
+    "iree-hexagon-enable-hmx-matmul",
+    llvm::cl::desc("Route eligible f16 matmul/contraction dispatches through "
+                   "the HMX (tensor unit) expert pipeline."),
+    llvm::cl::init(false));
+
 bool isHexagonVTCMTilingEnabled() { return clHexagonEnableVTCMTiling; }
+
+bool isHexagonHmxMatmulEnabled() { return clHexagonEnableHmxMatmul; }
 
 bool isHexagonMlirLinalgLoweringEnabled() {
   return clHexagonUseHexagonMlirLinalgLowering;

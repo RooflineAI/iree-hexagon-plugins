@@ -26,6 +26,34 @@ set_target_properties(hexagon_sdk::qaic PROPERTIES
   IMPORTED_LOCATION "${HEXAGON_SDK_ROOT}/ipc/fastrpc/qaic/bin/qaic"
 )
 
+# Host simulator and v79 QuRT payloads used by CMake simulator tests. The
+# payloads are represented as imported executable/library targets only to make
+# their paths available through $<TARGET_FILE:...>; CMake never executes them
+# directly on the build host.
+add_executable(hexagon_sdk::hexagon_sim IMPORTED)
+set_target_properties(hexagon_sdk::hexagon_sim PROPERTIES
+  IMPORTED_LOCATION
+    "${HEXAGON_SDK_ROOT}/tools/HEXAGON_Tools/19.0.04/Tools/bin/hexagon-sim"
+)
+
+add_executable(hexagon_sdk::run_main_on_hexagon_sim_v79 IMPORTED)
+set_target_properties(hexagon_sdk::run_main_on_hexagon_sim_v79 PROPERTIES
+  IMPORTED_LOCATION
+    "${HEXAGON_SDK_ROOT}/libs/run_main_on_hexagon/ship/hexagon_toolv19_v79/run_main_on_hexagon_sim"
+)
+
+add_executable(hexagon_sdk::qurt_runelf_v79 IMPORTED)
+set_target_properties(hexagon_sdk::qurt_runelf_v79 PROPERTIES
+  IMPORTED_LOCATION
+    "${HEXAGON_SDK_ROOT}/rtos/qurt/computev79/sdksim_bin/runelf.pbn"
+)
+
+add_library(hexagon_sdk::qurt_model_v79 SHARED IMPORTED)
+set_target_properties(hexagon_sdk::qurt_model_v79 PROPERTIES
+  IMPORTED_LOCATION
+    "${HEXAGON_SDK_ROOT}/rtos/qurt/computev79/debugger/lnx64/qurt_model.so"
+)
+
 add_library(hexagon_sdk::cdsprpc_android_aarch64 SHARED IMPORTED)
 set_target_properties(hexagon_sdk::cdsprpc_android_aarch64 PROPERTIES
   IMPORTED_LOCATION "${HEXAGON_SDK_ROOT}/ipc/fastrpc/remote/ship/android_aarch64/libcdsprpc.so"

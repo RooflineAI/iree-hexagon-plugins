@@ -10,10 +10,10 @@ import os
 tools = [
     "clang",
     "hexagon-ar",
+    "hexagon-link",
     "hexagon-nm",
     "hexagon-objdump",
     "hexagon-strip",
-    "link",
 ]
 
 # The canonical repo name for the hexagon SDK changes across Bazel major

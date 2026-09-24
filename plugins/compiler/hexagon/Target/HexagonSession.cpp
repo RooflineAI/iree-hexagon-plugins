@@ -6,6 +6,7 @@
 
 #include "hexagon/Target/HexagonSession.h"
 
+#include "hexagon/CodeGen/Bufferization/HexagonBufferizableOpInterfaceImpl.h"
 #include "hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/Passes.h"
@@ -40,6 +41,9 @@ struct HexagonSession
     // MLIR hooks
     registry.insert<IREE::Hexagon::IREEHexagonDialect,
                     mlir::hexagonmem::HexagonMemDialect>();
+
+    // iree_hexagon bufferization external models (e.g. hmx.matmul).
+    IREE::Hexagon::registerBufferizableOpInterfaceExternalModels(registry);
 
     // Hexagon-mlir hooks
     // Reusing hexagon-mlir external models for bufferization

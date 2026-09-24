@@ -143,12 +143,21 @@ build_tree() {
 build_dsp_tree() {
   local build_dir="$1"
   local tracy="$2"
+  # The toolchain sets CMAKE_SHARED_LINKER_FLAGS_INIT, which only seeds a new
+  # cache. Clear its derived cache entry so existing build trees also pick up
+  # toolchain changes instead of retaining stale global runtime libraries.
   build_tree "$build_dir" "$tracy" \
     iree_hexagon_plugins_plugins_runtime_hexagon_dsp_hexagon_dsp_skel \
+    -U CMAKE_SHARED_LINKER_FLAGS \
     -DCMAKE_TOOLCHAIN_FILE="${REPO_ROOT}/cmake/HexagonToolchain.cmake" \
     -DIREE_BUILD_COMPILER=OFF \
-    -DIREE_BUILD_TESTS=OFF \
+    -DIREE_BUILD_TESTS=ON \
     -DIREE_BUILD_SAMPLES=OFF
+  # Simulator tests are host-side CTest commands over shared modules built by
+  # this DSP cross-build. Build all registered modules before invoking CTest;
+  # they are TESTONLY and therefore not part of the default target.
+  cmake --build "${build_dir}" --target iree_hexagon_sim_test_modules -- -k 0
+  ctest --test-dir "${build_dir}" --output-on-failure -L test-type=hexagon-sim
 }
 build_dsp_tree "${BUILD_ROOT}/dsp" 0
 build_dsp_tree "${BUILD_ROOT}/dsp-tracy" 1

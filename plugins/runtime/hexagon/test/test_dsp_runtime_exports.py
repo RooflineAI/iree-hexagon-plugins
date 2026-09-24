@@ -27,23 +27,34 @@ SYMBOLS = [
     "hexkl_matmul_f16f16_f32",
     "hexkl_micro_hmx_config_size",
     "hexkl_micro_hmx_mm_f16",
+    "iree_hexagon_hmx_acc_setup_read_f16",
+    "iree_hexagon_hmx_acc_clear_f16",
+    "iree_hexagon_hmx_pack_f16",
+    "iree_hexagon_hmx_pack_transposed_f16",
+    "iree_hexagon_hmx_unpack_acc_f16_to_f32",
+    "iree_hexagon_hmx_unpack_acc_f16_to_f16",
+    "iree_hexagon_hmx_mma_f16",
+    "iree_hexagon_hmx_acc_read_f16",
 ]
 
 
 def exported_symbols(path: Path) -> set[str]:
     with path.open("rb") as file:
         elf = ELFFile(file)
+        section = elf.get_section_by_name(".dynsym")
+        if not isinstance(section, SymbolTableSection):
+            return set()
+
         result = set()
-        for section in elf.iter_sections():
-            if not isinstance(section, SymbolTableSection):
+        for symbol in section.iter_symbols():
+            if not symbol.name:
                 continue
-            for symbol in section.iter_symbols():
-                if not symbol.name:
-                    continue
-                if symbol.entry.st_shndx != "SHN_UNDEF" and symbol["st_info"][
-                    "bind"
-                ] in ("STB_GLOBAL", "STB_WEAK"):
-                    result.add(symbol.name)
+            if (
+                symbol.entry.st_shndx != "SHN_UNDEF"
+                and symbol["st_info"]["bind"] in ("STB_GLOBAL", "STB_WEAK")
+                and symbol["st_other"]["visibility"] in ("STV_DEFAULT", "STV_PROTECTED")
+            ):
+                result.add(symbol.name)
     return result
 
 

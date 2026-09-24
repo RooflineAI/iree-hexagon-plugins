@@ -13,6 +13,26 @@ package(
 )
 
 hexagon_plugin_library(
+    name = "HexagonBufferizationExternalModels",
+    srcs = [
+        "Bufferization/HexagonBufferizableOpInterfaceImpl.cpp",
+    ],
+    hdrs = [
+        "Bufferization/HexagonBufferizableOpInterfaceImpl.h",
+    ],
+    hdr_deps = [
+        "@llvm-project//mlir:IR",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
+        "@llvm-project//mlir:BufferizationDialect",
+        "@llvm-project//mlir:BufferizationInterfaces",
+        "@llvm-project//mlir:BufferizationTransforms",
+    ],
+)
+
+hexagon_plugin_library(
     name = "HexagonEncodingExternalModels",
     srcs = [
         "Encoding/HexagonEncodingExternalModels.cpp",
@@ -51,9 +71,68 @@ iree_gentbl_cc_library(
 )
 
 hexagon_plugin_library(
+    name = "DispatchPlanner",
+    srcs = [
+        "Strategy/Planning/ComputeTileSelection.cpp",
+        "Strategy/Planning/DecisionTrace.cpp",
+        "Strategy/Planning/DispatchAnalysis.cpp",
+        "Strategy/Planning/DispatchPlanTypes.cpp",
+        "Strategy/Planning/DispatchPlanner.cpp",
+        "Strategy/Planning/PipelineContract.cpp",
+        "Strategy/Planning/PlanEncoding.cpp",
+        "Strategy/Planning/PlanVerification.cpp",
+        "Strategy/Planning/RootTilePropagation.cpp",
+        "Strategy/Planning/Strategies/BufferCopyStrategy.cpp",
+        "Strategy/Planning/Strategies/ContractionStrategy.cpp",
+        "Strategy/Planning/Strategies/ConvolutionStrategy.cpp",
+        "Strategy/Planning/Strategies/DefaultStrategy.cpp",
+        "Strategy/Planning/Strategies/GenericStrategy.cpp",
+        "Strategy/Planning/Strategies/StrategySupport.cpp",
+        "Strategy/Planning/StrategySelection.cpp",
+        "Strategy/Planning/VTCMPlanning.cpp",
+    ],
+    hdrs = [
+        "Strategy/Planning/ComputeTileSelection.h",
+        "Strategy/Planning/DecisionTrace.h",
+        "Strategy/Planning/DispatchAnalysis.h",
+        "Strategy/Planning/DispatchPlanTypes.h",
+        "Strategy/Planning/DispatchPlanner.h",
+        "Strategy/Planning/PipelineContract.h",
+        "Strategy/Planning/PlanEncoding.h",
+        "Strategy/Planning/PlanVerification.h",
+        "Strategy/Planning/RootTilePropagation.h",
+        "Strategy/Planning/Strategies/Strategy.h",
+        "Strategy/Planning/Strategies/StrategySupport.h",
+        "Strategy/Planning/StrategySelection.h",
+        "Strategy/Planning/VTCMPlanning.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
+        "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
+        "@iree//compiler/src/iree/compiler/Codegen/LLVMCPU",
+        "@iree//compiler/src/iree/compiler/Codegen/Utils",
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
+        "@iree//compiler/src/iree/compiler/Dialect/Util/IR",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:FunctionInterfaces",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:IndexingMapOpInterface",
+        "@llvm-project//mlir:LinalgDialect",
+        "@llvm-project//mlir:TilingInterface",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
+        "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
+    ],
+)
+
+hexagon_plugin_library(
     name = "codegen",
     srcs = [
         "Conversion/HexagonConvertToLLVM.cpp",
+        "Conversion/HexagonLowerHmxToCalls.cpp",
         "Conversion/HexagonRuntimeLinking.cpp",
         "Conversion/MarkHexagonNativeRuntimeLinks.cpp",
         "Passes.cpp",
@@ -66,14 +145,9 @@ hexagon_plugin_library(
         "Pipelines/TranslationPipeline.cpp",
         "Strategy/HexagonSelectLoweringStrategy.cpp",
         "Strategy/KernelDispatch.cpp",
-        "Strategy/KernelDispatchEncoding.cpp",
-        "Strategy/KernelDispatchEncoding.h",
-        "Strategy/KernelDispatchHeuristics.cpp",
-        "Strategy/KernelDispatchHeuristics.h",
-        "Strategy/KernelDispatchPropagation.cpp",
-        "Strategy/KernelDispatchPropagation.h",
-        "Strategy/KernelDispatchTypes.h",
         "Transforms/FoldDispatchOutputStaging.cpp",
+        "Transforms/HexagonConvertMatmulToHmx.cpp",
+        "Transforms/HexagonExpandHmxMatmul.cpp",
         "Transforms/HexagonVTCMTiling.cpp",
         "Transforms/InsertProfilerMarkers.cpp",
         "Transforms/LowerVTCMStaging.cpp",
@@ -114,6 +188,8 @@ hexagon_plugin_library(
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:AffineDialect",
         "@llvm-project//mlir:AffineToStandard",
+        "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:ArithDialect",
         "@llvm-project//mlir:ArithToArmSME",
         "@llvm-project//mlir:ArmSMEToLLVM",
         "@llvm-project//mlir:ArmSMEToSCF",
@@ -121,6 +197,8 @@ hexagon_plugin_library(
         "@llvm-project//mlir:BufferizationPipelines",
         "@llvm-project//mlir:ComplexToStandard",
         "@llvm-project//mlir:ConvertToLLVM",
+        "@llvm-project//mlir:ControlFlowDialect",
+        "@llvm-project//mlir:ControlFlowTransforms",
         "@llvm-project//mlir:DialectUtils",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:FunctionInterfaces",
@@ -143,6 +221,7 @@ hexagon_plugin_library(
         "@llvm-project//mlir:TilingInterface",
         "@llvm-project//mlir:TransformUtils",
         "@llvm-project//mlir:TransformDialect",
+        "@llvm-project//mlir:ValueBoundsOpInterface",
         "@llvm-project//mlir:VectorDialect",
         "@llvm-project//mlir:VectorToArmSME",
         "@llvm-project//mlir:VectorToLLVM",
@@ -150,6 +229,7 @@ hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
+        ":DispatchPlanner",
         ":PassesIncGen",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",

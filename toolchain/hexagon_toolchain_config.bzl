@@ -59,7 +59,7 @@ def _hexagon_toolchain_config_impl(ctx):
     tool_paths = [
         tool_path(name = "cpp", path = "hexagon_trampolines/clang"),
         tool_path(name = "gcc", path = "hexagon_trampolines/clang"),
-        tool_path(name = "ld", path = "hexagon_trampolines/link"),
+        tool_path(name = "ld", path = "hexagon_trampolines/hexagon-link"),
     ] + [
         tool_path(name = tool, path = "hexagon_trampolines/hexagon-" + tool)
         for tool in ["ar", "nm", "objdump", "strip"]

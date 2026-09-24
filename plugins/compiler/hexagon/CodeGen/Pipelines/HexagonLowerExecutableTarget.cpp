@@ -134,14 +134,16 @@ void HexagonLowerExecutableTargetPass::runOnOperation() {
     addHexagonConvTileAndDecomposeExpertPassPipeline(passManager, pipelineOpts);
     break;
 
-  // This lowering pipeline
-  // takes special care for linalg.matmul and batch_matmul when data tiling is
-  // enabled. Since we are disabling iree's data tiling and managing through
-  // hexagon-mlir's passes that take advantage of the VTCM and vector unit,
-  // this pipeline is useless for hexagon.
   case IREE::CPU::LoweringPipeline::Mmt4dTilingExpert:
-    addHexagonMmt4dTilingExpertPassPipeline(passManager, pipelineOpts);
-    break;
+    if (getRootLoweringConfig(funcOp)) {
+      addHexagonHmxMatmulExpertPassPipeline(passManager, pipelineOpts);
+      break;
+    }
+    funcOp.emitWarning()
+        << "selected HMX matmul pipeline requires a root "
+           "lowering_config, but no compute root with lowering_config was "
+           "found";
+    return signalPassFailure();
 
   // This pipeline is used when only data layout transformations are needed
   // but no reduction happens (only linalg.pack/unpack ops).

@@ -39,4 +39,33 @@ def IREEHexagon_ProfilerRecordType :
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// HMX accumulator type.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_HmxAccType :
+    TypeDef<IREEHexagon_Dialect, "HmxAcc"> {
+  let mnemonic = "hmx.acc";
+  let summary = "HMX tensor-unit accumulator (register) state";
+  let description = [{
+    Opaque SSA value modeling the HMX accumulator, which is physical
+    tensor-unit register state rather than addressable memory. It is produced
+    by `hmx.acc.zero`, threaded through the K reduction (as an `scf.for`
+    iter_arg) by `hmx.mma`, and consumed by `hmx.acc.read`. There is no
+    load-from-memory into the accumulator in hardware, so this value can only be
+    created by a clear and updated by a multiply-accumulate.
+
+    The `shape`/`elementType` parameters describe the logical accumulator tile
+    (e.g. `32x32xf32`).
+  }];
+
+  let parameters = (ins
+    ArrayRefParameter<"int64_t">:$shape,
+    "::mlir::Type":$elementType
+  );
+
+  let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
+}
+
 #endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONTYPES

@@ -16,8 +16,9 @@
 // pipeline can keep reusing LLVMCPU lowering passes, but appends additional
 // Hexagon-specific attributes.
 //
-// The strategy selection for Hexagon is currently only a placeholder and under
-// development.
+// Strategy selection is implemented under `Planning/`.
+// This header exposes only the pass-facing facade and the one
+// Hexagon-specific attribute name consumed by later transforms.
 //
 // For runnable examples and the currently expected behavior, see
 // `plugins/compiler/hexagon/test/codegen/strategy/`

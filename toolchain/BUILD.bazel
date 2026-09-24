@@ -65,10 +65,10 @@ filegroup(
         "hexagon_sdk_files",
         "hexagon_trampolines/clang",
         "hexagon_trampolines/hexagon-ar",
+        "hexagon_trampolines/hexagon-link",
         "hexagon_trampolines/hexagon-nm",
         "hexagon_trampolines/hexagon-objdump",
         "hexagon_trampolines/hexagon-strip",
-        "hexagon_trampolines/link",
     ],
 )
 

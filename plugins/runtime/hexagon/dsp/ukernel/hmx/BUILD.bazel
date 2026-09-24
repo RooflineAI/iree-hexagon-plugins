@@ -1,0 +1,38 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+cc_library(
+    name = "hmx_ukernels",
+    srcs = ["hmx.c"],
+    hdrs = ["api.h"],
+    copts = [
+        # IREE's CMake defaults to -fno-lax-vector-conversions, but the
+        # Qualcomm HVX headers pass same-width vector typedefs with different
+        # integer element types (for example, vector<long> to an intrinsic
+        # expecting vector<int>). Allow the implicit bitcasts required by
+        # those wrappers, scoped to this HMX target.
+        # Note that this is not really needed in the bazel build
+        "-flax-vector-conversions=integer",
+        "-Xclang=-target-feature",
+        "-Xclang=+hmxv79",
+    ],
+    includes = ["../../../.."],
+    target_compatible_with = [
+        "//constraints:cpu_hexagon",
+        "//constraints:os_qurt",
+    ],
+    # Generated executables reference these symbols, but the skeleton itself
+    # does not. Retain all entry points for loader-time symbol resolution.
+    alwayslink = True,
+)

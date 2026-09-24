@@ -8,7 +8,8 @@
 
 There is no per-model test code. A model is `models/<org>/<name>/model.yaml`
 plus a `model.py` with `get_model()`; `conftest.pytest_generate_tests`
-parametrizes this file over whatever the tree holds and the tag filters select.
+parametrizes this file over the model/case pairs selected by the manifests and
+CLI filters.
 
 The four stages live in `stages/`, in pipeline order: import -> compile -> run
 -> check. Each stage's failure has a name a `model.yaml` can record as expected,
@@ -31,7 +32,6 @@ from integration_tests.stages.checking import (
     check_predicted_label,
 )
 from integration_tests.stages.compiling import (
-    HEXAGON_DEFAULT_COMPILE_CASES,
     CompilationError,
     CompileCase,
     compile_model,
@@ -113,11 +113,6 @@ def _run_pipeline(
     return Outcome(Status.PASSED, result.log)
 
 
-@pytest.mark.parametrize(
-    "compile_case",
-    HEXAGON_DEFAULT_COMPILE_CASES,
-    ids=[case.name for case in HEXAGON_DEFAULT_COMPILE_CASES],
-)
 def test_model_on_device(
     model_spec: ModelSpec,
     compile_case: CompileCase,
@@ -127,9 +122,6 @@ def test_model_on_device(
     deployment: Deployment,
     tmp_path: pathlib.Path,
 ) -> None:
-    if not model_spec.runs_case(compile_case.name):
-        pytest.skip(f"{model_spec.name} asks only for {list(model_spec.compile_cases)}")
-
     outcome = _run_pipeline(
         model_spec=model_spec,
         compile_case=compile_case,

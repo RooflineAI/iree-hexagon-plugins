@@ -20,5 +20,3 @@ tolerances:
 
 semantic_check:
   expected_label: "computer keyboard, keypad"
-
-compile_cases: [new-tiling-heuristics]

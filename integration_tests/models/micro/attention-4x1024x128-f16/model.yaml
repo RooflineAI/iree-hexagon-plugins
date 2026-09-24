@@ -15,3 +15,5 @@ tolerances:
   atol: 5.0e-2
   rtol: 5.0e-2
   relative_l2_percent: 1.0
+
+compile_cases: [hexagon, hexagon-vtcm-hmx, llvmcpu-baseline]

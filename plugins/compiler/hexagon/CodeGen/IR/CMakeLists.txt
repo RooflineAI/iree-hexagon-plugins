@@ -73,6 +73,7 @@ iree_cc_library(
     "HexagonOps.h.inc"
     "HexagonTypes.h"
     "HexagonTypes.h.inc"
+    "HmxContracts.h"
   SRCS
     "HexagonAttrs.cpp"
     "HexagonAttrs.cpp.inc"
@@ -81,8 +82,10 @@ iree_cc_library(
     "HexagonEnums.cpp.inc"
     "HexagonOps.cpp"
     "HexagonOps.cpp.inc"
+    "HexagonTilingInterfaceImpl.cpp"
     "HexagonTypes.cpp"
     "HexagonTypes.cpp.inc"
+    "HmxContracts.cpp"
   DEPS
     ::HexagonAttrsGen
     ::HexagonDialectGen
@@ -90,12 +93,21 @@ iree_cc_library(
     ::HexagonOpsGen
     ::HexagonTypesGen
     LLVMSupport
+    MLIRAffineDialect
+    MLIRAnalysis
+    MLIRArithDialect
     MLIRBytecodeOpInterface
+    MLIRDestinationStyleOpInterface
     MLIRDialect
     MLIRFunctionInterfaces
     MLIRIR
+    MLIRMemRefDialect
+    MLIRSCFDialect
     MLIRSideEffectInterfaces
     MLIRSupport
+    MLIRTensorDialect
+    MLIRTilingInterface
+    hexagon_mlir::HexagonLoweringSupport
   ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"

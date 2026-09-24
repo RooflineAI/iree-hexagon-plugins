@@ -4,13 +4,13 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// This file owns the LLVMCPU-derived / IREE-oriented Hexagon lowering helpers
-// and reusable subpipeline builders used by HexagonLowerExecutableTarget.
+// This file owns the expert pipelines used by the Hexagon backend.
+// Its structure (as well as that of many of the pipelines) is based on
+// LLVMCPU with some adaptations to the Hexagon architecture.
 
-// For the time being, this file very closely mimics a fraction of passes.cpp
-// file from LLVMCPU. It is therefore relevant, at least for now, to open a diff
-// of these two files to see the hexagon specific differences in case you are
-// curious.
+// Since this file closely mimics a fraction of passes.cpp
+// from LLVMCPU, it is therefore relevant, at least for now, to open a diff
+// of these two files to see the hexagon-specific differences.
 
 #include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 
@@ -54,9 +54,6 @@ static llvm::cl::opt<bool> clHexagonPatchFuncOps(
         "used with `--iree-codegen-debug-patched-func-ops-file-name`."),
     llvm::cl::init(false), llvm::cl::Hidden);
 
-// Duplicate the LLVMCPU development flags with Hexagon-specific names to avoid
-// cl::opt collisions with the upstream CPU backend while keeping the knobs
-// available for future tweaking.
 llvm::cl::opt<bool> clHexagonFailOnOutOfBoundsStackAllocation(
     "iree-hexagon-fail-on-out-of-bounds-stack-allocation",
     llvm::cl::desc("Fail if the upper bound of dynamic stack allocation cannot "
@@ -100,12 +97,6 @@ static llvm::cl::opt<bool> clHexagonInstrumentMemoryAccesses{
     llvm::cl::desc("Instrument memory accesses in dispatches when dispatch "
                    "instrumentation is enabled."),
     llvm::cl::init(false)};
-
-static llvm::cl::opt<bool> clHexagonEnableVectorContractCustomKernels(
-    "iree-hexagon-enable-vector-contract-custom-kernels",
-    llvm::cl::desc("Enables vector contract custom kernels for "
-                   "LLVMCPUMmt4dVectorLowering pass."),
-    llvm::cl::init(false));
 
 static llvm::cl::opt<bool> clHexagonEnableProfilerMarkers(
     "iree-hexagon-enable-profiler-markers",
@@ -204,16 +195,10 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
-    // TODO: Think and test if additional changes are needed for Hexagon.
-    // This verification is intended to keep the number of vectors from growing
-    // excessively large. When this happens, performance may be degraded because
-    // of register spilling and we might additionally risk excessively growing
-    // the stack. Hexagon has 32 vector registers, which is the same as, for
-    // example, avx512 for which the CPU lowering pipeline and these passes are
-    // designed. The only difference is that the actual vectors are twice as
-    // big. Note that this pass establishes the maximum size through
-    // nativeVectorSize * iree-llvmcpu-max-allowed-number-of-native-vectors
-    // Note that this pass is used in all pipelines, not only here.
+    // TODO: Fix verification of large vectors. Currently it is not being
+    // triggered when it should or being triggered excessively, which often
+    // makes this check useless. This would prevent compilation size and time
+    // exploding, easing development.
     if (clHexagonFailOnLargeVector) {
       funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
     }
@@ -238,19 +223,11 @@ void addHexagonMultiTilingExpertPassPipeline(
     const HexagonPipelineOptions &pipelineOpt) {
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
 
-  if (isHexagonVTCMTilingEnabled()) {
-    // This dispatch-wide tiling runs before the LLVMCPU-derived tiling
-    // passes so VTCM staging is the outer tensor tiling level.
-    // It currently does not combine with workgroup level tiling properly.
-    funcPassManager.addPass(createCanonicalizerPass());
-    funcPassManager.addPass(createCSEPass());
-    // Remove unit dims, as done in hexagon-mlir
-    funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
+  // This dispatch-wide tiling runs before the LLVMCPU-derived tiling
+  // passes so VTCM staging is the outer tensor tiling level.
+  // It currently does not combine with workgroup level tiling properly.
+  if (isHexagonVTCMTilingEnabled())
     funcPassManager.addPass(createHexagonVTCMTilingPass());
-    funcPassManager.addPass(createCanonicalizerPass());
-    funcPassManager.addPass(createCSEPass());
-    funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
-  }
 
   for (int i : IREE::CPU::getTilingLevelsAsInts()) {
     if (!loweringConfig.hasTilingLevel(i)) {
@@ -320,12 +297,11 @@ void addHexagonMultiTilingExpertPassPipeline(
     }
   }
 
-  if (isHexagonVTCMTilingEnabled()) {
-    // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
-    // emitted as fusion barriers into real bufferization.alloc_tensor ops.
-    // This must happen after all tiling passes have run.
+  // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
+  // emitted as fusion barriers into real bufferization.alloc_tensor ops.
+  // This must happen after all tiling passes have run.
+  if (isHexagonVTCMTilingEnabled())
     funcPassManager.addPass(createHexagonLowerVTCMStagingPass());
-  }
 
   addHexagonBufferizePasses(funcPassManager);
 
@@ -334,9 +310,7 @@ void addHexagonMultiTilingExpertPassPipeline(
   funcPassManager.addPass(createRemoveSingleIterationLoopPass());
 
   if (isHexagonVTCMTilingEnabled()) {
-    // Without removing the HAL descriptors, hexagon-mlir crashes.
-    // It is assumed that IREE passes do not need them anymore from this point
-    // on.
+    // We remove the HAL descriptor in order to call hexagon-mlir passes
     funcPassManager.addPass(createEraseHALDescriptorTypeFromMemRefPass());
     funcPassManager.addPass(::mlir::hexagon::createConvertToHexagonmemPass());
     if (clHexagonEnableProfilerMarkers)
@@ -360,6 +334,129 @@ void addHexagonMultiTilingExpertPassPipeline(
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }
+
+// HMX (tensor unit) matmul expert pipeline.
+//
+// VTCM tiling first isolates the dispatch tile and stages its operands. The HMX
+// conversion then rearranges each eligible matmul into the tile-major hardware
+// layout and replaces it with tileable tensor-level HMX operations. A single
+// common-parallel level splits the result over the HMX output tile grid; the
+// optional inner-parallel level handles dimensions private to fused producers
+// or consumers. K iteration is owned by HMX expansion rather than a generic
+// reduction-tiling level.
+void addHexagonHmxMatmulExpertPassPipeline(
+    OpPassManager &funcPassManager, const HexagonPipelineOptions &pipelineOpt) {
+  addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
+
+  // Note that strategy planning rejects an HMX strategy without VTCM.
+
+  // This dispatch-wide tiling runs before the LLVMCPU-derived tiling
+  // passes so VTCM staging is the outer tensor tiling level.
+  // It currently does not combine with workgroup level tiling properly.
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
+  // Remove unit dims, as done in hexagon-mlir
+  funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
+  funcPassManager.addPass(createHexagonVTCMTilingPass());
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
+  funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
+
+  // Batch matmul support: the HMX conversion/runtime path only handles a plain
+  // (non-batched) matmul. Tile the batch dimension to 1 via the cache-parallel
+  // level (which the heuristics set to tile only the batch dim for HMX), then
+  // fold the resulting unit-batch dimension so `batch_matmul` collapses to a
+  // plain `matmul` before HexagonConvertMatmulToHmx runs. This is a no-op for
+  // non-batched matmuls, whose cache-parallel tiles are all zero.
+  // TODO: It would be cleaner to create a dedicated HMX tiling level for this
+  // that does not reuse the cache-parallel tiling level.
+  funcPassManager.addPass(createLLVMCPUTilePass(
+      IREE::CPU::TilingLevel::CacheParallelTiles, /*skipRootOp=*/false));
+  // The cache-parallel level tiles only the batch dim (to 1) for the HMX path,
+  // leaving a batch_matmul<1x...>. HexagonConvertMatmulToHmx rank-reduces that
+  // to a plain matmul internally, so no generalize/fold is needed here. No-op
+  // for an already non-batched matmul.
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
+
+  // HMX divergence from MultiTiling: after VTCM tiling has isolated the
+  // dispatch tile, rearrange each matmul into the HMX tile-major layout and
+  // replace it with a tileable HMX placeholder. Ragged (or dynamic) VTCM tiles
+  // are handled by padding inside the rearrange: the pack destination
+  // (tile-major buffer) is sized to the static upper bound of each dim and the
+  // runtime zero-pads the boundary tiles, so the staged (DDR->VTCM) buffers
+  // stay ragged. The following LLVMCPU tiling levels then split the HMX output
+  // tile grid.
+  funcPassManager.addPass(createHexagonConvertMatmulToHmxPass());
+
+  // `hmx.tensor_unpack` carries a derived lowering config in the packed M/N
+  // tile-grid domain. Sink the unpack, tensor hmx.matmul, and f32 init producer
+  // into the per-HMX-tile loop while leaving the opaque operand packs outside.
+  funcPassManager.addPass(createLLVMCPUTileAndFuseProducerConsumerPass(
+      IREE::CPU::TilingLevel::VectorCommonParallelTiles));
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
+
+  // Realize dimensions that exist only on fused producers or consumers. This
+  // is a no-op for an unfused matmul. This aims at avoiding unexpectedly big
+  // tiles on producers and consumers given that the HMX tile size vastly
+  // exceeds the available registers for these ops.
+  funcPassManager.addPass(createLLVMCPUTileLastOpAndFuseProducerConsumerPass(
+      IREE::CPU::TilingLevel::VectorInnerParallelTiles));
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
+
+  funcPassManager.addPass(createForallToForPass());
+
+  {
+    // Refine and vectorize fused operations. The HMX pack/matmul/unpack ops
+    // lower through their dedicated bufferization and runtime-call path.
+    funcPassManager.addPass(createLLVMCPUTileToVectorSizePass());
+
+    GenericVectorizationPassOptions options;
+    options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
+    options.enableVectorMasking = pipelineOpt.enableVectorMasking;
+    funcPassManager.addPass(createGenericVectorizationPass(options));
+    funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
+    funcPassManager.addPass(createCanonicalizerPass());
+    funcPassManager.addPass(createCSEPass());
+    if (clHexagonFailOnLargeVector) {
+      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
+    }
+  }
+
+  // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
+  // emitted as fusion barriers into real bufferization.alloc_tensor ops.
+  // This must happen after all tiling passes have run.
+  funcPassManager.addPass(createHexagonLowerVTCMStagingPass());
+
+  addHexagonBufferizePasses(funcPassManager);
+
+  funcPassManager.addPass(createPropagateDispatchSizeBoundsPass());
+  funcPassManager.addPass(createRemoveSingleIterationLoopPass());
+
+  funcPassManager.addPass(createEraseHALDescriptorTypeFromMemRefPass());
+  funcPassManager.addPass(::mlir::hexagon::createConvertToHexagonmemPass());
+  if (clHexagonEnableProfilerMarkers)
+    funcPassManager.addPass(createInsertProfilerMarkersPass());
+  funcPassManager.addPass(::mlir::hexagon::createHexmemCpyToDMAPass());
+  funcPassManager.addPass(createPromoteDMATagAllocToStackPass());
+  funcPassManager.addPass(createHoistStaticallyBoundAllocationsPass());
+  funcPassManager.addPass(createCSEPass());
+  funcPassManager.addPass(createCanonicalizerPass());
+
+  funcPassManager.addPass(createHexagonExpandHmxMatmulPass());
+
+  {
+    HexagonVectorLoweringPassOptions options;
+    options.splitVectorTransfersTo = "linalg-copy";
+    buildHexagonVectorLoweringPipeline(funcPassManager, options);
+  }
+}
+
+// TODO: This whole pipeline could possibly be removed altogether. I decided to
+// keep it in case there is some unexpected lowering going through it, but this
+// might be useless.
 
 // TODO: Hexagon-mlir has its own convolution tiling pass. This should be tested
 // and compared to the performance from this pipeline. Right now, hexagon-mlir's
@@ -418,51 +515,6 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
   }
 }
 
-void addHexagonMmt4dTilingExpertPassPipeline(
-    OpPassManager &funcPassManager, const HexagonPipelineOptions &pipelineOpt) {
-  addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
-
-  funcPassManager.addPass(createLLVMCPUTileAndFuseProducerConsumerPass(
-      IREE::CPU::TilingLevel::VectorCommonParallelTiles));
-
-  funcPassManager.addPass(createLLVMCPUTileRootAndFuseInputOperandsPass(
-      IREE::CPU::TilingLevel::VectorReductionTiles));
-  funcPassManager.addPass(iree_compiler::createForallToForPass());
-  funcPassManager.addPass(createLLVMCPUTileToVectorSizePass());
-
-  {
-    GenericVectorizationPassOptions options;
-    options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
-    options.enableVectorMasking = pipelineOpt.enableVectorMasking;
-    funcPassManager.addPass(createGenericVectorizationPass(options));
-    funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
-    funcPassManager.addPass(createCanonicalizerPass());
-    funcPassManager.addPass(createCSEPass());
-    if (clHexagonFailOnLargeVector) {
-      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
-    }
-  }
-
-  funcPassManager.addPass(createCanonicalizerPass());
-  funcPassManager.addPass(createCSEPass());
-
-  addHexagonBufferizePasses(funcPassManager);
-
-  // Vector lowering of Mmt4d.
-  funcPassManager.addPass(createLLVMCPUMmt4dVectorLoweringPass(
-      LLVMCPUMmt4dVectorLoweringPassOptions{
-          clHexagonEnableVectorContractCustomKernels}));
-
-  // Generic vector lowering.
-  HexagonVectorLoweringPassOptions options;
-  options.splitVectorTransfersTo = "linalg-copy";
-  buildHexagonVectorLoweringPipeline(funcPassManager, options);
-}
-
-// TODO: This pipeline is used when only data layout transformations are needed
-// but no reduction happens (only linalg.pack/unpack ops). This is currently
-// completely unused for hexagon-mlir (or at least should be), since we disabled
-// data tiling in order to make use of hexagon-mlir's passes.
 void addHexagonDataTilingPipeline(OpPassManager &funcPassManager,
                                   const HexagonPipelineOptions &pipelineOpt) {
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
@@ -642,6 +694,8 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       .addPass(createCSEPass)
       .addPredicatedPass(clHexagonInstrumentMemoryAccesses,
                          createInstrumentMemoryAccessesPass);
+
+  modulePassManager.addPass(createHexagonLowerHmxToCallsPass());
 
   // Split of conversion done for LLVMCPU:
   // - phase 1 performs HAL ABI + func/vector/index/cf conversion,

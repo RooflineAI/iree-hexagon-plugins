@@ -21,6 +21,9 @@ import dacite
 import yaml
 
 from integration_tests.modeltree.outcomes import ExpectedOutcome, Status
+from integration_tests.stages.compiling import (
+    DEFAULT_COMPILE_CASE_NAMES,
+)
 
 # numpy/torch dtype names accepted in `inputs[].dtype`. Closed
 # set: a typo here would otherwise produce a silently different reference.
@@ -102,9 +105,9 @@ class ModelSpec:
     dtype: str = "float32"
     tolerances: Tolerances = dataclasses.field(default_factory=Tolerances)
     expected_outcomes: tuple[ExpectedOutcome, ...] = ()
-    # Which compile cases to run, by name. Empty means all of them. This is how
-    # a model opts out of a configuration that is not interesting for it.
-    compile_cases: tuple[str, ...] = ()
+    # Which compile cases to run. Most models exercise both custom Hexagon
+    # configurations; other configurations are requested explicitly.
+    compile_cases: tuple[str, ...] = DEFAULT_COMPILE_CASE_NAMES
     semantic_check: SemanticCheck | None = None
     extra_compile_flags: tuple[str, ...] = ()
 
@@ -117,10 +120,6 @@ class ModelSpec:
     @property
     def model_source(self) -> Path:
         return self.directory / "model.py"
-
-    def runs_case(self, case_name: str) -> bool:
-        """Whether this model asks for `case_name`. No list means all cases."""
-        return not self.compile_cases or case_name in self.compile_cases
 
     def expected_outcome_for(self, case_name: str) -> ExpectedOutcome | None:
         """The recorded outcome for `case_name`, if the model declares one.

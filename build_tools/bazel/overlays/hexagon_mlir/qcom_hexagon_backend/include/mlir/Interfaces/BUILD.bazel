@@ -4,8 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
 load("@iree_hexagon_plugins//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
+load("@llvm-project//mlir:tblgen.bzl", "gentbl_cc_library", "td_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -37,12 +37,12 @@ hexagon_mlir_overlay_library(
     name = "CopyOpInterface",
     srcs = ["CopyOpInterface.cpp"],
     hdrs = [":CopyOpInterfaceHeader"],
-    includes = ["../.."],
-    deps = [
-        ":CopyOpInterfaceIncGen",
-    ],
     hdr_deps = [
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:IR",
+    ],
+    includes = ["../.."],
+    deps = [
+        ":CopyOpInterfaceIncGen",
     ],
 )

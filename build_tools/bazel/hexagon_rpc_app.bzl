@@ -16,11 +16,11 @@ This wires together:
 - Optional zipped "ship" bundle with both artifacts.
 """
 
-load("//build_tools/bazel:hexagon_interface.bzl", "hexagon_interface")
-load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
+load("//build_tools/bazel:hexagon_interface.bzl", "hexagon_interface")
+load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 
 filegroup = native.filegroup
 

@@ -18,12 +18,6 @@ hexagon_mlir_overlay_library(
         # hexagon-mlir still uses deprecated IRRewriter::create APIs.
         "-Wno-deprecated-declarations",
     ],
-    deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexagonMem/IR:HexagonMem",
-    ],
     hdr_deps = [
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:Analysis",
@@ -38,5 +32,11 @@ hexagon_mlir_overlay_library(
         "@llvm-project//mlir:MemRefTransforms",
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:Transforms",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexagonMem/IR:HexagonMem",
     ],
 )

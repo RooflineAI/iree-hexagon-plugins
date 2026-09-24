@@ -1,0 +1,13 @@
+target-version = "py311"
+
+exclude = [
+    "build",
+    "third-party",
+]
+
+[lint]
+extend-select = ["I"]
+
+[lint.per-file-ignores]
+# LLVM lit injects this object before loading the configuration module.
+"lit.cfg.py" = ["F821"]

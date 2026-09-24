@@ -1,0 +1,5 @@
+# actionlint otherwise treats labels for the Qualcomm runner groups as typos.
+self-hosted-runner:
+  labels:
+    - qc-large
+    - qc-small

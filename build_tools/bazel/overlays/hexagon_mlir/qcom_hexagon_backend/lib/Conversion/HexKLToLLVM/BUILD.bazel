@@ -21,12 +21,6 @@ hexagon_mlir_overlay_library(
         # aren't read on every path.
         "-Wno-unused-variable",
     ],
-    deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
-    ],
     hdr_deps = [
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:Analysis",
@@ -39,5 +33,11 @@ hexagon_mlir_overlay_library(
         "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:Transforms",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:ConversionHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
     ],
 )

@@ -14,11 +14,6 @@ hexagon_mlir_overlay_library(
         "HexKLDialect.cpp",
         "HexKLOps.cpp",
     ],
-    deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLTableGen",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
-    ],
     hdr_deps = [
         "@llvm-project//mlir:BufferizationDialect",
         "@llvm-project//mlir:BytecodeOpInterface",
@@ -30,5 +25,10 @@ hexagon_mlir_overlay_library(
         "@llvm-project//mlir:MemRefDialect",
         "@llvm-project//mlir:SideEffectInterfaces",
         "@llvm-project//mlir:Support",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLTableGen",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
     ],
 )

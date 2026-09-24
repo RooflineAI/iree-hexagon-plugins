@@ -194,7 +194,7 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         if alwayslink:
             self._converter.body += (
                 f"# ALWAYSLINK: ${{_PACKAGE_NAME}}_{name} itself is an INTERFACE\n"
-                "# target; the real compiled objects live in its \".objects\" twin.\n"
+                '# target; the real compiled objects live in its ".objects" twin.\n'
             )
             target_name = "${_PACKAGE_NAME}_" + name + ".objects"
             keyword = "PRIVATE"
@@ -325,7 +325,9 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         needs_interface_gen_dep = bool(srcs) and self._HEXAGON_DSP_SKEL_C_LABEL in srcs
         if needs_interface_gen_dep:
             srcs = [
-                self._HEXAGON_DSP_SKEL_C_PATH if s == self._HEXAGON_DSP_SKEL_C_LABEL else s
+                self._HEXAGON_DSP_SKEL_C_PATH
+                if s == self._HEXAGON_DSP_SKEL_C_LABEL
+                else s
                 for s in srcs
             ]
         srcs = self._redirect_overlay_paths(srcs)
@@ -602,11 +604,10 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             r"\$\(location ([^)]+)\)", lambda m: _location(m.group(1)), resolved_cmd
         )
         outs_block = "\n".join(f'    "${{CMAKE_CURRENT_BINARY_DIR}}/{o}"' for o in outs)
-        srcs_block = "\n".join(
-            f'    "${{CMAKE_CURRENT_SOURCE_DIR}}/{s}"' for s in srcs
-        )
+        srcs_block = "\n".join(f'    "${{CMAKE_CURRENT_SOURCE_DIR}}/{s}"' for s in srcs)
         tool_targets = [
-            "${" + self._FLATCC_TOOL_VAR + "}" if t == self._FLATCC_TOOL_LABEL
+            "${" + self._FLATCC_TOOL_VAR + "}"
+            if t == self._FLATCC_TOOL_LABEL
             else self._targets.convert_target(t)[0]
             for t in tools
         ]
@@ -789,9 +790,7 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         if cmake_name.startswith("::"):
             self._converter.body += "iree_package_ns(_PACKAGE_NS)\n"
             cmake_name = "${_PACKAGE_NS}" + cmake_name
-        self._converter.body += (
-            f"add_library({cmake_name} ALIAS {aliased})\n\n"
-        )
+        self._converter.body += f"add_library({cmake_name} ALIAS {aliased})\n\n"
 
     def glob(self, include, exclude=None, exclude_directories=1):
         # The base glob() refuses "**" patterns outright (see its comment: no
@@ -805,7 +804,9 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         if not any("**" in p for p in include) and not any(
             "**" in p for p in (exclude or [])
         ):
-            return super().glob(include, exclude=exclude, exclude_directories=exclude_directories)
+            return super().glob(
+                include, exclude=exclude, exclude_directories=exclude_directories
+            )
         if exclude_directories != 1:
             self._convert_unimplemented_function("glob", "with exclude_directories")
         exclude = exclude or []
@@ -872,10 +873,10 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # config would still define IREE_HAL_HEXAGON_ENABLE_PROFILER and
         # reference iree_tracing_context_t, which is only actually declared
         # once IREE_ENABLE_RUNTIME_TRACING pulls in iree/base/tracing/tracy.h.
-        if constraint_label.endswith(
-            "runtime/src/iree/base/tracing:_tracy_enable"
-        ):
-            return 'IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy"'
+        if constraint_label.endswith("runtime/src/iree/base/tracing:_tracy_enable"):
+            return (
+                'IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy"'
+            )
         # target_compatible_with = select({"@android_ndk_detect//:android_ndk_available":
         # [], "//conditions:default": ["@platforms//:incompatible"]}) gates
         # Bazel targets in a single unified build graph that spans every
@@ -888,9 +889,7 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # Gates a packaging-only copy_file() (already a no-op, see
         # pkg_files/pkg_zip/copy_file above); same rationale as
         # android_ndk_available.
-        if constraint_label.endswith(
-            "plugins/runtime/hexagon:hexagon_runtime_enabled"
-        ):
+        if constraint_label.endswith("plugins/runtime/hexagon:hexagon_runtime_enabled"):
             return "TRUE"
         # Bazel --define=hexagon_playground_profiler=true opt-in flag with no
         # CMake equivalent yet; map to a dedicated cache option (declared in

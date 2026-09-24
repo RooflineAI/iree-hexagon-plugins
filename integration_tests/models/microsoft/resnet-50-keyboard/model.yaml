@@ -6,17 +6,14 @@
 
 # resnet-50 on a real photograph, asserting the predicted label.
 dtype: float32
-
 inputs:
   - shape: [1, 3, 224, 224]
     dtype: float32
     generator: image
     image: keyboard.png
-
 tolerances:
   atol: 1.0e-2
   rtol: 1.0e-2
   relative_l2_percent: 0.1
-
 semantic_check:
   expected_label: "computer keyboard, keypad"

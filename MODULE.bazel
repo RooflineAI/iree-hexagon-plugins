@@ -50,6 +50,15 @@ bazel_dep(name = "aspect_bazel_lib", version = "2.21.0")
 bazel_dep(name = "rules_pkg", version = "1.0.1")
 bazel_dep(name = "with_cfg.bzl", version = "0.12.0")
 
+# Generates compile_commands.json for clangd and other C/C++ tooling.
+bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
+git_override(
+    module_name = "hedron_compile_commands",
+    commit = "4f28899228fb3ad0126897876f147ca15026151e",
+    patches = ["//patches:hedron_skip_pch.patch"],
+    remote = "https://github.com/hedronvision/bazel-compile-commands-extractor.git",
+)
+
 # Python dependencies used by this repository's own tests, hubbed as "@pypi"
 # (not "@pip" - see below).
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")

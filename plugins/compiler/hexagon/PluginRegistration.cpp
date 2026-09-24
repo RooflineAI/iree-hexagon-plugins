@@ -8,6 +8,5 @@
 
 extern "C" bool iree_register_compiler_plugin_hexagon(
     mlir::iree_compiler::PluginRegistrar *registrar) {
-  return mlir::iree_compiler::hexagon::target::
-      registerHexagonPlugin(registrar);
+  return mlir::iree_compiler::hexagon::target::registerHexagonPlugin(registrar);
 }

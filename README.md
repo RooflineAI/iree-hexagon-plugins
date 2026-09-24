@@ -82,6 +82,22 @@ A variant including tracing can be built using:
 bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 ```
 
+### Development tooling
+
+Generate a compilation database for clangd and other C/C++ tooling with:
+
+```sh
+bazel run //:refresh_compile_commands
+```
+
+Install and run the formatting and linting hooks with:
+
+```sh
+uv tool install pre-commit
+uvx pre-commit install
+uvx pre-commit run --all-files --show-diff-on-failure
+```
+
 ## Building with Cmake and Ninja
 
 Compiling using cmake and ninja need multiple steps to build the host tools,

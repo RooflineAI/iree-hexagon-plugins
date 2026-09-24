@@ -4,6 +4,7 @@
 /build-artifacts-bazel/
 /build-artifacts-cmake/
 /configured.bazelrc
+/compile_commands.json
 /MODULE.bazel.lock
 .vscode
 *__pycache__*

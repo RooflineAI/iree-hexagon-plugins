@@ -45,9 +45,7 @@ def run(cmd: list[str], *, cwd: Path) -> None:
 
 def git_output(args: list[str], *, cwd: Path) -> str:
     """Run git and return its stripped stdout."""
-    return subprocess.check_output(
-        ["git", *args], cwd=cwd, text=True
-    ).strip()
+    return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
 
 
 def set_up_iree_dependency_links() -> None:
@@ -60,9 +58,7 @@ def set_up_iree_dependency_links() -> None:
         top_level_pin = git_output(
             ["rev-parse", f"HEAD:third-party/{name}"], cwd=REPO_ROOT
         )
-        nested_pin = git_output(
-            ["rev-parse", f"HEAD:third_party/{name}"], cwd=IREE_DIR
-        )
+        nested_pin = git_output(["rev-parse", f"HEAD:third_party/{name}"], cwd=IREE_DIR)
         if top_level_pin != nested_pin:
             raise RuntimeError(
                 f"cannot share {name}: top-level pin {top_level_pin} does not "
@@ -87,15 +83,11 @@ def set_up_iree_dependency_links() -> None:
 
         if nested_path.exists():
             try:
-                nested_checkout_pin = git_output(
-                    ["rev-parse", "HEAD"], cwd=nested_path
-                )
+                nested_checkout_pin = git_output(["rev-parse", "HEAD"], cwd=nested_path)
             except subprocess.CalledProcessError:
                 nested_checkout_pin = ""
             if nested_checkout_pin == nested_pin:
-                print(
-                    f"keep existing checkout: {nested_path.relative_to(REPO_ROOT)}"
-                )
+                print(f"keep existing checkout: {nested_path.relative_to(REPO_ROOT)}")
                 continue
             try:
                 nested_path.rmdir()
@@ -107,9 +99,7 @@ def set_up_iree_dependency_links() -> None:
 
         relative_target = Path("../..") / name
         nested_path.symlink_to(relative_target, target_is_directory=True)
-        print(
-            f"linked: {nested_path.relative_to(REPO_ROOT)} -> {relative_target}"
-        )
+        print(f"linked: {nested_path.relative_to(REPO_ROOT)} -> {relative_target}")
 
 
 def main() -> int:

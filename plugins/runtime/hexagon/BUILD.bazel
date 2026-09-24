@@ -5,14 +5,14 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 load(
     "//build_tools/bazel:platform_aliases.bzl",
     "aarch64_android_platform_alias",
     "aarch64_android_tracy_platform_alias",
 )
-load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
-load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
-load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
     default_visibility = ["//visibility:public"],

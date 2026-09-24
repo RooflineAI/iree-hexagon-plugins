@@ -33,7 +33,7 @@ Overlay path precedence is "overlay wins":
     `mlir/Interfaces/CopyOpInterface.td` and
     `mlir/Interfaces/CopyOpInterface.h`.
     These were deprecated and removed long ago.
-  - Overlay provides a copy of the deprecated 
+  - Overlay provides a copy of the deprecated
     code at:
     `qcom_hexagon_backend/include/mlir/Interfaces/`
 - Upstream warning suppressions carried in the overlay:

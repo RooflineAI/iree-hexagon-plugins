@@ -11,13 +11,13 @@ package(default_visibility = ["//visibility:public"])
 hexagon_mlir_overlay_library(
     name = "HexKLTransforms",
     srcs = ["BufferizableOpInterfaceImpl.cpp"],
-    deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLTransformsHeadersLib",
-        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
-    ],
     hdr_deps = [
         "@llvm-project//mlir:BufferizationDialect",
         "@llvm-project//mlir:IR",
         "@llvm-project//mlir:Support",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexKLTransformsHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/HexKL/IR:HexKL",
     ],
 )

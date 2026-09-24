@@ -1,4 +1,4 @@
-// This test is making sure that query function needed by the HAL to call on functions based on their 
+// This test is making sure that query function needed by the HAL to call on functions based on their
 // ordinal assigned by the linking pipeline is correctly added and exposed in the .so file.
 
 // RUN: rm -rf %t

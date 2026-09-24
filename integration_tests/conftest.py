@@ -131,8 +131,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                     pairs.append((spec, COMPILE_CASES_BY_NAME[case_name]))
         if not pairs:
             raise pytest.UsageError(
-                "no model/compile-case combinations match --model and "
-                "--compile-case"
+                "no model/compile-case combinations match --model and --compile-case"
             )
         metafunc.parametrize(
             ("model_spec", "compile_case"),

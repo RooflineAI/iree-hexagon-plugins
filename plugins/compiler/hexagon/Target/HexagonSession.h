@@ -11,8 +11,7 @@
 
 namespace mlir::iree_compiler::hexagon::target {
 
-bool registerHexagonPlugin(
-    mlir::iree_compiler::PluginRegistrar *registrar);
+bool registerHexagonPlugin(mlir::iree_compiler::PluginRegistrar *registrar);
 
 } // namespace mlir::iree_compiler::hexagon::target
 

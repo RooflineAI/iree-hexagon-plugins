@@ -26,7 +26,7 @@ def hexagon_sim_test(name, module, tags = None):
     py_test(
         name = name,
         srcs = [
-            "//build_tools/bazel:hexagon_sim_test_runner.py",
+            Label("//build_tools/bazel:hexagon_sim_test_runner.py"),
         ],
         main = "hexagon_sim_test_runner.py",
         args = [

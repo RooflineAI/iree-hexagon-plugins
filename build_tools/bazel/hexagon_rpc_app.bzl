@@ -63,8 +63,8 @@ def hexagon_rpc_app(
         "@platforms//os:android",
     ]
     dsp_target_compatible_with = [
-        "//constraints:cpu_hexagon",
-        "//constraints:os_qurt",
+        Label("//constraints:cpu_hexagon"),
+        Label("//constraints:os_qurt"),
     ]
     gen_dir = name + "_gen"
     iface_target = name + "_iface"

@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
@@ -23,5 +24,17 @@ hexagon_plugin_library(
     ],
     deps = [
         "//plugins/runtime/hexagon",
+    ],
+)
+
+# Static registration into iree-run-module/iree-benchmark-module (see
+# build_tools/bazel/load_external_hal_drivers.bzl): additionally links the
+# IREE runtime libraries the driver uses header-only. A dynamically loaded
+# HAL plugin links :DriverModuleLib alone instead.
+cc_library(
+    name = "DriverModuleStaticLib",
+    deps = [
+        ":DriverModuleLib",
+        "//plugins/runtime/hexagon:iree_runtime_libs",
     ],
 )

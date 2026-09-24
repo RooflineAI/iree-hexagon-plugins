@@ -23,7 +23,7 @@ def get_external_hal_drivers():
     """
     return [
         struct(
-            target = "@//plugins/runtime/hexagon/registration:DriverModuleLib",
+            target = "@//plugins/runtime/hexagon/registration:DriverModuleStaticLib",
             register_fn = "iree_hal_hexagon_driver_module_register",
             enabled_by = "@//plugins/runtime/hexagon:hexagon_runtime_enabled",
         ),

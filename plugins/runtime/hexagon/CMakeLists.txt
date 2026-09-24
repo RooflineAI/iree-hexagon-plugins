@@ -81,4 +81,30 @@ endif()
 
 endif()
 
+if(IREE_HEXAGON_ANDROID_BUILD)
+iree_cc_library(
+  NAME
+    iree_runtime_libs
+  DEPS
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::base::internal
+    iree::base::internal::flatcc::building
+    iree::base::internal::flatcc::parsing
+    iree::hal
+    iree::hal::utils::executable_header
+    iree::hal::utils::file_transfer
+    iree::hal::utils::files
+    iree::hal::utils::queue_emulation
+    iree::hal::utils::queue_host_call_emulation
+    iree::hal::utils::resource_set
+  PUBLIC
+)
+
+endif()
+
+if(IREE_HEXAGON_ANDROID_BUILD)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

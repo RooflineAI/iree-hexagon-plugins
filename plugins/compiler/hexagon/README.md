@@ -138,6 +138,11 @@ IreeLoweringPipelines for translation using the appropriate flags.
 These directories contain the actual Hexagon-specific passes used by the
 pipelines.
 
+The final LLVM conversion architecture, including its relationship
+to HMX lowering, debugging requirements, Hexagon-MLIR integration, and the
+follow-up LLVMCPU dependency work, is documented in
+[`CodeGen/Conversion/README.md`](CodeGen/Conversion/README.md).
+
 - `Conversion/`
   - module-level conversions and import-marking passes,
   - includes final conversion toward LLVM-oriented IR.

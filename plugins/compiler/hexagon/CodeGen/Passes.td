@@ -81,16 +81,6 @@ def HexagonConvertToLLVMPass :
     Option<"reassociateFpReductions", "reassociateFpReductions", "bool",
             /*default=*/"false",
            "Specifies if FP add and mult reductions can be reordered">,
-    Option<"lowerMemRefFinalization", "lower-memref-finalization", "bool",
-           /*default=*/"true",
-           "Lower memref descriptors/deallocations to LLVM in this pass. "
-           "When false, keep this step external so callers can place "
-           "address-space normalization in between.">,
-    Option<"lowerHalBindingSubspan", "lower-hal-binding-subspan", "bool",
-           /*default=*/"true",
-           "Lower hal.interface.binding.subspan in this pass. "
-           "When false, keep it legal so memref users lowered in a later phase "
-           "can still consume memref descriptors.">,
     Option<"targetTriple", "target-triple", "std::string", /*default=*/"",
            "Code generation target triple.">,
     Option<"targetDataLayout", "target-data-layout", "std::string",

@@ -14,6 +14,7 @@
 #include "hexagon/Target/HexagonTargetBackend.h"
 #include "hexagon/Target/HexagonTargetDevice.h"
 
+#include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
 #include "hexagon/Dialect/HexKL/Transforms/BufferizableOpInterfaceImpl.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
@@ -38,8 +39,9 @@ struct HexagonSession
 
   void onRegisterDialects(mlir::DialectRegistry &registry) override {
     // MLIR hooks
-    registry.insert<IREE::Hexagon::IREEHexagonDialect,
-                    mlir::hexagonmem::HexagonMemDialect>();
+    registry
+        .insert<IREE::Hexagon::IREEHexagonDialect, mlir::hexkl::HexKLDialect,
+                mlir::hexagonmem::HexagonMemDialect>();
 
     // iree_hexagon bufferization external models (e.g. hmx.matmul).
     IREE::Hexagon::registerBufferizableOpInterfaceExternalModels(registry);

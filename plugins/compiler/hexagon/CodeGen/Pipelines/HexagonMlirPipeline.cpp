@@ -13,15 +13,11 @@
 #include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
 #include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
-#include "hexagon/Conversion/DMAToLLVM/Passes.h"
-#include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
-#include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
 #include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "hexagon/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "mlir/Conversion/Passes.h"
-#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -62,52 +58,15 @@ llvm::cl::opt<bool> clHexagonEnableHexKLMatmulLowering(
 
 void addHexagonMlirLowerToLLVMPasses(OpPassManager &variantPassManager) {
   auto &pm = variantPassManager.nest<ModuleOp>();
-  const bool enableCollapseAddressSpace = true;
   const bool enableHexagonRoutines = false;
 
-  // Structural split of conversion:
-  // - phase 1 performs HAL ABI + func/vector/index/cf conversion,
-  //   but intentionally keeps hal.interface.binding.subspan + memref
-  //   finalization out;
-  // - phase 2 lowers the deferred pieces after address-space normalization.
-  //
-  // LLVMCPU does not need this split because it does not interleave
-  // Hexagon's address-space collapsing with a custom HAL conversion pass.
-  // In this hybrid Hexagon pipeline we must guarantee:
-  //   phase1 -> collapse-address-space -> phase2
-  // so dealloc lowering emits @free with ptr in the default address space
-  // and binding subspans stay memref-typed while DMA/memref users are still
-  // alive.
-  pm.addPass(createHexagonConvertToLLVMPassPhase1(
-      /*reassociateFpReductions=*/false));
-
-  // These passes are self contained within functions are have no standard
-  // lowering. Therefore, they can run in tadem with iree's standard
-  // lowering.
-  pm.addPass(hexagonmem::createHexagonMemToLLVMPass());
-  pm.addPass(Hexagon::createDMAToLLVMPass());
-  pm.addPass(hexkl::createHexKLToLLVMPass());
-  // Hexagon DMA/HexKL/HexagonMem runtime symbols are always kept as native
-  // unresolved externs and resolved by the DSP loader. (Profiler markers are
-  // lowered and tagged as part of the convert-to-llvm phase-2 conversion.)
-  pm.addPass(createMarkHexagonNativeRuntimeLinksPass());
-
-  // Must run after function lowering and before memref finalization.
-  // The collapse pass rewrites ptr<addrspace> in descriptors/calls to
-  // default address space so finalize-memref-to-llvm can lower deallocs
-  // without producing @free(ptr<nonzero>).
-  if (enableCollapseAddressSpace) {
-    pm.addPass(Hexagon::createCollapseAddressSpacePass());
-    pm.addPass(createReconcileUnrealizedCastsPass());
-  }
-
-  // Complete conversion after address-space normalization.
-  pm.addPass(createHexagonConvertToLLVMPassPhase2(
+  // Standard, HAL ABI, HexagonMem, DMA, and HexKL lowerings share one target
+  // and one Hexagon-aware LLVM type converter.
+  pm.addPass(createHexagonConvertToLLVMPass(
       /*reassociateFpReductions=*/false));
 
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
-  pm.addPass(createReconcileUnrealizedCastsPass());
 
   if (enableHexagonRoutines)
     pm.addPass(Hexagon::createHexagonLLVMEnableHexagonRoutinesPass());

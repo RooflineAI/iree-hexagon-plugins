@@ -14,21 +14,10 @@
 
 namespace mlir::iree_compiler::hexagon::codegen {
 
-// Full conversion in a single pass (default behavior, identical to LLVMCPU).
+// Final conversion in one transaction, including HexagonMem, DMA, HexKL, HAL
+// ABI, and standard-to-LLVM patterns.
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 createHexagonConvertToLLVMPass(bool reassociateFpReductions);
-
-// Explicitly split conversion for hybrid Hexagon pipelines:
-// phase 1 lowers HAL ABI/function/vector/math/cf but keeps
-// hal.interface.binding.subspan + memref finalization for phase 2.
-// This split is required when reusing passes from hexagon-mlir
-// In its current state, phase 1 is a subset of phase 2.
-std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
-createHexagonConvertToLLVMPassPhase1(bool reassociateFpReductions);
-
-// Phase 2 completes lowering once address spaces have been normalized.
-std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
-createHexagonConvertToLLVMPassPhase2(bool reassociateFpReductions);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 

@@ -11,6 +11,12 @@
 #include "hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/CodeGen/Passes.h"
 
+#include "hexagon/Common/Common.h"
+#include "hexagon/Conversion/DMAToLLVM/DMAToLLVM.h"
+#include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
+#include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
+#include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
+#include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "iree/compiler/Codegen/Common/PassUtils.h"
 #include "iree/compiler/Codegen/Common/Transforms.h"
 #include "iree/compiler/Codegen/LLVMCPU/DispatchABI.h"
@@ -35,7 +41,6 @@
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TosaToArith/TosaToArith.h"
 #include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
@@ -62,7 +67,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 // README! This file is copied from LLVMCPU's ConvertToLLVM. Most of the file
@@ -1075,7 +1080,8 @@ public:
     registry.insert<arith::ArithDialect, math::MathDialect, func::FuncDialect,
                     memref::MemRefDialect, linalg::LinalgDialect,
                     tosa::TosaDialect, scf::SCFDialect, vector::VectorDialect,
-                    LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonDialect>();
+                    LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonDialect,
+                    hexagonmem::HexagonMemDialect, hexkl::HexKLDialect>();
   }
   void runOnOperation() override;
 };
@@ -1176,6 +1182,11 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   // options.overrideIndexBitwidth(options.dataLayout.getPointerSizeInBits());
   LLVMTypeConverter typeConverter(&getContext(), options, &dataLayoutAnalysis);
 
+  // Hexagon's LLVM backend represents both DDR and VTCM pointers in address
+  // space zero. Configure that mapping on the one type converter shared by
+  // every pattern family.
+  ::mlir::hexagon::addTypeConversions(&getContext(), typeConverter);
+
   RewritePatternSet patterns(&getContext());
 
   tosa::populateTosaRescaleToArithConversionPatterns(&patterns,
@@ -1192,21 +1203,10 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   // TODO: This should be revisited, hexagon-mlir already has decompositions for
   // specific operations. Need to check which ones are more efficient.
   populateMathToLLVMConversionPatterns(typeConverter, patterns);
-  // This pass is used in a two-phase split for Hexagon custom pipelines:
-  // - phase 1: keep memref finalization + hal.interface.binding.subspan out.
-  // - phase 2: finalize memrefs and lower remaining HAL binding subspans.
-  //
-  // The split is needed because:
-  // 1) non-zero address-space memrefs must be normalized before dealloc
-  //    lowering emits @free calls;
-  // 2) keeping binding.subspan as memref in phase 1 avoids unresolved
-  //    materializations when intermediate DMA/memref users are still present.
-  if (lowerMemRefFinalization) {
-    // Note: workaround needed due to `memref.subview` returnd from an `if`.
-    memref::populateExpandStridedMetadataPatterns(patterns);
-    iree_compiler::populateIREEResolveExtractStridedMetadataPatterns(patterns);
-    populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
-  }
+  // Note: workaround needed due to `memref.subview` returned from an `if`.
+  memref::populateExpandStridedMetadataPatterns(patterns);
+  iree_compiler::populateIREEResolveExtractStridedMetadataPatterns(patterns);
+  populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
   populateFuncToLLVMConversionPatterns(typeConverter, patterns);
   arith::populateArithToLLVMConversionPatterns(typeConverter, patterns);
   index::populateIndexToLLVMConversionPatterns(typeConverter, patterns);
@@ -1236,7 +1236,7 @@ void HexagonConvertToLLVMPass::runOnOperation() {
 
   HALDispatchABI abi(&typeConverter);
   // clang-format off
-  patterns.insert<
+  patterns.addWithLabel<
     ConvertHALEntryPointFuncOp,
     ConvertHALExecutableConstantLoadOp,
     ConvertHALInterfaceWorkgroupIDOp,
@@ -1247,50 +1247,59 @@ void HexagonConvertToLLVMPass::runOnOperation() {
     ConvertHALInstrumentValueOp,
     ConvertHALInstrumentMemoryLoadOp,
     ConvertHALInstrumentMemoryStoreOp
-  >(abi, typeConverter);
+  >({"iree-hal-abi-to-llvm"}, abi, typeConverter);
   // clang-format on
-  if (lowerHalBindingSubspan) {
-    patterns.insert<ConvertHALInterfaceBindingSubspanOp>(abi, typeConverter);
-  }
+  patterns.addWithLabel<ConvertHALInterfaceBindingSubspanOp>(
+      {"iree-hal-abi-to-llvm"}, abi, typeConverter);
 
-  if (lowerHalBindingSubspan) {
-    // The runtime state and profiler marker ops carry the opaque Hexagon
-    // `runtime_state` and `profiler_record` values, which the runtime
-    // represents as plain pointers. Teach the type converter about them.
-    typeConverter.addConversion(
-        [](IREE::Hexagon::RuntimeStateType type) -> std::optional<Type> {
-          return LLVM::LLVMPointerType::get(type.getContext());
-        });
-    typeConverter.addConversion(
-        [](IREE::Hexagon::ProfilerRecordType type) -> std::optional<Type> {
-          return LLVM::LLVMPointerType::get(type.getContext());
-        });
-    patterns.insert<ConvertGetRuntimeStateOp, ConvertProfilerBeginOp,
-                    ConvertProfilerEndOp>(typeConverter);
-    target.addIllegalOp<IREE::Hexagon::GetRuntimeStateOp,
-                        IREE::Hexagon::ProfilerBeginOp,
-                        IREE::Hexagon::ProfilerEndOp>();
-  }
+  // The runtime state and profiler marker ops carry opaque values represented
+  // as plain pointers by the runtime.
+  typeConverter.addConversion(
+      [](IREE::Hexagon::RuntimeStateType type) -> std::optional<Type> {
+        return LLVM::LLVMPointerType::get(type.getContext());
+      });
+  typeConverter.addConversion(
+      [](IREE::Hexagon::ProfilerRecordType type) -> std::optional<Type> {
+        return LLVM::LLVMPointerType::get(type.getContext());
+      });
+  patterns.addWithLabel<ConvertGetRuntimeStateOp, ConvertProfilerBeginOp,
+                        ConvertProfilerEndOp>({"hexagon-runtime-to-llvm"},
+                                              typeConverter);
+
+  // Target-specific lowerings participate in the same conversion transaction
+  // as the standard and HAL ABI lowerings. Pattern labels supplied by these
+  // helpers preserve per-family observability with MLIR pattern debugging.
+  hexagonmem::populateHexagonMemToLLVMConversionPatterns(typeConverter,
+                                                         patterns);
+  ::mlir::hexagon::populateDMAToLLVMConversionPatterns(typeConverter, patterns);
+  hexkl::populateHexKLToLLVMConversionPatterns(typeConverter, patterns);
 
   target.addLegalOp<ModuleOp, IREE::Codegen::DispatchConfigOp>();
   target.markOpRecursivelyLegal<IREE::Codegen::DispatchConfigOp>();
-  target.addIllegalDialect<func::FuncDialect, mlir::arith::ArithDialect,
-                           IREE::Util::UtilDialect, IREE::HAL::HALDialect,
-                           math::MathDialect, tosa::TosaDialect>();
-  // In phase 1 we intentionally keep binding subspans in memref form so DMA
-  // and other memref consumers do not bridge across HAL->LLVM boundaries.
-  if (!lowerHalBindingSubspan) {
-    target.addLegalOp<IREE::HAL::InterfaceBindingSubspanOp>();
-  }
+  target.addIllegalDialect<
+      func::FuncDialect, mlir::arith::ArithDialect, IREE::Util::UtilDialect,
+      IREE::HAL::HALDialect, math::MathDialect, tosa::TosaDialect,
+      hexagonmem::HexagonMemDialect, hexkl::HexKLDialect>();
+  target.addIllegalOp<
+      IREE::Hexagon::GetRuntimeStateOp, IREE::Hexagon::ProfilerBeginOp,
+      IREE::Hexagon::ProfilerEndOp, memref::DmaStartOp, memref::DmaWaitOp>();
 
   if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
     signalPassFailure();
     return;
   }
 
-  OpPassManager passManager(moduleOp.getOperationName());
-  FunctionLikeNest(passManager).addPass(createReconcileUnrealizedCastsPass);
-  if (failed(runPipeline(passManager, moduleOp))) {
+  // Materializations are allowed while the conversion is in flight, but must
+  // not become another pipeline seam. Reconcile them here and fail if a cast
+  // cannot be eliminated.
+  SmallVector<UnrealizedConversionCastOp> casts;
+  moduleOp.walk(
+      [&](UnrealizedConversionCastOp cast) { casts.push_back(cast); });
+  SmallVector<UnrealizedConversionCastOp> remainingCasts;
+  reconcileUnrealizedCasts(casts, &remainingCasts);
+  if (!remainingCasts.empty()) {
+    remainingCasts.front().emitError(
+        "unreconciled materialization after Hexagon LLVM conversion");
     return signalPassFailure();
   }
 
@@ -1318,28 +1327,8 @@ void HexagonConvertToLLVMPass::runOnOperation() {
 
 std::unique_ptr<OperationPass<ModuleOp>>
 createHexagonConvertToLLVMPass(bool reassociateFpReductions) {
-  return createHexagonConvertToLLVMPassPhase2(reassociateFpReductions);
-}
-
-// TODO: This is currently split into two phases to make it compatible
-// with passes from hexagon-mlir. Nevertheless, nothing is stopping us from
-// merging both phases into a single one and make this cleaner. To be done
-// later.
-std::unique_ptr<OperationPass<ModuleOp>>
-createHexagonConvertToLLVMPassPhase1(bool reassociateFpReductions) {
   HexagonConvertToLLVMPassOptions options;
   options.reassociateFpReductions = reassociateFpReductions;
-  options.lowerMemRefFinalization = false;
-  options.lowerHalBindingSubspan = false;
-  return std::make_unique<HexagonConvertToLLVMPass>(options);
-}
-
-std::unique_ptr<OperationPass<ModuleOp>>
-createHexagonConvertToLLVMPassPhase2(bool reassociateFpReductions) {
-  HexagonConvertToLLVMPassOptions options;
-  options.reassociateFpReductions = reassociateFpReductions;
-  options.lowerMemRefFinalization = true;
-  options.lowerHalBindingSubspan = true;
   return std::make_unique<HexagonConvertToLLVMPass>(options);
 }
 

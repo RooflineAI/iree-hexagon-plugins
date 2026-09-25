@@ -30,6 +30,7 @@ iree_lit_test_suite(
             "codegen/conversion/lower_hmx_to_calls_invalid.mlir",
             "codegen/conversion/lower_profiler_markers.mlir",
             "codegen/conversion/mark_hmx_native_runtime_links.mlir",
+            "codegen/conversion/single_driver_custom_lowerings.mlir",
             "codegen/encoding/encoder_and_materializer_registration.mlir",
             "codegen/encoding/profiler_marker_ops.mlir",
             "codegen/ir/hmx_fusion_interface.mlir",

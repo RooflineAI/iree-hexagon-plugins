@@ -652,9 +652,9 @@ LogicalResult lowerHmxOpsToCalls(ModuleOp moduleOp) {
       });
 
   RewritePatternSet patterns(moduleOp.getContext());
-  patterns.add<LowerPackOp, LowerUnpackOp, LowerAccSetupReadOp, LowerAccReadOp,
-               LowerMmaOp, LowerAccZeroOp>(typeConverter,
-                                           moduleOp.getContext());
+  patterns.addWithLabel<LowerPackOp, LowerUnpackOp, LowerAccSetupReadOp,
+                        LowerAccReadOp, LowerMmaOp, LowerAccZeroOp>(
+      {"hexagon-hmx-to-runtime"}, typeConverter, moduleOp.getContext());
 
   ConversionTarget target(*moduleOp.getContext());
   target.addIllegalOp<IREE::Hexagon::HmxPackOp, IREE::Hexagon::HmxUnpackOp,
@@ -669,6 +669,32 @@ LogicalResult lowerHmxOpsToCalls(ModuleOp moduleOp) {
   return applyPartialConversion(moduleOp, target, std::move(patterns));
 }
 
+LogicalResult verifyHmxRuntimeABI(ModuleOp moduleOp) {
+  for (func::FuncOp funcOp : moduleOp.getOps<func::FuncOp>()) {
+    if (failed(verifyHmxRuntimeLoweringPreconditions(funcOp))) {
+      return failure();
+    }
+  }
+  return success();
+}
+
+LogicalResult legalizeHmxToRuntimeCalls(ModuleOp moduleOp) {
+  if (failed(lowerHmxOpsToCalls(moduleOp))) {
+    return failure();
+  }
+
+  // The current pipeline only permits the bufferized HMX operations handled
+  // above and the accumulator token used to sequence them. Any other HMX op
+  // or token carrier here means an earlier pipeline stage violated that
+  // contract, so report it at this semantic boundary.
+  for (func::FuncOp funcOp : moduleOp.getOps<func::FuncOp>()) {
+    if (failed(verifyNoResidualHmxIR(funcOp))) {
+      return failure();
+    }
+  }
+  return success();
+}
+
 struct HexagonLowerHmxToCallsPass final
     : public impl::HexagonLowerHmxToCallsPassBase<HexagonLowerHmxToCallsPass> {
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
@@ -678,26 +704,12 @@ struct HexagonLowerHmxToCallsPass final
   }
 
   void runOnOperation() override {
-    SmallVector<func::FuncOp> funcOps;
-    for (func::FuncOp funcOp : getOperation().getOps<func::FuncOp>()) {
-      funcOps.push_back(funcOp);
-    }
-    for (func::FuncOp funcOp : funcOps) {
-      if (failed(verifyHmxRuntimeLoweringPreconditions(funcOp))) {
-        return signalPassFailure();
-      }
-    }
-    if (failed(lowerHmxOpsToCalls(getOperation()))) {
+    ModuleOp moduleOp = getOperation();
+    if (failed(verifyHmxRuntimeABI(moduleOp))) {
       return signalPassFailure();
     }
-    // The current pipeline only permits the bufferized HMX operations handled
-    // above and the accumulator token used to sequence them. Any other HMX op
-    // or token carrier here means an earlier pipeline stage violated that
-    // contract, so report it.
-    for (func::FuncOp funcOp : funcOps) {
-      if (failed(verifyNoResidualHmxIR(funcOp))) {
-        return signalPassFailure();
-      }
+    if (failed(legalizeHmxToRuntimeCalls(moduleOp))) {
+      return signalPassFailure();
     }
   }
 };

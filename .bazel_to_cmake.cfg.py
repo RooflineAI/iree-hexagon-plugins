@@ -231,7 +231,9 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
     # CMakeLists.txt).
     _ARM_ONLY_LIBRARIES = {
         ("plugins/runtime/hexagon", "hexagon"),
+        ("plugins/runtime/hexagon", "iree_runtime_libs"),
         ("plugins/runtime/hexagon/registration", "DriverModuleLib"),
+        ("plugins/runtime/hexagon/registration", "DriverModuleStaticLib"),
     }
 
     def _is_arm_hexagon_top_library(self, name):

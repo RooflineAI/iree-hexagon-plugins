@@ -32,4 +32,19 @@ endif()
 if(IREE_HEXAGON_ANDROID_BUILD)
 endif()
 
+if(IREE_HEXAGON_ANDROID_BUILD)
+iree_cc_library(
+  NAME
+    DriverModuleStaticLib
+  DEPS
+    ::DriverModuleLib
+    iree_hexagon_plugins::plugins::runtime::hexagon::iree_runtime_libs
+  PUBLIC
+)
+
+endif()
+
+if(IREE_HEXAGON_ANDROID_BUILD)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

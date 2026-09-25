@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
 load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
@@ -19,6 +20,22 @@ package(
     features = ["layering_check"],
     licenses = [],
 )
+
+IREE_RUNTIME_LIBS = [
+    "@iree//runtime/src/iree/async",
+    "@iree//runtime/src/iree/async/util:proactor_pool",
+    "@iree//runtime/src/iree/base",
+    "@iree//runtime/src/iree/base/internal",
+    "@iree//runtime/src/iree/base/internal/flatcc:building",
+    "@iree//runtime/src/iree/base/internal/flatcc:parsing",
+    "@iree//runtime/src/iree/hal",
+    "@iree//runtime/src/iree/hal/utils:executable_header",
+    "@iree//runtime/src/iree/hal/utils:file_transfer",
+    "@iree//runtime/src/iree/hal/utils:files",
+    "@iree//runtime/src/iree/hal/utils:queue_emulation",
+    "@iree//runtime/src/iree/hal/utils:queue_host_call_emulation",
+    "@iree//runtime/src/iree/hal/utils:resource_set",
+]
 
 config_setting(
     name = "hexagon_runtime_enabled",
@@ -69,33 +86,27 @@ hexagon_plugin_library(
         ],
         "//conditions:default": [],
     }),
-    hdr_deps = [],
+    # Header-only, so that the driver can also be linked into a dynamically
+    # loaded HAL plugin (IREE_DYNAMIC_HAL) without duplicating IREE runtime
+    # code that iree-run-module/iree-benchmark-module already contain. With
+    # tracy enabled, such a duplicate causes segfaults due to a second tracy
+    # initialization. Static registration links the implementations via
+    # :iree_runtime_libs instead (see registration:DriverModuleStaticLib).
+    hdr_deps = IREE_RUNTIME_LIBS,
     strip_include_prefix = "/plugins/runtime",
     deps = [
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
         "//plugins/runtime/hexagon/interface:hexagon_dsp_stub_lib",
         "//plugins/runtime/hexagon/schemas:hexagon_executable_def_c_fbs",
         "//plugins/runtime/hexagon/serialize:serialize_plugin",
-        # Statically linked directly into iree-run-module/iree-benchmark-module
-        # now (see build_tools/bazel/load_external_hal_drivers.bzl) - these were
-        # previously hdr_deps (declarations only), relying on the dynamically
-        # loaded plugin .so's host process already linking in the real
-        # implementations. That assumption no longer holds now that there's no
-        # separate process boundary, so they need to be real deps.
-        "@iree//runtime/src/iree/async",
-        "@iree//runtime/src/iree/async/util:proactor_pool",
-        "@iree//runtime/src/iree/base",
-        "@iree//runtime/src/iree/base/internal",
-        "@iree//runtime/src/iree/base/internal/flatcc:building",
-        "@iree//runtime/src/iree/base/internal/flatcc:parsing",
-        "@iree//runtime/src/iree/hal",
-        "@iree//runtime/src/iree/hal/utils:executable_header",
-        "@iree//runtime/src/iree/hal/utils:file_transfer",
-        "@iree//runtime/src/iree/hal/utils:files",
-        "@iree//runtime/src/iree/hal/utils:queue_emulation",
-        "@iree//runtime/src/iree/hal/utils:queue_host_call_emulation",
-        "@iree//runtime/src/iree/hal/utils:resource_set",
     ],
+)
+
+# Implementations of the IREE runtime libraries :hexagon uses header-only, for
+# linking the driver statically into iree-run-module/iree-benchmark-module.
+cc_library(
+    name = "iree_runtime_libs",
+    deps = IREE_RUNTIME_LIBS,
 )
 
 pkg_files(

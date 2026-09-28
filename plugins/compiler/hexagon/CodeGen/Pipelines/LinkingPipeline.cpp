@@ -25,11 +25,14 @@ void buildHexagonLinkingPassPipeline(OpPassManager &modulePassManager,
   modulePassManager.addNestedPass<IREE::HAL::ExecutableOp>(
       mlir::createCanonicalizerPass());
 
-  // Assign final executable constant and import ordinals.
+  // Assign final executable constant ordinals. Hexagon does not support HAL
+  // dynamic imports; external DSP runtime calls remain direct static links.
   auto &variantPassManager = modulePassManager.nest<IREE::HAL::ExecutableOp>()
                                  .nest<IREE::HAL::ExecutableVariantOp>();
   variantPassManager.addPass(createLLVMCPUAssignConstantOrdinalsPass());
-  variantPassManager.addPass(createLLVMCPUAssignImportOrdinalsPass());
+  // This pass is currently not needed for Hexagon because we do not support HAL
+  // dynamic imports.
+  //   variantPassManager.addPass(createLLVMCPUAssignImportOrdinalsPass());
 }
 
 } // namespace mlir::iree_compiler::hexagon::codegen

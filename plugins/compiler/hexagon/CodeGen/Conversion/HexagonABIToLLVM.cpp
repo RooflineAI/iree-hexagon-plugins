@@ -7,17 +7,14 @@
 
 #include "hexagon/CodeGen/Conversion/HexagonABIToLLVM.h"
 
-#include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "iree/schemas/instruments/dispatch.h"
 #include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
-#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
@@ -25,10 +22,10 @@
 
 // The local executable ABI patterns are derived from
 // iree/compiler/Codegen/LLVMCPU/ConvertToLLVM.cpp at IREE revision
-// a45adeaa6115e446c898e6eb21fb6edc0e65ddc4. Hexagon intentionally omits the
-// LLVMCPU workgroup-local allocation policy and adds native DSP runtime-link
-// handling. Hexagon dialect runtime conversions remain in the conversion
-// driver rather than this local-executable ABI component.
+// a45adeaa6115e446c898e6eb21fb6edc0e65ddc4. Hexagon omits the LLVMCPU
+// workgroup-local allocation policy and the dynamic/bitcode import rewrites.
+// Native DSP runtime-link classification lives in HexagonRuntimeLinking.cpp,
+// and the Hexagon dialect runtime conversions in the conversion driver.
 // Last synchronized: 2026-09-25.
 
 namespace mlir::iree_compiler::hexagon::codegen {
@@ -92,8 +89,7 @@ struct ConvertHALEntryPointFuncOp
     // Convert the function signature to take the HAL ABI LLVM pointers.
     TypeConverter::SignatureConversion signatureConverter(/*numOrigInputs=*/0);
     MLIRContext *context = rewriter.getContext();
-    auto abiInputTypes =
-        HexagonDispatchABI::getInputTypes(context, getTypeConverter());
+    auto abiInputTypes = HexagonDispatchABI::getInputTypes(context);
     signatureConverter.addInputs(abiInputTypes);
 
     // Copy all attributes onto the LLVM function except the ones handled by
@@ -642,219 +638,6 @@ struct ConvertHALInstrumentMemoryStoreOp
   }
 };
 
-/// Helper method to get information about extra operands that need to be
-/// appended to a function defn/call operation.
-static SmallVector<StringRef> getExtraFields(Operation *forOp) {
-  SmallVector<StringRef> extraFields;
-  if (auto extraFieldsAttr =
-          forOp->getAttrOfType<ArrayAttr>("hal.import.fields")) {
-    extraFields =
-        llvm::map_to_vector(extraFieldsAttr.getValue(), [](Attribute attr) {
-          return cast<StringAttr>(attr).getValue();
-        });
-  }
-  return extraFields;
-}
-
-/// Return calling convention to use for the operation.
-static IREE::HAL::CallingConvention getCallingConvention(Operation *forOp) {
-  auto cConv = IREE::HAL::CallingConvention::Default;
-  if (auto cConvAttr = forOp->getAttrOfType<IREE::HAL::CallingConventionAttr>(
-          "hal.import.cconv")) {
-    cConv = cConvAttr.getValue();
-  }
-  return cConv;
-}
-
-/// Lower func ops with specified ABI. Currently this pattern is triggered
-/// only for operations with the `hal.import.bitcode` attribute set.
-///
-/// Note: this is an LLVM::CallOp -> LLVM::CallOp rewrite that is introduced
-/// after all conversions are done. Importantly, this is not a conversion
-/// pattern.
-struct RewriteFuncOpABI : public OpRewritePattern<LLVM::LLVMFuncOp> {
-  RewriteFuncOpABI(HexagonDispatchABI &abi, LLVMTypeConverter &typeConverter)
-      : OpRewritePattern(&typeConverter.getContext()), abi(abi) {}
-
-  LogicalResult matchAndRewrite(LLVM::LLVMFuncOp funcOp,
-                                PatternRewriter &rewriter) const override {
-    if (!funcOp.isExternal()) {
-      return rewriter.notifyMatchFailure(funcOp, "skipping non-external calls");
-    }
-    if (!funcOp->hasAttr("hal.import.bitcode")) {
-      return rewriter.notifyMatchFailure(
-          funcOp, "callee is not imported using bitcode linkage; skipping");
-    }
-    IREE::HAL::CallingConvention cConv = getCallingConvention(funcOp);
-
-    SmallVector<StringRef> extraFields = getExtraFields(funcOp);
-    auto funcType = funcOp.getFunctionType();
-    FailureOr<LLVM::LLVMFunctionType> expectedType =
-        abi.getABIFunctionType(funcOp, cConv, funcType.getReturnTypes(),
-                               funcType.getParams(), extraFields);
-    if (failed(expectedType)) {
-      return rewriter.notifyMatchFailure(
-          funcOp,
-          "unable to get function type to match the calling convention");
-    }
-    if (abi.hasCompatibleFunctionSignature(
-            rewriter.getContext(), expectedType.value(),
-            funcType.getReturnTypes(), funcType.getParams())) {
-      return failure();
-    }
-    auto attrs = getPrunedAttributeList(
-        funcOp, llvm::to_vector(LLVM::LLVMFuncOp::getAttributeNames()));
-    SmallVector<DictionaryAttr> argAttrs;
-    if (auto currArgAttrs = funcOp.getArgAttrsAttr()) {
-      argAttrs = llvm::map_to_vector(currArgAttrs, [](Attribute attr) {
-        return cast<DictionaryAttr>(attr);
-      });
-    }
-    LLVM::LLVMFuncOp::create(
-        rewriter, funcOp.getLoc(), funcOp.getName(), expectedType.value(),
-        funcOp.getLinkage(), funcOp.getDsoLocal(), funcOp.getCConv(),
-        /*comdat=*/nullptr, attrs, argAttrs, funcOp.getFunctionEntryCount());
-    rewriter.eraseOp(funcOp);
-    return success();
-  }
-
-private:
-  HexagonDispatchABI &abi;
-};
-
-/// Lower call ops with specified ABI. The ABI to use is looked up from the
-/// callee. Currently this pattern is triggered only for operations where the
-/// callee has the `hal.import.bitcode` attribute set.
-///
-/// Note: this is an LLVM::CallOp -> LLVM::CallOp rewrite that is introduced
-/// after all conversions are done. Importantly, this is not a conversion
-/// pattern.
-struct RewriteCallOpABI : public OpRewritePattern<LLVM::CallOp> {
-  RewriteCallOpABI(HexagonDispatchABI &abi, LLVMTypeConverter &typeConverter)
-      : OpRewritePattern(&typeConverter.getContext()), abi(abi) {}
-
-  LogicalResult matchAndRewrite(LLVM::CallOp callOp,
-                                PatternRewriter &rewriter) const override {
-    auto symbol = dyn_cast<SymbolRefAttr>(callOp.getCallableForCallee());
-    auto flatSymbol = dyn_cast_if_present<FlatSymbolRefAttr>(symbol);
-    if (!flatSymbol) {
-      return failure();
-    }
-
-    // Bitcode ABI metadata is stored on the declaration, so require an
-    // external callee carrying the bitcode import attribute.
-    auto calleeOp =
-        SymbolTable::lookupNearestSymbolFrom<LLVM::LLVMFuncOp>(callOp, symbol);
-    if (!calleeOp || !calleeOp->hasAttr("hal.import.bitcode") ||
-        !calleeOp.isExternal()) {
-      return rewriter.notifyMatchFailure(
-          callOp, "callee is not imported using bitcode linkage; skipping");
-    }
-
-    IREE::HAL::CallingConvention cConv = getCallingConvention(calleeOp);
-    SmallVector<StringRef> extraFields = getExtraFields(calleeOp);
-
-    FailureOr<SmallVector<Value>> results = abi.materializeABI(
-        callOp, calleeOp.getSymName(), cConv, callOp->getResultTypes(),
-        callOp->getOperands(), extraFields, rewriter);
-    if (failed(results)) {
-      return failure();
-    }
-    rewriter.replaceOp(callOp, *results);
-    return success();
-  }
-
-private:
-  HexagonDispatchABI &abi;
-};
-
-/// Rewrites calls to extern functions to dynamic library import calls.
-/// The parent LLVMFuncOp must be compatible with HexagonDispatchABI.
-///
-/// Note: this is an LLVM::CallOp -> LLVM::CallOp rewrite that is introduced
-/// after all conversions are done. Importantly, this is not a conversion
-/// pattern.
-struct RewriteExternCallOpToDynamicImportCallOp
-    : public OpRewritePattern<LLVM::CallOp> {
-  RewriteExternCallOpToDynamicImportCallOp(HexagonDispatchABI &abi,
-                                           LLVMTypeConverter &typeConverter)
-      : OpRewritePattern(&typeConverter.getContext()), abi(abi),
-        typeConverter(typeConverter) {}
-  LogicalResult matchAndRewrite(LLVM::CallOp callOp,
-                                PatternRewriter &rewriter) const override {
-    // Ignore indirect calls (they're probably already converted imports).
-    auto symbol = dyn_cast<SymbolRefAttr>(callOp.getCallableForCallee());
-    auto flatSymbol = dyn_cast_if_present<FlatSymbolRefAttr>(symbol);
-    if (!flatSymbol) {
-      return failure();
-    }
-
-    // Ensure the target function is extern.
-    // To support conversion inserting calls in local patterns that can't add
-    // global function symbols we assume any missing callee is extern.
-    auto calleeOp =
-        SymbolTable::lookupNearestSymbolFrom<LLVM::LLVMFuncOp>(callOp, symbol);
-    if (calleeOp && !calleeOp.isExternal()) {
-      return rewriter.notifyMatchFailure(
-          callOp,
-          "callee is not external; treating as a normal call and skipping "
-          "import logic");
-    }
-
-    if (calleeOp && calleeOp->hasAttr(kNativeRuntimeLinkAttrName)) {
-      return rewriter.notifyMatchFailure(
-          callOp,
-          "callee is tagged for native DSP runtime linking; skipping HAL "
-          "import rewrite");
-    }
-
-    // If the function is marked as statically linked we don't touch it. That'll
-    // let it fall through to the linker stage where it can be picked up either
-    // from the runtime build (in the case of us producing static libraries) or
-    // the user-specified object files (when producing dynamic libraries).
-    if (calleeOp && (calleeOp->hasAttr("hal.import.static") ||
-                     calleeOp->hasAttr("hal.import.bitcode"))) {
-      return rewriter.notifyMatchFailure(callOp,
-                                         "external function is marked static "
-                                         "and does not need an import wrapper");
-    }
-
-    // The call may need some additional internal fields appended.
-    SmallVector<StringRef> extraFields;
-    if (calleeOp) {
-      if (auto extraFieldsAttr =
-              calleeOp->getAttrOfType<ArrayAttr>("hal.import.fields")) {
-        for (auto extraFieldAttr : extraFieldsAttr) {
-          extraFields.push_back(cast<StringAttr>(extraFieldAttr).getValue());
-        }
-      }
-    }
-
-    // Allow multiple imports to alias by having their name explicitly
-    // specified.
-    StringRef importName = flatSymbol.getValue();
-    if (calleeOp) {
-      if (auto importNameAttr =
-              calleeOp->getAttrOfType<StringAttr>("hal.import.name")) {
-        importName = importNameAttr.getValue();
-      }
-    }
-
-    // TODO(benvanik): way to determine if weak (maybe via linkage?).
-    bool weak = false;
-
-    // Rewrite the call to a dynamic import call.
-    SmallVector<Value> results = abi.wrapAndCallImport(
-        callOp, importName, weak, callOp->getResultTypes(),
-        callOp->getOperands(), extraFields, rewriter);
-
-    rewriter.replaceOp(callOp, results);
-    return success();
-  }
-  HexagonDispatchABI &abi;
-  LLVMTypeConverter &typeConverter;
-};
-
 } // namespace
 
 void populateHexagonABIToLLVMConversionPatterns(
@@ -876,13 +659,6 @@ void populateHexagonInstrumentationToLLVMConversionPatterns(
       ConvertHALInstrumentWorkgroupOp, ConvertHALInstrumentValueOp,
       ConvertHALInstrumentMemoryLoadOp, ConvertHALInstrumentMemoryStoreOp>(
       {"iree-hal-abi-to-llvm"}, abi, typeConverter);
-}
-
-void populateHexagonImportABIRewrites(HexagonDispatchABI &abi,
-                                      LLVMTypeConverter &typeConverter,
-                                      RewritePatternSet &patterns) {
-  patterns.insert<RewriteExternCallOpToDynamicImportCallOp, RewriteCallOpABI,
-                  RewriteFuncOpABI>(abi, typeConverter);
 }
 
 } // namespace mlir::iree_compiler::hexagon::codegen

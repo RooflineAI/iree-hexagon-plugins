@@ -29,8 +29,6 @@ cc_binary(
         "device.c",
         "executable.c",
         "executable.h",
-        "import_provider.c",
-        "import_provider.h",
         "power_mode.c",
         "power_mode.h",
         "//plugins/runtime/hexagon/interface:hexagon_dsp_skel_c",

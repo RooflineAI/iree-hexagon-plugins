@@ -464,21 +464,21 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   }
 
   // Helper externs such as free/memrefCopy are introduced during memref
-  // finalization. Canonicalize and tag them here so the later import
-  // rewrite can leave them as native unresolved references.
+  // finalization. Canonicalize and mark them for static/native DSP linking.
   for (auto funcOp : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
     if (failed(renameAndTagNativeRuntimeLinkedFunc(moduleOp, funcOp))) {
       return signalPassFailure();
     }
   }
 
-  // Rewrite any extern calls emitted to dynamic library imports.
-  {
-    RewritePatternSet patterns(&getContext());
-    populateHexagonImportABIRewrites(abi, typeConverter, patterns);
-    if (failed(applyPatternsGreedily(moduleOp, std::move(patterns)))) {
-      return signalPassFailure();
-    }
+  // If we were supporting dynamic library imports, we would need to add a
+  // conversion pattern here to rewrite any remaining external calls to the
+  // appropriate runtime entry point. However, Hexagon does not support dynamic
+  // imports, so any remaining external calls are invalid and should be reported
+  // as an error.
+
+  if (failed(validateHexagonExternalCalls(moduleOp))) {
+    return signalPassFailure();
   }
 
   // No target-specific post conversion patterns for Hexagon.

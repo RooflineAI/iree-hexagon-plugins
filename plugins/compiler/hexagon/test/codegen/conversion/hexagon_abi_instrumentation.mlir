@@ -19,22 +19,23 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies all four supported instrumentation operations append correctly
   // encoded, 16-byte-aligned records and return their original SSA values.
   // CHECK-LABEL: llvm.func @instrument_supported(
-  // CHECK-DAG: llvm.mlir.constant(1792 : i32) : i32
-  // CHECK-DAG: llvm.mlir.constant(197634 : i64) : i64
-  // CHECK-DAG: llvm.mlir.constant(1028 : i64) : i64
-  // CHECK-DAG: llvm.mlir.constant(1029 : i64) : i64
-  // CHECK-DAG: llvm.mlir.constant(67108863 : i64) : i64
-  // CHECK: llvm.getelementptr inbounds {{.+}}[67112952] : (!llvm.ptr) -> !llvm.ptr, i8
+  // CHECK: %[[DISPATCH_ID:.+]] = llvm.mlir.constant(7 : i32) : i32
+  // CHECK: %[[KEY_SHIFT:.+]] = llvm.mlir.constant(8 : i32) : i32
+  // CHECK: llvm.shl %[[DISPATCH_ID]], %[[KEY_SHIFT]] : i32
+  // CHECK: llvm.getelementptr inbounds {{.+}}[{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, i8
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
   // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i32, i32, i32, i32, i32, i32, i32, i32)>, !llvm.ptr
   // CHECK: llvm.shl {{.+}}, {{.+}} : i64
+  // CHECK: llvm.mlir.constant(197634 : i64) : i64
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
   // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i64, i64)>, !llvm.ptr
   // CHECK: llvm.call @sink_i32(%[[SCALAR:.+]])
   // CHECK: %[[LOADED:.+]] = llvm.load {{.+}} : !llvm.ptr -> f32
+  // CHECK: llvm.mlir.constant(1028 : i64) : i64
   // CHECK: llvm.ptrtoint {{.+}} : !llvm.ptr to i64
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
   // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i64, i64)>, !llvm.ptr
+  // CHECK: llvm.mlir.constant(1029 : i64) : i64
   // CHECK: llvm.ptrtoint {{.+}} : !llvm.ptr to i64
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
   // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i64, i64)>, !llvm.ptr

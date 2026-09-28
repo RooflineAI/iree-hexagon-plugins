@@ -35,11 +35,11 @@ module {
   }
 }
 
-// CHECK-DAG: llvm.func @hexagon_runtime_alloc_1d(i32, i64, i1) -> !llvm.ptr attributes {hexagon.native_runtime_link}
-// CHECK-DAG: llvm.func @hexagon_runtime_free_1d(!llvm.ptr) attributes {hexagon.native_runtime_link}
-// CHECK-DAG: llvm.func @hexagon_runtime_dma_start(!llvm.ptr, i32, !llvm.ptr, i32, i32, i32, i32, !llvm.ptr) -> i32 attributes {hexagon.native_runtime_link}
-// CHECK-DAG: llvm.func @hexagon_runtime_dma_wait(i32) attributes {hexagon.native_runtime_link}
-// CHECK-DAG: llvm.func @hexkl_matmul_f16f16_f32(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr) attributes {hexagon.native_runtime_link}
+// CHECK-DAG: llvm.func @hexagon_runtime_alloc_1d(i32, i64, i1) -> !llvm.ptr attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexagon_runtime_free_1d(!llvm.ptr) attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexagon_runtime_dma_start(!llvm.ptr, i32, !llvm.ptr, i32, i32, i32, i32, !llvm.ptr) -> i32 attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexagon_runtime_dma_wait(i32) attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexkl_matmul_f16f16_f32(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr) attributes {hal.import.static}
 
 // CHECK-LABEL: llvm.func @memory_and_dma() attributes {sym_visibility = "private"}
 // CHECK: llvm.call @hexagon_runtime_alloc_1d

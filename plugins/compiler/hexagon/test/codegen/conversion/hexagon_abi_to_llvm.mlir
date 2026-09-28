@@ -26,8 +26,6 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK-SAME: %[[DISPATCH:[A-Za-z0-9_]+]]: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef},
   // CHECK-SAME: %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}) -> i32
   // CHECK-SAME: attributes {llvm.emit_c_interface}
-  // CHECK: %[[ZERO:.+]] = llvm.mlir.constant(0 : i32) : i32
-  // CHECK: %[[ORDINAL_ADDR:.+]] = llvm.mlir.addressof @__constant_ordinal_foo
   func.func @entry() attributes {llvm.emit_c_interface} {
     // Verifies workgroup ID x/y/z field selection and the i32/i16-to-index
     // extensions from the workgroup-state argument.
@@ -84,6 +82,7 @@ module attributes {hal.executable.target = #hexagon_target} {
 
     // Verifies an executable constant loads its linked ordinal and then indexes
     // environment field 0 before loading the i32 value.
+    // CHECK: %[[ORDINAL_ADDR:.+]] = llvm.mlir.addressof @__constant_ordinal_foo
     // CHECK: %[[ORDINAL:.+]] = llvm.load %[[ORDINAL_ADDR]] : !llvm.ptr -> i32
     // CHECK: %[[ENV_STATE:.+]] = llvm.load %[[ENV]]
     // CHECK: %[[CONSTANTS:.+]] = llvm.extractvalue %[[ENV_STATE]][0]
@@ -102,6 +101,7 @@ module attributes {hal.executable.target = #hexagon_target} {
                        %executable_constant, %state)
         : (index, index, index, index, index, index, index, index, index,
            index, i32, !iree_hexagon.runtime_state) -> ()
+    // CHECK: %[[ZERO:.+]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK: llvm.return %[[ZERO]] : i32
     return
   }

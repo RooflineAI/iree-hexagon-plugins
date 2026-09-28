@@ -25,8 +25,6 @@ iree_cc_library(
     "device.c"
     "executable.c"
     "executable.h"
-    "import_provider.c"
-    "import_provider.h"
     "power_mode.c"
     "power_mode.h"
   COPTS

@@ -12,7 +12,7 @@ triple, data layout, and address-space conversions; populates standard MLIR,
 local-executable ABI, Hexagon runtime, HexagonMem, DMA, and HexKL patterns; and
 invokes `applyPartialConversion` once. It also reconciles temporary
 materializations, classifies native runtime declarations, and invokes the
-post-conversion import rewrites.
+external-call policy validation.
 
 Hexagon dialect operations that map directly to the DSP runtime are in this
 file. This includes `iree_hexagon.get_runtime_state` and the profiler begin/end
@@ -31,12 +31,12 @@ conversion:
 - executable and interface constant loads;
 - workgroup ID, size, and count loads;
 - interface binding descriptor construction;
-- all dispatch instrumentation records; and
-- bitcode and dynamic import ABI rewrites.
+- all dispatch instrumentation records.
 
-`HexagonRuntimeLinking.{h,cpp}` owns recognition and tagging of native DSP
-runtime symbols. Tagged calls remain direct unresolved references and are not
-rewritten through the HAL dynamic-import thunk.
+`HexagonRuntimeLinking.{h,cpp}` owns recognition of native DSP runtime symbols
+and validation of external calls. Native declarations use `hal.import.static`
+and remain direct unresolved references; the variant-level Hexagon marker tells
+serialization that these known runtime symbols may remain unresolved.
 
 ## Conversion contract
 
@@ -49,10 +49,9 @@ The driver maintains these invariants:
    operations are legalized by one `applyPartialConversion` invocation.
 4. Temporary `unrealized_conversion_cast` operations are reconciled inside the
    pass, and any remaining cast is a pass failure.
-5. Native runtime symbols are classified before eligible external calls are
-   rewritten as HAL imports.
-6. Import rewriting is post-conversion canonicalization. It does not construct
-   another type converter or create a second LLVM conversion phase.
+5. Native runtime symbols are classified before external calls are validated.
+6. Direct external calls must use static/native DSP runtime linking. Generic
+   HAL dynamic imports and bitcode imports are diagnosed as unsupported.
 
 The production Hexagon data layout has 32-bit pointers. The current type
 converter intentionally retains a 64-bit index representation because the
@@ -86,9 +85,33 @@ follows it. Compiler access is centralized in `loadRuntimeState`; runtime-side
 static assertions in `plugins/runtime/hexagon/dsp/rt/dispatch_state.h` protect
 the matching C layout.
 
-Changing any entry argument, structure member, field width, import parameter
-packing, or instrumentation record is an ABI change. Compiler and runtime
+Changing any entry argument, structure member, field width, or
+instrumentation record is an ABI change. Compiler and runtime
 changes must be made and tested together.
+
+## External calls and HAL imports
+
+IREE offers three ways for generated code to call an external function:
+
+- **Static linking** (`hal.import.static`). The call stays a direct call to an
+  undefined symbol, resolved when the shared object is linked or loaded.
+- **Dynamic HAL imports.** The call is rewritten into an indirect call through
+  the import table in `iree_hal_executable_environment_v0_t`, which the runtime
+  fills when it loads the executable.
+- **Bitcode imports** (`hal.import.bitcode`). The callee and call sites are
+  rewritten to the HAL calling convention, which packs arguments into a struct.
+
+Hexagon uses only the first. Enabling dynamic imports would require:
+
+- a runtime import table and thunk that resolves symbols on the DSP;
+- an extern-call-to-import rewrite after conversion, as in LLVMCPU's
+  `ConvertToLLVM.cpp`;
+- the import accessors of `HexagonDispatchABI`, which were not copied;
+- import ordinal assignment in the linking pipeline.
+
+Bitcode imports would additionally need the `RewriteFuncOpABI` /
+`RewriteCallOpABI` patterns and the HAL calling-convention packing which are not
+present for Hexagon.
 
 ## Debugging
 
@@ -106,6 +129,9 @@ applications and match failures. The labels provide component-level
 observability even though there are no intermediate production passes between
 the pattern families.
 
+This is a way to reduce the development impact of having a single unified
+conversion pass instead of multiple ones for each of these patterns.
+
 ## Tests
 
 The focused tests are organized by runtime-visible contract:
@@ -116,8 +142,10 @@ The focused tests are organized by runtime-visible contract:
   static, dynamic, strided, and sub-byte memref descriptors;
 - `hexagon_abi_instrumentation.mlir`: all four instrumentation conversions,
   record headers/sizes, ring-buffer operations, and unsupported values;
-- `hexagon_import_abi.mlir`: dynamic, aliased, static, native, and bitcode
-  imports, extra ABI fields, and multiple results;
+- `hexagon_import_abi.mlir`: rejection of dynamic/bitcode external calls and
+  acceptance of explicitly static calls;
+- `hmx_native_runtime_links.mlir`: every HMX runtime helper is classified as a
+  native runtime symbol;
 - `lower_profiler_markers.mlir`: profiler helper reuse, string deduplication,
   empty metadata, zone values, and record threading;
 - `hexagon_runtime_to_llvm_invalid.mlir`: malformed runtime-state access and

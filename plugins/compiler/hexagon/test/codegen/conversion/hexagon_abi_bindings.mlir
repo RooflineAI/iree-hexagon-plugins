@@ -23,12 +23,13 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies binding ordinal 1, a constant 72-byte HAL subspan offset, and a
   // strided memref layout whose element offset is applied after the byte offset.
   // CHECK-LABEL: llvm.func @binding_static_offset(
+  // CHECK-DAG: %[[BYTE_OFFSET:.+]] = llvm.mlir.constant(72 : index) : i64
   // CHECK: %[[STATE:.+]] = llvm.load %arg1
   // CHECK: %[[BINDINGS:.+]] = llvm.extractvalue %[[STATE]][10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDINGS]][1] : (!llvm.ptr) -> !llvm.ptr, !llvm.ptr
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
-  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][72] : (!llvm.ptr) -> !llvm.ptr, i8
-  // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr %[[BYTE_BASE]][18]
+  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[BYTE_OFFSET]]] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+  // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr {{.*}}[{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, f32
   // CHECK: %[[ROW:.+]] = llvm.mul {{.+}}, {{.+}}
   // CHECK: %[[INDEX:.+]] = llvm.add %[[ROW]], {{.+}}
   // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[ELEMENT_BASE]][%[[INDEX]]]
@@ -51,13 +52,15 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK-LABEL: llvm.func @binding_static_shape_dynamic_offset(
   // CHECK: %[[CONSTANT_STATE:.+]] = llvm.load %arg1
   // CHECK: %[[CONSTANTS:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][9]
-  // CHECK: %[[OFFSET32:.+]] = llvm.load %[[CONSTANTS]] : !llvm.ptr -> i32
+  // CHECK: %[[CONSTANT_PTR:.+]] = llvm.getelementptr %[[CONSTANTS]][0]
+  // CHECK: %[[OFFSET32:.+]] = llvm.load %[[CONSTANT_PTR]] : !llvm.ptr -> i32
   // CHECK: %[[OFFSET:.+]] = llvm.zext %[[OFFSET32]] : i32 to i64
   // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[OFFSET]]] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-  // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[BYTE_BASE]][3]
+  // CHECK: %[[DESCRIPTOR_BASE:.+]] = llvm.extractvalue {{.+}}[1]
+  // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[DESCRIPTOR_BASE]][{{.+}}]
   // CHECK: %[[VALUE:.+]] = llvm.load %[[ELEMENT]]
   func.func @binding_static_shape_dynamic_offset() {
     %offset = hal.interface.constant.load layout(#bindings_with_constants)
@@ -77,13 +80,18 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-  // CHECK: %[[STRIDE1:.+]] = llvm.mul {{.+}}, {{.+}}
-  // CHECK: %[[STRIDE0:.+]] = llvm.mul %[[STRIDE1]], {{.+}}
-  // CHECK: %[[INDEX2:.+]] = llvm.mul %[[STRIDE0]], {{.+}}
-  // CHECK: %[[INDEX1:.+]] = llvm.mul %[[STRIDE1]], {{.+}}
+  // CHECK: llvm.mul {{.+}}, {{.+}} : i64
+  // CHECK: llvm.mul {{.+}}, {{.+}} : i64
+  // CHECK: %[[DESCRIPTOR_BASE:.+]] = llvm.extractvalue {{.+}}[1]
+  // CHECK: %[[DESCRIPTOR_OFFSET:.+]] = llvm.extractvalue {{.+}}[2]
+  // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr %[[DESCRIPTOR_BASE]][%[[DESCRIPTOR_OFFSET]]]
+  // CHECK: %[[STRIDE0:.+]] = llvm.extractvalue {{.+}}[4, 0]
+  // CHECK: %[[INDEX2:.+]] = llvm.mul {{.+}}, %[[STRIDE0]]
+  // CHECK: %[[STRIDE1:.+]] = llvm.extractvalue {{.+}}[4, 1]
+  // CHECK: %[[INDEX1:.+]] = llvm.mul {{.+}}, %[[STRIDE1]]
   // CHECK: %[[PARTIAL:.+]] = llvm.add %[[INDEX2]], %[[INDEX1]]
   // CHECK: %[[INDEX:.+]] = llvm.add %[[PARTIAL]], {{.+}}
-  // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[BYTE_BASE]][%[[INDEX]]]
+  // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[ELEMENT_BASE]][%[[INDEX]]]
   func.func @binding_dynamic_shape() {
     %offset = hal.interface.constant.load layout(#bindings_with_constants)
         ordinal(0) : index
@@ -108,11 +116,15 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies a dynamic subspan offset remains byte-granular for i4 elements;
   // the element index is applied only after the byte pointer is constructed.
   // CHECK-LABEL: llvm.func @binding_sub_byte(
+  // CHECK-DAG: %[[ELEMENT_INDEX:.+]] = llvm.mlir.constant(7 : index) : i64
   // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-  // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[BYTE_BASE]][7]
+  // CHECK: %[[DESCRIPTOR_BASE:.+]] = llvm.extractvalue {{.+}}[1]
+  // CHECK: %[[DESCRIPTOR_OFFSET:.+]] = llvm.extractvalue {{.+}}[2]
+  // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr %[[DESCRIPTOR_BASE]][%[[DESCRIPTOR_OFFSET]]]
+  // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[ELEMENT_BASE]][%[[ELEMENT_INDEX]]]
   // CHECK: %[[VALUE:.+]] = llvm.load %[[ELEMENT]]
   func.func @binding_sub_byte() {
     %offset = hal.interface.constant.load layout(#bindings_with_constants)

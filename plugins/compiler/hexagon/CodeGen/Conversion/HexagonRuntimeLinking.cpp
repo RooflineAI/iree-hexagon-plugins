@@ -137,10 +137,43 @@ LogicalResult renameAndTagNativeRuntimeLinkedFunc(ModuleOp moduleOp,
     funcOp.setSymName(linkedName);
   }
 
-  funcOp->setAttr(kNativeRuntimeLinkAttrName,
-                  UnitAttr::get(moduleOp.getContext()));
+  funcOp->setAttr("hal.import.static", UnitAttr::get(moduleOp.getContext()));
   markNativeRuntimeLinkingVariant(moduleOp);
   return success();
+}
+
+LogicalResult validateHexagonExternalCalls(ModuleOp moduleOp) {
+  WalkResult result = moduleOp.walk([&](LLVM::CallOp callOp) -> WalkResult {
+    auto symbol = dyn_cast<SymbolRefAttr>(callOp.getCallableForCallee());
+    if (!symbol) {
+      return WalkResult::advance();
+    }
+
+    auto calleeOp =
+        SymbolTable::lookupNearestSymbolFrom<LLVM::LLVMFuncOp>(callOp, symbol);
+    if (!calleeOp) {
+      callOp.emitOpError()
+          << "references external symbol '" << symbol
+          << "' without a declaration; the Hexagon plugins do not currently "
+             "support generic dynamic external calls";
+      return WalkResult::interrupt();
+    }
+    if (!calleeOp.isExternal()) {
+      return WalkResult::advance();
+    }
+    if (calleeOp->hasAttr("hal.import.static")) {
+      return WalkResult::advance();
+    }
+
+    callOp.emitOpError()
+        << "calls unsupported external function '" << calleeOp.getSymName()
+        << "'; the Hexagon plugins do not currently support generic dynamic "
+           "or bitcode external calls; provide the function through static "
+           "or native DSP runtime linking and mark it with "
+           "'hal.import.static'";
+    return WalkResult::interrupt();
+  });
+  return result.wasInterrupted() ? failure() : success();
 }
 
 } // namespace mlir::iree_compiler::hexagon::codegen

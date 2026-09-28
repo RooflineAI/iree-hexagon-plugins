@@ -130,15 +130,11 @@ iree_cc_library(
   DEPS
     LLVMBinaryFormat
     LLVMSupport
-    MLIRArithDialect
     MLIRIR
     MLIRLLVMCommonConversion
     MLIRLLVMDialect
-    MLIRMathDialect
     MLIRMemRefDialect
-    iree::compiler::Codegen::Utils
     iree::compiler::Dialect::HAL::IR
-    iree::schemas::cpu_data
   ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
@@ -175,17 +171,14 @@ iree_cc_library(
     "Conversion/HexagonABIToLLVM.cpp"
   DEPS
     ::HexagonDispatchABI
-    ::HexagonRuntimeLinking
     LLVMSupport
     MLIRAnalysis
+    MLIRArithDialect
     MLIRFuncDialect
     MLIRIR
     MLIRLLVMCommonConversion
     MLIRLLVMDialect
-    MLIRMemRefDialect
-    iree::compiler::Codegen::Utils
     iree::compiler::Dialect::HAL::IR
-    iree::compiler::Dialect::Util::IR
     iree::schemas::instruments
   ALWAYSLINK
   INCLUDES
@@ -210,7 +203,6 @@ iree_cc_library(
   SRCS
     "Conversion/HexagonConvertToLLVM.cpp"
     "Conversion/HexagonLowerHmxToCalls.cpp"
-    "Conversion/MarkHexagonNativeRuntimeLinks.cpp"
     "Passes.cpp"
     "Pipelines/Bufferization.cpp"
     "Pipelines/ConfigurationPipeline.cpp"

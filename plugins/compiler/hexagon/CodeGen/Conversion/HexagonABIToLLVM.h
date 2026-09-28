@@ -24,11 +24,6 @@ void populateHexagonInstrumentationToLLVMConversionPatterns(
     HexagonDispatchABI &abi, LLVMTypeConverter &typeConverter,
     RewritePatternSet &patterns);
 
-// Populates post-conversion rewrites for bitcode and dynamic HAL imports.
-void populateHexagonImportABIRewrites(HexagonDispatchABI &abi,
-                                      LLVMTypeConverter &typeConverter,
-                                      RewritePatternSet &patterns);
-
 } // namespace mlir::iree_compiler::hexagon::codegen
 
 #endif // IREE_HEXAGON_PLUGINS_CODEGEN_CONVERSION_HEXAGONABITOLLVM_H_

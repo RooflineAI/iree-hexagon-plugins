@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import shlex
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class RunModuleResult:
     log: str
     logcat: str
     output_files: list[Path] = field(default_factory=list)
+    timings: dict[str, float] = field(default_factory=dict)
 
     def describe(self) -> str:
         return (
@@ -53,14 +55,19 @@ def run_module_on_device(
     Without it a timed-out run leaves iree-run-module alive holding the DSP, and
     every subsequent test fails for an unrelated reason.
     """
+    timings: dict[str, float] = {}
+
+    push_total_start = time.time()
     remote_dir = deployment.case_dir(case_dir_name)
     adb.shell(f"rm -rf {remote_dir}; mkdir -p {remote_dir}")
-    adb.push([module_vmfb], f"{remote_dir}/module.vmfb")
     # A large model's module takes a while to push, so it gets the same budget
     # as the run.
+    push_module_start = time.time()
     adb.push([module_vmfb], f"{remote_dir}/module.vmfb", timeout=timeout)
+    timings["push_module"] = time.time() - push_module_start
     if input_files:
         adb.push(input_files, remote_dir + "/")
+    timings["push_total"] = time.time() - push_total_start
 
     argv = [
         deployment.limit_lifetime,
@@ -81,11 +88,14 @@ def run_module_on_device(
     )
 
     adb.logcat_clear()
+    run_start = time.time()
     exit_code, log = adb.shell_exit_code(script, timeout=timeout)
+    timings["run"] = time.time() - run_start
     logcat = adb.logcat_dump()
 
     local_output_dir.mkdir(parents=True, exist_ok=True)
     pulled: list[Path] = []
+    pull_start = time.time()
     for name in output_names:
         remote_output = f"{remote_dir}/{name}"
         local_output = local_output_dir / name
@@ -97,10 +107,12 @@ def run_module_on_device(
         except AdbError:
             continue
         pulled.append(local_output)
+    timings["pull"] = time.time() - pull_start
     return RunModuleResult(
         remote_dir=remote_dir,
         exit_code=exit_code,
         log=log,
         logcat=logcat,
         output_files=pulled,
+        timings=timings,
     )

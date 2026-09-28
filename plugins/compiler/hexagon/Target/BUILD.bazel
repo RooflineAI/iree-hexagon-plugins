@@ -36,14 +36,36 @@ hexagon_plugin_library(
         "HexagonLLVMTarget.h",
     ],
     hdr_deps = [
-        "@iree//compiler/plugins/target/LLVMCPU:LLVMTargetOptions",
+        "@iree//compiler/src/iree/compiler/Codegen/Utils",
+        "@llvm-project//llvm:MC",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:Target",
+        "@llvm-project//llvm:TargetParser",
+        "@llvm-project//mlir:IR",
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":HexagonOptions",
     ],
+)
+
+# Vendored copy of LLVMCPU's LibraryBuilder, see LibraryBuilder.h.
+hexagon_plugin_library(
+    name = "LibraryBuilder",
+    srcs = [
+        "LibraryBuilder.cpp",
+    ],
+    hdrs = [
+        "LibraryBuilder.h",
+    ],
+    hdr_deps = [
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//llvm:TargetParser",
+        "@llvm-project//mlir:Support",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
 )
 
 hexagon_plugin_library(
@@ -74,11 +96,10 @@ hexagon_plugin_library(
         "HexagonExecutableSerialization.h",
     ],
     hdr_deps = [
-        "@iree//compiler/plugins/target/LLVMCPU",
-        "@iree//compiler/plugins/target/LLVMCPU:LLVMTargetOptions",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
         "@iree//compiler/src/iree/compiler/Utils",
+        "@iree//runtime/src/iree/hal/local:executable_library",
         "//plugins/runtime/hexagon/schemas:hexagon_executable_def_c_fbs",
         "@llvm-project//llvm:BitWriter",
         "@llvm-project//llvm:Core",
@@ -97,9 +118,9 @@ hexagon_plugin_library(
     deps = [
         ":HexagonLLVMTarget",
         ":HexagonOptions",
+        ":LibraryBuilder",
         "//plugins/compiler/hexagon/CodeGen:codegen",
-        "//plugins/compiler/hexagon/Target/Linking:HexagonLinkerTool",
-        "@iree//compiler/plugins/target/LLVMCPU:LLVMIRPasses",
+        "//plugins/compiler/hexagon/Target/Linking:HexagonLinker",
         # FlatbufferBuilder + flatcc runtime for the executable-def flatbuffer.
         "@iree//compiler/src/iree/compiler/Utils",
     ],
@@ -114,7 +135,6 @@ hexagon_plugin_library(
         "HexagonTargetBackend.h",
     ],
     hdr_deps = [
-        "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
         "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
         "@llvm-project//mlir:BuiltinToLLVMIRTranslation",

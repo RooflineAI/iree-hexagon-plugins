@@ -36,9 +36,31 @@ iree_cc_library(
     "HexagonLLVMTarget.cpp"
   DEPS
     ::HexagonOptions
+    LLVMMC
     LLVMSupport
     LLVMTarget
-    iree::compiler::plugins::target::LLVMCPU::LLVMTargetOptions
+    LLVMTargetParser
+    MLIRIR
+    iree::compiler::Codegen::Utils
+  ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    LibraryBuilder
+  HDRS
+    "LibraryBuilder.h"
+  SRCS
+    "LibraryBuilder.cpp"
+  DEPS
+    LLVMCore
+    LLVMSupport
+    LLVMTargetParser
+    MLIRSupport
   ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
@@ -75,6 +97,7 @@ iree_cc_library(
   DEPS
     ::HexagonLLVMTarget
     ::HexagonOptions
+    ::LibraryBuilder
     LLVMBitWriter
     LLVMCore
     LLVMMC
@@ -90,11 +113,9 @@ iree_cc_library(
     iree::compiler::Dialect::HAL::IR
     iree::compiler::Dialect::HAL::Target
     iree::compiler::Utils
-    iree::compiler::plugins::target::LLVMCPU
-    iree::compiler::plugins::target::LLVMCPU::LLVMIRPasses
-    iree::compiler::plugins::target::LLVMCPU::LLVMTargetOptions
+    iree::hal::local::executable_library
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::codegen
-    iree_hexagon_plugins::plugins::compiler::hexagon::Target::Linking::HexagonLinkerTool
+    iree_hexagon_plugins::plugins::compiler::hexagon::Target::Linking::HexagonLinker
     iree_hexagon_plugins::plugins::runtime::hexagon::schemas::hexagon_executable_def_c_fbs
   ALWAYSLINK
   INCLUDES
@@ -118,7 +139,6 @@ iree_cc_library(
     MLIRIR
     MLIRLLVMDialect
     MLIRLLVMToLLVMIRTranslation
-    iree::compiler::Codegen::Dialect::CPU::IR::IREECPUDialect
     iree::compiler::Dialect::Encoding::IR
     iree::compiler::Dialect::HAL::Target
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR

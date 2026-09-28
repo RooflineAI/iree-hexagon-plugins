@@ -122,10 +122,83 @@ iree_cc_library(
 
 iree_cc_library(
   NAME
+    HexagonDispatchABI
+  HDRS
+    "Conversion/HexagonDispatchABI.h"
+  SRCS
+    "Conversion/HexagonDispatchABI.cpp"
+  DEPS
+    LLVMBinaryFormat
+    LLVMSupport
+    MLIRArithDialect
+    MLIRIR
+    MLIRLLVMCommonConversion
+    MLIRLLVMDialect
+    MLIRMathDialect
+    MLIRMemRefDialect
+    iree::compiler::Codegen::Utils
+    iree::compiler::Dialect::HAL::IR
+    iree::schemas::cpu_data
+  ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    HexagonRuntimeLinking
+  HDRS
+    "Conversion/HexagonRuntimeLinking.h"
+  SRCS
+    "Conversion/HexagonRuntimeLinking.cpp"
+  DEPS
+    LLVMSupport
+    MLIRIR
+    MLIRLLVMDialect
+    hexagon_mlir::HexagonLoweringSupport
+    iree::compiler::Dialect::HAL::IR
+  ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    HexagonABIToLLVM
+  HDRS
+    "Conversion/HexagonABIToLLVM.h"
+  SRCS
+    "Conversion/HexagonABIToLLVM.cpp"
+  DEPS
+    ::HexagonDispatchABI
+    ::HexagonRuntimeLinking
+    LLVMSupport
+    MLIRAnalysis
+    MLIRFuncDialect
+    MLIRIR
+    MLIRLLVMCommonConversion
+    MLIRLLVMDialect
+    MLIRMemRefDialect
+    iree::compiler::Codegen::Utils
+    iree::compiler::Dialect::HAL::IR
+    iree::compiler::Dialect::Util::IR
+    iree::schemas::instruments
+  ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     codegen
   HDRS
     "Conversion/HexagonConvertToLLVM.h"
-    "Conversion/HexagonRuntimeLinking.h"
     "Passes.h"
     "Pipelines/Bufferization.h"
     "Pipelines/ConfigurationPipeline.h"
@@ -137,7 +210,6 @@ iree_cc_library(
   SRCS
     "Conversion/HexagonConvertToLLVM.cpp"
     "Conversion/HexagonLowerHmxToCalls.cpp"
-    "Conversion/HexagonRuntimeLinking.cpp"
     "Conversion/MarkHexagonNativeRuntimeLinks.cpp"
     "Passes.cpp"
     "Pipelines/Bufferization.cpp"
@@ -158,6 +230,8 @@ iree_cc_library(
     "Transforms/PromoteDMATagAllocToStack.cpp"
   DEPS
     ::DispatchPlanner
+    ::HexagonABIToLLVM
+    ::HexagonRuntimeLinking
     ::PassesIncGen
     LLVMSupport
     MLIRAffineDialect

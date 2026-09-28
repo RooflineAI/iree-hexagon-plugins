@@ -10,3 +10,4 @@
 *__pycache__*
 /examples/**/dump/
 /.pytest_cache
+/.vscode/settings.json

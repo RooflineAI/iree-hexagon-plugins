@@ -189,53 +189,21 @@ jobs:
         run: |
           sdkmanager --install "ndk;28.2.13676358"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.2.13676358" >> "$GITHUB_ENV"
-      - name: Configure bazelrc
-        run: |
-          cat - >configured.bazelrc <<EOF
-          build --action_env CC=/usr/lib/llvm-19/bin/clang
-          build --action_env CXX=/usr/lib/llvm-19/bin/clang++
-          build --config=generic_clang
-          build --incompatible_strict_action_env
-          EOF
-      - uses: bazel-contrib/setup-bazel@0.15.0
+      - name: Setup bazel
+        uses: bazel-contrib/setup-bazel@0.15.0
         with:
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}
           repository-cache: true
-      - name: Build
+      - name: Build, package, test
         run: |
-          TARGETS=(
-            @iree//tools:iree-compile
-            @iree//tools:iree-dump-module
-            @iree//tools:iree-dump-parameters
-            @iree//tools:iree-encode-parameters
-            @iree//tools:iree-opt
-            @iree//tools:iree-run-module
-            @iree//tools:iree-benchmark-module
-            @llvm-project//lld:ld.lld
-            //integration_tests/device/tools:device_tools_aarch64_android
-            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
-            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
-          )
-          bazel build --verbose_failures "${TARGETS[@]}"
-          mkdir build-artifacts-bazel
-          for TARGET in "${TARGETS[@]}"
-          do
-            mapfile -t target_files < <(
-              bazel cquery --output=files "config($TARGET, target)"
-            )
-            cp "${target_files[@]}" build-artifacts-bazel
-          done
-          chmod -R u+w build-artifacts-bazel
+          build_tools/bazel/build_and_package.sh
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts-bazel
           path: build-artifacts-bazel
           retention-days: 1
-      - name: Unit tests
-        run: |
-          bazel test //...
   test-bazel:
     needs: build-bazel
     runs-on:

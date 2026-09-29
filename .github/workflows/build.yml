@@ -232,6 +232,33 @@ jobs:
       - *setup_test_env
       - *integration_tests
       - *leave_overlay
+  release:
+    needs:
+      - test-bazel
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts-bazel
+          path: build-artifacts
+      - *prep_build_artifacts
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="0.0.$(date +%Y%m%d.%H%M%S)"
+          zip_name="iree-hexagon-plugins-${version}_x86_64_linux_aarch64_android.zip"
+          zip -j "${zip_name}" build-artifacts/*
+          git_hash="$(git rev-list -1 HEAD)"
+          gh release create "v${version}" "${zip_name}" \
+            --target "${git_hash}" \
+            --title "v${version}" \
+            --notes "git hash ${git_hash}, github run id ${{ github.run_id }}"
   gatekeeper:
     needs:
       - pre-commit

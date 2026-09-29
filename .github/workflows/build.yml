@@ -234,6 +234,7 @@ jobs:
       - *leave_overlay
   release:
     needs:
+      - pre-commit
       - test-bazel
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -252,9 +253,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="0.0.$(date +%Y%m%d.%H%M%S)"
-          zip_name="iree-hexagon-plugins-${version}_x86_64_linux_aarch64_android.zip"
-          zip -j "${zip_name}" build-artifacts/*
           git_hash="$(git rev-list -1 HEAD)"
+          zip_name="iree-hexagon-plugins-${version}_${git_hash:0:10}_x86_64_linux_aarch64_android.zip"
+          zip -j "${zip_name}" build-artifacts/*
           gh release create "v${version}" "${zip_name}" \
             --target "${git_hash}" \
             --title "v${version}" \

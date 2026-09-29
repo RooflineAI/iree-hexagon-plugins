@@ -38,6 +38,12 @@ do
   )
   cp "${target_files[@]}" build-artifacts-bazel
 done
+cp third-party/iree/LICENSE build-artifacts-bazel/LICENSE.txt
+hexkl_license="$(bazel info execution_root)/$(
+  bazel cquery --output=files @hexkl//:license_txt
+)"
+cp "$hexkl_license" build-artifacts-bazel/HEXKL_LICENSE.txt
+git rev-list -1 HEAD >build-artifacts-bazel/git-hash.txt
 chmod -R u+w build-artifacts-bazel
 chmod a-x build-artifacts-bazel/*.zip
 

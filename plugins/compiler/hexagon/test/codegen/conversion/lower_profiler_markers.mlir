@@ -1,6 +1,6 @@
 // The runtime state is read from the extended dispatch state and the profiler
 // markers around it are lowered to native runtime calls as part of the
-// convert-to-llvm phase-2 conversion (default pass options), which also tags
+// single convert-to-llvm transaction, which also tags
 // the emitted runtime helpers as native runtime links.
 // RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-convert-to-llvm)' \

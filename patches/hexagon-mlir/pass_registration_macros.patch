@@ -1,16 +1,100 @@
+diff --git a/qcom_hexagon_backend/include/hexagon/Conversion/DMAToLLVM/DMAToLLVM.h b/qcom_hexagon_backend/include/hexagon/Conversion/DMAToLLVM/DMAToLLVM.h
+index b3020e5..0d6fd4d 100644
+--- a/qcom_hexagon_backend/include/hexagon/Conversion/DMAToLLVM/DMAToLLVM.h
++++ b/qcom_hexagon_backend/include/hexagon/Conversion/DMAToLLVM/DMAToLLVM.h
+@@ -15,6 +15,9 @@
+ #include "mlir/Pass/Pass.h"
+
+ namespace mlir {
++class LLVMTypeConverter;
++class RewritePatternSet;
++
+ namespace hexagon {
+
+ #define GEN_PASS_DECL
+@@ -22,6 +25,12 @@ namespace hexagon {
+
+ std::unique_ptr<OperationPass<ModuleOp>> createDMAToLLVMPass();
+
++/// Populates the DMA-to-LLVM patterns into a caller-owned conversion.
++/// The caller is responsible for configuring the conversion target and type
++/// converter, including Hexagon address-space conversions.
++void populateDMAToLLVMConversionPatterns(LLVMTypeConverter &converter,
++                                         RewritePatternSet &patterns);
++
+ } // namespace hexagon
+ } // namespace mlir
+
+diff --git a/qcom_hexagon_backend/include/hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h b/qcom_hexagon_backend/include/hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h
+index 4570dc5..3113dcc 100644
+--- a/qcom_hexagon_backend/include/hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h
++++ b/qcom_hexagon_backend/include/hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h
+@@ -14,6 +14,9 @@
+ #include "mlir/Pass/Pass.h"
+
+ namespace mlir {
++class LLVMTypeConverter;
++class RewritePatternSet;
++
+ namespace hexkl {
+
+ #define GEN_PASS_DECL
+@@ -21,6 +24,12 @@ namespace hexkl {
+
+ std::unique_ptr<OperationPass<ModuleOp>> createHexKLToLLVMPass();
+
++/// Populates the HexKL-to-LLVM patterns into a caller-owned conversion.
++/// The caller is responsible for configuring the conversion target and type
++/// converter, including Hexagon address-space conversions.
++void populateHexKLToLLVMConversionPatterns(LLVMTypeConverter &converter,
++                                           RewritePatternSet &patterns);
++
+ void registerConvertHexKLToLLVMInterface(DialectRegistry &registry);
+
+ } // namespace hexkl
+diff --git a/qcom_hexagon_backend/include/hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h b/qcom_hexagon_backend/include/hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h
+index 3f12140..76cad23 100644
+--- a/qcom_hexagon_backend/include/hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h
++++ b/qcom_hexagon_backend/include/hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h
+@@ -15,6 +15,9 @@
+ #include "mlir/Pass/Pass.h"
+
+ namespace mlir {
++class LLVMTypeConverter;
++class RewritePatternSet;
++
+ namespace hexagonmem {
+
+ #define GEN_PASS_DECL
+@@ -22,6 +25,12 @@ namespace hexagonmem {
+
+ std::unique_ptr<OperationPass<ModuleOp>> createHexagonMemToLLVMPass();
+
++/// Populates the HexagonMem-to-LLVM patterns into a caller-owned conversion.
++/// The caller is responsible for configuring the conversion target and type
++/// converter, including Hexagon address-space conversions.
++void populateHexagonMemToLLVMConversionPatterns(LLVMTypeConverter &converter,
++                                                RewritePatternSet &patterns);
++
+ void registerConvertHexagonMemToLLVMInterface(DialectRegistry &registry);
+
+ } // namespace hexagonmem
 diff --git a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
-index b1a420d..69f91f5 100644
+index b1a420d..43a3905 100644
 --- a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
 +++ b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
-@@ -14,6 +14,7 @@
+@@ -12,8 +12,10 @@
+
+ #include "hexagon/Common/Common.h"
  #include "hexagon/Conversion/DMAToLLVM/DMAExternalFnNames.h"
++#include "hexagon/Conversion/DMAToLLVM/DMAToLLVM.h"
  #include "hexagon/Conversion/DMAToLLVM/Passes.h"
  #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 +#include "mlir/Analysis/DataLayoutAnalysis.h"
  #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
  #include "mlir/Conversion/LLVMCommon/Pattern.h"
  #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
-@@ -31,7 +32,7 @@ using namespace mlir;
+@@ -31,7 +33,7 @@ using namespace mlir;
  using namespace hexagon;
  using namespace mlir::hexagonmem;
 
@@ -19,8 +103,17 @@ index b1a420d..69f91f5 100644
  #include "hexagon/Conversion/DMAToLLVM/Passes.h.inc"
 
  namespace {
-@@ -348,7 +348,7 @@ void populateDMAToLLVMConversionPatterns(LLVMTypeConverter &converter,
-   patterns.add<LowerDMAStart, LowerDMAWait>(converter);
+@@ -343,12 +345,13 @@ LowerDMAWait::matchAndRewrite(memref::DmaWaitOp op, OpAdaptor adaptor,
+ // Setup the Lowering Pass and patterns
+ //===----------------------------------------------------------------------===//
+
+-void populateDMAToLLVMConversionPatterns(LLVMTypeConverter &converter,
+-                                         RewritePatternSet &patterns) {
+-  patterns.add<LowerDMAStart, LowerDMAWait>(converter);
++void populateDMAToLLVMConversionPatternsImpl(LLVMTypeConverter &converter,
++                                             RewritePatternSet &patterns) {
++  patterns.addWithLabel<LowerDMAStart, LowerDMAWait>({"hexagon-dma-to-llvm"},
++                                                     converter);
  }
 
 -struct DMAToLLVMPass : public DMAToLLVMBase<DMAToLLVMPass> {
@@ -28,8 +121,29 @@ index b1a420d..69f91f5 100644
    using Base::Base;
 
    void getDependentDialects(DialectRegistry &registry) const override {
+@@ -365,7 +368,7 @@ struct DMAToLLVMPass : public DMAToLLVMBase<DMAToLLVMPass> {
+     LLVMTypeConverter typeConverter(context, options);
+
+     hexagon::addTypeConversions(context, typeConverter);
+-    populateDMAToLLVMConversionPatterns(typeConverter, patterns);
++    hexagon::populateDMAToLLVMConversionPatterns(typeConverter, patterns);
+
+     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns))))
+       signalPassFailure();
+@@ -374,6 +377,11 @@ struct DMAToLLVMPass : public DMAToLLVMBase<DMAToLLVMPass> {
+
+ } // namespace
+
++void mlir::hexagon::populateDMAToLLVMConversionPatterns(
++    LLVMTypeConverter &converter, RewritePatternSet &patterns) {
++  populateDMAToLLVMConversionPatternsImpl(converter, patterns);
++}
++
+ std::unique_ptr<OperationPass<ModuleOp>> hexagon::createDMAToLLVMPass() {
+   return std::make_unique<DMAToLLVMPass>();
+ }
 diff --git a/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp
-index 8400a22..f0a98df 100644
+index 8400a22..d084428 100644
 --- a/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp
 +++ b/qcom_hexagon_backend/lib/Conversion/HexKLToLLVM/HexKLToLLVMPass.cpp
 @@ -40,7 +40,7 @@
@@ -41,8 +155,26 @@ index 8400a22..f0a98df 100644
  #include "hexagon/Conversion/HexKLToLLVM/Passes.h.inc"
 
  namespace {
-@@ -515,7 +515,7 @@ void populateHexKLToLLVMConversionPatterns(LLVMTypeConverter &converter,
-       converter);
+@@ -504,18 +504,18 @@ struct LowerCopyF16ToF32Submatrix
+ // Setup the Lowering Pass and patterns
+ //===----------------------------------------------------------------------===//
+
+-void populateHexKLToLLVMConversionPatterns(LLVMTypeConverter &converter,
+-                                           RewritePatternSet &patterns) {
++void populateHexKLToLLVMConversionPatternsImpl(LLVMTypeConverter &converter,
++                                               RewritePatternSet &patterns) {
+   // Keep existing matmul lowering.
+-  patterns.add<LowerMatmul>(converter);
++  patterns.addWithLabel<LowerMatmul>({"hexkl-to-llvm"}, converter);
+   // Lower micro ops to externs.
+-  patterns.add<LowerSetupAccReadF16, LowerAccClearF16, LowerAccReadF16,
+-               LowerCopySubmatrixToF16, LowerRmToAhF16, LowerRmToWhF16,
+-               LowerMmF16, LowerAhToRmF16, LowerCopyF16ToF32Submatrix>(
+-      converter);
++  patterns.addWithLabel<LowerSetupAccReadF16, LowerAccClearF16, LowerAccReadF16,
++                        LowerCopySubmatrixToF16, LowerRmToAhF16, LowerRmToWhF16,
++                        LowerMmF16, LowerAhToRmF16, LowerCopyF16ToF32Submatrix>(
++      {"hexkl-to-llvm"}, converter);
  }
 
 -struct HexKLToLLVMPass : public HexKLToLLVMBase<HexKLToLLVMPass> {
@@ -50,8 +182,29 @@ index 8400a22..f0a98df 100644
    using Base::Base;
 
    void getDependentDialects(DialectRegistry &registry) const override {
+@@ -537,7 +537,7 @@ struct HexKLToLLVMPass : public HexKLToLLVMBase<HexKLToLLVMPass> {
+     target.addIllegalDialect<HexKLDialect>();
+
+     hexagon::addTypeConversions(context, typeConverter);
+-    populateHexKLToLLVMConversionPatterns(typeConverter, patterns);
++    hexkl::populateHexKLToLLVMConversionPatterns(typeConverter, patterns);
+
+     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns))))
+       signalPassFailure();
+@@ -545,6 +545,11 @@ struct HexKLToLLVMPass : public HexKLToLLVMBase<HexKLToLLVMPass> {
+ };
+ } // namespace
+
++void mlir::hexkl::populateHexKLToLLVMConversionPatterns(
++    LLVMTypeConverter &converter, RewritePatternSet &patterns) {
++  populateHexKLToLLVMConversionPatternsImpl(converter, patterns);
++}
++
+ std::unique_ptr<OperationPass<ModuleOp>> hexkl::createHexKLToLLVMPass() {
+   return std::make_unique<HexKLToLLVMPass>();
+ }
 diff --git a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
-index 8828398..57ce24a 100644
+index 8828398..9914902 100644
 --- a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
 +++ b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
 @@ -49,7 +49,7 @@
@@ -63,7 +216,17 @@ index 8828398..57ce24a 100644
  #include "hexagon/Conversion/HexagonMemToLLVM/Passes.h.inc"
 
  namespace {
-@@ -411,7 +411,7 @@ void populateHexagonMemToLLVMConversionPatterns(LLVMTypeConverter &converter,
+@@ -405,13 +405,14 @@ struct LowerCopy : public ConvertOpToLLVMPattern<hexagonmem::CopyOp> {
+ // Setup the Lowering Pass and patterns
+ //===----------------------------------------------------------------------===//
+
+-void populateHexagonMemToLLVMConversionPatterns(LLVMTypeConverter &converter,
+-                                                RewritePatternSet &patterns) {
+-  patterns.add<LowerAlloc, LowerDealloc, LowerCopy>(converter);
++void populateHexagonMemToLLVMConversionPatternsImpl(
++    LLVMTypeConverter &converter, RewritePatternSet &patterns) {
++  patterns.addWithLabel<LowerAlloc, LowerDealloc, LowerCopy>(
++      {"hexagon-mem-to-llvm"}, converter);
  }
 
  struct HexagonMemToLLVMPass
@@ -72,6 +235,36 @@ index 8828398..57ce24a 100644
    using Base::Base;
 
    void getDependentDialects(DialectRegistry &registry) const override {
+@@ -434,7 +435,8 @@ struct HexagonMemToLLVMPass
+     target.addIllegalDialect<HexagonMemDialect>();
+
+     hexagon::addTypeConversions(context, typeConverter);
+-    populateHexagonMemToLLVMConversionPatterns(typeConverter, patterns);
++    hexagonmem::populateHexagonMemToLLVMConversionPatterns(typeConverter,
++                                                           patterns);
+
+     if (failed(applyPartialConversion(moduleOp, target, std::move(patterns))))
+       signalPassFailure();
+@@ -454,12 +456,18 @@ struct HexagonMemToLLVMDialectInterface : public ConvertToLLVMPatternInterface {
+       ConversionTarget &target, LLVMTypeConverter &typeConverter,
+       RewritePatternSet &patterns) const final {
+     hexagon::addTypeConversions(getContext(), typeConverter);
+-    populateHexagonMemToLLVMConversionPatterns(typeConverter, patterns);
++    hexagonmem::populateHexagonMemToLLVMConversionPatterns(typeConverter,
++                                                           patterns);
+   }
+ };
+
+ } // namespace
+
++void mlir::hexagonmem::populateHexagonMemToLLVMConversionPatterns(
++    LLVMTypeConverter &converter, RewritePatternSet &patterns) {
++  populateHexagonMemToLLVMConversionPatternsImpl(converter, patterns);
++}
++
+ void mlir::hexagonmem::registerConvertHexagonMemToLLVMInterface(
+     DialectRegistry &registry) {
+   registry.addExtension(
 diff --git a/qcom_hexagon_backend/lib/Transforms/Transforms.cpp b/qcom_hexagon_backend/lib/Transforms/Transforms.cpp
 index 4ced10c..a93e287 100644
 --- a/qcom_hexagon_backend/lib/Transforms/Transforms.cpp

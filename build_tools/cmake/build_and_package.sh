@@ -223,5 +223,10 @@ package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android_tracy.zip" \
 package_zip "${OUT_DIR}/device_tools_aarch64_android.zip" \
   "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)"
 
+# --- Licenses and git revision ----------------------------------------------
+cp "${IREE_SRC}/LICENSE" "${OUT_DIR}/LICENSE.txt"
+cp "${HEXKL_ROOT}/hexkl_addon/LICENSE.txt" "${OUT_DIR}/HEXKL_LICENSE.txt"
+git -C "${REPO_ROOT}" rev-list -1 HEAD >"${OUT_DIR}/git-hash.txt"
+
 # --- Unit Tests - not including integration tests, which need a device
 ctest --test-dir "${BUILD_ROOT}/host" --output-on-failure -R iree_hexagon_plugins

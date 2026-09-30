@@ -32,7 +32,174 @@ typedef struct hexagon_dsp_command_buffer_s {
   remote_handle64 rpc_handle;
   uint8_t *cmd_buf_data; ///< contains hexagon_rt_arm_dsp_cmd_buf
   size_t cmd_buf_size;
+  /// deduplicated direct buffer references (fd != -1) used by any command,
+  /// needed for cache maintenance at command buffer level
+  hexagon_rt_arm_dsp_binding_t *direct_bufs;
+  uint32_t num_direct_bufs;
 } hexagon_dsp_command_buffer_t;
+
+/**
+ * Macro to read type T from a buffer with serialized data (pointer P, size S).
+ * Provides pointer to deserialized value as V.
+ * Returns with error from calling function if size is too small.
+ */
+#define PEEK_SERIALIZED(P, S, T, V)                                            \
+  if (S < sizeof(T)) {                                                         \
+    return AEE_EINCOMPLETEITEM;                                                \
+  }                                                                            \
+  const T *V = (const T *)P;
+
+/**
+ * Macro to read type T from a buffer with serialized data (pointer P, size S).
+ * Provides pointer to deserialized value as V.
+ * Advances pointer P, reduces size S.
+ * Returns with error from calling function if size is too small.
+ */
+#define READ_SERIALIZED(P, S, T, V)                                            \
+  PEEK_SERIALIZED(P, S, T, V)                                                  \
+  P += sizeof(T);                                                              \
+  S -= sizeof(T);
+
+/**
+ * Macro to read type T from a buffer with serialized data (pointer P, size S).
+ * Provides pointer to deserialized value as V (mutable).
+ * Advances pointer P, reduces size S.
+ * Returns with error from calling function if size is too small.
+ */
+#define READ_SERIALIZED_MUT(P, S, T, V)                                        \
+  if (S < sizeof(T)) {                                                         \
+    return AEE_EINCOMPLETEITEM;                                                \
+  }                                                                            \
+  T *V = (T *)P;                                                               \
+  P += sizeof(T);                                                              \
+  S -= sizeof(T);
+
+/**
+ * @brief Record a direct buffer reference (fd != -1) in bufs, skipping exact
+ *        duplicates. On bufs == NULL: only counts.
+ * @param[in] ref buffer reference to record, ignored if indirect (fd == -1)
+ * @param[in,out] bufs array to append to, NULL to only count
+ * @param[in,out] num_bufs number of entries in bufs (or counted so far)
+ */
+static void hexa_cmd_buf_add_direct_buf(const hexagon_rt_arm_dsp_buf_ref_t *ref,
+                                        hexagon_rt_arm_dsp_binding_t *bufs,
+                                        uint32_t *num_bufs) {
+  if (ref->fd == -1) {
+    return; // indirect, covered by binding table
+  }
+  if (bufs) {
+    // check for duplicates
+    for (uint32_t idx = 0; idx < *num_bufs; ++idx) {
+      if (bufs[idx].fd == ref->fd && bufs[idx].offset == ref->offset &&
+          bufs[idx].length == ref->length) {
+        return;
+      }
+    }
+    bufs[*num_bufs].fd = ref->fd;
+    bufs[*num_bufs].offset = ref->offset;
+    bufs[*num_bufs].length = ref->length;
+  }
+  ++*num_bufs;
+}
+
+/**
+ * @brief Walk command buffer and collect all direct buffer references.
+ * @param[in] cmd_buf_data pointer to serialized command buffer data
+ * @param[in] cmd_buf_size size of serialized command buffer data
+ * @param[out] bufs array to store deduplicated direct buffer references in,
+ *                  NULL to only count (without deduplication)
+ * @param[out] num_bufs number of entries (to be) stored in bufs
+ * @retval AEE_SUCCESS for success
+ */
+static int hexa_cmd_buf_collect_direct_bufs(const uint8_t *cmd_buf_data,
+                                            int cmd_buf_size,
+                                            hexagon_rt_arm_dsp_binding_t *bufs,
+                                            uint32_t *num_bufs) {
+  *num_bufs = 0;
+  READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_buf_t,
+                  cmd_buf)
+  for (uint32_t idx_entry = 0; idx_entry < cmd_buf->num_entries; ++idx_entry) {
+    PEEK_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_base_t,
+                    cmd_base)
+    switch ((hexagon_rt_arm_dsp_cmd_type_enum_t)cmd_base->cmd_type) {
+
+    case HEXAGON_RT_ARM_DSP_CMD_DISPATCH: {
+      READ_SERIALIZED(cmd_buf_data, cmd_buf_size,
+                      hexagon_rt_arm_dsp_cmd_dispatch_t, cmd_dispatch)
+      for (uint16_t c = 0; c < cmd_dispatch->constant_count; ++c) {
+        READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_con_t,
+                        con)
+        (void)con;
+      }
+      for (uint32_t b = 0; b < cmd_dispatch->num_bindings; ++b) {
+        READ_SERIALIZED(cmd_buf_data, cmd_buf_size,
+                        hexagon_rt_arm_dsp_buf_ref_t, buf_ref)
+        hexa_cmd_buf_add_direct_buf(buf_ref, bufs, num_bufs);
+      }
+      break;
+    }
+
+    case HEXAGON_RT_ARM_DSP_CMD_BARRIER: {
+      READ_SERIALIZED(cmd_buf_data, cmd_buf_size,
+                      hexagon_rt_arm_dsp_cmd_barrier_t, cmd_barrier)
+      (void)cmd_barrier;
+      break;
+    }
+
+    case HEXAGON_RT_ARM_DSP_CMD_COPY: {
+      READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_copy_t,
+                      cmd_copy)
+      hexa_cmd_buf_add_direct_buf(&cmd_copy->src, bufs, num_bufs);
+      hexa_cmd_buf_add_direct_buf(&cmd_copy->trgt, bufs, num_bufs);
+      break;
+    }
+
+    case HEXAGON_RT_ARM_DSP_CMD_FILL: {
+      READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_fill_t,
+                      cmd_fill)
+      hexa_cmd_buf_add_direct_buf(&cmd_fill->trgt, bufs, num_bufs);
+      break;
+    }
+
+    default:
+      FARF(
+          RUNTIME_HIGH,
+          "HEXAGON-RUNTIME-ERROR: unknown/invalid command in command buffer\n");
+      return AEE_EBADITEM;
+    }
+  }
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Perform cache operation on all given buffers.
+ * @param[in] bufs buffers (fd, offset, length), entries with fd -1 are skipped
+ * @param[in] num_bufs number of entries in bufs
+ * @param[in] op cache operation (e.g. QURT_MEM_CACHE_INVALIDATE)
+ * @retval AEE_SUCCESS for success
+ */
+static int hexa_cmd_buf_cache_op(const hexagon_rt_arm_dsp_binding_t *bufs,
+                                 uint32_t num_bufs, qurt_mem_cache_op_t op) {
+  for (uint32_t idx = 0; idx < num_bufs; ++idx) {
+    if (bufs[idx].fd == -1 || bufs[idx].length == 0) {
+      continue;
+    }
+    uint8_t *dsp_vaddr = NULL;
+    uint64_t paddr = 0;
+    int err = HAP_mmap_get(bufs[idx].fd, (void **)&dsp_vaddr, &paddr);
+    if (err != AEE_SUCCESS) {
+      return err;
+    }
+    err = qurt_mem_cache_clean((qurt_addr_t)(dsp_vaddr + bufs[idx].offset),
+                               bufs[idx].length, op, QURT_MEM_DCACHE);
+    HAP_mmap_put(bufs[idx].fd);
+    if (err != QURT_EOK) {
+      // according to doc, the only error is QURT_EVAL - invalid cache type
+      return AEE_EFAILED;
+    }
+  }
+  return AEE_SUCCESS;
+}
 
 /**
  * @brief Create a command buffer (called when ARM host side finalizes command
@@ -76,6 +243,35 @@ int hexagon_dsp_command_buffer_create(remote_handle64 rpc_handle,
   }
   memcpy(command_buffer->cmd_buf_data, cmd_buf_data, cmd_buf_size);
 
+  // Collect direct buffer references once, so cache maintenance at execution
+  // time does not need to walk the command buffer. First pass counts (upper
+  // bound), second pass fills and deduplicates.
+  command_buffer->direct_bufs = NULL;
+  command_buffer->num_direct_bufs = 0;
+  uint32_t max_direct_bufs = 0;
+  // count only
+  err = hexa_cmd_buf_collect_direct_bufs(command_buffer->cmd_buf_data,
+                                         cmd_buf_size, NULL, &max_direct_bufs);
+  if (err == AEE_SUCCESS && max_direct_bufs > 0) {
+    err = HAP_malloc(max_direct_bufs * sizeof(hexagon_rt_arm_dsp_binding_t),
+                     (void **)&command_buffer->direct_bufs);
+    if (err == AEE_SUCCESS && !command_buffer->direct_bufs) {
+      err = AEE_ENOMEMORY;
+    }
+    if (err == AEE_SUCCESS) {
+      // collect
+      err = hexa_cmd_buf_collect_direct_bufs(
+          command_buffer->cmd_buf_data, cmd_buf_size,
+          command_buffer->direct_bufs, &command_buffer->num_direct_bufs);
+    }
+  }
+  if (err != AEE_SUCCESS) {
+    HAP_free(command_buffer->direct_bufs);
+    HAP_free(command_buffer->cmd_buf_data);
+    HAP_free(command_buffer);
+    return err;
+  }
+
   // return pointer to internal data structure as handle
   *command_buffer_handle = (int64)command_buffer;
   return AEE_SUCCESS;
@@ -92,47 +288,12 @@ int hexagon_dsp_command_buffer_destroy(remote_handle64 rpc_handle,
   hexagon_dsp_command_buffer_t *command_buffer =
       (hexagon_dsp_command_buffer_t *)command_buffer_handle;
   // free command buffer data
+  HAP_free(command_buffer->direct_bufs);
   HAP_free(command_buffer->cmd_buf_data);
   // free management data structure
   HAP_free(command_buffer);
   return AEE_SUCCESS;
 }
-
-/**
- * Macro to read type T from a buffer with serialized data (pointer P, size S).
- * Provides pointer to deserialized value as V.
- * Returns with error from calling function if size is too small.
- */
-#define PEEK_SERIALIZED(P, S, T, V)                                            \
-  if (S < sizeof(T)) {                                                         \
-    return AEE_EINCOMPLETEITEM;                                                \
-  }                                                                            \
-  const T *V = (const T *)P;
-
-/**
- * Macro to read type T from a buffer with serialized data (pointer P, size S).
- * Provides pointer to deserialized value as V.
- * Advances pointer P, reduces size S.
- * Returns with error from calling function if size is too small.
- */
-#define READ_SERIALIZED(P, S, T, V)                                            \
-  PEEK_SERIALIZED(P, S, T, V)                                                  \
-  P += sizeof(T);                                                              \
-  S -= sizeof(T);
-
-/**
- * Macro to read type T from a buffer with serialized data (pointer P, size S).
- * Provides pointer to deserialized value as V (mutable).
- * Advances pointer P, reduces size S.
- * Returns with error from calling function if size is too small.
- */
-#define READ_SERIALIZED_MUT(P, S, T, V)                                        \
-  if (S < sizeof(T)) {                                                         \
-    return AEE_EINCOMPLETEITEM;                                                \
-  }                                                                            \
-  T *V = (T *)P;                                                               \
-  P += sizeof(T);                                                              \
-  S -= sizeof(T);
 
 /// resolved buffer reference
 typedef struct hexa_cmd_buf_res_buf_s {
@@ -352,23 +513,6 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
     mapped_fds[idx_buf_ref] = res_buf.fd;
   }
 
-  hexagon_rt_prof_record_t *prof_invalidate_record =
-      profiler_measurement_start(prof_context, MEMORY_MANAGEMENT, NULL);
-  // invalidate cache of buffers
-  for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
-    err = qurt_mem_cache_clean((qurt_addr_t)binding_ptrs[idx_buf_ref],
-                               binding_lengths[idx_buf_ref],
-                               QURT_MEM_CACHE_INVALIDATE, QURT_MEM_DCACHE);
-    if (err != QURT_EOK) {
-      // according to doc, the only error is QURT_EVAL - invalid cache type
-      hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
-      HAP_free(dispatch_arrays);
-      return AEE_EFAILED;
-    }
-  }
-
-  profiler_measurement_finish_and_record(prof_invalidate_record);
-
   // Note that this function is also called when profiler is disabled, but it
   // is not very expensive. We do not care if it fails either.
   const char *func_name = NULL;
@@ -406,26 +550,8 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
 
   profiler_measurement_finish_and_record(prof_dispatch_record);
 
-  hexagon_rt_prof_record_t *prof_flush_record =
-      profiler_measurement_start(prof_context, MEMORY_MANAGEMENT, NULL);
-
-  // flush cache of buffers
-  for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
-    err = qurt_mem_cache_clean((qurt_addr_t)binding_ptrs[idx_buf_ref],
-                               binding_lengths[idx_buf_ref],
-                               QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
-    if (err != QURT_EOK) {
-      // according to doc, the only error is QURT_EVAL - invalid cache type
-      hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
-      HAP_free(dispatch_arrays);
-      return AEE_EFAILED;
-    }
-  }
-
   hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
   HAP_free(dispatch_arrays);
-
-  profiler_measurement_finish_and_record(prof_flush_record);
 
   return AEE_SUCCESS;
 }
@@ -477,31 +603,9 @@ static int hexa_cmd_buf_exec_copy(const uint8_t **cmd_buf_data,
     return err;
   }
 
-  // invalidate cache of input buffer
-  err =
-      qurt_mem_cache_clean((qurt_addr_t)src.dsp_vaddr + src.offset, src.length,
-                           QURT_MEM_CACHE_INVALIDATE, QURT_MEM_DCACHE);
-  if (err != QURT_EOK) {
-    // according to doc, the only error is QURT_EVAL - invalid cache type
-    HAP_mmap_put(dest.fd);
-    HAP_mmap_put(src.fd);
-    return AEE_EFAILED;
-  }
-
-  // copy data
+  // copy data (cache maintenance is done for whole command buffer)
   memcpy(dest.dsp_vaddr + dest.offset, src.dsp_vaddr + src.offset,
          dest.length < src.length ? dest.length : src.length);
-
-  // flush cache of output buffer
-  err =
-      qurt_mem_cache_clean((qurt_addr_t)dest.dsp_vaddr + dest.offset,
-                           dest.length, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
-  if (err != QURT_EOK) {
-    // according to doc, the only error is QURT_EVAL - invalid cache type
-    HAP_mmap_put(dest.fd);
-    HAP_mmap_put(src.fd);
-    return AEE_EFAILED;
-  }
 
   HAP_mmap_put(dest.fd);
   HAP_mmap_put(src.fd);
@@ -531,7 +635,8 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
     return err;
   }
 
-  // fill buffer with pattern
+  // fill buffer with pattern (cache maintenance is done for whole command
+  // buffer)
   uint8_t p = 0;
   for (uint64_t i = 0; i < cmd_fill->trgt.length; ++i) {
     dest.dsp_vaddr[dest.offset + i] = cmd_fill->pattern[p];
@@ -541,44 +646,23 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
     }
   }
 
-  // flush cache of output buffer
-  err =
-      qurt_mem_cache_clean((qurt_addr_t)dest.dsp_vaddr + dest.offset,
-                           dest.length, QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
-  if (err != QURT_EOK) {
-    // according to doc, the only error is QURT_EVAL - invalid cache type
-    HAP_mmap_put(dest.fd);
-    return AEE_EFAILED;
-  }
-
   HAP_mmap_put(dest.fd);
   return AEE_SUCCESS;
 }
 
 /**
- * @brief Execute command buffer.
+ * @brief Execute the commands of a command buffer (without cache maintenance).
  * @param[in] cmd_buf_data pointer to serialized command buffer data
  * @param[in] cmd_buf_size size of serialized command buffer data
- * @param[in] bind_tab_data pointer to serialized binding table data
- * @param[in] bind_tab_size size of serialized binding table data
+ * @param[in] bind_tab binding_table
+ * @param[in] bind_tab_num_ent number of entries in binding table
  * @param[in] prof_context profiler context if tracing enabled, NULL otherwise
  * @retval AEE_SUCCESS for success
  */
-static int hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
-                                 const uint8_t *bind_tab_data,
-                                 int bind_tab_size,
-                                 hexagon_rt_prof_context_t *prof_context) {
-  // Set up binding table for access by index.
-  // This is possible because serialized data is just header followed by array.
-  READ_SERIALIZED(bind_tab_data, bind_tab_size,
-                  hexagon_rt_arm_dsp_binding_tab_t, bind_tab_header);
-  uint32_t bind_tab_num_ent = bind_tab_header->num_entries;
-  if (bind_tab_size < bind_tab_num_ent * sizeof(hexagon_rt_arm_dsp_binding_t)) {
-    return AEE_EINCOMPLETEITEM;
-  }
-  const hexagon_rt_arm_dsp_binding_t *bind_tab =
-      (const hexagon_rt_arm_dsp_binding_t *)bind_tab_data;
-
+static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
+                                  const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                                  uint32_t bind_tab_num_ent,
+                                  hexagon_rt_prof_context_t *prof_context) {
   // Process command buffer from serialized representation, entry by entry.
   READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_buf_t,
                   cmd_buf)
@@ -647,6 +731,69 @@ static int hexa_cmd_buf_exec_buf(const uint8_t *cmd_buf_data, int cmd_buf_size,
 }
 
 /**
+ * @brief Execute command buffer.
+ * @param[in] command_buffer command buffer to execute
+ * @param[in] bind_tab_data pointer to serialized binding table data
+ * @param[in] bind_tab_size size of serialized binding table data
+ * @param[in] prof_context profiler context if tracing enabled, NULL otherwise
+ * @retval AEE_SUCCESS for success
+ *
+ * Cache maintenance is done once for the whole command buffer: all buffers
+ * (binding table entries and direct buffer references) are invalidated before
+ * the first command and flushed after the last one. The commands in between
+ * all run on the DSP and thus share the same view of the caches.
+ */
+static int
+hexa_cmd_buf_exec_buf(const hexagon_dsp_command_buffer_t *command_buffer,
+                      const uint8_t *bind_tab_data, int bind_tab_size,
+                      hexagon_rt_prof_context_t *prof_context) {
+  // Set up binding table for access by index.
+  // This is possible because serialized data is just header followed by array.
+  READ_SERIALIZED(bind_tab_data, bind_tab_size,
+                  hexagon_rt_arm_dsp_binding_tab_t, bind_tab_header);
+  uint32_t bind_tab_num_ent = bind_tab_header->num_entries;
+  if (bind_tab_size < bind_tab_num_ent * sizeof(hexagon_rt_arm_dsp_binding_t)) {
+    return AEE_EINCOMPLETEITEM;
+  }
+  const hexagon_rt_arm_dsp_binding_t *bind_tab =
+      (const hexagon_rt_arm_dsp_binding_t *)bind_tab_data;
+
+  // invalidate cache of all buffers used by the command buffer
+  hexagon_rt_prof_record_t *prof_invalidate_record =
+      profiler_measurement_start(prof_context, MEMORY_MANAGEMENT, NULL);
+  int err = hexa_cmd_buf_cache_op(bind_tab, bind_tab_num_ent,
+                                  QURT_MEM_CACHE_INVALIDATE);
+  if (err == AEE_SUCCESS) {
+    err = hexa_cmd_buf_cache_op(command_buffer->direct_bufs,
+                                command_buffer->num_direct_bufs,
+                                QURT_MEM_CACHE_INVALIDATE);
+  }
+  profiler_measurement_finish_and_record(prof_invalidate_record);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+
+  err = hexa_cmd_buf_exec_cmds(command_buffer->cmd_buf_data,
+                               command_buffer->cmd_buf_size, bind_tab,
+                               bind_tab_num_ent, prof_context);
+
+  // flush cache of all buffers used by the command buffer, also on error to
+  // publish whatever has been written so far
+  hexagon_rt_prof_record_t *prof_flush_record =
+      profiler_measurement_start(prof_context, MEMORY_MANAGEMENT, NULL);
+  int err_flush =
+      hexa_cmd_buf_cache_op(bind_tab, bind_tab_num_ent, QURT_MEM_CACHE_FLUSH);
+  if (err_flush == AEE_SUCCESS) {
+    err_flush = hexa_cmd_buf_cache_op(command_buffer->direct_bufs,
+                                      command_buffer->num_direct_bufs,
+                                      QURT_MEM_CACHE_FLUSH);
+  }
+  profiler_measurement_finish_and_record(prof_flush_record);
+
+  return err != AEE_SUCCESS ? err : err_flush;
+}
+
+/**
  * @brief Execute a command buffer.
  * @param[in] rpc_handle handle of DSP RPC session
  * @param[in] command_buffer_handle handle of the command buffer
@@ -662,9 +809,8 @@ int hexagon_dsp_command_buffer_execute(remote_handle64 rpc_handle,
                                        int binding_table_size) {
   hexagon_dsp_command_buffer_t *command_buffer =
       (hexagon_dsp_command_buffer_t *)command_buffer_handle;
-  int err = hexa_cmd_buf_exec_buf(command_buffer->cmd_buf_data,
-                                  command_buffer->cmd_buf_size,
-                                  binding_table_data, binding_table_size, NULL);
+  int err = hexa_cmd_buf_exec_buf(command_buffer, binding_table_data,
+                                  binding_table_size, NULL);
   return err;
 }
 
@@ -726,9 +872,8 @@ int hexagon_dsp_command_buffer_execute_profiler(remote_handle64 rpc_handle,
   hexagon_rt_prof_record_t *prof_record =
       profiler_measurement_start(&prof_context, DSP_EXECUTION, NULL);
 
-  int err = hexa_cmd_buf_exec_buf(
-      command_buffer->cmd_buf_data, command_buffer->cmd_buf_size,
-      binding_table_data, binding_table_size, &prof_context);
+  int err = hexa_cmd_buf_exec_buf(command_buffer, binding_table_data,
+                                  binding_table_size, &prof_context);
 
   profiler_measurement_finish_and_record(prof_record);
 

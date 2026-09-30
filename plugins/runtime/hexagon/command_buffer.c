@@ -108,9 +108,10 @@ iree_status_t iree_hal_hexagon_command_buffer_create(
       &iree_hal_hexagon_command_buffer_vtable, &command_buffer->base);
   command_buffer->host_allocator = host_allocator;
   command_buffer->rpc_session_handle = rpc_session_handle;
-  // Starts at 1, because index 0 is used for the topmost record for
-  // synchronization
-  command_buffer->profiler_record_capacity = 1;
+  // Starts at 3: index 0 is used for the topmost record for synchronization,
+  // two more for cache management (invalidate before and flush after
+  // executing the whole command buffer)
+  command_buffer->profiler_record_capacity = 3;
   command_buffer->profiler_extra_records_per_dispatch =
       profiler_extra_records_per_dispatch;
 
@@ -773,9 +774,9 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
 
   // append dispatch command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_dispatch_entry);
-  // One for the dispatch, one for the kernel, two for cache management
+  // One for the dispatch, one for the kernel
   command_buffer->profiler_record_capacity +=
-      4 + command_buffer->profiler_extra_records_per_dispatch;
+      2 + command_buffer->profiler_extra_records_per_dispatch;
 
   return iree_ok_status();
 }

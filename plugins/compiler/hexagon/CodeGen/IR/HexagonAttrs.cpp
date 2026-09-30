@@ -23,6 +23,27 @@ using namespace mlir;
 
 namespace mlir::iree_compiler::IREE::Hexagon {
 
+static HexagonPipelineBuilder &getHexagonPipelineBuilderStorage() {
+  static HexagonPipelineBuilder builder = nullptr;
+  return builder;
+}
+
+void registerHexagonPipelineBuilder(HexagonPipelineBuilder builder) {
+  [[maybe_unused]] static bool registered = false;
+  assert(!registered && "Hexagon pipeline builder registered more than once");
+  registered = true;
+  getHexagonPipelineBuilderStorage() = builder;
+}
+
+LogicalResult
+PipelineAttr::buildPipeline(OpPassManager &pm,
+                            const CodegenPipelineOptions *options) const {
+  HexagonPipelineBuilder builder = getHexagonPipelineBuilderStorage();
+  assert(builder && "no Hexagon pipeline builder registered; ensure "
+                    "registerHexagonCodeGenPasses() was called");
+  return builder(*this, pm, options);
+}
+
 LogicalResult
 VTCMTilingConfigAttr::verify(function_ref<InFlightDiagnostic()> emitError,
                              ArrayRef<int64_t> tileSizes) {

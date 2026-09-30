@@ -10,7 +10,6 @@
 // RUN:   --iree-hexagon-v=79 \
 // RUN:   --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN:   --iree-hexagon-enable-hmx-matmul=true \
-// RUN:   --iree-hexagon-launch-config-selector=hexagon \
 // RUN:   -o %t.vmfb
 // RUN: test -s %t.vmfb
 

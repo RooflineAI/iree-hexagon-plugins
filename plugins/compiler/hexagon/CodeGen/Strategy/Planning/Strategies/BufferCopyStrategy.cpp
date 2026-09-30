@@ -36,7 +36,8 @@ selectBufferCopyStrategy(const PlanningContext &context,
       inferBufferCopyComputeTile(context, shape, dispatchShape.root);
 
   DispatchStrategy strategy;
-  strategy.pipeline = IREE::CPU::LoweringPipeline::BufferOpsTileAndVectorize;
+  strategy.pipeline =
+      IREE::Hexagon::LoweringPipeline::BufferOpsTileAndVectorize;
   strategy.rootTiling.distributionTile = compute;
   strategy.rootTiling.cacheTile =
       SmallVector<TileDecision>(shape.dimensions.size());

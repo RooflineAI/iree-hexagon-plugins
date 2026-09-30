@@ -15,7 +15,6 @@
 #include "hexagon/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Common/CPU/Passes.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
-#include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "iree/compiler/Utils/PassUtils.h"
 #include "mlir/Pass/PassManager.h"
 #include "llvm/Support/CommandLine.h"
@@ -25,44 +24,12 @@
 
 namespace mlir::iree_compiler::hexagon::codegen {
 
-enum class LaunchConfigSelector {
-  LLVMCPU,
-  Hexagon,
-};
-
 static llvm::cl::opt<bool> clHexagonUseSoftmaxInterFusion(
     "iree-hexagon-use-decompose-softmax-fuse",
     llvm::cl::desc("Enables inter-pass fusion for the DecomposeSoftmax pass."),
     llvm::cl::init(true));
 
-static llvm::cl::opt<LaunchConfigSelector> clHexagonLaunchConfigSelector(
-    "iree-hexagon-launch-config-selector",
-    llvm::cl::desc("Select which pass provides the Hexagon launch-config "
-                   "strategy."),
-    llvm::cl::values(
-        clEnumValN(LaunchConfigSelector::LLVMCPU, "llvmcpu",
-                   "Use the upstream LLVMCPU lowering-strategy selector."),
-        clEnumValN(LaunchConfigSelector::Hexagon, "hexagon",
-                   "Use the Hexagon lowering-strategy selector.")),
-    llvm::cl::init(LaunchConfigSelector::LLVMCPU));
-
 namespace {
-
-void addLaunchConfigSelectionPass(OpPassManager &modulePassManager) {
-  // Hexagon now owns the launch-config policy selection step. The pass still
-  // emits the standard IREE CPU lowering attrs/pipeline enums so the rest of
-  // the Hexagon lowering stack can remain unchanged while we compare Hexagon
-  // policy decisions against the original LLVMCPU heuristics.
-  // modulePassManager.addPass(createHexagonSelectLoweringStrategyPass());
-  switch (clHexagonLaunchConfigSelector) {
-  case LaunchConfigSelector::Hexagon:
-    modulePassManager.addPass(createHexagonSelectLoweringStrategyPass());
-    return;
-  case LaunchConfigSelector::LLVMCPU:
-    modulePassManager.addPass(createLLVMCPUSelectLoweringStrategyPass());
-    return;
-  }
-}
 
 static void
 buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
@@ -84,7 +51,7 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
       .addPass(createConvertAccGEMMToGEMMPass)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 
-  addLaunchConfigSelectionPass(modulePassManager);
+  modulePassManager.addPass(createHexagonSelectLoweringStrategyPass());
   LLVM_DEBUG({
     llvm::dbgs() << "Hexagon codegen configuration pass pipeline:\n";
     modulePassManager.printAsTextualPipeline(llvm::dbgs());

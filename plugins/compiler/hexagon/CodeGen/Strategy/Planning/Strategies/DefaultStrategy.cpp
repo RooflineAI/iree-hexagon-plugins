@@ -11,9 +11,10 @@
 #include "mlir/Interfaces/TilingInterface.h"
 
 namespace mlir::iree_compiler::hexagon::codegen::planning {
-DispatchStrategy makeCPUDefaultStrategy(const DispatchShape &dispatchShape) {
+DispatchStrategy
+makeHexagonDefaultStrategy(const DispatchShape &dispatchShape) {
   DispatchStrategy strategy;
-  strategy.pipeline = IREE::CPU::LoweringPipeline::Default;
+  strategy.pipeline = IREE::Hexagon::LoweringPipeline::Default;
   if (const OpShape *shape = findOpShape(dispatchShape, dispatchShape.root)) {
     strategy.rootTiling.distributionTile =
         SmallVector<TileDecision>(shape->dimensions.size());
@@ -22,7 +23,6 @@ DispatchStrategy makeCPUDefaultStrategy(const DispatchShape &dispatchShape) {
     strategy.rootTiling.computeTile =
         SmallVector<TileDecision>(shape->dimensions.size());
   }
-
   return strategy;
 }
 
@@ -38,8 +38,8 @@ selectDefaultTilingInterfaceStrategy(const PlanningContext &context,
       inferInnermostParallelComputeTile(context, shape, dispatchShape.root);
   DispatchStrategy strategy;
   strategy.pipeline = isa<linalg::LinalgOp>(dispatchShape.root)
-                          ? IREE::CPU::LoweringPipeline::DoubleTilingExpert
-                          : IREE::CPU::LoweringPipeline::Default;
+                          ? IREE::Hexagon::LoweringPipeline::MultiTilingExpert
+                          : IREE::Hexagon::LoweringPipeline::Default;
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(dispatchShape.root))
     strategy.requestLoopPeeling = linalgOp.hasPureTensorSemantics();
   strategy.rootTiling.distributionTile =

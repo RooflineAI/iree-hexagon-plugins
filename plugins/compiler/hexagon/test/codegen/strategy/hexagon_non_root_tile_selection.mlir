@@ -32,7 +32,7 @@ func.func @hmx_matmul_bias_consumer(%lhs: tensor<128x128xf16>, %rhs: tensor<128x
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [32, 32]>
 // CHECK-DAG: #[[EPILOGUE:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0]>
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Mmt4dTilingExpert>>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 // CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [128, 128, 128]>
 // CHECK: func.func @hmx_matmul_bias_consumer(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]

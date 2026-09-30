@@ -35,7 +35,7 @@ func.func @generic_dispatch(%src: tensor<4x128x128xf32>) -> tensor<4x128xf32> at
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
 // CHECK-DAG: #[[REDUCE:.+]] = #iree_cpu.lowering_config<cache_parallel = [4, 0, 0], distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @generic_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
@@ -58,7 +58,7 @@ func.func @transpose_root_dispatch(%src: tensor<64x128xf32>) -> tensor<128x64xf3
 }
 // CHECK-DAG: #[[TRANSPOSE:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 0], distribution = [0, 0], vector_common_parallel = [1, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @transpose_root_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.generic
@@ -104,7 +104,7 @@ func.func @softmax_dispatch(%src: tensor<4x1024x1024xf32>, %mask: tensor<4x1024x
 // CHECK-DAG: #[[SUM:.+]] = #iree_cpu.lowering_config<cache_parallel = [4, 0, 0], distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
 // CHECK-DAG: #[[NORM:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @softmax_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}

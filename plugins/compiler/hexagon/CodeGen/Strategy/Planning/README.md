@@ -68,9 +68,9 @@ Each candidate returns one of three results:
 - `nullopt` when the next candidate should be tried;
 - diagnosed failure when it matched but could not construct a valid plan.
 
-The registry contains only specialized candidates. If the root has no
-analyzable shape or no candidate matches, the driver selects CPUDefault as a
-total fallback.
+The registry contains only specialized candidates. Dispatches with no compute
+root and analyzed roots for which no candidate matches use the Hexagon-owned
+Default lowering pipeline.
 
 Each operation-family file owns both its root strategy and its non-root
 compute-tile policy. Ordinary, HMX, and unsupported contractions share

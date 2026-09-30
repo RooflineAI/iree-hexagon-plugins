@@ -27,7 +27,7 @@ func.func @buffer_copy_root_dispatch(%src: memref<64x112x112xf32, strided<[12544
 }
 // CHECK-DAG: #[[COPY:.+]] = #iree_cpu.lowering_config<distribution = [1, 1, 32], vector_common_parallel = [1, 1, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<BufferOpsTileAndVectorize>>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<BufferOpsTileAndVectorize>>
 // CHECK: func.func @buffer_copy_root_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.generic

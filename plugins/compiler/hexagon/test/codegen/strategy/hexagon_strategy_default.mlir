@@ -20,7 +20,7 @@ func.func @fallback_dispatch(%src: tensor<96x96xf32>) -> tensor<98x98xf32> attri
 }
 // CHECK-DAG: #[[PAD:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Default>>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
 // CHECK: func.func @fallback_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: tensor.pad
@@ -37,7 +37,7 @@ func.func @fill_root_dispatch() -> tensor<64x128xf32> attributes {hal.executable
 }
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<distribution = [0, 0], vector_common_parallel = [1, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @fill_root_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
@@ -54,7 +54,7 @@ func.func @fft_fallback_dispatch(%twiddle_real: tensor<2xf32>, %twiddle_imag: te
 }
 // CHECK-DAG: #[[FFT:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Default>>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
 // CHECK: func.func @fft_fallback_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: iree_linalg_ext.fft

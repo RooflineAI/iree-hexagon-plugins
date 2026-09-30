@@ -15,7 +15,7 @@ func.func @copy_128b_ragged(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attr
   return
 }
 // CHECK-DAG: #[[COPY128:.+]] = #iree_cpu.lowering_config<distribution = [1, 32], vector_common_parallel = [1, 32]>
-// CHECK-DAG: #[[BUFFER_PIPELINE:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<BufferOpsTileAndVectorize>>
+// CHECK-DAG: #[[BUFFER_PIPELINE:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<BufferOpsTileAndVectorize>>
 // CHECK: func.func @copy_128b_ragged(
 // CHECK-SAME: translation_info = #[[BUFFER_PIPELINE]]
 // CHECK: linalg.copy

@@ -210,7 +210,7 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
   }
 }
 
-// This is the pipeline executed when CPUDoubleTilingExpert is configured. This
+// This is the pipeline executed when MultiTilingExpert is configured. This
 // is the pipeline that executes, for example, when lowering linalg.batch_matmul
 // operations that are lowered into linalg.generics in the current state.
 void addHexagonMultiTilingExpertPassPipeline(
@@ -585,18 +585,13 @@ void addHexagonLinalgExtTileAndVectorizePipeline(
   }
 }
 
-// This is the executed pipeline when no tiling is used. When lowering
-// linalg.matmul operations into hexkl API calls, we manage tiling and data
-// layout rearrangements through hexagon-mlir passes (and therefore implicitly
-// through the VTCM). This results in no tiling whatsoever and therefore this is
-// the pipeline that is used.
-void addHexagonDefaultPassPipeline(OpPassManager &funcPassManager,
-                                   const HexagonPipelineOptions &pipelineOpt) {
-
-  addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
+// This is the executed pipeline when no specialized tiling strategy is used.
+void addHexagonDefaultPassPipeline(
+    OpPassManager &funcPassManager,
+    const HexagonPipelineOptions &pipelineOptions) {
+  addHexagonTileAndDistributePasses(funcPassManager, pipelineOptions);
   funcPassManager.addPass(createLLVMCPUTileLastOpAndFuseProducerConsumerPass(
       IREE::CPU::TilingLevel::VectorCommonParallelTiles));
-
   addHexagonBufferizePasses(funcPassManager);
 }
 

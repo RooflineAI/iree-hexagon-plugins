@@ -46,9 +46,10 @@ LogicalResult configureDefaultPipeline(FunctionOpInterface entryPoint) {
   MLIRContext *context = entryPoint.getContext();
   encoded.translationInfo = IREE::Codegen::TranslationInfoAttr::get(
       context,
-      IREE::CPU::PipelineAttr::get(context,
-                                   IREE::CPU::LoweringPipeline::Default),
-      SymbolRefAttr(), /*workgroupSize=*/{}, /*subgroupSize=*/0,
+      IREE::Hexagon::PipelineAttr::get(
+          context, IREE::Hexagon::LoweringPipeline::Default),
+      SymbolRefAttr(),
+      /*workgroupSize=*/{}, /*subgroupSize=*/0,
       /*configuration=*/DictionaryAttr());
   return applyEncodedDispatchPlan(encoded);
 }

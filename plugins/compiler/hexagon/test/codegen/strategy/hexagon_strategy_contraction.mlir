@@ -20,7 +20,7 @@ func.func @matmul_dispatch(%lhs: tensor<128x128xf32>, %rhs: tensor<128x128xf32>)
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
 // CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 64, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @matmul_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
@@ -40,7 +40,7 @@ func.func @matmul_512x49x4608_dispatch(%lhs: tensor<512x4608xf32>, %rhs: tensor<
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
 // CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 49, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @matmul_512x49x4608_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
@@ -59,7 +59,7 @@ func.func @batch_matmul_dispatch(%lhs: tensor<4x128x128xf32>, %rhs: tensor<4x128
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 8, 32]>
 // CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 8, 32, 0], vector_reduction = [0, 0, 0, 8]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @batch_matmul_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
@@ -67,8 +67,8 @@ func.func @batch_matmul_dispatch(%lhs: tensor<4x128x128xf32>, %rhs: tensor<4x128
 
 // -----
 
-// Unsupported contraction (dot): expect the CPUDefault fallback with no tiling
-// selected on any op.
+// Unsupported contraction (dot): expect the Hexagon Default fallback with no
+// tiling selected on any op.
 #target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 func.func @dot_dispatch(%lhs: tensor<128xf32>, %rhs: tensor<128xf32>) -> tensor<f32> attributes {hal.executable.target = #target} {
   %cst = arith.constant 0.0 : f32
@@ -77,7 +77,7 @@ func.func @dot_dispatch(%lhs: tensor<128xf32>, %rhs: tensor<128xf32>) -> tensor<
   %result = linalg.dot ins(%lhs, %rhs : tensor<128xf32>, tensor<128xf32>) outs(%init : tensor<f32>) -> tensor<f32>
   return %result : tensor<f32>
 }
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Default>>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
 // CHECK: func.func @dot_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill
@@ -106,7 +106,7 @@ func.func @batch_matmul_transposed_rhs_dispatch(%lhs: tensor<4x64x128xf32>, %rhs
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 1]>
 // CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 1, 1, 0], vector_reduction = [0, 0, 0, 32]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @batch_matmul_transposed_rhs_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}

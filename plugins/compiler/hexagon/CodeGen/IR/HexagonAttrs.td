@@ -23,6 +23,24 @@ def IREEHexagon_ProfilerZoneAttr :
 }
 
 //===----------------------------------------------------------------------===//
+// Lowering pipeline.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_PipelineAttr : AttrDef<IREEHexagon_Dialect, "Pipeline", [
+    DeclareAttrInterfaceMethods<IREECodegen_PipelineAttrInterface>]> {
+  let mnemonic = "pipeline";
+  let summary = "Hexagon lowering pipeline identifier.";
+  let description = [{
+    Identifies an Hexagon lowering pipeline. Pipeline construction is delegated
+    to the builder callback registered by Hexagon codegen.
+  }];
+  let parameters = (ins
+    EnumParameter<IREEHexagon_LoweringPipeline>:$value
+  );
+  let assemblyFormat = "`<` $value `>`";
+}
+
+//===----------------------------------------------------------------------===//
 // Encoding Resolvers.
 //===----------------------------------------------------------------------===//
 

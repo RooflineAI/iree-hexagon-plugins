@@ -36,7 +36,7 @@ func.func @pooling_root_dispatch(%src: tensor<1x64x114x114xf32>) -> tensor<1x64x
 }
 // CHECK-DAG: #[[POOL:.+]] = #iree_cpu.lowering_config<distribution = [1, 32, 1, 28, 0, 0], vector_common_parallel = [1, 32, 1, 28, 0, 0]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<ConvTileAndDecomposeExpert>>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<ConvTileAndDecomposeExpert>>
 // CHECK: func.func @pooling_root_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill
@@ -44,7 +44,7 @@ func.func @pooling_root_dispatch(%src: tensor<1x64x114x114xf32>) -> tensor<1x64x
 // CHECK: linalg.pooling_nchw_max
 // CHECK-SAME: lowering_config = #[[POOL]]
 // GENERIC-DAG: #[[GPOOL:.+]] = #iree_cpu.lowering_config<distribution = [1, 32, 1, 28, 0, 0], vector_common_parallel = [1, 32, 1, 28, 0, 0]>
-// GENERIC-DAG: #[[GTRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<ConvTileAndDecomposeExpert>>
+// GENERIC-DAG: #[[GTRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<ConvTileAndDecomposeExpert>>
 // GENERIC: func.func @pooling_root_dispatch(
 // GENERIC-SAME: translation_info = #[[GTRANSLATION]]
 // GENERIC: linalg.generic
@@ -62,7 +62,7 @@ func.func @conv_fallback_dispatch(%input: tensor<1x32x32x8xf32>, %filter: tensor
 }
 // CHECK-DAG: #[[CONV:.+]] = #iree_cpu.lowering_config<distribution = [1, 1, 30, 16, 0, 0, 0], vector_common_parallel = [1, 1, 30, 16, 0, 0, 0]>
 // CHECK-NOT: #iree_cpu.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<ConvTileAndDecomposeExpert>>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<ConvTileAndDecomposeExpert>>
 // CHECK: func.func @conv_fallback_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill
@@ -70,7 +70,7 @@ func.func @conv_fallback_dispatch(%input: tensor<1x32x32x8xf32>, %filter: tensor
 // CHECK: linalg.conv_2d_nhwc_hwcf
 // CHECK-SAME: lowering_config = #[[CONV]]
 // GENERIC-DAG: #[[GCONV:.+]] = #iree_cpu.lowering_config<distribution = [1, 1, 30, 16, 0, 0, 0], vector_common_parallel = [1, 1, 30, 16, 0, 0, 0]>
-// GENERIC-DAG: #[[GTRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<ConvTileAndDecomposeExpert>>
+// GENERIC-DAG: #[[GTRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<ConvTileAndDecomposeExpert>>
 // GENERIC: func.func @conv_fallback_dispatch(
 // GENERIC-SAME: translation_info = #[[GTRANSLATION]]
 // GENERIC: linalg.generic

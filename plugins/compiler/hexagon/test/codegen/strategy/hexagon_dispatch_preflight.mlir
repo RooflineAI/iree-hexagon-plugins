@@ -7,7 +7,7 @@
 // RUN:   --split-input-file %s | FileCheck %s
 
 #target_128 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
-#already_selected = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Default>>
+#already_selected = #iree_codegen.translation_info<pipeline = #iree_codegen.no_pipeline>
 
 // Existing translation info preserves the historical no-op behavior.
 func.func @already_configured(%src: tensor<4xf32>) -> tensor<4xf32> attributes {hal.executable.target = #target_128, translation_info = #already_selected} {
@@ -22,8 +22,7 @@ func.func @already_configured(%src: tensor<4xf32>) -> tensor<4xf32> attributes {
 
 #target_128 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
-// A root excluded from shape analysis is a normal CPUDefault fallback, not an
-// undiagnosed strategy-selection failure.
+// A root excluded from shape analysis receives the default lowering pipeline.
 func.func @zero_loop_root() -> tensor<f32> attributes {hal.executable.target = #target_128} {
   %empty = tensor.empty() : tensor<f32>
   %result = linalg.generic {
@@ -34,8 +33,9 @@ func.func @zero_loop_root() -> tensor<f32> attributes {hal.executable.target = #
   } -> tensor<f32>
   return %result : tensor<f32>
 }
+// CHECK-DAG: #[[ZERO_LOOP_DEFAULT:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
 // CHECK: func.func @zero_loop_root()
-// CHECK-SAME: translation_info = #[[ZERO_LOOP_DEFAULT:.+]]
+// CHECK-SAME: translation_info = #[[ZERO_LOOP_DEFAULT]]
 // CHECK: linalg.generic
 // CHECK-NOT: lowering_config
 // CHECK: return
@@ -76,11 +76,11 @@ func.func @skipped_zero_loop_before_root(%input: tensor<4xf32>) -> tensor<4xf32>
 
 #target_128 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
-// Empty/no-compute dispatches receive only the explicit fallback pipeline.
+// Empty/no-compute dispatches receive the default lowering pipeline.
 func.func @empty_dispatch() attributes {hal.executable.target = #target_128} {
   return
 }
-// CHECK-DAG: #[[DEFAULT:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Default>>
+// CHECK-DAG: #[[DEFAULT:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
 // CHECK: func.func @empty_dispatch()
 // CHECK-SAME: translation_info = #[[DEFAULT]]
 // CHECK-NOT: lowering_config

@@ -38,7 +38,7 @@ func.func @broadcast_consumer_after_root(%lhs: tensor<128x64xf32>, %rhs: tensor<
 // CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 32, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
 // CHECK-DAG: #[[CONSUMER:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 0], vector_inner_parallel = [0, 0, 32]>
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @broadcast_consumer_after_root(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}

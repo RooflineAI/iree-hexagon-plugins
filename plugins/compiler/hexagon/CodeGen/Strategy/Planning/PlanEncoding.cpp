@@ -104,7 +104,7 @@ encodeDispatchPlan(const PlanningContext &context,
   }
   encoded.translationInfo = IREE::Codegen::TranslationInfoAttr::get(
       mlirContext,
-      IREE::CPU::PipelineAttr::get(mlirContext, plan.strategy.pipeline),
+      IREE::Hexagon::PipelineAttr::get(mlirContext, plan.strategy.pipeline),
       SymbolRefAttr(), /*workgroupSize=*/{}, /*subgroupSize=*/0,
       pipelineConfig);
 

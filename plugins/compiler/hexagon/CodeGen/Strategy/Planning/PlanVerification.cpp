@@ -325,19 +325,6 @@ verifyPipelineRequirements(FunctionOpInterface entryPoint,
   return success();
 }
 
-LogicalResult verifyRootlessPlan(FunctionOpInterface entryPoint,
-                                 const DispatchPlan &plan) {
-  const RootTilingPlan &root = plan.strategy.rootTiling;
-  if (plan.strategy.pipeline != IREE::CPU::LoweringPipeline::Default ||
-      root.vtcm || !root.distributionTile.empty() || !root.cacheTile.empty() ||
-      !root.computeTile.empty() || !plan.nonRootComputeTilePlans.empty()) {
-    entryPoint.emitError(
-        "rootless Hexagon dispatch must use an empty default plan");
-    return failure();
-  }
-  return success();
-}
-
 LogicalResult verifyRootTilingPlan(const OpShape &rootShape,
                                    const DispatchStrategy &strategy,
                                    const PipelineContract &pipelineContract) {
@@ -420,11 +407,8 @@ LogicalResult verifyDispatchPlan(const PlanningContext &context,
 
   const OpShape *rootShape = findOpShape(dispatchShape, dispatchShape.root);
   if (!rootShape) {
-    if (failed(verifyRootlessPlan(entryPoint, plan)))
-      return failure();
-    context.trace.record(DecisionStage::Verification, DecisionKind::Derived,
-                         "verified complete dispatch plan");
-    return success();
+    entryPoint.emitError("Hexagon dispatch plan has no analyzed root");
+    return failure();
   }
 
   if (failed(verifyRootTilingPlan(*rootShape, plan.strategy, pipelineContract)))

@@ -8,7 +8,9 @@
 
 #include "hexagon/CodeGen/Passes.h"
 
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
+#include "hexagon/CodeGen/Pipelines/HexagonLowerExecutableTarget.h"
 #include "hexagon/CodeGen/Pipelines/LinkingPipeline.h"
 #include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
@@ -33,6 +35,7 @@ void registerHexagonPasses() {
 }
 
 void registerHexagonCodeGenPasses() {
+  IREE::Hexagon::registerHexagonPipelineBuilder(buildHexagonPipeline);
   registerHexagonPasses();
 
   static PassPipelineRegistration<> configurationPipeline(

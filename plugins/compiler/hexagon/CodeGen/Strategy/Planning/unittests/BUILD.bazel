@@ -1,0 +1,51 @@
+# Copyright 2026 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+# The suites live in single_op/ and multi_op/ next to this file, alongside
+# RejectionTest.cpp; they share this parsing and estimation harness. `includes` puts this directory on their
+# include path, so both reach it as a plain "TestUtils.h" however deep they sit.
+cc_library(
+    name = "TestUtils",
+    testonly = True,
+    hdrs = ["TestUtils.h"],
+    includes = ["."],
+    visibility = [":__subpackages__"],
+    deps = [
+        "//plugins/compiler/hexagon/CodeGen:DispatchRegisterGraph",
+        "@iree//runtime/src/iree/testing:gtest",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:FunctionInterfaces",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LinalgDialect",
+        "@llvm-project//mlir:Parser",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:TensorDialect",
+    ],
+)
+
+# Dispatches the estimator has to reject, rather than assign a register count.
+cc_test(
+    name = "RejectionTest",
+    size = "small",
+    srcs = ["RejectionTest.cpp"],
+    deps = [
+        ":TestUtils",
+        "//plugins/compiler/hexagon/CodeGen:DispatchRegisterGraph",
+        "@iree//runtime/src/iree/testing:gtest_main",
+        "@llvm-project//mlir:FunctionInterfaces",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Parser",
+        "@llvm-project//mlir:Support",
+    ],
+)

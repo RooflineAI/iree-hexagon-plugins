@@ -1,0 +1,167 @@
+diff --git a/runtimes/cxxstdlib/BUILD.bazel b/runtimes/cxxstdlib/BUILD.bazel
+index 9e2006a..70d73fd 100644
+--- a/runtimes/cxxstdlib/BUILD.bazel
++++ b/runtimes/cxxstdlib/BUILD.bazel
+@@ -84,7 +84,8 @@ genrule(
+ filegroup(
+     name = "static_runtime_lib",
+     srcs = select({
+-        ":libstdcxx_linux": [":libstdcxx_static_runtime_lib"],
++        # libstdc++ has no static archive; skip the fail-genrule.
++        ":libstdcxx_linux": [],
+         ":libstdcxx_windows": [":libstdcxx_windows_unsupported"],
+         ":libcxx_linux": [
+             "@llvm-project//libcxx:libcxx.static",
+diff --git a/runtimes/libstdcxx/BUILD.bazel b/runtimes/libstdcxx/BUILD.bazel
+index 6ba6217..766d475 100644
+--- a/runtimes/libstdcxx/BUILD.bazel
++++ b/runtimes/libstdcxx/BUILD.bazel
+@@ -350,6 +350,8 @@ stub_library(
+ copy_to_directory(
+     name = "libstdcxx_library_search_directory",
+     srcs = [
++        # libstdc++.so for dynamic linking via -lstdc++ in the search path.
++        ":libstdcxx_shared_linker_name",
+         ":stdc++",
+         ":stdc++fs",
+         ":supc++",
+diff --git a/runtimes/libunwind/BUILD.bazel b/runtimes/libunwind/BUILD.bazel
+index 420949c..a77fce7 100644
+--- a/runtimes/libunwind/BUILD.bazel
++++ b/runtimes/libunwind/BUILD.bazel
+@@ -1,5 +1,7 @@
++load("@bazel_lib//lib:copy_file.bzl", "copy_file")
+ load("@bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+ load("//runtimes:defs.bzl", "stub_library")
++load("//toolchain/runtimes:cc_runtime_shared_library.bzl", "cc_runtime_stage1_shared_library")
+ 
+ alias(
+     name = "libunwind.static",
+@@ -18,11 +20,32 @@ stub_library(
+     visibility = ["//visibility:public"],
+ )
+ 
++copy_file(
++    name = "libunwind_shared_linker_name",
++    src = ":libunwind.shared",
++    out = "libunwind.so",
++    allow_symlink = True,
++)
++
+ stub_library(
+     name = "gcc_s",
+     visibility = ["//visibility:public"],
+ )
+ 
++cc_runtime_stage1_shared_library(
++    # link-time stand-in for the GNU libgcc_s.so.1: the same code as
++    # :libunwind.shared, but with the libgcc_s soname. Shared libraries
++    # linked against it resolve _Unwind_* at link time (so -Wl,--no-undefined
++    # holds) and record NEEDED libgcc_s.so.1, which glibc targets always
++    # provide next to libstdc++.so.6. Never shipped; the real GNU unwinder
++    # binds at load time.
++    name = "gcc_s_compat",
++    shared_lib_name = "libgcc_s.so.1",
++    user_link_flags = ["-Wl,-soname,libgcc_s.so.1"],
++    visibility = ["//visibility:public"],
++    deps = ["@llvm-project//libunwind:libunwind"],
++)
++
+ config_setting(
+     name = "stub_libgcc_s",
+     flag_values = {
+@@ -33,6 +56,13 @@ config_setting(
+ copy_to_directory(
+     name = "libunwind_library_search_directory",
+     srcs = [
++        # libunwind.so for dynamic linking via -lunwind.
++        ":libunwind_shared_linker_name",
++        # soname-compat libgcc_s.so.1 (hermetic libunwind), found via
++        # -l:libgcc_s.so.1 by libstdcxx executable and shared-lib links.
++        ":gcc_s_compat",
++        # gcc_s stub: -lgcc_s resolves here at link time for executables.
++        ":gcc_s",
+         ":unwind",
+     ] + select({
+         ":stub_libgcc_s": [":gcc_s"],
+diff --git a/toolchain/BUILD.bazel b/toolchain/BUILD.bazel
+index cb79620..d8f5a14 100644
+--- a/toolchain/BUILD.bazel
++++ b/toolchain/BUILD.bazel
+@@ -224,6 +224,18 @@ cc_args_list(
+     }),
+ )
+ 
++# link libstdc++ dynamically on all libstdcxx_linux platforms and source
++# _Unwind_* from a soname-compat hermetic libgcc_s (never the toolchain-private
++# libunwind.so.1, which is absent on target boards), for both executables and
++# shared libraries and every mlinux arch. See //toolchain/args:libstdcxx_link_flags.
++cc_args_list(
++    name = "libstdcxx_link_flags",
++    args = select({
++        "@llvm//runtimes/cxxstdlib:libstdcxx_linux": ["//toolchain/args:libstdcxx_link_flags"],
++        "//conditions:default": [],
++    }),
++)
++
+ # This makes the clang driver use compiler-rt compliant filenames
+ # and paths when resolving compiler runtime libraries from the resource-dir.
+ cc_args_list(
+@@ -338,6 +350,7 @@ cc_args_list(
+         ":libunwind_library_search_paths",
+         ":rtlib",
+         ":stdlib",
++        ":libstdcxx_link_flags",
+         ":unwindlib",
+         ":resource_dir",
+         "//toolchain/args:validate_static_library_args",
+diff --git a/toolchain/args/BUILD.bazel b/toolchain/args/BUILD.bazel
+index d6ba4e4..42771a7 100644
+--- a/toolchain/args/BUILD.bazel
++++ b/toolchain/args/BUILD.bazel
+@@ -876,6 +876,29 @@ cc_args(
+     ],
+ )
+ 
++cc_args(
++    # libstdcxx links, all mlinux arches, executables and shared libraries:
++    # resolve C++ stdlib symbols via libstdc++.so and _Unwind_* via a hermetic
++    # libunwind rebuilt with soname libgcc_s.so.1. That compat lib is staged in
++    # the toolchain library search directory and linked by exact name
++    # (-l:libgcc_s.so.1) so resolution rides the same uniformly-staged search
++    # path as -lunwind, which works for cc_binary, cc_shared_library, and
++    # rules_go cgo host tools alike (a direct generated-file arg does not:
++    # rules_go threads an inconsistent config path for it). _Unwind_* resolve at
++    # link time (so -Wl,--no-undefined and lld's default
++    # --no-allow-shlib-undefined executable check pass) while the artifact
++    # records NEEDED libgcc_s.so.1, present on every glibc target next to
++    # libstdc++.so.6. The compat lib is link-time only, never shipped: at load
++    # time the single system libgcc_s binds, so nothing needs libunwind.so.1 and
++    # there is no PyTorch/ONNX dual-unwinder crash.
++    name = "libstdcxx_link_flags",
++    actions = [
++        "@rules_cc//cc/toolchains/actions:link_executable_actions",
++        "@rules_cc//cc/toolchains/actions:dynamic_library_link_actions",
++    ],
++    args = ["-lstdc++", "-l:libgcc_s.so.1"],
++)
++
+ cc_args(
+     name = "unwindlib_none",
+     actions = [
+diff --git a/toolchain/cc_toolchain.bzl b/toolchain/cc_toolchain.bzl
+index 53e7eab..cc248ae 100644
+--- a/toolchain/cc_toolchain.bzl
++++ b/toolchain/cc_toolchain.bzl
+@@ -43,6 +43,11 @@ def cc_toolchain(name, tool_map, module_map = None, extra_args = []):
+     cc_feature_set(
+         name = name + "_enabled_features",
+         all_of = select({
++            # libstdc++ is dynamic-only: omit static_link_cpp_runtimes so
++            # cc_common.link() does not attempt a non-existent archive.
++            "@llvm//runtimes/cxxstdlib:libstdcxx_linux": [
++                "@llvm//toolchain/features/runtime_library_search_directories:feature",
++            ],
+             "@platforms//os:linux": [
+                 "@llvm//toolchain/features:static_link_cpp_runtimes",
+                 "@llvm//toolchain/features/runtime_library_search_directories:feature",

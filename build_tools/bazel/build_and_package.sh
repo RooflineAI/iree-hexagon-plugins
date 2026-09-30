@@ -19,11 +19,12 @@ TARGETS=(
 cd "$(dirname "$0")/../.."
 
 # --- Configure
+# The hermetic clang toolchain (--config=mlinux) needs no system compiler and
+# links against glibc 2.28, so the released host tools run on older
+# distributions than the machine they are built on.
 cat - >configured.bazelrc <<EOF
-build --action_env CC=/usr/lib/llvm-19/bin/clang
-build --action_env CXX=/usr/lib/llvm-19/bin/clang++
 build --config=generic_clang
-build --incompatible_strict_action_env
+build --config=mlinux
 EOF
 
 # --- Build

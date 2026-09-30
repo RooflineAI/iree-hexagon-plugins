@@ -278,3 +278,39 @@ hexkl_repository(name = "hexkl")
 register_toolchains("//toolchain:aarch64_android_toolchain")
 
 register_toolchains("//toolchain:hexagon_toolchain")
+
+###############################################################################
+# Hermetic LLVM toolchain (clang, glibc 2.28)
+#
+# hermeticbuild/hermetic-llvm provides a prebuilt clang and its own glibc
+# headers/stubs, so the linux x86_64 builds are hermetic and manylinux_2_28
+# compliant without a system compiler or a manylinux container. The glibc
+# target is pinned to 2.28 via the @llvm//constraints/libc:gnu.2.28 constraint
+# on the platforms in //platform, see
+# https://github.com/hermeticbuild/hermetic-llvm#gnu-c-library-glibc-versions
+# Only used with --config=mlinux (see .bazelrc), as the Android and Hexagon
+# toolchains above are platform specific and do not compete with it.
+###############################################################################
+
+bazel_dep(name = "llvm", version = "0.8.3")
+single_version_override(
+    module_name = "llvm",
+    patch_strip = 1,
+    patches = [
+        "//patches:llvm_libstdcxx_no_static_runtime.patch",
+        "//patches:llvm_rules_cc_use_libtool_rename.patch",
+    ],
+)
+
+toolchain_ext = use_extension("@llvm//extensions:toolchain.bzl", "toolchain")
+toolchain_ext.exec(
+    arch = "x86_64",
+    os = "linux",
+)
+toolchain_ext.target(
+    arch = "x86_64",
+    os = "linux",
+)
+use_repo(toolchain_ext, "llvm_toolchains")
+
+register_toolchains("@llvm_toolchains//:all")

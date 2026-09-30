@@ -94,7 +94,7 @@ public:
   /// loop order the tile vectors passed to `evaluate` are expressed in
   /// Fails if the dispatch is outside the supported subset.
   static FailureOr<DispatchRegisterGraph>
-  build(FunctionOpInterface dispatch, linalg::LinalgOp anchor,        
+  build(FunctionOpInterface dispatch, linalg::LinalgOp anchor,
         DispatchGraphOptions options = DispatchGraphOptions());
 
   /// Per candidate. `tileSizes` has one entry per anchor dim, in

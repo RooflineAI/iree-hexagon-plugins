@@ -82,8 +82,8 @@ hexagon_plugin_library(
         "Strategy/Planning/RegisterEstimation/TilePropagation.cpp",
     ],
     hdrs = [
-        "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph-internals.h",
         "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph.h",
+        "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph-internals.h",
         "Strategy/Planning/RegisterEstimation/EstimatorConfig.h",
         "Strategy/Planning/RegisterEstimation/Footprint.h",
         "Strategy/Planning/RegisterEstimation/TilePropagation.h",

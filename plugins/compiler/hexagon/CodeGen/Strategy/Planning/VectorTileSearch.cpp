@@ -203,9 +203,9 @@ struct BestCandidate {
 } // namespace
 
 LogicalResult searchVectorTiling(const PlanningContext &context,
-                                    const DispatchShape &dispatchShape,
-                                    DispatchStrategy &strategy,
-                                    const VectorTileSearchConfig &config) {
+                                 const DispatchShape &dispatchShape,
+                                 DispatchStrategy &strategy,
+                                 const VectorTileSearchConfig &config) {
   // disabled by command line flag:
   if (!context.options.enableVectorTileSearch)
     return success();
@@ -238,8 +238,8 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
   graphOptions.onFailure = [&](StringRef reason) {
     failureReason = reason.str();
   };
-  FailureOr<DispatchRegisterGraph> graph = DispatchRegisterGraph::build(
-      context.entryPoint, rootOp, graphOptions);
+  FailureOr<DispatchRegisterGraph> graph =
+      DispatchRegisterGraph::build(context.entryPoint, rootOp, graphOptions);
   if (failed(graph)) {
     recordFallback("graph build failed (" + failureReason + ")");
     return success();

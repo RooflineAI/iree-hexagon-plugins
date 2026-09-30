@@ -13,7 +13,7 @@ package(
 
 # The suites live in single_op/ and multi_op/ and RejectionTest.cpp
 # they share this parsing and estimation harness.
-# This Depends on DispatchPlanner for TargetInfo 
+# This Depends on DispatchPlanner for TargetInfo
 cc_library(
     name = "TestUtils",
     testonly = True,

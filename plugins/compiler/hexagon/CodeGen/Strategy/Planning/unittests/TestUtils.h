@@ -43,7 +43,7 @@ static_assert(TargetInfo().nativeVectorBytes == 128,
               "TargetInfo's default nativeVectorBytes changed - every "
               "hand-computed register count in these test files assumes a "
               "128-byte vector register and must be recomputed");
-static_assert(HexagonVectorBits == TargetInfo().nativeVectorBytes*8,
+static_assert(HexagonVectorBits == TargetInfo().nativeVectorBytes * 8,
               "EstimatorConfig's default vector width changed");
 
 /// Parses `source` and returns the single linalg op it contains. Keeps the

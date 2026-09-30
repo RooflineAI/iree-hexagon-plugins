@@ -34,12 +34,12 @@ struct OpExpansion {
   int64_t extraTiles = 0;
 };
 
-/// A candidate that chunks the reduction dim of a fused producer's result 
+/// A candidate that chunks the reduction dim of a fused producer's result
 /// needing a relayout will encuur high re-layout cost
 enum class FusedRelayoutChunkPolicy {
-    /// `evaluate` fails: "could not estimate"
+  /// `evaluate` fails: "could not estimate"
   Fail,
-    /// `evaluate` estimates anyway, while still missing the cost for re-layout
+  /// `evaluate` estimates anyway, while still missing the cost for re-layout
   EstimateAnyway,
 };
 
@@ -68,7 +68,6 @@ struct EstimatorConfig {
   FusedRelayoutChunkPolicy fusedRelayoutChunkPolicy =
       FusedRelayoutChunkPolicy::Fail;
 };
-
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 

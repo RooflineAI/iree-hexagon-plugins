@@ -34,11 +34,10 @@ struct VectorTileSearchConfig {
 /// with `DispatchRegisterGraph::evaluate`, and replaces
 /// `strategy.rootTiling.computeTile` with the cheapest one that fits the
 /// register budget.
-LogicalResult
-searchVectorTiling(const PlanningContext &context,
-                      const DispatchShape &dispatchShape,
-                      DispatchStrategy &strategy,
-                      const VectorTileSearchConfig &config = {});
+LogicalResult searchVectorTiling(const PlanningContext &context,
+                                 const DispatchShape &dispatchShape,
+                                 DispatchStrategy &strategy,
+                                 const VectorTileSearchConfig &config = {});
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 

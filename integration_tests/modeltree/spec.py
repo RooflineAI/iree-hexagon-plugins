@@ -110,6 +110,9 @@ class ModelSpec:
     compile_cases: tuple[str, ...] = DEFAULT_COMPILE_CASE_NAMES
     semantic_check: SemanticCheck | None = None
     extra_compile_flags: tuple[str, ...] = ()
+    # Seconds the module push, and separately iree-run-module on the device,
+    # may take before they are killed.
+    run_timeout: float = 600.0
 
     def __post_init__(self) -> None:
         if self.dtype not in _DTYPES:

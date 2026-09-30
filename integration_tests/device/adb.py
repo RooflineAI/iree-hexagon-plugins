@@ -59,8 +59,8 @@ def shell_exit_code(script: str, timeout: float = 600.0) -> tuple[int, str]:
     return result.returncode, result.stdout + result.stderr
 
 
-def push(local_paths: list[Path], remote_dir: str) -> None:
-    _run(["push", *[str(p) for p in local_paths], remote_dir])
+def push(local_paths: list[Path], remote_dir: str, timeout: float = 600.0) -> None:
+    _run(["push", *[str(p) for p in local_paths], remote_dir], timeout=timeout)
 
 
 def pull(remote_paths: list[str], local_dir: Path) -> None:

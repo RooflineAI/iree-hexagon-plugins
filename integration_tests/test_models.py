@@ -88,6 +88,7 @@ def _run_pipeline(
         input_files=imported_model.input_files,
         output_names=imported_model.output_names,
         local_output_dir=work_dir / "device_outputs",
+        timeout=model_spec.run_timeout,
     )
     if result.exit_code != 0:
         return Outcome(Status.RUNTIME_FAILURE, result.describe())

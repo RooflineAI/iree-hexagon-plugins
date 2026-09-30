@@ -46,6 +46,8 @@ def run_module_on_device(
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
 
+    `timeout` bounds both the module push and the run.
+
     The command runs under `limit_lifetime`, so that when `timeout` fires and
     Python SIGKILLs the adb client, the on-device process group is killed too.
     Without it a timed-out run leaves iree-run-module alive holding the DSP, and
@@ -54,6 +56,9 @@ def run_module_on_device(
     remote_dir = deployment.case_dir(case_dir_name)
     adb.shell(f"rm -rf {remote_dir}; mkdir -p {remote_dir}")
     adb.push([module_vmfb], f"{remote_dir}/module.vmfb")
+    # A large model's module takes a while to push, so it gets the same budget
+    # as the run.
+    adb.push([module_vmfb], f"{remote_dir}/module.vmfb", timeout=timeout)
     if input_files:
         adb.push(input_files, remote_dir + "/")
 

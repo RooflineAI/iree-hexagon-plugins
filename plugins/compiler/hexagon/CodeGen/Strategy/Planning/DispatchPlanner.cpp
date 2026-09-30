@@ -15,6 +15,7 @@
 #include "RootTilePropagation.h"
 #include "StrategySelection.h"
 #include "VTCMPlanning.h"
+#include "VectorTileSearch.h"
 
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/LLVMCPU/Utils.h"
@@ -99,6 +100,9 @@ LogicalResult configureDispatch(FunctionOpInterface entryPoint,
   }
 
   if (failed(planVTCMTiling(context, *shape, *contract, *strategy)))
+    return failure();
+
+  if (failed(searchVectorTiling(context, *shape, *strategy)))
     return failure();
 
   SmallVector<OpComputeTilePlan> nonRootComputeTilePlans;

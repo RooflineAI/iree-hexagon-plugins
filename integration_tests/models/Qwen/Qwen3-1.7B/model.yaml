@@ -1,0 +1,28 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+inputs:
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: null
+    seed: 0
+  - shape: [1, 128]
+    dtype: int64
+    generator: ones
+# Measured 2026-09-29: max abs 0.063, relative L2 0.10%.
+tolerances:
+  atol: 2.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 0.3
+# The plain `hexagon` case runs ~10x slower on device for an LLM prefill,
+# so only the VTCM/HMX configuration is exercised.
+compile_cases: [hexagon-vtcm-hmx]
+# f16 weights over 2 GiB
+extra_compile_flags:
+  - "--iree-stream-resource-max-allocation-size=1073741824"

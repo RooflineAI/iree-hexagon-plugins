@@ -21,6 +21,9 @@ jobs:
         run: |
           uvx pre-commit run --all-files --show-diff-on-failure
   build-cmake:
+    needs:
+      - pre-commit
+      - build-bazel # don't run cmake build if bazel build fails (save CI time)
     runs-on:
       group: qualcomm
       labels: qc-large
@@ -36,7 +39,8 @@ jobs:
           path: build-artifacts-cmake
           retention-days: 1
   test-cmake:
-    needs: build-cmake
+    needs:
+      - build-cmake
     runs-on:
       group: qualcomm
       labels: qc-small
@@ -168,6 +172,8 @@ jobs:
         if: always()
         run: sudo tailscale logout || true
   build-bazel:
+    needs:
+      - pre-commit
     runs-on:
       group: qualcomm
       labels: qc-large
@@ -205,7 +211,8 @@ jobs:
           path: build-artifacts-bazel
           retention-days: 1
   test-bazel:
-    needs: build-bazel
+    needs:
+      - build-bazel
     runs-on:
       group: qualcomm
       labels: qc-small
@@ -234,6 +241,8 @@ jobs:
       - *leave_overlay
   release:
     needs:
+      - pre-commit
+      - build-bazel
       - test-bazel
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -252,9 +261,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="0.0.$(date +%Y%m%d.%H%M%S)"
-          zip_name="iree-hexagon-plugins-${version}_x86_64_linux_aarch64_android.zip"
-          zip -j "${zip_name}" build-artifacts/*
           git_hash="$(git rev-list -1 HEAD)"
+          zip_name="iree-hexagon-plugins-${version}_${git_hash:0:10}_x86_64_linux_aarch64_android.zip"
+          zip -j "${zip_name}" build-artifacts/*
           gh release create "v${version}" "${zip_name}" \
             --target "${git_hash}" \
             --title "v${version}" \

@@ -77,7 +77,7 @@ bool DispatchRegisterGraph::chunksAFusedRelayout(
 
 FailureOr<DispatchRegisterGraph> DispatchRegisterGraph::build(
     FunctionOpInterface dispatch, linalg::LinalgOp anchor,
-    const TargetInfo &targetInfo, DispatchGraphOptions options) {
+    DispatchGraphOptions options) {
   DispatchRegisterGraph graph;
   graph.dispatch = dispatch;
   graph.anchor = anchor;

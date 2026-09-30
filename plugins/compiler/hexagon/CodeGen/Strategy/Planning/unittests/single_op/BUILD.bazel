@@ -39,6 +39,5 @@ cc_test(
     deps = [
         "//plugins/compiler/hexagon/CodeGen/Strategy/Planning/unittests:TestUtils",
         "@iree//runtime/src/iree/testing:gtest_main",
-        "@llvm-project//mlir:IR",
     ],
 )

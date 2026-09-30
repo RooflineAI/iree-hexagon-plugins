@@ -7,8 +7,6 @@
 #ifndef ROOF_HEXAGON_CODEGEN_PLANNING_REGISTERESTIMATION_ESTIMATORCONFIG_H_
 #define ROOF_HEXAGON_CODEGEN_PLANNING_REGISTERESTIMATION_ESTIMATORCONFIG_H_
 
-#include "hexagon/CodeGen/Strategy/Planning/DispatchPlanTypes.h"
-
 #include "llvm/ADT/StringMap.h"
 
 #include <cstdint>
@@ -45,10 +43,14 @@ enum class FusedRelayoutChunkPolicy {
   EstimateAnyway,
 };
 
+/// Bits in one HVX vector register.
+/// unittests have a static assert to check this against TargetInfo
+inline constexpr int64_t HexagonVectorBits = 1024;
+
 /// Every modeling decision the estimator ues, default values are for hexagon
 struct EstimatorConfig {
   /// Bits in one vector register.
-  int64_t vectorBits = 1024;
+  int64_t vectorBits = HexagonVectorBits;
   InvariantPlacement invariantPlacement = InvariantPlacement::AlwaysLive;
   /// Copies of the output tile a horizontal reduction holds while it folds
   /// across lanes: the running value and the shuffled copy added into it.
@@ -67,10 +69,6 @@ struct EstimatorConfig {
       FusedRelayoutChunkPolicy::Fail;
 };
 
-/// The defaults documented on each knob above, bound to `targetInfo`'s vector
-/// width.
-std::shared_ptr<const EstimatorConfig>
-getDefaultHexagonEstimatorConfig(const TargetInfo &targetInfo);
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 

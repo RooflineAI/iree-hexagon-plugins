@@ -20,12 +20,7 @@ cc_test(
         "MultiOpFusionTest.cpp",
     ],
     deps = [
-        "//plugins/compiler/hexagon/CodeGen:DispatchRegisterGraph",
         "//plugins/compiler/hexagon/CodeGen/Strategy/Planning/unittests:TestUtils",
         "@iree//runtime/src/iree/testing:gtest_main",
-        "@llvm-project//mlir:FunctionInterfaces",
-        "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Parser",
-        "@llvm-project//mlir:Support",
     ],
 )

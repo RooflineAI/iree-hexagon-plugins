@@ -11,9 +11,9 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-# The suites live in single_op/ and multi_op/ next to this file, alongside
-# RejectionTest.cpp; they share this parsing and estimation harness. `includes` puts this directory on their
-# include path, so both reach it as a plain "TestUtils.h" however deep they sit.
+# The suites live in single_op/ and multi_op/ and RejectionTest.cpp
+# they share this parsing and estimation harness.
+# This Depends on DispatchPlanner for TargetInfo 
 cc_library(
     name = "TestUtils",
     testonly = True,
@@ -21,6 +21,7 @@ cc_library(
     includes = ["."],
     visibility = [":__subpackages__"],
     deps = [
+        "//plugins/compiler/hexagon/CodeGen:DispatchPlanner",
         "//plugins/compiler/hexagon/CodeGen:DispatchRegisterGraph",
         "@iree//runtime/src/iree/testing:gtest",
         "@llvm-project//mlir:ArithDialect",
@@ -41,11 +42,6 @@ cc_test(
     srcs = ["RejectionTest.cpp"],
     deps = [
         ":TestUtils",
-        "//plugins/compiler/hexagon/CodeGen:DispatchRegisterGraph",
         "@iree//runtime/src/iree/testing:gtest_main",
-        "@llvm-project//mlir:FunctionInterfaces",
-        "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Parser",
-        "@llvm-project//mlir:Support",
     ],
 )

@@ -7,8 +7,6 @@
 #ifndef ROOF_HEXAGON_CODEGEN_PLANNING_REGISTERESTIMATION_DISPATCHREGISTERGRAPH_H_
 #define ROOF_HEXAGON_CODEGEN_PLANNING_REGISTERESTIMATION_DISPATCHREGISTERGRAPH_H_
 
-#include "hexagon/CodeGen/Strategy/Planning/DispatchPlanTypes.h"
-
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineMap.h"
@@ -79,6 +77,7 @@ struct DispatchGraphOptions {
   /// Note: This could be the point to add accounting for the HMX part
   llvm::SmallPtrSet<Value, 4> materializedValues;
   /// All modeling knobs.
+  /// This includes the Vector register width
   std::shared_ptr<const EstimatorConfig> config;
   /// Optional: Receives the reason whenever `build` or `evaluate` fails. The
   /// same reason is also emitted through LLVM_DEBUG. Optional.
@@ -95,8 +94,7 @@ public:
   /// loop order the tile vectors passed to `evaluate` are expressed in
   /// Fails if the dispatch is outside the supported subset.
   static FailureOr<DispatchRegisterGraph>
-  build(FunctionOpInterface dispatch, linalg::LinalgOp anchor,
-        const TargetInfo &targetInfo,
+  build(FunctionOpInterface dispatch, linalg::LinalgOp anchor,        
         DispatchGraphOptions options = DispatchGraphOptions());
 
   /// Per candidate. `tileSizes` has one entry per anchor dim, in

@@ -39,7 +39,7 @@ suite:
   `--variant baseline` run, via `run_module.sh`) to catch a correctness
   regression, not only a performance one.
 * `results/baseline.csv` and `results/final.csv` are the heuristic and
-  vector-tile-search (`--iree-hexagon-vector-tile-search=true`) runs behind
+  vector-tile-search (`--iree-hexagon-experimental-vector-tile-search=true`) runs behind
   `TileSelectionReport.md` section 10 (and section 11's calibration/tuning
   follow-up)'s numbers, at the shipped defaults (register margin 8,
   calibrated `math.tanh`/`math.rsqrt`); `results/summary.csv` merges the

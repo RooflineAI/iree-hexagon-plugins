@@ -4,11 +4,21 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # `edited` catches a stacked PR being retargeted onto main once the PR
+    # below it merges; other edits (title, body) are filtered out below.
+    types: [opened, synchronize, reopened, edited]
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Edits that are not a retarget get their own group, so renaming a PR does
+  # not cancel its in-flight run.
+  group: ${{ github.workflow }}-${{ (github.event.action == 'edited' && !github.event.changes.base) && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   pre-commit:
+    # Only run for pushes and for PRs at the bottom of a stack, i.e. based on
+    # main. The `branches` filter above does not exclude GitHub-native stacked
+    # PRs, so check the base ref here. Every other job depends on this one
+    # and is skipped along with it.
+    if: github.event_name != 'pull_request' || (github.event.pull_request.base.ref == 'main' && (github.event.action != 'edited' || github.event.changes.base))
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

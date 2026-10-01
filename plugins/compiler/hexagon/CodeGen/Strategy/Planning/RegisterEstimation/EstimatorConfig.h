@@ -58,12 +58,17 @@ struct EstimatorConfig {
   /// Body ops, by name, that the backend expands into a sequence holding more
   /// than one tile.
   llvm::StringMap<OpExpansion> OpCosts = {
-      {"math.exp", OpExpansion{/*invariantRegisters=*/12,
+      // TODO need to re-evaluate those values...
+      {"math.exp", OpExpansion{/*invariantRegisters=*/6,
                                /*extraTiles=*/1}},
       {"math.tanh", OpExpansion{/*invariantRegisters=*/6,
                                 /*extraTiles=*/1}},
       {"math.rsqrt", OpExpansion{/*invariantRegisters=*/2,
                                  /*extraTiles=*/0}},
+      {"math.sin", OpExpansion{/*invariantRegisters=*/6,
+                               /*extraTiles=*/1}},
+      {"math.cos", OpExpansion{/*invariantRegisters=*/6,
+                               /*extraTiles=*/1}},
   };
   FusedRelayoutChunkPolicy fusedRelayoutChunkPolicy =
       FusedRelayoutChunkPolicy::Fail;

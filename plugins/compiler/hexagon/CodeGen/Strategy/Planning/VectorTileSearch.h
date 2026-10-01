@@ -23,10 +23,8 @@ struct VectorTileSearchConfig {
   int64_t maxUnrolledVectorOps = 128;
   /// Tighter unroll caps for expensive body ops
   llvm::StringMap<int64_t> maxUnrolledVectorOpsByExpansionOp = {
-      {"math.tanh", 1},
-      {"math.exp", 1},
-      {"math.rsqrt", 1},
-      {"math.sqrt", 1},
+      {"math.tanh", 1}, {"math.exp", 1}, {"math.rsqrt", 1},
+      {"math.sqrt", 1}, {"math.sin", 1}, {"math.cos", 1},
   };
 };
 

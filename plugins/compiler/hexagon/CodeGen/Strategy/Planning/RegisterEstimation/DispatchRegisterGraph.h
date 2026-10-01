@@ -53,20 +53,19 @@ struct RegisterPressure {
   }
 };
 
-/// One dimension of the anchor op's iteration space, which is the coordinate
-/// system the caller's tile vector is expressed in.
-/// anchor is usually the root op in a dispatch
+/// One entry of the caller's tile vector. `op` and `loop` say which op loop's
+/// tile the entry carries. anchor is usually the root op in a dispatch
 struct AnchorDim {
   utils::IteratorType iteratorType = utils::IteratorType::parallel;
   /// Static extent of the loop. The analysis rejects dynamic shapes, so this
   /// is always a concrete positive number.
   int64_t extent = 0;
-  /// A loop of a fused op that no anchor loop reaches. It runs its full
-  /// extent inside the tile (UnconstrainedDimPolicy::FullExtent), so whatever
-  /// the caller passes for it is replaced by `extent`.
-  /// TODO this may be extended in the future, such that the caller can pass
-  /// values, for dims that do not depend on the anchor at all
-  bool pinnedToExtent = false;
+  /// The op loop whose tile this entry carries: the anchor's own loop, or for
+  /// a pinned dim the fused-op loop no anchor loop reaches. The estimator
+  /// infers the tile of every other op loop tied to it.
+  Operation *op = nullptr;
+  /// position of that loop in `op`'s own loop order
+  unsigned loop = 0;
 };
 
 // Configuration of the Graph to be specified by the callers
@@ -98,11 +97,11 @@ public:
         DispatchGraphOptions options = DispatchGraphOptions());
 
   /// Per candidate. `tileSizes` has one entry per anchor dim, in
-  /// getAnchorDims() order; 0 = not tiled (= full static extent)
-  /// Tile legality is the caller's responsibility
+  /// getAnchorDims() order. whether the tile is legal for codegen is the
+  /// caller's responsibility.
   FailureOr<RegisterPressure> evaluate(ArrayRef<int64_t> tileSizes) const;
 
-  /// Anchor dims: iterator types and static extents, for the caller's search.
+  /// The meaning of each entry of `evaluate`'s tile vector
   ArrayRef<AnchorDim> getAnchorDims() const;
   /// The dispatch's linalg ops, in program order.
   ArrayRef<linalg::LinalgOp> getOps() const;

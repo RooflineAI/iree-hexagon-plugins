@@ -21,6 +21,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Parser/Parser.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <gtest/gtest.h>
@@ -69,19 +70,29 @@ parseSingleLinalgOp(MLIRContext &context, StringRef source) {
 // candidates; the harness below owns the build-evaluate-and-assert
 // boilerplate, so a test file states only (IR, configs).
 //
+/// The op loop an anchor dim's tile is for (AnchorDim::op, AnchorDim::loop);
+/// the op is named by its position among the dispatch's linalg ops, in program
+/// order.
+struct ExpectedOpLoop {
+  unsigned opIndex = 0;
+  unsigned loop = 0;
+};
+
 /// One tile candidate to check `DispatchRegisterGraph` against.
 struct DispatchConfig {
   std::string name;
 
   // --- input ---------------------------------------------------------------
-  /// Anchor-dim order, 0 = untiled (the dim's full static extent).
+  /// One entry per anchor dim, in getAnchorDims() order, 0 = untiled (the
+  /// dim's full static extent).
   SmallVector<int64_t> tileSizes;
 
   // --- expected output -----------------------------------------------------
   /// Peak vector registers `evaluate` reports.
   int64_t expectedVector = 0;
-  /// When set, `build` or `evaluate` must fail and the reported reason must
-  /// contain this text - a phrase from the rejection message.
+  /// When set, `build` or `evaluate` must fail and the
+  /// reported reason must contain this text - a phrase from the rejection
+  /// message.
   std::string expectedFailure;
 
   std::string note;
@@ -92,6 +103,8 @@ struct DispatchConfig {
   /// Overrides the default estimator config's policy
   FusedRelayoutChunkPolicy fusedRelayoutChunkPolicy =
       FusedRelayoutChunkPolicy::Fail;
+  /// When set, per anchor dim: the op loop its tile is for.
+  SmallVector<ExpectedOpLoop> expectedAnchorDimLoops = {};
 };
 
 /// Prints `DispatchConfig::name` as the gtest instantiation suffix.
@@ -161,6 +174,20 @@ inline void expectDispatchEstimate(FunctionOpInterface dispatch,
   if (failed(graph)) {
     expectReportedFailure("build");
     return;
+  }
+
+  if (!config.expectedAnchorDimLoops.empty()) {
+    ArrayRef<AnchorDim> anchorDims = graph->getAnchorDims();
+    ASSERT_EQ(anchorDims.size(), config.expectedAnchorDimLoops.size())
+        << config.note;
+    for (auto [entry, anchorDim, expected] :
+         llvm::enumerate(anchorDims, config.expectedAnchorDimLoops)) {
+      ASSERT_LT(expected.opIndex, ops.size()) << config.note;
+      EXPECT_EQ(anchorDim.op, ops[expected.opIndex].getOperation())
+          << "anchor dim " << entry << "; " << config.note;
+      EXPECT_EQ(anchorDim.loop, expected.loop)
+          << "anchor dim " << entry << "; " << config.note;
+    }
   }
 
   FailureOr<RegisterPressure> pressure = graph->evaluate(config.tileSizes);

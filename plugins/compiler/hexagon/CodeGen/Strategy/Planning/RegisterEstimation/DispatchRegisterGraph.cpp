@@ -186,9 +186,10 @@ DispatchRegisterGraph::evaluate(ArrayRef<int64_t> tileSizes) const {
   // resolve tile: replace 0 with the full extend
   SmallVector<int64_t> resolved(tileSizes);
   for (auto [size, dim] : llvm::zip_equal(resolved, anchorDims)) {
-    assert(size >= 0 && "expected non-negative tile sizes");
-    assert(size <= dim.extent && "expected tile sizes within the loop extent");
-    if (size == 0 || dim.pinnedToExtent)
+    if (size < 0 || size > dim.extent)
+      return fail("tile size " + Twine(size) + " outside [0, " +
+                  Twine(dim.extent) + "]");
+    if (size == 0)
       size = dim.extent;
   }
 

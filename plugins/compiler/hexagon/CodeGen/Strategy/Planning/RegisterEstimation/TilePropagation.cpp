@@ -65,7 +65,7 @@ private:
 AffineExpr Propagator::addPinnedDim(linalg::LinalgOp op, unsigned loop) {
   int64_t extent = op.getStaticLoopRanges()[loop];
   anchorDims.push_back(AnchorDim{op.getIteratorTypesArray()[loop], extent,
-                                 /*pinnedToExtent=*/true});
+                                 op.getOperation(), loop});
   return getAffineDimExpr(anchorDims.size() - 1, getContext());
 }
 
@@ -204,13 +204,15 @@ FailureOr<TilePropagationResult> Propagator::run() {
   SmallVector<int64_t> anchorRanges = anchor.getStaticLoopRanges();
   SmallVector<utils::IteratorType> iterators = anchor.getIteratorTypesArray();
   SmallVector<AffineExpr> anchorExprs;
-  for (auto [extent, iterator] : llvm::zip_equal(anchorRanges, iterators)) {
+  for (auto [loop, extent, iterator] :
+       llvm::enumerate(anchorRanges, iterators)) {
     if (ShapedType::isDynamic(extent)) {
       (void)reportFailure("anchor op has a dynamic loop extent");
       return failure();
     }
     anchorExprs.push_back(getAffineDimExpr(anchorDims.size(), getContext()));
-    anchorDims.push_back(AnchorDim{iterator, extent, /*pinnedToExtent=*/false});
+    anchorDims.push_back(AnchorDim{iterator, extent, anchor.getOperation(),
+                                   static_cast<unsigned>(loop)});
   }
   // initialize the worklist with the ancor
   if (failed(assign(anchorIndex, anchorExprs)))

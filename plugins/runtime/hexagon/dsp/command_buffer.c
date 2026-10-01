@@ -75,8 +75,9 @@ typedef struct hexagon_dsp_command_buffer_s {
   S -= sizeof(T);
 
 /**
- * @brief Record a direct buffer reference (fd != -1) in bufs, skipping exact
- *        duplicates. On bufs == NULL: only counts.
+ * @brief Record a direct buffer reference (fd != -1) in bufs, merging it with
+ *        overlapping or adjacent ranges of the same fd. On bufs == NULL: only
+ *        counts (upper bound).
  * @param[in] ref buffer reference to record, ignored if indirect (fd == -1)
  * @param[in,out] bufs array to append to, NULL to only count
  * @param[in,out] num_bufs number of entries in bufs (or counted so far)
@@ -88,16 +89,29 @@ static void hexa_cmd_buf_add_direct_buf(const hexagon_rt_arm_dsp_buf_ref_t *ref,
     return; // indirect, covered by binding table
   }
   if (bufs) {
-    // check for duplicates
-    for (uint32_t idx = 0; idx < *num_bufs; ++idx) {
-      if (bufs[idx].fd == ref->fd && bufs[idx].offset == ref->offset &&
-          bufs[idx].length == ref->length) {
-        return;
+    // merge with all overlapping or adjacent ranges of the same fd
+    uint64_t begin = ref->offset;
+    uint64_t end = ref->offset + ref->length;
+    uint32_t idx = 0;
+    while (idx < *num_bufs) {
+      uint64_t idx_begin = bufs[idx].offset;
+      uint64_t idx_end = bufs[idx].offset + bufs[idx].length;
+      if (bufs[idx].fd != ref->fd || idx_begin > end || begin > idx_end) {
+        ++idx;
+        continue;
       }
+      // absorb entry into the new range and remove
+      // re-check idx as it now holds a different entry
+      begin = idx_begin < begin ? idx_begin : begin;
+      end = idx_end > end ? idx_end : end;
+      // remove, by moving the last entry in its place
+      // no-op if only one entry
+      --*num_bufs;
+      bufs[idx] = bufs[*num_bufs];
     }
     bufs[*num_bufs].fd = ref->fd;
-    bufs[*num_bufs].offset = ref->offset;
-    bufs[*num_bufs].length = ref->length;
+    bufs[*num_bufs].offset = begin;
+    bufs[*num_bufs].length = end - begin;
   }
   ++*num_bufs;
 }
@@ -106,8 +120,8 @@ static void hexa_cmd_buf_add_direct_buf(const hexagon_rt_arm_dsp_buf_ref_t *ref,
  * @brief Walk command buffer and collect all direct buffer references.
  * @param[in] cmd_buf_data pointer to serialized command buffer data
  * @param[in] cmd_buf_size size of serialized command buffer data
- * @param[out] bufs array to store deduplicated direct buffer references in,
- *                  NULL to only count (without deduplication)
+ * @param[out] bufs array to store merged direct buffer references in,
+ *                  NULL to only count (without merging)
  * @param[out] num_bufs number of entries (to be) stored in bufs
  * @retval AEE_SUCCESS for success
  */

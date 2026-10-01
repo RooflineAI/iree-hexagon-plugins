@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_CODEGEN_IR_HMXCONTRACTS_H_
-#define ROOF_HEXAGON_CODEGEN_IR_HMXCONTRACTS_H_
+#ifndef IREE_HEXAGON_CODEGEN_IR_HMXCONTRACTS_H_
+#define IREE_HEXAGON_CODEGEN_IR_HMXCONTRACTS_H_
 
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -167,4 +167,4 @@ bool providesHmxAlignment(Value value, int64_t requiredAlignment,
 } // namespace iree_compiler::IREE::Hexagon
 } // namespace mlir
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HMXCONTRACTS_H_
+#endif // IREE_HEXAGON_CODEGEN_IR_HMXCONTRACTS_H_

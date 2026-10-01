@@ -7,8 +7,8 @@
 // This header declares the translation-stage Hexagon pipeline builder and
 // route-shaping policy accessors owned by TranslationPipeline.cpp.
 
-#ifndef ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
-#define ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
+#ifndef IREE_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
+#define IREE_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
 
 #include "hexagon/CodeGen/Passes.h"
 
@@ -25,4 +25,4 @@ bool isHexagonVectorTileSearchEnabled();
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
+#endif // IREE_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_

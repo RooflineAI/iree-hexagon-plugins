@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_CODEGEN_PLANNING_DISPATCHANALYSIS_H_
-#define ROOF_HEXAGON_CODEGEN_PLANNING_DISPATCHANALYSIS_H_
+#ifndef IREE_HEXAGON_CODEGEN_PLANNING_DISPATCHANALYSIS_H_
+#define IREE_HEXAGON_CODEGEN_PLANNING_DISPATCHANALYSIS_H_
 
 #include "DispatchPlanTypes.h"
 
@@ -23,4 +23,4 @@ analyzeDispatch(const PlanningContext &context,
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 
-#endif // ROOF_HEXAGON_CODEGEN_PLANNING_DISPATCHANALYSIS_H_
+#endif // IREE_HEXAGON_CODEGEN_PLANNING_DISPATCHANALYSIS_H_

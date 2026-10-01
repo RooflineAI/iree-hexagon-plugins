@@ -6,8 +6,8 @@
 
 // This header declares the experimental hexagon-mlir-inspired lowering route.
 
-#ifndef ROOF_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_
-#define ROOF_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_
+#ifndef IREE_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_
+#define IREE_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_
 
 #include "hexagon/CodeGen/Passes.h"
 
@@ -21,4 +21,4 @@ void addHexagonMlirLowerToLLVMPasses(mlir::OpPassManager &variantPassManager);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_
+#endif // IREE_HEXAGON_CODEGEN_HEXAGONMLIRPIPELINE_H_

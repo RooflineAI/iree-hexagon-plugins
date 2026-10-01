@@ -72,4 +72,4 @@ def IREEHexagon_VTCMTilingConfigAttr :
   let genVerifyDecl = 1;
 }
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS
+#endif // HEXAGON_CODEGEN_IR_HEXAGONATTRS

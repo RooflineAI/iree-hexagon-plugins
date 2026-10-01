@@ -68,4 +68,4 @@ def IREEHexagon_HmxAccType :
   let genVerifyDecl = 1;
 }
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONTYPES
+#endif // HEXAGON_CODEGEN_IR_HEXAGONTYPES

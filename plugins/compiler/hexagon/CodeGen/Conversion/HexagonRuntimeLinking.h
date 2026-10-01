@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_CODEGEN_CONVERSION_HEXAGONRUNTIMELINKING_H_
-#define ROOF_HEXAGON_CODEGEN_CONVERSION_HEXAGONRUNTIMELINKING_H_
+#ifndef IREE_HEXAGON_CODEGEN_CONVERSION_HEXAGONRUNTIMELINKING_H_
+#define IREE_HEXAGON_CODEGEN_CONVERSION_HEXAGONRUNTIMELINKING_H_
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -65,4 +65,4 @@ LogicalResult renameAndTagNativeRuntimeLinkedFunc(ModuleOp moduleOp,
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_CONVERSION_HEXAGONRUNTIMELINKING_H_
+#endif // IREE_HEXAGON_CODEGEN_CONVERSION_HEXAGONRUNTIMELINKING_H_

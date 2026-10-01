@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_CODEGEN_KERNELDISPATCH_H_
-#define ROOF_HEXAGON_CODEGEN_KERNELDISPATCH_H_
+#ifndef IREE_HEXAGON_CODEGEN_KERNELDISPATCH_H_
+#define IREE_HEXAGON_CODEGEN_KERNELDISPATCH_H_
 
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Support/LogicalResult.h"
@@ -34,4 +34,4 @@ mlir::LogicalResult initHexagonLaunchConfig(mlir::FunctionOpInterface funcOp);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_KERNELDISPATCH_H_
+#endif // IREE_HEXAGON_CODEGEN_KERNELDISPATCH_H_

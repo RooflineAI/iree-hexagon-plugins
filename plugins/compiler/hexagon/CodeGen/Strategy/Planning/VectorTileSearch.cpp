@@ -200,12 +200,35 @@ struct BestCandidate {
   }
 };
 
+/// The tile vector over all anchor dims: each entry at the tile its op loop
+/// (AnchorDim::op, AnchorDim::loop) gets from that op's plan. The root's
+/// entries have no plan here and stay 0
+SmallVector<int64_t>
+getPinnedTile(const DispatchRegisterGraph &graph,
+              ArrayRef<OpComputeTilePlan> nonRootComputeTilePlans) {
+  ArrayRef<AnchorDim> anchorDims = graph.getAnchorDims();
+  SmallVector<int64_t> tile(anchorDims.size(), 0);
+  for (auto [entry, anchorDim] : llvm::enumerate(anchorDims)) {
+    const OpComputeTilePlan *plan =
+        llvm::find_if(nonRootComputeTilePlans, [&](const OpComputeTilePlan &p) {
+          return p.op == anchorDim.op;
+        });
+    if (plan == nonRootComputeTilePlans.end() ||
+        anchorDim.loop >= plan->computeTile.size())
+      continue;
+    tile[entry] = plan->computeTile[anchorDim.loop].size;
+  }
+  return tile;
+}
+
 } // namespace
 
-LogicalResult searchVectorTiling(const PlanningContext &context,
-                                 const DispatchShape &dispatchShape,
-                                 DispatchStrategy &strategy,
-                                 const VectorTileSearchConfig &config) {
+LogicalResult
+searchVectorTiling(const PlanningContext &context,
+                   const DispatchShape &dispatchShape,
+                   DispatchStrategy &strategy,
+                   ArrayRef<OpComputeTilePlan> nonRootComputeTilePlans,
+                   const VectorTileSearchConfig &config) {
   // disabled by command line flag:
   if (!context.options.enableVectorTileSearch)
     return success();
@@ -219,8 +242,8 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
     return success();
 
   const OpShape &rootShape = getRootShape(dispatchShape);
-  unsigned num_dims = rootShape.dimensions.size();
-  if (strategy.rootTiling.computeTile.size() != num_dims)
+  unsigned num_root_dims = rootShape.dimensions.size();
+  if (strategy.rootTiling.computeTile.size() != num_root_dims)
     return success(); // unexpected shape; leave the heuristic tile alone.
 
   // helper for recording a Fallback decision
@@ -245,7 +268,7 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
     return success();
   }
   ArrayRef<AnchorDim> anchorDims = graph->getAnchorDims();
-  if (anchorDims.size() < num_dims) {
+  if (anchorDims.size() < num_root_dims) {
     recordFallback("fewer anchor dims than root loops");
     return success();
   }
@@ -257,9 +280,9 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
           ? ArrayRef<TileDecision>(strategy.rootTiling.vtcm->tileSizes)
           : ArrayRef<TileDecision>();
 
-  SmallVector<int64_t> bound(num_dims);
-  SmallVector<bool> fixed(num_dims, false);
-  for (unsigned d = 0; d < num_dims; ++d) {
+  SmallVector<int64_t> bound(num_root_dims);
+  SmallVector<bool> fixed(num_root_dims, false);
+  for (unsigned d = 0; d < num_root_dims; ++d) {
     bound[d] = anchorDims[d].extent;
     if (d < vtcm.size() && vtcm[d].size != 0) {
       bound[d] = vtcm[d].size;
@@ -277,9 +300,9 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
   int64_t lanes = getTypeNativeVectorWidth(context, outputElementType);
 
   // build the candidate tile shapes
-  SmallVector<SmallVector<int64_t>> perDim(num_dims);
+  SmallVector<SmallVector<int64_t>> perDim(num_root_dims);
   int64_t totalCandidates = 1;
-  for (unsigned dim = 0; dim < num_dims; ++dim) {
+  for (unsigned dim = 0; dim < num_root_dims; ++dim) {
     if (fixed[dim] || bound[dim] <= 0) {
       perDim[dim] = {bound[dim]};
     } else {
@@ -294,8 +317,8 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
     }
   }
 
-  llvm::SmallBitVector isReductionDim(num_dims);
-  for (unsigned d = 0; d < num_dims; ++d)
+  llvm::SmallBitVector isReductionDim(num_root_dims);
+  for (unsigned d = 0; d < num_root_dims; ++d)
     isReductionDim[d] =
         anchorDims[d].iteratorType == utils::IteratorType::reduction;
 
@@ -310,9 +333,10 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
     if (bits == 0)
       continue;
     llvm::SmallBitVector dims = getDimsOf(node.shapeMap);
-    dims.resize(num_dims); // a dim beyond n is a pinned fused-op loop, always
-                           // at its full extent: no multiplicity contribution
-                           // either way, so clipping it is safe.
+    dims.resize(
+        num_root_dims); // a dim beyond n is a pinned fused-op loop, always
+                        // at its full extent: no multiplicity contribution
+                        // either way, so clipping it is safe.
     trafficNodes.push_back({std::move(dims), bits});
   }
 
@@ -336,20 +360,23 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
   int64_t evaluatedCandidates = 0;
 #endif
 
-  SmallVector<int64_t> tile(anchorDims.size(), 0); // pinned dims stay 0 (=
-                                                   // full extent).
-  SmallVector<unsigned> index(num_dims, 0);
+  // the fused loops no root loop reaches are not searched: their entries
+  // keep the tile their op's own plan gives them
+  SmallVector<int64_t> tile = getPinnedTile(*graph, nonRootComputeTilePlans);
+  SmallVector<unsigned> index(num_root_dims, 0);
   // n == 0 means no root dims to enumerate at all, nothing to do
-  bool done = num_dims == 0;
+  bool done = num_root_dims == 0;
   unsigned bumped_dim = 0;
   while (!done) {
     // read next candidate
-    for (unsigned d = 0; d < num_dims; ++d)
+    for (unsigned d = 0; d < num_root_dims; ++d)
       tile[d] = perDim[d][index[d]];
+    ArrayRef<int64_t> rootTile =
+        ArrayRef<int64_t>(tile).take_front(num_root_dims);
 
     // compute total tile size (compiler should fuse with above loop itself)
     int64_t volume = 1;
-    for (unsigned d = 0; d < num_dims; ++d)
+    for (unsigned d = 0; d < num_root_dims; ++d)
       volume *= tile[d];
 
     // number of vectors to hold a full input tile
@@ -357,14 +384,16 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
     bool withinUnrollCap = lanes > 0 && ceilDiv(volume, lanes) <= uMax;
     // shapes knowing to crash the backend (happend on a matmul with small M
     // and large N for me)
-    bool crashShape =
-        matchesKnownHexagonCrashShape(tile, anchorDims, laneDim, lanes);
+    bool crashShape = matchesKnownHexagonCrashShape(
+        rootTile, anchorDims.take_front(num_root_dims), laneDim, lanes);
     if (withinUnrollCap && !crashShape) {
       FailureOr<RegisterPressure> pressure =
           evaluateWithinBudget(*graph, tile, budget);
       LLVM_DEBUG(++evaluatedCandidates);
       if (succeeded(pressure)) {
-        best.considerIfBetter(tile, *pressure, trafficNodes, bound,
+        // fused loops stay out of the cost metric, since they are not varied
+        // for now
+        best.considerIfBetter(rootTile, *pressure, trafficNodes, bound,
                               isReductionDim);
       } else {
         // skip other candidates, increasing size will not stay in budget
@@ -415,8 +444,8 @@ LogicalResult searchVectorTiling(const PlanningContext &context,
   });
 
   // move the chosen tile to the plan
-  SmallVector<TileDecision> chosen(num_dims);
-  for (unsigned d = 0; d < num_dims; ++d)
+  SmallVector<TileDecision> chosen(num_root_dims);
+  for (unsigned d = 0; d < num_root_dims; ++d)
     chosen[d] = TileDecision{best.tile[d]};
   context.trace.recordTilePlan(DecisionStage::ComputeTile,
                                DecisionKind::Selected, rootShape.ordinal,

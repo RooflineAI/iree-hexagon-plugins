@@ -34,10 +34,14 @@ struct VectorTileSearchConfig {
 /// with `DispatchRegisterGraph::evaluate`, and replaces
 /// `strategy.rootTiling.computeTile` with the cheapest one that fits the
 /// register budget.
-LogicalResult searchVectorTiling(const PlanningContext &context,
-                                 const DispatchShape &dispatchShape,
-                                 DispatchStrategy &strategy,
-                                 const VectorTileSearchConfig &config = {});
+/// Loops of fused ops that the root's loops do not reach are not searched:
+/// they are priced at the tile `nonRootComputeTilePlans` already gives them.
+LogicalResult
+searchVectorTiling(const PlanningContext &context,
+                   const DispatchShape &dispatchShape,
+                   DispatchStrategy &strategy,
+                   ArrayRef<OpComputeTilePlan> nonRootComputeTilePlans,
+                   const VectorTileSearchConfig &config = {});
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 

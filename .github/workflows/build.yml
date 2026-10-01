@@ -145,6 +145,12 @@ jobs:
           # load-bearing the moment a second one is.
           echo "ADB_SERVER_SOCKET=tcp:100.64.0.2:5037" >> "$GITHUB_ENV"
           echo "ANDROID_SERIAL=2c82b852" >> "$GITHUB_ENV"
+          # The rig is ~220 ms away over the tailnet (OPS-1076). A single adb
+          # push flow under CUBIC collapses on any loss there (1.7 to 10.7 MB/s
+          # observed); BBR holds 26 MB/s, and the larger buffers cover the
+          # bandwidth-delay product.
+          sudo sysctl -w net.ipv4.tcp_congestion_control=bbr net.core.default_qdisc=fq
+          sudo sysctl -w net.ipv4.tcp_wmem="4096 131072 16777216" net.ipv4.tcp_rmem="4096 131072 16777216"
       - &check_phone_reachable
         name: Check the phone is reachable
         if: env.PHONE_ACCESS == 'true'

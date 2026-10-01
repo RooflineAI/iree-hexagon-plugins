@@ -32,4 +32,4 @@ def IREEHexagon_Dialect : Dialect {
   let useDefaultTypePrinterParser = 1;
 }
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#endif // HEXAGON_CODEGEN_IR_HEXAGONDIALECT

@@ -464,4 +464,4 @@ def IREEHexagon_HmxAccReadOp :
   let hasVerifier = 1;
 }
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONOPS
+#endif // HEXAGON_CODEGEN_IR_HEXAGONOPS

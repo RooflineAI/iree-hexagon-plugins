@@ -6,8 +6,8 @@
 
 // This header declares Hexagon-specific comprehensive bufferization helpers.
 
-#ifndef ROOF_HEXAGON_CODEGEN_BUFFERIZATION_H_
-#define ROOF_HEXAGON_CODEGEN_BUFFERIZATION_H_
+#ifndef IREE_HEXAGON_CODEGEN_BUFFERIZATION_H_
+#define IREE_HEXAGON_CODEGEN_BUFFERIZATION_H_
 
 #include "mlir/Pass/PassManager.h"
 
@@ -20,4 +20,4 @@ void addHexagonBufferizePassesForHexagonMlir(
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_BUFFERIZATION_H_
+#endif // IREE_HEXAGON_CODEGEN_BUFFERIZATION_H_

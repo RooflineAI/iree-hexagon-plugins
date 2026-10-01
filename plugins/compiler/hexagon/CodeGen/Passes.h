@@ -6,8 +6,8 @@
 
 // This file is the public facade for Hexagon codegen passes and pipelines.
 
-#ifndef ROOF_HEXAGON_CODEGEN_PASSES_H_
-#define ROOF_HEXAGON_CODEGEN_PASSES_H_
+#ifndef IREE_HEXAGON_CODEGEN_PASSES_H_
+#define IREE_HEXAGON_CODEGEN_PASSES_H_
 
 #include <string>
 
@@ -40,4 +40,4 @@ void registerHexagonCodeGenPasses();
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_PASSES_H_
+#endif // IREE_HEXAGON_CODEGEN_PASSES_H_

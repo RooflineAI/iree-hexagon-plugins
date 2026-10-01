@@ -6,8 +6,8 @@
 
 // This header declares the Hexagon-specific conversion-to-LLVM pass factories.
 
-#ifndef ROOF_HEXAGON_CONVERSION_HEXAGONCONVERTTOLLVM_H_
-#define ROOF_HEXAGON_CONVERSION_HEXAGONCONVERTTOLLVM_H_
+#ifndef IREE_HEXAGON_CONVERSION_HEXAGONCONVERTTOLLVM_H_
+#define IREE_HEXAGON_CONVERSION_HEXAGONCONVERTTOLLVM_H_
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
@@ -21,4 +21,4 @@ createHexagonConvertToLLVMPass(bool reassociateFpReductions);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CONVERSION_HEXAGONCONVERTTOLLVM_H_
+#endif // IREE_HEXAGON_CONVERSION_HEXAGONCONVERTTOLLVM_H_

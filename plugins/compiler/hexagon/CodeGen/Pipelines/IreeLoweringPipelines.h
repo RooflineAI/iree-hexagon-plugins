@@ -7,8 +7,8 @@
 // This header declares the hexagon version of the expert pipelines from IREE's
 // LLVMCPU plugin. They are selected by the HexagonLowerExecutableTargetPass.
 
-#ifndef ROOF_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_
-#define ROOF_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_
+#ifndef IREE_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_
+#define IREE_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_
 
 #include "hexagon/CodeGen/Passes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.h"
@@ -73,4 +73,4 @@ void addHexagonTileAndDistributePasses(
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_
+#endif // IREE_HEXAGON_CODEGEN_IREELOWERINGPIPELINES_H_

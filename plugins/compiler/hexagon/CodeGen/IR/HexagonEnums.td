@@ -60,4 +60,4 @@ def IREEHexagon_ProfilerZone :
       IREEHexagon_ProfilerZoneUnknown
     ]>;
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONENUMS
+#endif // HEXAGON_CODEGEN_IR_HEXAGONENUMS

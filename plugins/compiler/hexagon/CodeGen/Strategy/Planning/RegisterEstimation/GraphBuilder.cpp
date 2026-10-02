@@ -3,10 +3,6 @@
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-// Plan sections 4.1 - 4.4: collect the dispatch's linalg ops, select the
-// anchor, propagate the tile coordinate system, lift each op's body into
-// nodes, splice the fused edges and add the dispatch's load/store boundaries.
 
 #include "DispatchRegisterGraph.h"
 #include "EstimatorConfig.h"
@@ -25,7 +21,7 @@
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 namespace {
 
-/// Ops that carry no computation and are simply part of the dispatch's
+/// Ops that carry no computation are simply part of the dispatch's
 /// plumbing. Anything else that is not a `linalg::LinalgOp` means the
 /// dispatch is outside the supported subset.
 ///

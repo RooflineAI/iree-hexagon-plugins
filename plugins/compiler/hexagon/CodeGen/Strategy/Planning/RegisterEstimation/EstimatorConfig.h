@@ -35,7 +35,7 @@ struct OpExpansion {
 };
 
 /// A candidate that chunks the reduction dim of a fused producer's result
-/// needing a relayout will encuur high re-layout cost
+/// needing a relayout will incur high re-layout cost
 enum class FusedRelayoutChunkPolicy {
   /// `evaluate` fails: "could not estimate"
   Fail,

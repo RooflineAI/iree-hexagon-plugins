@@ -174,7 +174,7 @@ private:
 /// nodes, splice fused edges and insert dispatch boundaries.
 LogicalResult buildNodeGraph(DispatchRegisterGraph &graph);
 
-/// marks per-chunk values, folds Multiply-accumulate and decides whether the
+/// marks per-chunk values, fuses the accumulator update and decides whether the
 /// reduction folds horizontally.
 void lowerReduction(DispatchRegisterGraph &graph);
 

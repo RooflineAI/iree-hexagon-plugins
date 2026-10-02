@@ -7,7 +7,6 @@
 #include "DispatchRegisterGraph.h"
 #include "EstimatorConfig.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -43,16 +42,9 @@ llvm::SmallDenseSet<NodeIdx> backwardClosure(const DispatchRegisterGraph &graph,
   return visited;
 }
 
-bool isExtension(Operation *op) {
-  return op && isa<arith::ExtSIOp, arith::ExtUIOp, arith::ExtFOp>(op);
-}
-
-bool isMultiply(Operation *op) {
-  return op && isa<arith::MulIOp, arith::MulFOp>(op);
-}
-
-bool isAdd(Operation *op) {
-  return op && isa<arith::AddIOp, arith::AddFOp>(op);
+/// Whether `op` is one of the ops `names` lists.
+bool matches(const llvm::StringSet<> &names, Operation *op) {
+  return op && names.contains(op->getName().getStringRef());
 }
 
 /// Marks every node whose work exists only to feed an accumulator. Such a
@@ -73,59 +65,65 @@ void markReductionChunkValues(DispatchRegisterGraph &graph) {
   }
 }
 
-/// Collapses `mul` (or `ext` + `mul`) feeding the `add` that updates an
-/// accumulator into one fused multiply-add node that writes the accumulator in
-/// place.
-void recognizeMultiplyAccumulates(DispatchRegisterGraph &graph) {
+/// Collapses the update of the accumulator into one fused node that writes the
+/// accumulator in place, when it matches one of the config's
+/// `accumulateFusions`
+void recognizeFusedAccumulates(DispatchRegisterGraph &graph) {
   if (!graph.reduction)
     return;
   Reduction &reduction = *graph.reduction;
   SmallVector<SmallVector<NodeIdx>> consumers = buildConsumers(graph);
   NodeIdx accumulator = reduction.accumulator;
   NodeIdx update = reduction.update;
-  const Node &add = graph.nodes[update];
-  if (!isAdd(add.op) || add.operands.size() != 2)
+  const Node &combine = graph.nodes[update];
+  if (combine.operands.size() != 2)
+    return;
+  // The update has to be `accumulator <combine> something`.
+  // find the producer
+  NodeIdx produced = combine.operands[0] == accumulator   ? combine.operands[1]
+                     : combine.operands[1] == accumulator ? combine.operands[0]
+                                                          : update;
+  if (produced == update)
     return;
 
-  // The update has to be `accumulator + something`.
-  NodeIdx product = add.operands[0] == accumulator   ? add.operands[1]
-                    : add.operands[1] == accumulator ? add.operands[0]
-                                                     : update;
-  if (product == update || !isMultiply(graph.nodes[product].op))
-    return;
-  if (graph.nodes[product].operands.size() != 2)
+  const AccumulateFusion *fusion = llvm::find_if(
+      graph.getConfig().accumulateFusions, [&](const AccumulateFusion &f) {
+        return matches(f.accumulateOps, combine.op) &&
+               matches(f.producerOps, graph.nodes[produced].op);
+      });
+  if (fusion == graph.getConfig().accumulateFusions.end())
     return;
 
-  // Peel an extension off each factor when it exists only to widen it: the
-  // instruction natively reads the narrow operand.
+  // Absorb an operand op (e.g. an extension) when it exists only to feed the
+  // producer: the instruction natively reads its operand.
   SmallVector<NodeIdx> sources;
-  for (NodeIdx factor : graph.nodes[product].operands) {
-    Node &node = graph.nodes[factor];
-    if (isExtension(node.op) && node.operands.size() == 1 &&
-        consumers[factor].size() == 1) {
+  for (NodeIdx operand : graph.nodes[produced].operands) {
+    Node &node = graph.nodes[operand];
+    if (matches(fusion->absorbedOperandOps, node.op) &&
+        node.operands.size() == 1 && consumers[operand].size() == 1) {
       sources.push_back(node.operands.front());
       node.dead = true;
       continue;
     }
-    sources.push_back(factor);
+    sources.push_back(operand);
   }
 
-  Node mac;
-  mac.kind = NodeKind::MultiplyAccumulate;
-  mac.owningOp = add.owningOp;
-  mac.shapeMap = add.shapeMap;
-  mac.elementType = add.elementType;
-  mac.operands.assign(sources.begin(), sources.end());
-  mac.operands.push_back(accumulator);
+  Node fused;
+  fused.kind = NodeKind::FusedAccumulate;
+  fused.owningOp = combine.owningOp;
+  fused.shapeMap = combine.shapeMap;
+  fused.elementType = combine.elementType;
+  fused.operands.assign(sources.begin(), sources.end());
+  fused.operands.push_back(accumulator);
   // The fused node writes the accumulator it already reads, so it names no
   // register of its own.
-  mac.regClass = RegClass::None;
-  mac.perReductionChunk = add.perReductionChunk;
+  fused.regClass = RegClass::None;
+  fused.perReductionChunk = combine.perReductionChunk;
 
-  graph.nodes[product].dead = true;
+  graph.nodes[produced].dead = true;
   graph.nodes[update].dead = true;
   reduction.update = graph.nodes.size();
-  graph.nodes.push_back(std::move(mac));
+  graph.nodes.push_back(std::move(fused));
 }
 
 /// When the reduction runs along the innermost dim of the value being
@@ -181,10 +179,11 @@ void findTiledReductionWidening(DispatchRegisterGraph &graph) {
 } // namespace
 
 void lowerReduction(DispatchRegisterGraph &graph) {
-  // Order matters: chunk marking reads the body as written, the MAC fold then
-  // replaces that body, and the horizontal decision reads what is left.
+  // Order matters: chunk marking reads the body as written, the accumulate
+  // fusion then replaces that body, and the horizontal decision reads what is
+  // left.
   markReductionChunkValues(graph);
-  recognizeMultiplyAccumulates(graph);
+  recognizeFusedAccumulates(graph);
   markHorizontalReduction(graph);
   findTiledReductionWidening(graph);
 }

@@ -34,8 +34,8 @@ StringRef stringifyNodeKind(NodeKind kind) {
     return "shuffle";
   case NodeKind::Accumulator:
     return "accumulator";
-  case NodeKind::MultiplyAccumulate:
-    return "multiply_accumulate";
+  case NodeKind::FusedAccumulate:
+    return "fused_accumulate";
   case NodeKind::Reduced:
     return "reduced";
   }

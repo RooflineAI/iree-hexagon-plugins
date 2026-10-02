@@ -7,7 +7,9 @@
 #ifndef ROOF_HEXAGON_CODEGEN_PLANNING_REGISTERESTIMATION_ESTIMATORCONFIG_H_
 #define ROOF_HEXAGON_CODEGEN_PLANNING_REGISTERESTIMATION_ESTIMATORCONFIG_H_
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 
 #include <cstdint>
 #include <memory>
@@ -32,6 +34,20 @@ struct OpExpansion {
   int64_t invariantRegisters = 0;
   /// Intermediate tiles live while the op runs, each the size of its result.
   int64_t extraTiles = 0;
+};
+
+/// An accumulator update `acc <accumulate> <producer>(operands...)` that the
+/// backend emits as one instruction writing the accumulator in place.
+/// This means, intermediary results never materialize as registers
+struct AccumulateFusion {
+  /// Ops combining the accumulator with the produced value, e.g. "arith.addf".
+  llvm::StringSet<> accumulateOps;
+  /// Ops producing the value folded into the accumulator, e.g. "arith.mulf".
+  llvm::StringSet<> producerOps;
+  /// Ops on a producer operand the instruction absorbs because it reads the
+  /// narrow operand natively, e.g. "arith.extsi". Absorbed only when the
+  /// producer is their sole reader.
+  llvm::StringSet<> absorbedOperandOps;
 };
 
 /// A candidate that chunks the reduction dim of a fused producer's result
@@ -71,6 +87,29 @@ struct EstimatorConfig {
       {"math.cos", OpExpansion{/*invariantRegisters=*/21,
                                /*extraTiles=*/6}},
   };
+
+  /// Accumulator updates fused into one in-place node
+  llvm::SmallVector<AccumulateFusion> accumulateFusions = {
+      // Multiply-accumulate.
+      {/*accumulateOps=*/{"arith.addf", "arith.addi"},
+       /*producerOps=*/{"arith.mulf", "arith.muli"},
+       /*absorbedOperandOps=*/{"arith.extsi", "arith.extui", "arith.extf"}},
+      // Widening add-accumulate, e.g. Vxx.w += vadd(Vu.h, Vv.h).
+      {/*accumulateOps=*/{"arith.addi"},
+       /*producerOps=*/{"arith.addi"},
+       /*absorbedOperandOps=*/{"arith.extsi", "arith.extui"}},
+      // Shift-accumulate by a scalar amount, e.g. Vx.w += vasl(Vu.w, Rt),
+      // Vx.w += vasr(Vu.w, Rt).
+      {/*accumulateOps=*/{"arith.addi"},
+       /*producerOps=*/{"arith.shli", "arith.shrsi"},
+       /*absorbedOperandOps=*/{}},
+      // Compare-accumulate into a predicate, e.g. Qx &= vcmp.gt(Vu.w, Vv.w),
+      // also |= and ^=, for integer and hf/sf/bf compares.
+      {/*accumulateOps=*/{"arith.andi", "arith.ori", "arith.xori"},
+       /*producerOps=*/{"arith.cmpi", "arith.cmpf"},
+       /*absorbedOperandOps=*/{}},
+  };
+
   FusedRelayoutChunkPolicy fusedRelayoutChunkPolicy =
       FusedRelayoutChunkPolicy::Fail;
 };

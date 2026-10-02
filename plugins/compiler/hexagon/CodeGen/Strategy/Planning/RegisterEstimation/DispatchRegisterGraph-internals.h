@@ -36,9 +36,9 @@ enum class NodeKind {
   Shuffle,   // inserted layout change between producer and consumer
   // Note: the shuffle node could be the pooint to investigate, if we want to
   // model shuffle cost
-  Accumulator,        // loop-carried value of a reduction
-  MultiplyAccumulate, // a contraction's fused multiply-accumulate, in place
-  Reduced,            // what a reduction leaves behind once its phase has run
+  Accumulator,     // loop-carried value of a reduction
+  FusedAccumulate, // a contraction's fused accumulate e.g. FMA op
+  Reduced,         // what a reduction leaves behind once its phase has run
 };
 
 StringRef stringifyNodeKind(NodeKind kind);
@@ -54,7 +54,7 @@ struct Placement {
 struct Node {
   NodeKind kind = NodeKind::BodyOp;
   /// The IR value this node stands for. Null for synthetic nodes (stores,
-  /// shuffles, MACs, reduced values).
+  /// shuffles, fused accumulates, reduced values).
   Value value;
   /// The body op this node came from, if any.
   Operation *op = nullptr;

@@ -35,14 +35,14 @@ struct EstimatorConfig;
 // Other, like Loop control, addressing, tile bookkeeping, ...
 // are left out
 struct RegisterPressure {
-  int64_t vector = 0;      // HVX registers
-  int64_t usefulBytes = 0; /// Bytes of data the values live at the peak hold
+  int64_t vector;      // HVX registers
+  int64_t usefulBytes; /// Bytes of data the values live at the peak hold
   /// Total Bytes in one register
   // its an extra field, so `utilization` needs no config.
-  int64_t registerBytes = 128;
+  int64_t registerBytes;
 
   /// Fraction of the peak's registers that holds data
-  /// Does not count additional overhead due to shufflesor packing
+  /// Does not count additional overhead due to shuffles or packing
   /// a scalarized kernel will see a very low utilization, since this is not
   /// modeled
   double utilization() const {

@@ -35,6 +35,28 @@ class RunModuleResult:
         )
 
 
+def _filter_logcat_lines(logcat: str) -> str:
+    """
+    Filter lines from logcat.
+    Remove lines that clutter the log, appear often and don't bring information
+    useful for debugging.
+    """
+    lines = logcat.split("\n")
+    remove_patterns = (
+        ": adsp_process_group_mem_map",
+        ": adsp_process_group_mem_unmap",
+        ": fastrpc_invoke_fd_mmap_create: ",
+        ": fastrpc_invoke_fd_mmap_destroy ",
+        ": fastrpc_invoke_fd_mmap_get for fd ",
+        ": fastrpc_invoke_fd_mmap_put for fd ",
+        ": fastrpc_invoke_static_map_fd_alloc: ",
+        ": fastrpc_invoke_static_map_fd_free ",
+        ": no matching pending jobs, collect would deadlock",
+    )
+    lines = [line for line in lines if not any(rem_pat in line for rem_pat in remove_patterns)]
+    return "\n".join(lines)
+
+
 def run_module_on_device(
     deployment: Deployment,
     case_dir_name: str,
@@ -112,7 +134,7 @@ def run_module_on_device(
         remote_dir=remote_dir,
         exit_code=exit_code,
         log=log,
-        logcat=logcat,
+        logcat=_filter_logcat_lines(logcat),
         output_files=pulled,
         timings=timings,
     )

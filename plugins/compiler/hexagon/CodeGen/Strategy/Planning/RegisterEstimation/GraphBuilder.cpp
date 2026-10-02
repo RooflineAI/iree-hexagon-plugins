@@ -487,6 +487,10 @@ LogicalResult NodeBuilder::addReduceNodes(unsigned opIndex) {
       return graph.fail("op '" + op->getName().getStringRef() +
                         "' has reduction iterators but never reads its init "
                         "operand, so it has no accumulator");
+    if (graph.reduction)
+      return graph.fail("dispatches with more than one reduction are not "
+                        "supported yet: phase ordering across reductions is "
+                        "unimplemented");
     const Node &source = graph.nodes[accumulator->second];
     Node reduced;
     reduced.kind = NodeKind::Reduced;
@@ -496,8 +500,8 @@ LogicalResult NodeBuilder::addReduceNodes(unsigned opIndex) {
     reduced.regClass = source.regClass;
     reduced.operands.push_back(accumulator->second);
     unsigned index = addNode(std::move(reduced));
-    graph.reductions.push_back(
-        Reduction{accumulator->second, resultNodes[opIndex][i], index});
+    graph.reduction =
+        Reduction{accumulator->second, resultNodes[opIndex][i], index};
     resultNodes[opIndex][i] = index;
   }
   return success();
@@ -595,7 +599,7 @@ LogicalResult buildNodeGraph(DispatchRegisterGraph &graph) {
   NodeBuilder node_builder(graph);
   if (failed(node_builder.run()))
     return failure();
-  lowerReductions(graph);
+  lowerReduction(graph);
   return success();
 }
 

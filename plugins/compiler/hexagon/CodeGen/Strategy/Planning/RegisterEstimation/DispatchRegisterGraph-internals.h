@@ -88,7 +88,7 @@ struct Node {
   std::optional<Footprint> broadcast;
 };
 
-/// One reduction of the dispatch: its loop-carried accumulator, the node that
+/// The reduction of the dispatch: its loop-carried accumulator, the node that
 /// writes the accumulator's next value, and the value left once the phase has
 /// run.
 struct Reduction {
@@ -98,6 +98,10 @@ struct Reduction {
   /// The accumulator ends up spread across the lanes of a vector and has to
   /// be folded across them when the phase ends.
   bool horizontal = false;
+  /// When the reduction runs over several tiles, a horizontal reduction's
+  /// accumulator keeps every step's lane-spread partial result live, so it is
+  /// at least as wide as the widest reduction-lane operand feeding it.
+  SmallVector<unsigned> wideningOperands;
 };
 
 /// A closed position interval [start, end] in the schedule.
@@ -116,14 +120,6 @@ struct Step {
   SmallVector<unsigned, 2> reusable;
   /// Values dead once this step has run.
   SmallVector<unsigned, 2> ends;
-};
-
-/// When the reduction runs over several tiles, a horizontal reduction's
-/// accumulator keeps every step's lane-spread partial result live, so it is
-/// at least as wide as the widest reduction-lane operand feeding it.
-struct TiledReductionWidening {
-  unsigned accumulator = 0;
-  SmallVector<unsigned> operands;
 };
 
 /// What every node's value holds at one tile, indexed by node.

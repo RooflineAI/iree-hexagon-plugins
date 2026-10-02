@@ -33,14 +33,14 @@ llvm::SmallBitVector carriesReduction(const DispatchRegisterGraph &graph) {
   return carries;
 }
 
-/// Everything that transitively feeds one of the accumulators, plus the
-/// accumulators themselves.
+/// Everything that transitively feeds the accumulator, plus the accumulator
+/// itself.
 llvm::SmallBitVector reachesAccumulator(const DispatchRegisterGraph &graph) {
   llvm::SmallBitVector inPhase(graph.nodes.size());
   SmallVector<unsigned> worklist;
-  for (const Reduction &reduction : graph.reductions) {
-    inPhase.set(reduction.accumulator);
-    worklist.push_back(reduction.update);
+  if (graph.reduction) {
+    inPhase.set(graph.reduction->accumulator);
+    worklist.push_back(graph.reduction->update);
   }
   while (!worklist.empty()) {
     unsigned index = worklist.pop_back_val();
@@ -66,14 +66,14 @@ buildConsumers(const DispatchRegisterGraph &graph) {
   return consumers;
 }
 
-/// Everything that transitively reads a value a reduction left behind.
+/// Everything that transitively reads the value the reduction left behind.
 llvm::SmallBitVector readsReduced(const DispatchRegisterGraph &graph,
                                   ArrayRef<SmallVector<unsigned>> consumers) {
   llvm::SmallBitVector reads(graph.nodes.size());
   SmallVector<unsigned> worklist;
-  for (const Reduction &reduction : graph.reductions)
-    worklist.append(consumers[reduction.reduced].begin(),
-                    consumers[reduction.reduced].end());
+  if (graph.reduction)
+    worklist.append(consumers[graph.reduction->reduced].begin(),
+                    consumers[graph.reduction->reduced].end());
   while (!worklist.empty()) {
     unsigned index = worklist.pop_back_val();
     if (reads.test(index))
@@ -301,12 +301,10 @@ void computeLiveIntervals(DispatchRegisterGraph &graph,
   }
 
   // The accumulator is is live over the whole phase.
-  for (const Reduction &reduction : graph.reductions) {
-    if (!isScheduled(reduction.accumulator))
-      continue;
-    unsigned phase = graph.nodes[reduction.accumulator].placement.phase;
-    graph.live[reduction.accumulator] =
-        LiveInterval{phaseStart[phase], phaseEnd[phase]};
+  if (graph.reduction && isScheduled(graph.reduction->accumulator)) {
+    unsigned accumulator = graph.reduction->accumulator;
+    unsigned phase = graph.nodes[accumulator].placement.phase;
+    graph.live[accumulator] = LiveInterval{phaseStart[phase], phaseEnd[phase]};
   }
 
   // A hoisted invariant is materialized once and never recomputed.
@@ -401,10 +399,8 @@ LogicalResult assignFootprints(DispatchRegisterGraph &graph) {
       return graph.fail("cannot resolve the tile shape of a " +
                         stringifyNodeKind(node.kind) + " node");
 
-    if (node.kind == NodeKind::Reduced &&
-        llvm::any_of(graph.reductions, [&](const Reduction &reduction) {
-          return reduction.reduced == index && reduction.horizontal;
-        })) {
+    if (node.kind == NodeKind::Reduced && graph.reduction &&
+        graph.reduction->reduced == index && graph.reduction->horizontal) {
       // The cross-lane fold works through a tree of shuffles and adds,
       // holding copies of the output tile on the way.
       node.temporaries = *resident;
@@ -457,11 +453,6 @@ LogicalResult assignFootprints(DispatchRegisterGraph &graph) {
 } // namespace
 
 LogicalResult buildSchedule(DispatchRegisterGraph &graph) {
-  if (graph.reductions.size() > 1)
-    return graph.fail("dispatches with more than one reduction are not "
-                      "supported yet: phase ordering across reductions is "
-                      "unimplemented");
-
   assignPlacements(graph);
   SmallVector<unsigned> order = buildExecutionOrder(graph);
   SmallVector<unsigned> positionOf(graph.nodes.size(), kNotScheduled);

@@ -112,10 +112,10 @@ NodeWeights DispatchRegisterGraph::weighNodes(ArrayRef<int64_t> tile) const {
 
   // A horizontal reduction whose tile does not cover the whole reduction
   // extent keeps every step's partial result alive across loop iterations
-  if (widening && reductionTiled) {
-    int64_t &registers = weights.registers[widening->accumulator];
-    int64_t &usefulBits = weights.usefulBits[widening->accumulator];
-    for (unsigned operand : widening->operands) {
+  if (reduction && reduction->horizontal && reductionTiled) {
+    int64_t &registers = weights.registers[reduction->accumulator];
+    int64_t &usefulBits = weights.usefulBits[reduction->accumulator];
+    for (unsigned operand : reduction->wideningOperands) {
       registers = std::max(registers, weights.registers[operand]);
       usefulBits = std::max(usefulBits, weights.usefulBits[operand]);
     }

@@ -127,7 +127,8 @@ public:
   llvm::SmallBitVector reductionDims;
 
   SmallVector<Node, 0> nodes;
-  SmallVector<Reduction> reductions;
+  /// The dispatch's single reduction, if it has one.
+  std::optional<Reduction> reduction;
   /// Loops over the shared reduction dims inside the parallel tile: one for
   /// the reduction, plus one for a map that still runs over them afterwards.
   unsigned numPhases = 0;
@@ -136,7 +137,6 @@ public:
   SmallVector<Step> steps;
   /// Node index -> its live range, valid only for scheduled nodes.
   SmallVector<LiveInterval> live;
-  std::optional<TiledReductionWidening> widening;
 
   // --- helpers -----------------------------------------------------------
   /// Reports `reason` through the caller's callback and LLVM_DEBUG, and
@@ -174,9 +174,9 @@ private:
 /// nodes, splice fused edges and insert dispatch boundaries.
 LogicalResult buildNodeGraph(DispatchRegisterGraph &graph);
 
-/// marks per-chunk values, folds Multiply-accumulate and decides which
-/// reductions fold horizontally.
-void lowerReductions(DispatchRegisterGraph &graph);
+/// marks per-chunk values, folds Multiply-accumulate and decides whether the
+/// reduction folds horizontally.
+void lowerReduction(DispatchRegisterGraph &graph);
 
 /// phases, placement, the schedule, its live ranges, and every
 /// node's footprint.

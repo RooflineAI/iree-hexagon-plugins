@@ -115,15 +115,6 @@ def InsertProfilerMarkersPass :
   }];
 }
 
-def MarkHexagonNativeRuntimeLinksPass :
-    Pass<"iree-hexagon-mark-native-runtime-links", "mlir::ModuleOp"> {
-  let summary = [{
-      Tag Hexagon DMA/HexagonMem/HexKL runtime llvm.func declarations that
-      should remain native unresolved externs and be resolved by the DSP
-      dynamic loader instead of the HAL import ABI.
-  }];
-}
-
 def PromoteDMATagAllocToStackPass :
     InterfacePass<"iree-hexagon-promote-dma-tag-alloc-to-stack",
                   "mlir::FunctionOpInterface"> {

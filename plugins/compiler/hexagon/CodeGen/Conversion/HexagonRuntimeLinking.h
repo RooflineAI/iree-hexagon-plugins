@@ -16,10 +16,6 @@
 
 namespace mlir::iree_compiler::hexagon::codegen {
 
-// This is meant to be used as an attribute marker for functions that are linked
-// from the Hexagon runtime.
-inline constexpr llvm::StringLiteral kNativeRuntimeLinkAttrName =
-    "hexagon.native_runtime_link";
 // This is meant to be used as an attribute marker for a hal.executable.variant.
 // It will be used during serialization to allow for undefined symbols.
 inline constexpr llvm::StringLiteral kNativeRuntimeLinkVariantAttrName =
@@ -62,6 +58,10 @@ void markNativeRuntimeLinkingVariant(Operation *op);
 // above.
 LogicalResult renameAndTagNativeRuntimeLinkedFunc(ModuleOp moduleOp,
                                                   LLVM::LLVMFuncOp funcOp);
+
+// Verifies that every direct external call uses the static/native linking
+// policy supported by the Hexagon plugin.
+LogicalResult validateHexagonExternalCalls(ModuleOp moduleOp);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 

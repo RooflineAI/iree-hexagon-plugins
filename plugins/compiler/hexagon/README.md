@@ -30,24 +30,21 @@ The main compiler-side flow is:
 
 ## Linking of functions from Hexagon-mlir
 
-There are multiple ways of linking external functions in IREE:
-- Re-signature the call to match the HAL ABI calling convention (e.g., packs
-args into a struct).
-This would also be the options when calling other functions compiled through IREE.
-Function can be linked at dynamically during runtime execution.
-   - Callee attribute in codegen: hal.import.bitcode
-   - Codegen pattern: RewriteCallOpABI + RewriteFuncOpABI
-- Leave for the static linker and embed the result into the generated vmfb.
-   - Callee attribute in codegen: hal.import.static
-   - Codegen pattern: skipped in codegen, managed during serialization.
-- Convert into a dynamic import for the runtime without rewriting the ABI.
-   - Callee attribute in codegen: currently a custom marker
-   - Codegen pattern: skipped in codegen
+Hexagon currently supports direct external calls resolved through static or
+native DSP runtime linking. Such declarations use `hal.import.static`. A
+variant-level `hexagon.native_runtime_linking` marker separately permits the
+known runtime symbols to remain undefined in the kernel shared object so that
+the DSP loader can resolve them from `libhexagon_dsp_skel.so`.
 
-All three of these options have been implemented and tested in experimental branches
-and the third one is the one currently implemented in the code.
-This is only done for a hardcoded set of symbols from DMA/HexKL/HexagonMem and for
-some generic symbols used by the lowering (`malloc`, `free`, `memrefCopy`, ...).
+Generic HAL dynamic imports and bitcode-import ABI rewriting are currently
+unsupported. Compilation diagnoses an unclassified external call instead of
+silently emitting an executable that the runtime cannot load. See
+[External calls and HAL imports](CodeGen/Conversion/README.md#external-calls-and-hal-imports)
+for more information.
+
+The native policy applies to the hardcoded DMA, HexKL, HexagonMem, HMX, and
+profiler symbols, plus lowering helpers such as `malloc`, `free`, and
+`memrefCopy` after they are renamed to their Hexagon runtime entry points.
 
 ## Code Relationships
 
@@ -144,8 +141,8 @@ follow-up LLVMCPU dependency work, is documented in
 [`CodeGen/Conversion/README.md`](CodeGen/Conversion/README.md).
 
 - `Conversion/`
-  - module-level conversions and import-marking passes,
-  - includes final conversion toward LLVM-oriented IR.
+  - module-level conversions: HMX-to-runtime-call lowering and the final
+    conversion to LLVM, which also classifies native runtime symbols.
 - `Transforms/`
   - smaller, local canonicalization or adaptation passes used inside the
     Hexagon lowering flow.

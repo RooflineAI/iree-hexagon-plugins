@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "executable.h"
-#include "import_provider.h"
 
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -89,14 +88,14 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
     return AEE_ECLASSNOTSUPPORT;
   }
 
-  int err = hexagon_dsp_import_provider_initialize(
-      &executable->library.v0->imports, &executable->environment);
-  if (err != AEE_SUCCESS) {
+  if (executable->library.v0->imports.count != 0) {
     FARF(ERROR,
-         "HEXAGON-RUNTIME-ERROR: failed to initialize import provider for '%s' "
-         "(error=0x%x)",
-         executable->name ? executable->name : "(null)", err);
-    return err;
+         "HEXAGON-RUNTIME-ERROR: executable '%s' declares %u HAL imports, "
+         "but the Hexagon plugins currently support only static/native DSP "
+         "runtime linking",
+         executable->name ? executable->name : "(null)",
+         (unsigned)executable->library.v0->imports.count);
+    return AEE_EUNSUPPORTED;
   }
 
   return AEE_SUCCESS;
@@ -128,7 +127,6 @@ int hexagon_dsp_executable_close(remote_handle64 rpc_handle,
                                  int64 executable_handle) {
   hexagon_dsp_executable_t *executable =
       (hexagon_dsp_executable_t *)executable_handle;
-  hexagon_dsp_import_provider_deinitialize(&executable->environment);
   // close shared library, free resources
   if (executable->shlib) {
     dlclose(executable->shlib);

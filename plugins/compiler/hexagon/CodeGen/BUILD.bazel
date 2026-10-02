@@ -129,12 +129,63 @@ hexagon_plugin_library(
 )
 
 hexagon_plugin_library(
+    name = "HexagonDispatchABI",
+    srcs = ["Conversion/HexagonDispatchABI.cpp"],
+    hdrs = ["Conversion/HexagonDispatchABI.h"],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
+        "@llvm-project//llvm:BinaryFormat",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMCommonConversion",
+        "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:MemRefDialect",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)
+
+hexagon_plugin_library(
+    name = "HexagonRuntimeLinking",
+    srcs = ["Conversion/HexagonRuntimeLinking.cpp"],
+    hdrs = ["Conversion/HexagonRuntimeLinking.h"],
+    hdr_deps = [
+        "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMDialect",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)
+
+hexagon_plugin_library(
+    name = "HexagonABIToLLVM",
+    srcs = ["Conversion/HexagonABIToLLVM.cpp"],
+    hdrs = ["Conversion/HexagonABIToLLVM.h"],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
+        "@iree//runtime/src/iree/schemas/instruments",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:FuncDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMCommonConversion",
+        "@llvm-project//mlir:LLVMDialect",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [
+        ":HexagonDispatchABI",
+    ],
+)
+
+hexagon_plugin_library(
     name = "codegen",
     srcs = [
         "Conversion/HexagonConvertToLLVM.cpp",
         "Conversion/HexagonLowerHmxToCalls.cpp",
-        "Conversion/HexagonRuntimeLinking.cpp",
-        "Conversion/MarkHexagonNativeRuntimeLinks.cpp",
         "Passes.cpp",
         "Pipelines/Bufferization.cpp",
         "Pipelines/ConfigurationPipeline.cpp",
@@ -155,7 +206,6 @@ hexagon_plugin_library(
     ],
     hdrs = [
         "Conversion/HexagonConvertToLLVM.h",
-        "Conversion/HexagonRuntimeLinking.h",
         "Passes.h",
         "Pipelines/Bufferization.h",
         "Pipelines/ConfigurationPipeline.h",
@@ -230,6 +280,8 @@ hexagon_plugin_library(
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":DispatchPlanner",
+        ":HexagonABIToLLVM",
+        ":HexagonRuntimeLinking",
         ":PassesIncGen",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",

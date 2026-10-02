@@ -42,14 +42,14 @@
 hal.executable public @test {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) attributes {hexagon.native_runtime_linking} {
     builtin.module attributes {llvm.data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", llvm.target_triple = "hexagon-unknown-unknown-elf"} {
-      llvm.func @hexagon_runtime_alloc_1d(i32, i64, i1) -> !llvm.ptr attributes {hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_dma_wait(i32) attributes {hexagon.native_runtime_link}
-      llvm.func @hexkl_matmul_f16f16_f32(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32 attributes {hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_malloc(i64) -> !llvm.ptr attributes {hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_free(!llvm.ptr) attributes {hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_memref_copy(i64, !llvm.ptr, !llvm.ptr) attributes {hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_profiler_zone_begin(i32, !llvm.ptr) -> !llvm.ptr attributes {hexagon.native_runtime_link}
-      llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {hexagon.native_runtime_link}
+      llvm.func @hexagon_runtime_alloc_1d(i32, i64, i1) -> !llvm.ptr attributes {hal.import.static}
+      llvm.func @hexagon_runtime_dma_wait(i32) attributes {hal.import.static}
+      llvm.func @hexkl_matmul_f16f16_f32(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32 attributes {hal.import.static}
+      llvm.func @hexagon_runtime_malloc(i64) -> !llvm.ptr attributes {hal.import.static}
+      llvm.func @hexagon_runtime_free(!llvm.ptr) attributes {hal.import.static}
+      llvm.func @hexagon_runtime_memref_copy(i64, !llvm.ptr, !llvm.ptr) attributes {hal.import.static}
+      llvm.func @hexagon_runtime_profiler_zone_begin(i32, !llvm.ptr) -> !llvm.ptr attributes {hal.import.static}
+      llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {hal.import.static}
 
       llvm.func @export(%arg0: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}, %arg1: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}, %arg2: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}) -> i32 {
         %c0_i32 = llvm.mlir.constant(0 : i32) : i32

@@ -113,12 +113,18 @@ class ModelSpec:
     # Seconds the module push, and separately iree-run-module on the device,
     # may take before they are killed.
     run_timeout: float = 600.0
+    # Why the model is not run by default, e.g. an import too expensive to
+    # repeat while a known failure stands. Its tests are reported as skipped
+    # with this reason, unless pytest is given --run-skipped.
+    skip: str | None = None
 
     def __post_init__(self) -> None:
         if self.dtype not in _DTYPES:
             raise SpecError(f"{self.name}: unknown dtype {self.dtype!r}")
         if not self.inputs:
             raise SpecError(f"{self.name}: at least one input is required")
+        if self.skip is not None and not self.skip.strip():
+            raise SpecError(f"{self.name}: 'skip' must say why the model is skipped")
 
     @property
     def model_source(self) -> Path:

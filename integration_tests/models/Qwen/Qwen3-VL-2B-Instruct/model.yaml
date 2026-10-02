@@ -1,0 +1,29 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+# The vision encoder's four outputs, synthetic: the merged image embeddings and
+# the three deepstack features, [64, 2048] each. Real ones (eg: keyboard.png) have a
+# std of 0.3-0.56 and peaks up to 24, so N(0, 1) is in range. The 81-token
+# prompt they are scattered into is baked into model.py.
+inputs:
+  - {shape: [64, 2048], dtype: float16, generator: normal, seed: 0}
+  - {shape: [64, 2048], dtype: float16, generator: normal, seed: 1}
+  - {shape: [64, 2048], dtype: float16, generator: normal, seed: 2}
+  - {shape: [64, 2048], dtype: float16, generator: normal, seed: 3}
+# Measured 2026-10-01 (hexagon-vtcm-hmx): 0.32% relative L2 vs torch-f16, 100%
+# top-1. That is f16 noise, not a Hexagon error: torch-f16 itself is 0.29% from
+# torch-f32 on these inputs, and the device is 0.29% from f32 too.
+tolerances:
+  atol: 2.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 0.5
+# The plain `hexagon` case is ~10x slower on device
+# for an LLM prefill.
+compile_cases: [hexagon-vtcm-hmx]
+# f16 weights over 2 GiB.
+extra_compile_flags:
+  - "--iree-stream-resource-max-allocation-size=1073741824"

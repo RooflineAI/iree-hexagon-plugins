@@ -152,8 +152,12 @@ void markHorizontalReduction(DispatchRegisterGraph &graph) {
     else if (graph.reductionDims.test(*lane))
       alongReduction = true;
   }
-  reduction.horizontal =
-      !laneAligned && alongReduction && !anyFullyMaterialized;
+  reduction.horizontal = !laneAligned && alongReduction &&
+                         // FIXME
+                         // this is done to account for the case that
+                         // an operand re-layout is necessary and this re-layout
+                         // results in vertical reduction
+                         !anyFullyMaterialized;
 }
 
 /// A horizontal reduction keeps one lane-spread partial result per register of

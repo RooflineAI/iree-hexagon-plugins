@@ -57,8 +57,7 @@ selectGenericStrategy(const PlanningContext &, const DispatchShape &);
 FailureOr<std::optional<DispatchStrategy>>
 selectDefaultTilingInterfaceStrategy(const PlanningContext &,
                                      const DispatchShape &);
-DispatchStrategy makeCPUDefaultStrategy(const DispatchShape &);
-
+DispatchStrategy makeHexagonDefaultStrategy(const DispatchShape &);
 // === Tiling policies ===
 FailureOr<std::optional<OpComputeTilePlan>>
 selectBufferCopyComputeTile(const PlanningContext &, const DispatchShape &,

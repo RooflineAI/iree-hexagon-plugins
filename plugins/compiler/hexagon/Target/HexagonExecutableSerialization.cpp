@@ -7,14 +7,13 @@
 #include "hexagon/Target/HexagonExecutableSerialization.h"
 #include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 
-#include "compiler/plugins/target/LLVMCPU/LLVMIRPasses.h"
-#include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
-#include "compiler/plugins/target/LLVMCPU/LibraryBuilder.h"
-#include "compiler/plugins/target/LLVMCPU/LinkerTool.h"
 #include "hexagon/Target/HexagonLLVMTarget.h"
-#include "hexagon/Target/Linking/HexagonLinkerTool.h"
+#include "hexagon/Target/LibraryBuilder.h"
+#include "hexagon/Target/Linking/HexagonLinker.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "iree/compiler/Utils/FlatbufferUtils.h"
+#include "iree/compiler/Utils/StringUtils.h"
+#include "iree/hal/local/executable_library.h"
 // Generated flatcc builder for the Hexagon executable-def flatbuffer (host-
 // readable export names + ELF). See serialize/hexagon_executable_def.fbs.
 #include "hexagon/schemas/hexagon_executable_def_builder.h"
@@ -30,31 +29,40 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/IR/Verifier.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/Passes/StandardInstrumentations.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
-#include <optional>
+#include <memory>
 #include <string>
 #include <vector>
 
-// TODO: There is a lot of code that is calling on functions from the
-// LLVMCPUTarget plugin, especially during linking. This also includes other
-// files inside the hexagon plugin. This will have to be revisited in the
-// future...
-
 namespace mlir::iree_compiler::hexagon::target {
 namespace HAL = mlir::iree_compiler::IREE::HAL;
-using HAL::Artifact;
-using HAL::Artifacts;
 using HAL::dumpDataToPath;
-using HAL::LibraryBuilder;
-using HAL::LLVMTarget;
-using HAL::LLVMTargetOptions;
 using HAL::TargetBackend;
 namespace {
+
+// The vendored LibraryBuilder emits the library tables the DSP runtime loads.
+// The runtime checks the version at load time (see dsp/executable.c); this
+// catches an IREE bump that changes the ABI at build time instead.
+static_assert(static_cast<uint32_t>(LibraryBuilder::Version::LATEST) ==
+                  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST,
+              "vendored Target/LibraryBuilder is out of sync with "
+              "iree/hal/local/executable_library.h; re-sync it from upstream");
+
+// Temporary files handed to the linker. Each one is deleted when its remover is
+// destroyed at the end of serialization.
+using TemporaryFiles = llvm::SmallVector<std::unique_ptr<llvm::FileRemover>>;
 
 static constexpr char kQueryFunctionName[] =
     "iree_hal_executable_library_query";
@@ -187,18 +195,14 @@ static void dumpAssemblyFromLLVMModule(HAL::ExecutableVariantOp variantOp,
 // hidden. We are not currently doing the same for Hexagon and all functions
 // are exposed.
 static void
-buildExecutableMetadata(const LLVMTarget &target, llvm::Module &llvmModule,
+buildExecutableMetadata(llvm::Module &llvmModule,
                         HAL::ExecutableVariantOp &variantOp,
                         llvm::SmallVectorImpl<std::string> &entryPointNames) {
-  LibraryBuilder::Mode libraryBuilderMode =
-      target.debugSymbols ? LibraryBuilder::Mode::INCLUDE_REFLECTION_ATTRS
-                          : LibraryBuilder::Mode::NONE;
-  LibraryBuilder libraryBuilder(&llvmModule, libraryBuilderMode,
+  // LLVMCPU also supports sanitizers and dropping the reflection attributes.
+  // Hexagon supports neither, so the defaults (no sanitizer) are kept.
+  LibraryBuilder libraryBuilder(&llvmModule,
+                                LibraryBuilder::Mode::INCLUDE_REFLECTION_ATTRS,
                                 LibraryBuilder::Version::LATEST);
-
-  // The LLVMCPUTarget has support for multiple sanitizer kinds, defined
-  // in target.sanitizerKind. For simplicity, let's not add any for now.
-  libraryBuilder.setSanitizerKind(LibraryBuilder::SanitizerKind::NONE);
 
   // Declare dynamically imported functions if present. Hexagon currently
   // expects runtime/helper symbols to be resolved via native DSP linking, so
@@ -264,7 +268,8 @@ buildExecutableMetadata(const LLVMTarget &target, llvm::Module &llvmModule,
           mlir::cast<mlir::IntegerAttr>(workgroupSizeValues[2]).getInt());
     }
 
-    LibraryBuilder::SourceLocation sourceLocation;
+    // Value-initialized: `line` is otherwise left uninitialized.
+    LibraryBuilder::SourceLocation sourceLocation{};
     SmallVector<LibraryBuilder::SourceLocation> stageLocations;
     libraryBuilder.addExport(exportOp.getName(), std::move(sourceLocation),
                              std::move(stageLocations), /*tag=*/"",
@@ -287,50 +292,116 @@ buildExecutableMetadata(const LLVMTarget &target, llvm::Module &llvmModule,
       llvm::GlobalValue::LinkageTypes::ExternalLinkage);
 }
 
-// Run the target backend codegen pipeline to produce an ELF object
-static llvm::SmallVector<Artifact>
-generateObjectFiles(llvm::Module &llvmModule,
-                    llvm::TargetMachine &targetMachine,
-                    HAL::ExecutableVariantOp &variantOp,
-                    const TargetBackend::SerializationOptions &options,
-                    llvm::StringRef libraryName) {
-  llvm::SmallVector<char, 0> objectDataStorage;
-  llvm::raw_svector_ostream objectStream(objectDataStorage);
+// Runs the LLVM middle-end optimization pipeline at O2. Loop interleaving,
+// loop vectorization, loop unrolling and SLP vectorization stay disabled,
+// matching the defaults of the LLVMCPU backend this was derived from.
+static LogicalResult
+runLLVMOptimizationPasses(llvm::TargetMachine &targetMachine,
+                          llvm::Module &llvmModule) {
+  llvm::LoopAnalysisManager loopAnalysisManager;
+  llvm::FunctionAnalysisManager functionAnalysisManager;
+  llvm::CGSCCAnalysisManager cgsccAnalysisManager;
+  llvm::ModuleAnalysisManager moduleAnalysisManager;
+
+  // Honors LLVM's debugging flags, such as -print-after-all.
+  llvm::PassInstrumentationCallbacks passInstrumentationCallbacks;
+  llvm::StandardInstrumentations standardInstrumentations(
+      llvmModule.getContext(), /*DebugLogging=*/false);
+  standardInstrumentations.registerCallbacks(passInstrumentationCallbacks);
+
+  llvm::PipelineTuningOptions tuningOptions;
+  tuningOptions.LoopInterleaving = false;
+  tuningOptions.LoopVectorization = false;
+  tuningOptions.LoopUnrolling = false;
+  tuningOptions.SLPVectorization = false;
+
+  llvm::PassBuilder passBuilder(&targetMachine, tuningOptions,
+                                /*PGOOpt=*/std::nullopt,
+                                &passInstrumentationCallbacks);
+  passBuilder.registerModuleAnalyses(moduleAnalysisManager);
+  passBuilder.registerCGSCCAnalyses(cgsccAnalysisManager);
+  passBuilder.registerFunctionAnalyses(functionAnalysisManager);
+  passBuilder.registerLoopAnalyses(loopAnalysisManager);
+  passBuilder.crossRegisterProxies(loopAnalysisManager, functionAnalysisManager,
+                                   cgsccAnalysisManager, moduleAnalysisManager);
+
+  llvm::ModulePassManager modulePassManager =
+      passBuilder.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
+  modulePassManager.run(llvmModule, moduleAnalysisManager);
+
+  return failure(llvm::verifyModule(llvmModule, &llvm::errs()));
+}
+
+// Writes `data` to a new temporary file and returns its path.
+static FailureOr<std::string> writeTemporaryFile(llvm::StringRef prefix,
+                                                 llvm::StringRef extension,
+                                                 llvm::StringRef data,
+                                                 TemporaryFiles &tempFiles) {
+  llvm::SmallString<128> path;
+  if (std::error_code error = llvm::sys::fs::createTemporaryFile(
+          sanitizeFileName(prefix), sanitizeFileName(extension), path)) {
+    llvm::errs() << "failed to create temporary file: " << error.message()
+                 << "\n";
+    return failure();
+  }
+  tempFiles.push_back(std::make_unique<llvm::FileRemover>(path));
+
+  std::error_code error;
+  llvm::raw_fd_ostream os(path, error);
+  if (error) {
+    llvm::errs() << "failed to open temporary file '" << path
+                 << "': " << error.message() << "\n";
+    return failure();
+  }
+  os << data;
+  os.close();
+  if (os.has_error()) {
+    llvm::errs() << "failed to write temporary file '" << path
+                 << "': " << os.error().message() << "\n";
+    os.clear_error();
+    return failure();
+  }
+  return path.str().str();
+}
+
+// Run the target backend codegen pipeline to produce an ELF object and write
+// it to a temporary file for the linker.
+static LogicalResult
+generateObjectFile(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine,
+                   HAL::ExecutableVariantOp &variantOp,
+                   const TargetBackend::SerializationOptions &options,
+                   llvm::StringRef libraryName, TemporaryFiles &tempFiles,
+                   llvm::SmallVectorImpl<std::string> &objectPaths) {
+  llvm::SmallVector<char, 0> objectData;
+  llvm::raw_svector_ostream objectStream(objectData);
   llvm::legacy::PassManager passManager;
   if (targetMachine.addPassesToEmitFile(passManager, objectStream, nullptr,
                                         llvm::CodeGenFileType::ObjectFile)) {
-    variantOp.emitOpError()
-        << "Hexagon target machine cannot emit object files";
+    return variantOp.emitOpError()
+           << "Hexagon target machine cannot emit object files";
   }
   passManager.run(llvmModule);
-  std::vector<int8_t> objectData(objectDataStorage.begin(),
-                                 objectDataStorage.end());
+  llvm::StringRef objectRef(objectData.data(), objectData.size());
 
   if (!options.dumpBinariesPath.empty()) {
-    dumpDataToPath<int8_t>(options.dumpBinariesPath, options.dumpBaseName,
-                           variantOp.getName(), ".o", objectData);
+    dumpDataToPath(options.dumpBinariesPath, options.dumpBaseName,
+                   variantOp.getName(), ".o", objectRef);
   }
 
   // Persist the temporary object to disk so the linker can turn it into an
   // ET_DYN shared object
-  llvm::SmallVector<Artifact> objectFiles;
-  {
-    Artifact objectFile = Artifact::createTemporary(libraryName, "o");
-    auto &os = objectFile.outputFile->os();
-    os.write(reinterpret_cast<const char *>(objectData.data()),
-             objectData.size());
-    os.flush();
-    os.close();
-    objectFiles.push_back(std::move(objectFile));
-  }
-
-  return objectFiles;
+  FailureOr<std::string> objectPath =
+      writeTemporaryFile(libraryName, "o", objectRef, tempFiles);
+  if (failed(objectPath))
+    return failure();
+  objectPaths.push_back(*objectPath);
+  return success();
 }
 
 static mlir::LogicalResult
 appendLinkerObjects(HAL::ExecutableVariantOp &variantOp,
-                    llvm::StringRef libraryName,
-                    llvm::SmallVector<Artifact> &objectFiles) {
+                    llvm::StringRef libraryName, TemporaryFiles &tempFiles,
+                    llvm::SmallVectorImpl<std::string> &objectPaths) {
   llvm::SmallVector<HAL::ExecutableObjectAttr> linkerObjectAttrs;
   HAL::ExecutableObjectAttr::filterObjects(variantOp.getObjectsAttr(),
                                            {".o", ".obj", ".a", ".lib"},
@@ -352,12 +423,12 @@ appendLinkerObjects(HAL::ExecutableVariantOp &variantOp,
       if (extension.empty())
         extension = "o";
 
-      Artifact objectFile = Artifact::createTemporary(
-          libraryName.str() + "_object_" + std::to_string(index), extension);
-      auto &os = objectFile.outputFile->os();
-      os.write(objectData->data(), objectData->size());
-      os.close();
-      objectFiles.push_back(std::move(objectFile));
+      FailureOr<std::string> objectPath = writeTemporaryFile(
+          libraryName.str() + "_object_" + std::to_string(index), extension,
+          *objectData, tempFiles);
+      if (failed(objectPath))
+        return failure();
+      objectPaths.push_back(*objectPath);
       continue;
     }
 
@@ -369,38 +440,41 @@ appendLinkerObjects(HAL::ExecutableVariantOp &variantOp,
                 "paths: "
              << objectAttr;
     }
-    objectFiles.push_back(Artifact::fromFile(*absolutePath));
+    objectPaths.push_back(*absolutePath);
   }
 
   return success();
 }
 
-static std::optional<Artifacts> linkArtifacts(
-    const HexagonOptions &options,
-    const llvm::SmallVector<Artifact> &objectFiles,
-    const LLVMTarget &llvmIreeTarget, const llvm::TargetMachine &targetMachine,
-    HAL::ExecutableVariantOp &variantOp, const llvm::StringRef libraryName) {
-  LLVMTargetOptions linkerOptions;
-  linkerOptions.target.copy(llvmIreeTarget);
-  linkerOptions.embeddedLinkerPath = options.linker;
+// Links the objects into a shared object and returns its contents.
+static FailureOr<std::unique_ptr<llvm::MemoryBuffer>>
+linkSharedObject(const HexagonOptions &options,
+                 llvm::ArrayRef<std::string> objectPaths,
+                 HAL::ExecutableVariantOp &variantOp,
+                 llvm::StringRef libraryName, TemporaryFiles &tempFiles) {
+  FailureOr<std::string> libraryPath =
+      writeTemporaryFile(libraryName, "so", "", tempFiles);
+  if (failed(libraryPath))
+    return failure();
+
   // Allow undefined symbols that will be resolved from the runtime when the
   // variant is tagged.
   const bool allowNativeUndefinedSymbols =
       variantOp->hasAttr(codegen::kNativeRuntimeLinkVariantAttrName);
-
-  auto linkerTool =
-      mlir::iree_compiler::hexagon::target::linking::createHexagonLinkerTool(
-          targetMachine.getTargetTriple(), linkerOptions,
-          allowNativeUndefinedSymbols);
-
-  auto linkedArtifactsOption =
-      linkerTool->linkDynamicLibrary(libraryName, objectFiles);
-  if (!linkedArtifactsOption) {
-    variantOp.emitOpError()
-        << "failed to link Hexagon shared object (see linker output above)";
+  if (failed(linking::linkHexagonSharedObject(options.linker, objectPaths,
+                                              *libraryPath,
+                                              allowNativeUndefinedSymbols))) {
+    return variantOp.emitOpError()
+           << "failed to link Hexagon shared object (see linker output above)";
   }
 
-  return linkedArtifactsOption;
+  auto library = llvm::MemoryBuffer::getFile(*libraryPath);
+  if (!library) {
+    return variantOp.emitOpError()
+           << "failed to read back linked Hexagon library from "
+           << *libraryPath;
+  }
+  return std::move(*library);
 }
 
 } // namespace
@@ -420,20 +494,12 @@ mlir::LogicalResult serializeHexagonExecutable(
 
   initializeHexagonTarget();
 
-  // Conversions between IREE and LLVM types
-  // Note that the LLVM Target type and its related functions are reusing part
-  // of IREE's LLVMCPUTarget plugin
-  // Retrieve IREE's LLVM target and create the LLVM's TargetMachine from it.
-  auto targetAttr = variantOp.getTarget();
-  mlir::DictionaryAttr configAttr = targetAttr.getConfiguration();
+  // The executable target configuration written by HexagonTargetBackend
+  // describes the LLVM target machine to generate code for.
+  mlir::DictionaryAttr configAttr = variantOp.getTarget().getConfiguration();
   if (!configAttr)
-    variantOp->emitError("Failed to retrieve target attribute configuration");
-
-  auto llvmTargetOption = LLVMTarget::loadFromConfigAttr(
-      variantOp->getLoc(), configAttr, createLLVMTargetForHexagon(options));
-  if (!llvmTargetOption)
-    variantOp->emitError(
-        "Failed to load LLVMTarget from configuration attributes");
+    return variantOp.emitOpError()
+           << "missing executable target attribute configuration";
 
   llvm::LLVMContext context;
   auto libraryName =
@@ -446,17 +512,13 @@ mlir::LogicalResult serializeHexagonExecutable(
     return variantOp.emitOpError()
            << "failed to translate module to LLVM IR for Hexagon";
 
-  const auto &llvmIreeTarget = llvmTargetOption.value();
-
   llvm::SmallVector<std::string> entryPointNames;
-  buildExecutableMetadata(llvmIreeTarget, *llvmModule, variantOp,
-                          entryPointNames);
+  buildExecutableMetadata(*llvmModule, variantOp, entryPointNames);
 
-  auto targetMachine = createTargetMachine(llvmIreeTarget);
+  auto targetMachine = createHexagonTargetMachine(configAttr);
   if (!targetMachine) {
-    return variantOp->emitError("failed to create target machine for target "
-                                "triple '" +
-                                llvmIreeTarget.getTriple() + "'");
+    return variantOp.emitOpError()
+           << "failed to create Hexagon target machine from " << configAttr;
   }
 
   // This information is embedded into each one of the dispatches. When
@@ -477,12 +539,8 @@ mlir::LogicalResult serializeHexagonExecutable(
   }
 
   // Run the LLVM IR middle-end optimization pipeline before instruction
-  // selection using the target's configured LLVM optimizer level. For the
-  // current Hexagon target construction this is O2 by default.
-  // This call is driven by llvmIreeTarget.optimizerOptLevel (which also affects
-  // previous passes)
-  if (failed(HAL::runLLVMIRPasses(llvmIreeTarget, targetMachine.get(),
-                                  llvmModule.get()))) {
+  // selection.
+  if (failed(runLLVMOptimizationPasses(*targetMachine, *llvmModule))) {
     return variantOp.emitOpError()
            << "failed to run LLVM IR optimization passes for Hexagon";
   }
@@ -521,9 +579,13 @@ mlir::LogicalResult serializeHexagonExecutable(
         /*RespectFilters=*/false);
   }
 
-  llvm::SmallVector<Artifact> objectFiles =
-      generateObjectFiles(*llvmModule, *targetMachine, variantOp,
-                          serializationOptions, libraryName);
+  TemporaryFiles tempFiles;
+  llvm::SmallVector<std::string> objectPaths;
+  if (failed(generateObjectFile(*llvmModule, *targetMachine, variantOp,
+                                serializationOptions, libraryName, tempFiles,
+                                objectPaths))) {
+    return failure();
+  }
 
   if (!stackViolations.empty()) {
     InFlightDiagnostic diag =
@@ -541,26 +603,20 @@ mlir::LogicalResult serializeHexagonExecutable(
   // Here we are linking any objects defined as a hal.executable.objects in
   // the IR
   // These are controlled through the --iree-hal-executable-object-search-path
-  if (failed(appendLinkerObjects(variantOp, libraryName, objectFiles))) {
+  if (failed(appendLinkerObjects(variantOp, libraryName, tempFiles,
+                                 objectPaths))) {
     return failure();
   }
 
-  auto linkedArtifacts = linkArtifacts(options, objectFiles, llvmIreeTarget,
-                                       *targetMachine, variantOp, libraryName);
-  if (!linkedArtifacts)
+  FailureOr<std::unique_ptr<llvm::MemoryBuffer>> library =
+      linkSharedObject(options, objectPaths, variantOp, libraryName, tempFiles);
+  if (failed(library))
     return failure();
-
-  auto libraryFileOption = linkedArtifacts->libraryFile.read();
-  if (!libraryFileOption) {
-    return variantOp.emitOpError()
-           << "failed to read back linked Hexagon library from "
-           << linkedArtifacts->libraryFile.path;
-  }
+  llvm::StringRef libraryData = (*library)->getBuffer();
   if (!serializationOptions.dumpBinariesPath.empty()) {
-    dumpDataToPath<int8_t>(serializationOptions.dumpBinariesPath,
-                           serializationOptions.dumpBaseName,
-                           variantOp.getName(), ".so",
-                           libraryFileOption.value());
+    dumpDataToPath(serializationOptions.dumpBinariesPath,
+                   serializationOptions.dumpBaseName, variantOp.getName(),
+                   ".so", libraryData);
   }
 
   // Wrap the export names (host-readable, in dense ordinal order) plus the
@@ -572,8 +628,8 @@ mlir::LogicalResult serializeHexagonExecutable(
   iree_hal_hexagon_ExecutableDef_start_as_root(builder);
   auto entryPointsRef = builder.createStringVec(entryPointNames);
   auto elfRef = flatbuffers_uint8_vec_create(
-      builder, reinterpret_cast<const uint8_t *>(libraryFileOption->data()),
-      libraryFileOption->size());
+      builder, reinterpret_cast<const uint8_t *>(libraryData.data()),
+      libraryData.size());
   iree_hal_hexagon_ExecutableDef_entry_points_add(builder, entryPointsRef);
   iree_hal_hexagon_ExecutableDef_elf_add(builder, elfRef);
   iree_hal_hexagon_ExecutableDef_end_as_root(builder);

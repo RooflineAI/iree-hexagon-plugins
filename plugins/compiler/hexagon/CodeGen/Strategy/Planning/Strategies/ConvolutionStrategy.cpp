@@ -104,7 +104,8 @@ selectConvolutionStrategy(const PlanningContext &context,
       inferConvolutionComputeTile(context, shape, linalgOp);
 
   DispatchStrategy strategy;
-  strategy.pipeline = IREE::CPU::LoweringPipeline::ConvTileAndDecomposeExpert;
+  strategy.pipeline =
+      IREE::Hexagon::LoweringPipeline::ConvTileAndDecomposeExpert;
   strategy.rootTiling.distributionTile = compute;
   strategy.rootTiling.cacheTile =
       SmallVector<TileDecision>(shape.dimensions.size());

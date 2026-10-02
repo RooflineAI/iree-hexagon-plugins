@@ -6,13 +6,24 @@
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
 
+#include "iree/compiler/Codegen/Utils/Utils.h"
+#include "mlir/IR/Builders.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/TargetParser/Triple.h"
 
 #include <mutex>
-#include <string>
 
 namespace mlir::iree_compiler::hexagon::target {
-namespace HAL = mlir::iree_compiler::IREE::HAL;
+
+// Configuration keys shared with the LLVMCPU codegen passes.
+// The upstream helpers writing them live in Codegen/LLVMCPU/Utils.h.
+// TODO: This is in the process of being refactored to remove these
+// dependencies. These lines should be removed once this refactor is complete.
+static constexpr char kCpuAttrName[] = "cpu";
+static constexpr char kNativeVectorSizeAttrName[] = "native_vector_size";
+static constexpr char kMaxStackAllocationSizeAttrName[] =
+    "max_stack_allocation_size";
 
 // Registers all LLVM components required for Hexagon code generation.
 void initializeHexagonTarget() {
@@ -31,34 +42,65 @@ void initializeHexagonTarget() {
   });
 }
 
-HAL::LLVMTarget createLLVMTargetForHexagon(const HexagonOptions &options) {
-  constexpr llvm::StringRef triple = "hexagon-unknown-unknown-elf";
-  constexpr int64_t kHexagonMaxStackAllocSizeInBytes = 16 * 1024;
-  std::string cpuName = std::string("hexagonv") + options.version;
-  HAL::ResolveCPUAndCPUFeaturesStatus status;
+void HexagonTarget::storeToConfigAttrs(
+    mlir::MLIRContext *context,
+    llvm::SmallVectorImpl<mlir::NamedAttribute> &config) const {
+  mlir::Builder b(context);
+  addConfigTargetTriple(context, triple, config);
+  config.emplace_back(b.getStringAttr(kCpuAttrName), b.getStringAttr(dsp));
+  addConfigCpuFeatures(context, dspFeatures, config);
+  addConfigDataLayout(context, dataLayout, config);
+  config.emplace_back(b.getStringAttr(kNativeVectorSizeAttrName),
+                      b.getI64IntegerAttr(vectorWidthInBytes));
+  config.emplace_back(b.getStringAttr(kMaxStackAllocationSizeAttrName),
+                      b.getI64IntegerAttr(maxStackAllocSizeInBytes));
+}
 
-  // FIXME: This calls resolveCPUAndCPUFeatures that will fail because hexagon
-  // is not registered as an LLVMTarget in IREE. Since I am just prototyping, I
-  // will ignore the failed status and manually input the necessary info
-  // (hardcoded) in the target (dataLayout and vectorWidth).
-  auto targetOption =
-      HAL::LLVMTarget::create(triple, cpuName, options.features, false, status);
-  if (!targetOption)
-    llvm::errs() << "Failed to define default LLVMTarget for Hexagon";
-  auto target = targetOption.value();
-
+HexagonTarget createHexagonTarget(const HexagonOptions &options) {
+  HexagonTarget target;
+  target.triple = "hexagon-unknown-unknown-elf";
+  target.dsp = "hexagonv" + options.version;
+  target.dspFeatures = options.features;
   target.dataLayout =
       "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:"
       "32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-"
       "v2048:2048:2048";
-
   // TODO: Setting the actual vector bitwidth and using IREE's kernel
   // dispatching will result in compilation errors.
   // target.vectorWidthInBytes = 128;
   target.vectorWidthInBytes = 32;
-  target.maxStackAllocSizeInBytes = kHexagonMaxStackAllocSizeInBytes;
-
+  target.maxStackAllocSizeInBytes = 16 * 1024;
   return target;
+}
+
+std::unique_ptr<llvm::TargetMachine>
+createHexagonTargetMachine(mlir::DictionaryAttr config) {
+  std::optional<llvm::StringRef> tripleStr = getConfigTargetTriple(config);
+  if (!tripleStr) {
+    return nullptr;
+  }
+  auto dspAttr = config.getAs<mlir::StringAttr>(kCpuAttrName);
+  llvm::StringRef dsp = dspAttr ? dspAttr.getValue() : "";
+  llvm::StringRef dspFeatures = getConfigCpuFeatures(config).value_or("");
+
+  llvm::Triple triple(*tripleStr);
+  std::string errorMessage;
+  const llvm::Target *llvmTarget =
+      llvm::TargetRegistry::lookupTarget(triple, errorMessage);
+  if (!llvmTarget) {
+    return nullptr;
+  }
+
+  llvm::TargetOptions targetOptions;
+  targetOptions.FloatABIType = llvm::FloatABI::Hard;
+  // Place every function and global in its own section.
+  targetOptions.FunctionSections = true;
+  targetOptions.DataSections = true;
+  targetOptions.UniqueSectionNames = true;
+
+  return std::unique_ptr<llvm::TargetMachine>(llvmTarget->createTargetMachine(
+      triple, dsp, dspFeatures, targetOptions, llvm::Reloc::Model::PIC_,
+      /*CM=*/std::nullopt, llvm::CodeGenOptLevel::Aggressive, /*JIT=*/false));
 }
 
 } // namespace mlir::iree_compiler::hexagon::target

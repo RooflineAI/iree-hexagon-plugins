@@ -9,14 +9,39 @@
 
 #include "hexagon/Target/HexagonOptions.h"
 
-#include "compiler/plugins/target/LLVMCPU/LLVMTargetOptions.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/Target/TargetMachine.h"
+
+#include <memory>
+#include <string>
 
 namespace mlir::iree_compiler::hexagon::target {
 
 void initializeHexagonTarget();
 
-mlir::iree_compiler::IREE::HAL::LLVMTarget
-createLLVMTargetForHexagon(const HexagonOptions &options);
+// Describes the LLVM Hexagon target. It is stored in the executable target
+// configuration, which is the only thing serialization reads back.
+struct HexagonTarget {
+  std::string triple;
+  std::string dsp;
+  std::string dspFeatures;
+  std::string dataLayout;
+  int64_t vectorWidthInBytes;
+  int64_t maxStackAllocSizeInBytes;
+
+  // Writes the configuration keys read by the codegen passes (several of them
+  // reused from LLVMCPU) and by serialization.
+  void
+  storeToConfigAttrs(mlir::MLIRContext *context,
+                     llvm::SmallVectorImpl<mlir::NamedAttribute> &config) const;
+};
+
+HexagonTarget createHexagonTarget(const HexagonOptions &options);
+
+// Creates the LLVM target machine for the target described in `config`.
+// Returns nullptr on failure.
+std::unique_ptr<llvm::TargetMachine>
+createHexagonTargetMachine(mlir::DictionaryAttr config);
 
 } // namespace mlir::iree_compiler::hexagon::target
 

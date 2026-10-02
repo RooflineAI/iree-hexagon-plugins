@@ -92,17 +92,14 @@ _REVISION = "93efa2f097d58c2a74874c7e644dbc9b0cee75a2"
 ```
 
 With no `compile_cases`, a model runs both `hexagon` and
-`hexagon-vtcm-hmx`. Add an explicit list to narrow or extend that matrix. The
-`llvmcpu-baseline` case is opt-in; for example:
+`hexagon-vtcm-hmx`. Add an explicit list to narrow that matrix:
 
 * `hexagon`: Hexagon launch configuration, with VTCM tiling and HMX disabled.
 
 * `hexagon-vtcm-hmx`: Hexagon launch configuration, with both features enabled.
 
-* `llvmcpu-baseline`: LLVMCPU launch configuration, with both features disabled.
-
 ```yaml
-compile_cases: [hexagon, hexagon-vtcm-hmx, llvmcpu-baseline]
+compile_cases: [hexagon, hexagon-vtcm-hmx]
 ```
 
 Use `--compile-case=hexagon-vtcm-hmx` to filter a test invocation to one of a
@@ -124,10 +121,10 @@ A model may record known failures:
 
 ```yaml
 expected_outcomes:
-  - case: llvmcpu-baseline   # or "*" for every case
+  - case: hexagon-vtcm-hmx   # or "*" for every case
     status: ACCURACY_FAILURE # or COMPILE_FAILURE, RUNTIME_FAILURE
     reason: "relative L2 error 2.9"
-    comment: "generic LLVMCPU launch-config selector; measured 2026-08-27"
+    comment: "measured 2026-08-27"
 ```
 
 `reason` is a substring that **must appear in the log the failure produces**.

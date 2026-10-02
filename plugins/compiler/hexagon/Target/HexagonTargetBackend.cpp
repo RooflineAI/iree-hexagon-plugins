@@ -51,10 +51,9 @@ public:
   getExecutableTarget(mlir::MLIRContext *context) const {
     mlir::Builder builder(context);
 
-    auto target = createLLVMTargetForHexagon(hexagonOptions);
-
     llvm::SmallVector<mlir::NamedAttribute> configItems;
-    target.storeToConfigAttrs(context, configItems);
+    createHexagonTarget(hexagonOptions)
+        .storeToConfigAttrs(context, configItems);
 
     configItems.emplace_back(builder.getNamedAttr(
         "hexagon.version", builder.getStringAttr(hexagonOptions.version)));

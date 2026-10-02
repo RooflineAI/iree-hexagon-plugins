@@ -7,7 +7,7 @@
 #ifndef ROOF_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_
 #define ROOF_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_
 
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "mlir/IR/Operation.h"
 
 #include "mlir/Support/LogicalResult.h"
@@ -89,7 +89,7 @@ struct PipelineContract {
 
 /// Returns the contract for a pipeline routed through the Hexagon backend.
 FailureOr<PipelineContract>
-getPipelineContract(IREE::CPU::LoweringPipeline pipeline);
+getPipelineContract(IREE::Hexagon::LoweringPipeline pipeline);
 
 /// Whether a downstream pass can still tile `op` to a configured compute tile
 /// smaller than the extent it is fused into. When this is false the operation's

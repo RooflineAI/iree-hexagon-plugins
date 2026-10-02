@@ -4,6 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/Passes.h"
 #include "hexagon/CodeGen/Strategy/KernelDispatch.h"
 
@@ -22,7 +23,8 @@ class HexagonSelectLoweringStrategyPass final
           HexagonSelectLoweringStrategyPass> {
 public:
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry.insert<mlir::iree_compiler::IREE::CPU::IREECPUDialect,
+    registry.insert<mlir::iree_compiler::IREE::Hexagon::IREEHexagonDialect,
+                    mlir::iree_compiler::IREE::CPU::IREECPUDialect,
                     mlir::iree_compiler::IREE::Codegen::IREECodegenDialect>();
   }
 

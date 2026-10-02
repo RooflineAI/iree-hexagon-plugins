@@ -7,7 +7,7 @@
 #ifndef ROOF_HEXAGON_CODEGEN_PLANNING_DISPATCHPLANTYPES_H_
 #define ROOF_HEXAGON_CODEGEN_PLANNING_DISPATCHPLANTYPES_H_
 
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
@@ -133,7 +133,8 @@ struct RootTilingPlan {
 
 /// One dispatch-level strategy and its root-only decisions.
 struct DispatchStrategy {
-  IREE::CPU::LoweringPipeline pipeline = IREE::CPU::LoweringPipeline::Default;
+  IREE::Hexagon::LoweringPipeline pipeline =
+      IREE::Hexagon::LoweringPipeline::Default;
   /// Whether encoding should request the pipeline's translation-info-controlled
   /// loop peeling. This is a strategy policy, separate from whether the
   /// selected pipeline supports or unconditionally performs peeling.

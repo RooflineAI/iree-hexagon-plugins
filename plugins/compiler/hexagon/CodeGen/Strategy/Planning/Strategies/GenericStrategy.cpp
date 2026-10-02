@@ -22,7 +22,7 @@ constexpr int64_t kCacheTileCap = 64;
 
 DispatchStrategy makeBaseStrategy(const OpShape &shape) {
   DispatchStrategy strategy;
-  strategy.pipeline = IREE::CPU::LoweringPipeline::DoubleTilingExpert;
+  strategy.pipeline = IREE::Hexagon::LoweringPipeline::MultiTilingExpert;
   strategy.rootTiling.distributionTile =
       SmallVector<TileDecision>(shape.dimensions.size());
   strategy.rootTiling.cacheTile =

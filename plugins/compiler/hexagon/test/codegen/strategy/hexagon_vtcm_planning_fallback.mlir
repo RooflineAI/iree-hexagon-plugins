@@ -1,4 +1,4 @@
-// CPUDouble supports VTCM but does not require it. If the footprint helper
+// MultiTilingExpert supports VTCM but does not require it. If the footprint helper
 // cannot derive a tile, planning continues without VTCM and preserves the
 // strategy's ordinary cache/compute decisions.
 //
@@ -23,9 +23,9 @@ func.func @unsupported_vtcm_footprint(%input: tensor<8x8xindex>) -> tensor<8x8xi
 }
 
 // CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 1]>
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>, {enable_loop_peeling}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK-DAG: #[[BUFFER_ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 8]>
-// CHECK-DAG: #[[BUFFER_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>>
+// CHECK-DAG: #[[BUFFER_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>>
 // CHECK-NOT: hexagon_vtcm_tiling_config
 // CHECK: func.func @unsupported_vtcm_footprint(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -34,7 +34,7 @@ func.func @unsupported_vtcm_footprint(%input: tensor<8x8xindex>) -> tensor<8x8xi
 
 // -----
 
-// Buffer-semantics Linalg is also a valid CPUDouble input. It is not eligible
+// Buffer-semantics Linalg is also a valid MultiTilingExpert input. It is not eligible
 // for VTCM staging, but that must not make the optional pipeline fail.
 func.func @buffer_semantics_generic(%input: memref<8x8xf32>, %output: memref<8x8xf32>) attributes {hal.executable.target = #target} {
   linalg.generic {

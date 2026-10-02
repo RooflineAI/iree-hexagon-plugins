@@ -25,8 +25,8 @@ The main compiler-side flow is:
    - the linking pipeline.
 6. The translation pipeline lowers to LLVM IR / Hexagon object code.
 7. `serializeHexagonExecutable(...)` serializes the final executable payload.
-8. `HexagonLinkerTool` is used during linking/serialization to produce the
-   shared object embedded in the VMFB.
+8. `linkHexagonSharedObject(...)` (`Target/Linking/HexagonLinker.*`) is used
+   during serialization to produce the shared object embedded in the VMFB.
 
 ## Linking of functions from Hexagon-mlir
 
@@ -50,6 +50,10 @@ profiler symbols, plus lowering helpers such as `malloc`, `free`, and
 
 ### `Target/`
 
+See [`Target/README.md`](Target/README.md) for the detailed documentation of
+this folder, including the executable target configuration contract and what
+could be shared upstream.
+
 `Target/` was originally created in the image of `LLVMCPUTarget.cpp`.
 Given the size of the original file, it was decomposed into multiple smaller files with
 divided responsibilities, but it mainly covers the same file with hexagon-specific adaptations.
@@ -69,19 +73,23 @@ The decomposition covers the following files:
 - `HexagonTargetDevice.*`
   - target device registration and device-level configuration.
 - `HexagonLLVMTarget.*`
-  - LLVM target options and target triple/data layout related material.
+  - `HexagonTarget` (triple, DSP version, DSP features, data layout), its
+    executable target configuration, and target machine creation.
 - `HexagonExecutableSerialization.*`
-  - final executable packaging.
+  - final executable packaging, including the LLVM optimization pipeline.
+- `LibraryBuilder.*`
+  - vendored copy of LLVMCPU's `LibraryBuilder` (executable library metadata).
 
 The `Target` layer depends on `CodeGen`, not the other way around.
 
 This folder also contains:
 
-- `Linking/HexagonLinkerTool.*`
-  - tool invocation used by serialization/linking.
+- `Linking/HexagonLinker.*`
+  - linker invocation used by serialization.
 
-Note that making the Hexagon plugin independent from LLVMCPU is a work in progress.
-Currently, there exists an overlap between the plugins, and the linker classes and structure are an example of this.
+`Target/` no longer depends directly on IREE's LLVMCPU target plugin.
+`CodeGen/` still reuses LLVMCPU passes, so the dependency remains
+transitively through it.
 
 ### `CodeGen/Passes.*`
 

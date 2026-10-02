@@ -35,7 +35,6 @@ COMPILE_CASES: tuple[CompileCase, ...] = (
     CompileCase(
         name="hexagon",
         extra_flags=(
-            "--iree-hexagon-launch-config-selector=hexagon",
             "--iree-hexagon-enable-vtcm-tiling=false",
             "--iree-hexagon-enable-hmx-matmul=false",
         ),
@@ -43,17 +42,8 @@ COMPILE_CASES: tuple[CompileCase, ...] = (
     CompileCase(
         name="hexagon-vtcm-hmx",
         extra_flags=(
-            "--iree-hexagon-launch-config-selector=hexagon",
             "--iree-hexagon-enable-vtcm-tiling=true",
             "--iree-hexagon-enable-hmx-matmul=true",
-        ),
-    ),
-    CompileCase(
-        name="llvmcpu-baseline",
-        extra_flags=(
-            "--iree-hexagon-launch-config-selector=llvmcpu",
-            "--iree-hexagon-enable-vtcm-tiling=false",
-            "--iree-hexagon-enable-hmx-matmul=false",
         ),
     ),
 )
@@ -61,9 +51,8 @@ COMPILE_CASES: tuple[CompileCase, ...] = (
 COMPILE_CASES_BY_NAME = {case.name: case for case in COMPILE_CASES}
 COMPILE_CASE_NAMES = tuple(COMPILE_CASES_BY_NAME)
 
-# Every model exercises both custom Hexagon configurations unless its manifest
-# deliberately narrows the matrix. The LLVMCPU selector is a sparse comparison
-# baseline and must be requested by name.
+# Every model exercises these Hexagon configurations unless its manifest
+# deliberately narrows the matrix.
 DEFAULT_COMPILE_CASE_NAMES = ("hexagon", "hexagon-vtcm-hmx")
 
 

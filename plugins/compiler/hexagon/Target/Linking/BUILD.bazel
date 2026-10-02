@@ -12,18 +12,17 @@ package(
 )
 
 hexagon_plugin_library(
-    name = "HexagonLinkerTool",
+    name = "HexagonLinker",
     srcs = [
-        "HexagonLinkerTool.cpp",
+        "HexagonLinker.cpp",
     ],
     hdrs = [
-        "HexagonLinkerTool.h",
+        "HexagonLinker.h",
     ],
     hdr_deps = [
-        "@iree//compiler/plugins/target/LLVMCPU:LinkerTool",
         "@iree//compiler/src/iree/compiler/Utils",
-        "@llvm-project//llvm:Core",
         "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Support",
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [],

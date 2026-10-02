@@ -28,8 +28,8 @@ PipelineContract::getLoopTilingScope(ComputeTileLevel level) const {
 }
 
 FailureOr<PipelineContract>
-getPipelineContract(IREE::CPU::LoweringPipeline pipeline) {
-  using Pipeline = IREE::CPU::LoweringPipeline;
+getPipelineContract(IREE::Hexagon::LoweringPipeline pipeline) {
+  using Pipeline = IREE::Hexagon::LoweringPipeline;
   PipelineContract contract;
   switch (pipeline) {
   case Pipeline::BufferOpsTileAndVectorize:
@@ -38,7 +38,7 @@ getPipelineContract(IREE::CPU::LoweringPipeline pipeline) {
     contract.supportsIndependentNonRootComputeTiles = true;
     contract.loopPeeling = LoopPeelingSupport::TranslationInfoControlled;
     return contract;
-  case Pipeline::DoubleTilingExpert:
+  case Pipeline::MultiTilingExpert:
     contract.requiresUniqueRootAnchor = true;
     contract.cacheParallel = LoopTilingScope::Root;
     contract.vectorCommonParallel = LoopTilingScope::Root;
@@ -52,10 +52,9 @@ getPipelineContract(IREE::CPU::LoweringPipeline pipeline) {
     contract.cacheTilingWithVTCM = CacheTilingWithVTCM::Suppress;
     contract.loopPeeling = LoopPeelingSupport::TranslationInfoControlled;
     return contract;
-  case Pipeline::Mmt4dTilingExpert:
-    // Hexagon repurposes this CPU pipeline slot for HMX. HMX pack operations
-    // zero-pad partial tiles and unpack clips the result to its logical bounds,
-    // so this pipeline does not peel loops.
+  case Pipeline::HmxMatmulExpert:
+    // HMX pack operations zero-pad partial tiles and unpack clips the result to
+    // its logical bounds, so this pipeline does not peel loops.
     contract.requiresUniqueRootAnchor = true;
     contract.cacheParallel = LoopTilingScope::EveryConfiguredOperation;
     contract.vectorCommonParallel = LoopTilingScope::Root;

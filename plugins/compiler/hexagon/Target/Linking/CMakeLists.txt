@@ -12,16 +12,15 @@ iree_add_all_subdirs()
 
 iree_cc_library(
   NAME
-    HexagonLinkerTool
+    HexagonLinker
   HDRS
-    "HexagonLinkerTool.h"
+    "HexagonLinker.h"
   SRCS
-    "HexagonLinkerTool.cpp"
+    "HexagonLinker.cpp"
   DEPS
-    LLVMCore
     LLVMSupport
+    MLIRSupport
     iree::compiler::Utils
-    iree::compiler::plugins::target::LLVMCPU::LinkerTool
   ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"

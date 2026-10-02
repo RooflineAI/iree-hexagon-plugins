@@ -28,10 +28,10 @@ selectDispatchStrategy(const PlanningContext &context,
                        const DispatchShape &dispatchShape) {
   const OpShape *rootShape = findOpShape(dispatchShape, dispatchShape.root);
   if (!rootShape) {
-    context.trace.record(
-        DecisionStage::Fallback, DecisionKind::Fallback,
-        "selected CPUDefault because the dispatch has no analyzable root");
-    return makeCPUDefaultStrategy(dispatchShape);
+    context.trace.record(DecisionStage::Fallback, DecisionKind::Fallback,
+                         "selected Hexagon Default because the dispatch root "
+                         "is not present in the analyzed operations");
+    return makeHexagonDefaultStrategy(dispatchShape);
   }
 
   std::optional<DispatchStrategy> selectedStrategy;
@@ -54,9 +54,10 @@ selectDispatchStrategy(const PlanningContext &context,
   }
 
   if (!selectedStrategy) {
-    context.trace.record(DecisionStage::Fallback, DecisionKind::Fallback,
-                         "selected CPUDefault because no strategy matched");
-    return makeCPUDefaultStrategy(dispatchShape);
+    context.trace.record(
+        DecisionStage::Fallback, DecisionKind::Fallback,
+        "selected Hexagon Default because no strategy matched");
+    return makeHexagonDefaultStrategy(dispatchShape);
   }
 
   context.trace.recordForOp(

@@ -59,8 +59,7 @@ mkdir -p "$OUT"
   --iree-hexagon-v=79 \
   --iree-hexagon-features=+hvxv79,+hvx-length128b \
   --iree-opt-data-tiling=false \
-  --iree-stream-resource-min-offset-alignment=128 \
-  --iree-hexagon-launch-config-selector=hexagon
+  --iree-stream-resource-min-offset-alignment=128
 ```
 
 You should get `$OUT/$EXAMPLE.vmfb`. That file contains the Hexagon shared object for
@@ -75,7 +74,6 @@ the dispatch plus the VM module that drives it.
 | `--iree-hexagon-features=+hvxv79,+hvx-length128b` | Enables HVX with a 128-byte vector length. |
 | `--iree-opt-data-tiling=false` | IREE's encoding/data-tiling path is not yet supported in Hexagon; leave it off. |
 | `--iree-stream-resource-min-offset-alignment=128` | Matches the DSP's buffer alignment requirement. |
-| `--iree-hexagon-launch-config-selector=hexagon` | Uses the Hexagon lowering-strategy selector. Defaults to `llvmcpu`, which routes through the a generic upstream LLVMCPU selector instead. |
 
 ## 4. Read the compilation log
 
@@ -94,7 +92,6 @@ mkdir -p "$OUT/compilation_phases"
   --iree-hexagon-features=+hvxv79,+hvx-length128b \
   --iree-opt-data-tiling=false \
   --iree-stream-resource-min-offset-alignment=128 \
-  --iree-hexagon-launch-config-selector=hexagon \
   --mlir-disable-threading \
   --mlir-print-ir-after-all \
   --mlir-elide-elementsattrs-if-larger=16 \

@@ -20,6 +20,34 @@ class IREEHexagon_I32EnumAttr<string name, string summary,
 }
 
 //===----------------------------------------------------------------------===//
+// Lowering pipelines.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_LP_Default : I32EnumAttrCase<"Default", 0>;
+def IREEHexagon_LP_BufferOpsTileAndVectorize :
+    I32EnumAttrCase<"BufferOpsTileAndVectorize", 1>;
+def IREEHexagon_LP_MultiTilingExpert :
+    I32EnumAttrCase<"MultiTilingExpert", 2>;
+def IREEHexagon_LP_ConvTileAndDecomposeExpert :
+    I32EnumAttrCase<"ConvTileAndDecomposeExpert", 3>;
+def IREEHexagon_LP_HmxMatmulExpert :
+    I32EnumAttrCase<"HmxMatmulExpert", 4>;
+def IREEHexagon_LP_DataTiling : I32EnumAttrCase<"DataTiling", 5>;
+def IREEHexagon_LP_LinalgExtTileAndVectorize :
+    I32EnumAttrCase<"LinalgExtTileAndVectorize", 6>;
+
+def IREEHexagon_LoweringPipeline :
+    IREEHexagon_I32EnumAttr<"LoweringPipeline",
+                            "Hexagon lowering pipeline identifier", [
+      IREEHexagon_LP_Default, IREEHexagon_LP_BufferOpsTileAndVectorize,
+      IREEHexagon_LP_MultiTilingExpert,
+      IREEHexagon_LP_ConvTileAndDecomposeExpert,
+      IREEHexagon_LP_HmxMatmulExpert,
+      IREEHexagon_LP_DataTiling,
+      IREEHexagon_LP_LinalgExtTileAndVectorize
+    ]>;
+
+//===----------------------------------------------------------------------===//
 // Profiler zone types.
 //===----------------------------------------------------------------------===//
 

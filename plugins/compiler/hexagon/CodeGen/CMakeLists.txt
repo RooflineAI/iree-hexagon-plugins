@@ -195,6 +195,7 @@ iree_cc_library(
     "Passes.h"
     "Pipelines/Bufferization.h"
     "Pipelines/ConfigurationPipeline.h"
+    "Pipelines/HexagonLowerExecutableTarget.h"
     "Pipelines/HexagonMlirPipeline.h"
     "Pipelines/IreeLoweringPipelines.h"
     "Pipelines/LinkingPipeline.h"

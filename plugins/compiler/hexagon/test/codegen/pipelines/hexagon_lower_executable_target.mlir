@@ -1,7 +1,5 @@
-// Verifies that the custom iree-hexagon-lower-executable-target maps each
-// LLVMCPU pipeline selection to its Hexagon equivalent. Each chunk below uses a
-// different translation_info pipeline and checks that a pipeline-specific pass
-// runs on the expected dispatch function.
+// Verifies that each Hexagon translation_info pipeline builds and runs its
+// pipeline-specific passes on the expected dispatch function.
 
 // RUN: iree-opt \
 // RUN:   --pass-pipeline='builtin.module(hal.executable(hal.executable.variant(builtin.module(func.func(iree-hexagon-lower-executable-target)))))' \
@@ -11,14 +9,14 @@
 // CHECK-LABEL: IR Dump After LLVMCPUTileAndFuseProducerConsumerPass
 // CHECK: func.func @default_dispatch
 
-#translation_default = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Default>>
-#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, link_embedded = false, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#translation = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
 
 hal.executable private @test_default {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
     builtin.module {
-      func.func @default_dispatch() attributes {translation_info = #translation_default} {
+      func.func @default_dispatch() attributes {translation_info = #translation} {
         %cst = arith.constant 0.0 : f32
         %c0 = arith.constant 0 : index
         %c64 = arith.constant 64 : index
@@ -46,9 +44,9 @@ hal.executable private @test_default {
 // CHECK-LABEL: IR Dump After LLVMCPUVirtualVectorLoweringPass
 // CHECK: func.func @buffer_dispatch
 
-#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, link_embedded = false, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#translation_buffer = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<BufferOpsTileAndVectorize>>
+#translation_buffer = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<BufferOpsTileAndVectorize>>
 
 hal.executable private @test_buffer {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
@@ -78,9 +76,9 @@ hal.executable private @test_buffer {
 // CHECK-LABEL: IR Dump After LLVMCPUSplitReductionPass
 // CHECK: func.func @double_tiling_dispatch
 
-#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, link_embedded = false, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#translation_double = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DoubleTilingExpert>>
+#translation_double = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>>
 #config_double = #iree_cpu.lowering_config<distribution = [1, 1, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 1]>
 
 hal.executable private @test_double_tiling {
@@ -110,9 +108,9 @@ hal.executable private @test_double_tiling {
 // CHECK-LABEL: IR Dump After DecomposeConvolutionToLowerDimOpsPass
 // CHECK: func.func @conv_dispatch
 
-#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, link_embedded = false, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#translation_conv = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<ConvTileAndDecomposeExpert>>
+#translation_conv = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<ConvTileAndDecomposeExpert>>
 
 hal.executable private @test_conv {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
@@ -143,9 +141,9 @@ hal.executable private @test_conv {
 // CHECK-LABEL: IR Dump After LLVMCPUVectorTransposeLoweringPass
 // CHECK: func.func @data_tiling_dispatch
 
-#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, link_embedded = false, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#translation_data = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<DataTiling>>
+#translation_data = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<DataTiling>>
 
 hal.executable private @test_data_tiling {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
@@ -171,11 +169,11 @@ hal.executable private @test_data_tiling {
 // CHECK-LABEL: IR Dump After HexagonConvertMatmulToHmxPass
 // CHECK: func.func @matmul_dispatch
 
-#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, link_embedded = false, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
 #config_fill = #iree_cpu.lowering_config<vector_common_parallel = [16, 16]>
 #config_matmul = #iree_cpu.lowering_config<distribution = [1, 1, 0], vector_common_parallel = [16, 16, 0], vector_reduction = [0, 0, 1]>
-#translation = #iree_codegen.translation_info<pipeline = #iree_cpu.pipeline<Mmt4dTilingExpert>>
+#translation = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 
 hal.executable private @test {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
@@ -196,6 +194,62 @@ hal.executable private @test {
         %result = linalg.matmul {lowering_config = #config_matmul} ins(%lhs_t, %rhs_t : tensor<16x4xf32>, tensor<4x16xf32>) outs(%filled : tensor<16x16xf32>) -> tensor<16x16xf32>
 
         iree_tensor_ext.dispatch.tensor.store %result, %out, offsets = [0, 0], sizes = [16, 16], strides = [1, 1] : tensor<16x16xf32> -> !iree_tensor_ext.dispatch.tensor<writeonly:tensor<16x16xf32>>
+        return
+      }
+    }
+  }
+}
+
+// -----
+
+// CHECK-LABEL: IR Dump After DecomposeAttentionPass
+// CHECK: func.func @linalg_ext_dispatch
+// CHECK-NOT: iree_linalg_ext.online_attention
+// CHECK: linalg.generic
+
+#translation = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<LinalgExtTileAndVectorize>>
+#executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
+#config = #iree_cpu.lowering_config<distribution = [1, 1, 0, 0, 1], vector_common_parallel = [1, 1, 0, 0, 1], vector_reduction = [0, 0, 0, 1, 0]>
+#map_q = affine_map<(batch, m, k1, k2, n) -> (batch, m, k1)>
+#map_k = affine_map<(batch, m, k1, k2, n) -> (batch, k2, k1)>
+#map_v = affine_map<(batch, m, k1, k2, n) -> (batch, k2, n)>
+#map_scale = affine_map<(batch, m, k1, k2, n) -> ()>
+#map_out = affine_map<(batch, m, k1, k2, n) -> (batch, m, n)>
+#map_stat = affine_map<(batch, m, k1, k2, n) -> (batch, m)>
+
+hal.executable private @test_linalg_ext {
+  hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
+    builtin.module {
+      func.func @linalg_ext_dispatch() attributes {translation_info = #translation} {
+        %c0 = arith.constant 0 : index
+        %scale = arith.constant 0.5 : f16
+        %zero = arith.constant 0.0 : f32
+        %neg_inf = arith.constant -3.40282347E+38 : f32
+        %query = hal.interface.binding.subspan layout(#pipeline_layout) binding(0) alignment(64) offset(%c0) flags("ReadOnly|Indirect") : !iree_tensor_ext.dispatch.tensor<readonly:tensor<1x2x4xf16>>
+        %key = hal.interface.binding.subspan layout(#pipeline_layout) binding(1) alignment(64) offset(%c0) flags("ReadOnly|Indirect") : !iree_tensor_ext.dispatch.tensor<readonly:tensor<1x3x4xf16>>
+        %value = hal.interface.binding.subspan layout(#pipeline_layout) binding(2) alignment(64) offset(%c0) flags("ReadOnly|Indirect") : !iree_tensor_ext.dispatch.tensor<readonly:tensor<1x3x5xf16>>
+        %output = hal.interface.binding.subspan layout(#pipeline_layout) binding(3) alignment(64) offset(%c0) flags(Indirect) : !iree_tensor_ext.dispatch.tensor<writeonly:tensor<1x2x5xf32>>
+
+        %query_t = iree_tensor_ext.dispatch.tensor.load %query, offsets = [0, 0, 0], sizes = [1, 2, 4], strides = [1, 1, 1] : !iree_tensor_ext.dispatch.tensor<readonly:tensor<1x2x4xf16>> -> tensor<1x2x4xf16>
+        %key_t = iree_tensor_ext.dispatch.tensor.load %key, offsets = [0, 0, 0], sizes = [1, 3, 4], strides = [1, 1, 1] : !iree_tensor_ext.dispatch.tensor<readonly:tensor<1x3x4xf16>> -> tensor<1x3x4xf16>
+        %value_t = iree_tensor_ext.dispatch.tensor.load %value, offsets = [0, 0, 0], sizes = [1, 3, 5], strides = [1, 1, 1] : !iree_tensor_ext.dispatch.tensor<readonly:tensor<1x3x5xf16>> -> tensor<1x3x5xf16>
+
+        %acc = tensor.empty() : tensor<1x2x5xf32>
+        %stat = tensor.empty() : tensor<1x2xf32>
+        %filled_acc = linalg.fill ins(%zero : f32) outs(%acc : tensor<1x2x5xf32>) -> tensor<1x2x5xf32>
+        %filled_max = linalg.fill ins(%neg_inf : f32) outs(%stat : tensor<1x2xf32>) -> tensor<1x2xf32>
+        %filled_sum = linalg.fill ins(%zero : f32) outs(%stat : tensor<1x2xf32>) -> tensor<1x2xf32>
+        %result:3 = iree_linalg_ext.online_attention {
+          indexing_maps = [#map_q, #map_k, #map_v, #map_scale, #map_out, #map_stat, #map_stat],
+          lowering_config = #config
+        } ins(%query_t, %key_t, %value_t, %scale : tensor<1x2x4xf16>, tensor<1x3x4xf16>, tensor<1x3x5xf16>, f16)
+          outs(%filled_acc, %filled_max, %filled_sum : tensor<1x2x5xf32>, tensor<1x2xf32>, tensor<1x2xf32>) {
+        ^bb0(%score: f32):
+          iree_linalg_ext.yield %score : f32
+        } -> tensor<1x2x5xf32>, tensor<1x2xf32>, tensor<1x2xf32>
+
+        iree_tensor_ext.dispatch.tensor.store %result#0, %output, offsets = [0, 0, 0], sizes = [1, 2, 5], strides = [1, 1, 1] : tensor<1x2x5xf32> -> !iree_tensor_ext.dispatch.tensor<writeonly:tensor<1x2x5xf32>>
         return
       }
     }

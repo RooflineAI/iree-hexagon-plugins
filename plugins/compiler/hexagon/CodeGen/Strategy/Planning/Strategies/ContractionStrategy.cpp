@@ -95,8 +95,8 @@ SmallVector<TileDecision> inferContractionComputeTile(
       chooseStaticTilingFactor(shape.dimensions[m].staticExtent, mTile)};
   int64_t nBound = shape.dimensions[n].staticExtent;
   // Preserve the full vector width for ragged N bounds; the tensor-semantics
-  // CPUDouble pipeline peels the remainder instead of requiring an exact
-  // divisor as M and K do.
+  // The Hexagon multi-tiling pipeline peels the remainder instead of requiring
+  // an exact divisor as M and K do.
   tiles[n] = TileDecision{
       ShapedType::isDynamic(nBound) ? nTile : std::min(nBound, nTile)};
   tiles[k] = TileDecision{
@@ -124,9 +124,7 @@ selectHmxStrategy(const PlanningContext &context,
       context, shape, linalgOp, *dimensions, /*useHmx=*/true);
 
   DispatchStrategy strategy;
-  // The Hexagon target routes this otherwise-unused pipeline enum to its HMX
-  // matmul pipeline.
-  strategy.pipeline = IREE::CPU::LoweringPipeline::Mmt4dTilingExpert;
+  strategy.pipeline = IREE::Hexagon::LoweringPipeline::HmxMatmulExpert;
   strategy.rootTiling.distributionTile =
       SmallVector<TileDecision>(shape.dimensions.size());
   strategy.rootTiling.cacheTile =
@@ -161,7 +159,7 @@ selectContractionStrategy(const PlanningContext &context,
       SmallVector<TileDecision>(shape.dimensions.size());
   SmallVector<TileDecision> compute = inferContractionComputeTile(
       context, shape, linalgOp, *dimensions, /*useHmx=*/false);
-  strategy.pipeline = IREE::CPU::LoweringPipeline::DoubleTilingExpert;
+  strategy.pipeline = IREE::Hexagon::LoweringPipeline::MultiTilingExpert;
   strategy.requestLoopPeeling = linalgOp.hasPureTensorSemantics();
   strategy.rootTiling.computeTile = std::move(compute);
   for (unsigned batch : dimensions->batch)
@@ -183,18 +181,8 @@ selectUnsupportedContractionFallback(const PlanningContext &,
       analyzeSupportedContraction(linalgOp))
     return std::optional<DispatchStrategy>{};
 
-  DispatchStrategy strategy;
-  strategy.pipeline = IREE::CPU::LoweringPipeline::Default;
-  if (const OpShape *shape = findOpShape(dispatchShape, dispatchShape.root)) {
-    strategy.rootTiling.distributionTile =
-        SmallVector<TileDecision>(shape->dimensions.size());
-    strategy.rootTiling.cacheTile =
-        SmallVector<TileDecision>(shape->dimensions.size());
-    strategy.rootTiling.computeTile =
-        SmallVector<TileDecision>(shape->dimensions.size());
-  }
-
-  return std::optional<DispatchStrategy>(std::move(strategy));
+  return std::optional<DispatchStrategy>(
+      makeHexagonDefaultStrategy(dispatchShape));
 }
 
 FailureOr<std::optional<OpComputeTilePlan>>
@@ -211,7 +199,7 @@ selectContractionComputeTile(const PlanningContext &context,
     return std::optional<OpComputeTilePlan>{};
 
   bool useHmx =
-      strategy.pipeline == IREE::CPU::LoweringPipeline::Mmt4dTilingExpert &&
+      strategy.pipeline == IREE::Hexagon::LoweringPipeline::HmxMatmulExpert &&
       hasHmxElementTypes(linalgOp);
   SmallVector<TileDecision> compute = inferContractionComputeTile(
       context, opShape, linalgOp, *dimensions, useHmx);

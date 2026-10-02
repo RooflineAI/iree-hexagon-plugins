@@ -108,6 +108,7 @@ iree_cc_library(
     MLIRTensorDialect
     MLIRTilingInterface
     hexagon_mlir::HexagonLoweringSupport
+    iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
   ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"

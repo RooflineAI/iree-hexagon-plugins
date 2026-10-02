@@ -19,6 +19,7 @@ together with a reason that has to appear in the log (`modeltree/outcomes.py`).
 from __future__ import annotations
 
 import pathlib
+import time
 
 import pytest
 
@@ -66,6 +67,7 @@ def _run_pipeline(
 ) -> Outcome:
     """Compile, run and check, returning where it got to and the evidence."""
     try:
+        compile_start = time.time()
         vmfb = compile_model(
             iree_compile=iree_compile,
             model_mlir=imported_model.model_mlir,
@@ -75,9 +77,12 @@ def _run_pipeline(
             linker=lld,
             model_flags=model_spec.extra_compile_flags,
         )
+        compile_time = time.time() - compile_start
     except CompilationError as err:
         return Outcome(Status.COMPILE_FAILURE, f"{err}\n{err.log}")
-    print(f"compiled {compile_case.name} -> {vmfb} ({vmfb.stat().st_size} bytes)")
+    print(
+        f"compiled {compile_case.name} in {compile_time:.2f}s -> {vmfb} ({vmfb.stat().st_size} bytes)"
+    )
 
     case_dir = f"{model_spec.name.replace('/', '_')}_{compile_case.name}"
     result = run_module_on_device(
@@ -88,10 +93,14 @@ def _run_pipeline(
         input_files=imported_model.input_files,
         output_names=imported_model.output_names,
         local_output_dir=work_dir / "device_outputs",
+        timeout=model_spec.run_timeout,
     )
+    print(result.log)
+    print("timings:")
+    for key, value in result.timings.items():
+        print(f"  {key}: {value:.2f}s")
     if result.exit_code != 0:
         return Outcome(Status.RUNTIME_FAILURE, result.describe())
-    print(result.log)
 
     try:
         check_output_files(

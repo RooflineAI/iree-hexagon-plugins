@@ -115,6 +115,13 @@ semantic_check:
   expected_label: "computer keyboard, keypad"
 ```
 
+A large model may need more than the default 600 seconds to push its module
+and to run on the device:
+
+```yaml
+run_timeout: 3600
+```
+
 ## Known failures
 
 A model may record known failures:

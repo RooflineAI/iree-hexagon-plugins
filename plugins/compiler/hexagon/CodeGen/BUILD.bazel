@@ -70,6 +70,39 @@ iree_gentbl_cc_library(
     deps = ["@llvm-project//mlir:PassBaseTdFiles"],
 )
 
+# Register-pressure estimator used by the vector tile search.
+hexagon_plugin_library(
+    name = "DispatchRegisterGraph",
+    srcs = [
+        "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph.cpp",
+        "Strategy/Planning/RegisterEstimation/Footprint.cpp",
+        "Strategy/Planning/RegisterEstimation/GraphBuilder.cpp",
+        "Strategy/Planning/RegisterEstimation/Reductions.cpp",
+        "Strategy/Planning/RegisterEstimation/Schedule.cpp",
+        "Strategy/Planning/RegisterEstimation/TilePropagation.cpp",
+    ],
+    hdrs = [
+        "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph.h",
+        "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph-internals.h",
+        "Strategy/Planning/RegisterEstimation/EstimatorConfig.h",
+        "Strategy/Planning/RegisterEstimation/Footprint.h",
+        "Strategy/Planning/RegisterEstimation/TilePropagation.h",
+    ],
+    hdr_deps = [
+        "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
+        "@iree//compiler/src/iree/compiler/Dialect/TensorExt/IR",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:ArithDialect",
+        "@llvm-project//mlir:DialectUtils",
+        "@llvm-project//mlir:FunctionInterfaces",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LinalgDialect",
+        "@llvm-project//mlir:TensorDialect",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)
+
 hexagon_plugin_library(
     name = "DispatchPlanner",
     srcs = [
@@ -90,6 +123,7 @@ hexagon_plugin_library(
         "Strategy/Planning/Strategies/StrategySupport.cpp",
         "Strategy/Planning/StrategySelection.cpp",
         "Strategy/Planning/VTCMPlanning.cpp",
+        "Strategy/Planning/VectorTileSearch.cpp",
     ],
     hdrs = [
         "Strategy/Planning/ComputeTileSelection.h",
@@ -105,6 +139,7 @@ hexagon_plugin_library(
         "Strategy/Planning/Strategies/StrategySupport.h",
         "Strategy/Planning/StrategySelection.h",
         "Strategy/Planning/VTCMPlanning.h",
+        "Strategy/Planning/VectorTileSearch.h",
     ],
     hdr_deps = [
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
@@ -123,6 +158,7 @@ hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
+        ":DispatchRegisterGraph",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
     ],

@@ -1,0 +1,38 @@
+# Copyright 2026 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@aspect_rules_py//py:defs.bzl", "py_test")
+
+package(
+    licenses = ["notice"],  # Apache 2.0
+)
+
+# Smoke test: does measure_all.py actually work?
+py_test(
+    name = "measure_all_smoke_test",
+    timeout = "short",
+    srcs = [
+        "extract_test_ir.py",
+        "measure_all.py",
+        "test_measure_all_smoke.py",
+    ],
+    data = [
+        "extract_reg_pressure.py",
+        "get_reg_pressure.sh",
+        "to_config.sh",
+        "//plugins/compiler/hexagon/CodeGen/Strategy/Planning/unittests/single_op:test_sources",
+        "@iree//tools:iree-compile",
+        "@llvm-project//lld:ld.lld",
+        "@llvm-project//llvm:llc",
+    ],
+    # location of the necessary tools
+    env = {
+        "IREE_COMPILE": "$(rootpath @iree//tools:iree-compile)",
+        "LLC_WITH_DEBUG": "$(rootpath @llvm-project//llvm:llc)",
+        "LD_LLD": "$(rootpath @llvm-project//lld:ld.lld)",
+    },
+    main = "test_measure_all_smoke.py",
+    deps = ["@pypi//pytest"],
+)

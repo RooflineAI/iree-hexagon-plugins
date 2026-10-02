@@ -15,6 +15,7 @@
 #include "RootTilePropagation.h"
 #include "StrategySelection.h"
 #include "VTCMPlanning.h"
+#include "VectorTileSearch.h"
 
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/LLVMCPU/Utils.h"
@@ -102,6 +103,9 @@ LogicalResult configureDispatch(FunctionOpInterface entryPoint,
   if (failed(planVTCMTiling(context, *shape, *contract, *strategy)))
     return failure();
 
+  // non-root tiles are currently independent of the root's compute tile; select
+  // them first so the vector tile search prices their tiles for loops the root
+  // does not reach
   SmallVector<OpComputeTilePlan> nonRootComputeTilePlans;
   for (const OpShape &opShape : shape->operations) {
     if (opShape.op == shape->root)
@@ -115,6 +119,10 @@ LogicalResult configureDispatch(FunctionOpInterface entryPoint,
     if (*selected)
       nonRootComputeTilePlans.push_back(std::move(**selected));
   }
+
+  if (failed(searchVectorTiling(context, *shape, *strategy,
+                                nonRootComputeTilePlans)))
+    return failure();
 
   DispatchPlan plan{std::move(*strategy), std::move(nonRootComputeTilePlans)};
   if (failed(reconcileNonRootComputeTiles(context, *shape, *contract, plan)))

@@ -100,6 +100,12 @@ struct TargetInfo {
 struct PlanningOptions {
   bool enableVTCM = true;
   bool enableHmxMatmul = false;
+  /// RegisterEstimation/TileSelectionReport.md cost function E: search the
+  /// root's vector tile instead of using the strategies' fixed heuristics.
+  /// The search's own tuning knobs (register margin, unroll cap) live on
+  /// `VectorTileSearchConfig` (VectorTileSearch.h) instead of here: nothing
+  /// but the search itself reads them.
+  bool enableVectorTileSearch = false;
 };
 
 class DecisionTrace;

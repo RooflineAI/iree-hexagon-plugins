@@ -1,0 +1,26 @@
+# Copyright 2026 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+# The dispatch-wide estimate: one test file per group of plan cases. Single-op
+# dispatches taken from real models live in ../single_op.
+cc_test(
+    name = "MultiOpRegisterEstimationTest",
+    size = "small",
+    srcs = [
+        "LlmDispatchTest.cpp",
+        "MultiOpFusionTest.cpp",
+    ],
+    deps = [
+        "//plugins/compiler/hexagon/CodeGen/Strategy/Planning/unittests:TestUtils",
+        "@iree//runtime/src/iree/testing:gtest_main",
+    ],
+)

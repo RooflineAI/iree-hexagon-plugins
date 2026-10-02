@@ -15,6 +15,7 @@ LogicalResult initHexagonLaunchConfig(FunctionOpInterface funcOp) {
   planning::PlanningOptions options;
   options.enableVTCM = isHexagonVTCMTilingEnabled();
   options.enableHmxMatmul = isHexagonHmxMatmulEnabled();
+  options.enableVectorTileSearch = isHexagonVectorTileSearchEnabled();
   return planning::configureDispatch(funcOp, options);
 }
 

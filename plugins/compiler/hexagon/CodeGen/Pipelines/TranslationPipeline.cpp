@@ -46,9 +46,18 @@ static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
                    "the HMX (tensor unit) expert pipeline."),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> clHexagonVectorTileSearch(
+    "iree-hexagon-experimental-vector-tile-search",
+    llvm::cl::desc("Search the root's vector tile with the register-pressure "
+                   "estimator instead of using the strategies' fixed "
+                   "heuristics."),
+    llvm::cl::init(false));
+
 bool isHexagonVTCMTilingEnabled() { return clHexagonEnableVTCMTiling; }
 
 bool isHexagonHmxMatmulEnabled() { return clHexagonEnableHmxMatmul; }
+
+bool isHexagonVectorTileSearchEnabled() { return clHexagonVectorTileSearch; }
 
 bool isHexagonMlirLinalgLoweringEnabled() {
   return clHexagonUseHexagonMlirLinalgLowering;

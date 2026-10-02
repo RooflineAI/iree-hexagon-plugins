@@ -21,6 +21,7 @@ void buildHexagonTranslationPassPipeline(
 bool isHexagonVTCMTilingEnabled();
 bool isHexagonMlirLinalgLoweringEnabled();
 bool isHexagonHmxMatmulEnabled();
+bool isHexagonVectorTileSearchEnabled();
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 

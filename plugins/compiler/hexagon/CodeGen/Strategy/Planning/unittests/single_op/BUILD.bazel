@@ -1,0 +1,43 @@
+# Copyright 2026 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+package(
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+# Exposes the Polynomial suite's .cpp source to the measurement scripts'
+# smoke test in unittests/reference, which extracts its MLIR + TileConfigs.
+filegroup(
+    name = "test_sources",
+    srcs = ["PolynomialTest.cpp"],
+    visibility = ["//plugins/compiler/hexagon/CodeGen/Strategy/Planning/unittests/reference:__pkg__"],
+)
+
+# One file per op, each a single-op dispatch run through the dispatch
+# estimator, with the real-hardware HvxVR measurement in each config's note.
+cc_test(
+    name = "SingleOpRegisterEstimationTest",
+    size = "small",
+    srcs = [
+        "BatchMatmulTest.cpp",
+        "BroadcastScaleShiftTest.cpp",
+        "Conv2dPatchesTest.cpp",
+        "ConvertTest.cpp",
+        "DepthwiseConv2dTest.cpp",
+        "ElementwiseAddTest.cpp",
+        "MatmulTest.cpp",
+        "PermuteTest.cpp",
+        "PolynomialTest.cpp",
+        "ReduceSumTest.cpp",
+        "TransposeTest.cpp",
+    ],
+    deps = [
+        "//plugins/compiler/hexagon/CodeGen/Strategy/Planning/unittests:TestUtils",
+        "@iree//runtime/src/iree/testing:gtest_main",
+    ],
+)

@@ -365,6 +365,8 @@ Footprint getSliceFootprint(const DispatchRegisterGraph &graph,
 /// `index` does not have. Not running over the reduction dims itself, `index`
 /// is the same on every trip of that reader's loop - whether it was computed
 /// in the same phase, left behind by an earlier one or hoisted.
+/// Several readers may need the broadcast; the first one stands for all of
+/// them, as they share one shape and so one broadcast copy.
 std::optional<unsigned>
 findBroadcastReader(const DispatchRegisterGraph &graph, unsigned index,
                     ArrayRef<SmallVector<unsigned>> consumers,
@@ -375,15 +377,23 @@ findBroadcastReader(const DispatchRegisterGraph &graph, unsigned index,
       node.shapeMap.getNumResults() == 0)
     return std::nullopt;
   llvm::SmallBitVector dims = getDimsOf(node.shapeMap);
+  std::optional<unsigned> first;
   for (unsigned consumer : consumers[index]) {
     const Node &reader = graph.nodes[consumer];
     if (!carries.test(consumer) || reader.placement.kind != Placement::InPhase)
       continue;
     llvm::SmallBitVector lanes = getLaneDims(reader.shapeMap);
-    if (lanes.any() && !dims.anyCommon(lanes))
-      return consumer;
+    if (!lanes.any() || dims.anyCommon(lanes))
+      continue;
+    if (!first) {
+      first = consumer;
+      continue;
+    }
+    assert(reader.shapeMap == graph.nodes[*first].shapeMap &&
+           "readers that need a broadcast of the same value must share a "
+           "shape: one broadcast footprint per value is modeled");
   }
-  return std::nullopt;
+  return first;
 }
 
 /// compute every scheduled node's footprint and temporaries.

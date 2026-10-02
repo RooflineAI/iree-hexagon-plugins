@@ -28,3 +28,22 @@ func.func @hmx_batch_matmul_preserves_batch_tile(%lhs: tensor<4x32x32xf16>, %rhs
 // CHECK: linalg.batch_matmul
 // CHECK-SAME: hexagon_vtcm_tiling_config = #[[BATCH_VTCM]]
 // CHECK-SAME: lowering_config = #[[BATCH_ROOT]]
+
+// -----
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+
+// VTCM tiling stages K whole. hexagon-mlir's footprint search alone would fit
+// this matmul (Qwen3-ASR's audio projection) by halving K, so planning reruns
+// the search over M and N only and keeps K = 7680.
+func.func @hmx_deep_k_keeps_reduction_whole(%lhs: tensor<52x7680xf16>, %rhs: tensor<896x7680xf16>) -> tensor<52x896xf32> attributes {hal.executable.target = #target} {
+  %zero = arith.constant 0.0 : f32
+  %empty = tensor.empty() : tensor<52x896xf32>
+  %init = linalg.fill ins(%zero : f32) outs(%empty : tensor<52x896xf32>) -> tensor<52x896xf32>
+  %result = linalg.matmul indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>] ins(%lhs, %rhs : tensor<52x7680xf16>, tensor<896x7680xf16>) outs(%init : tensor<52x896xf32>) -> tensor<52x896xf32>
+  return %result : tensor<52x896xf32>
+}
+// CHECK-DAG: #[[DEEP_K_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [{{[0-9]+}}, {{[0-9]+}}, 7680]>
+// CHECK: func.func @hmx_deep_k_keeps_reduction_whole(
+// CHECK: linalg.matmul
+// CHECK-SAME: hexagon_vtcm_tiling_config = #[[DEEP_K_VTCM]]

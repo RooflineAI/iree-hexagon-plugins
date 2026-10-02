@@ -351,12 +351,9 @@ void addHexagonHmxMatmulExpertPassPipeline(
   // It currently does not combine with workgroup level tiling properly.
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
-  // Remove unit dims, as done in hexagon-mlir
-  funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
   funcPassManager.addPass(createHexagonVTCMTilingPass());
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
-  funcPassManager.addPass(createLinalgFoldUnitExtentDimsPass());
 
   // Batch matmul support: the HMX conversion/runtime path only handles a plain
   // (non-batched) matmul. Tile the batch dimension to 1 via the cache-parallel

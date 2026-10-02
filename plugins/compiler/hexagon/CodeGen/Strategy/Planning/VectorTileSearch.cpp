@@ -274,11 +274,12 @@ searchVectorTiling(const PlanningContext &context,
   }
 
   // compute search space bounds
-  // The VTCM tile bounds the search
+  // The VTCM tile bounds the search; cache tile, if no vtcm tiling is used
   ArrayRef<TileDecision> vtcm =
       strategy.rootTiling.vtcm
           ? ArrayRef<TileDecision>(strategy.rootTiling.vtcm->tileSizes)
           : ArrayRef<TileDecision>();
+  ArrayRef<TileDecision> cache = strategy.rootTiling.cacheTile;
 
   SmallVector<int64_t> bound(num_root_dims);
   SmallVector<bool> fixed(num_root_dims, false);
@@ -287,6 +288,11 @@ searchVectorTiling(const PlanningContext &context,
     if (d < vtcm.size() && vtcm[d].size != 0) {
       bound[d] = vtcm[d].size;
       fixed[d] = vtcm[d].hardwareFixed;
+    }
+    if (!vtcm.size()) {
+      // bound by cache size if VTCM is not enabled
+      if (d < cache.size() && cache[d].size != 0)
+        bound[d] = std::min(bound[d], cache[d].size);
     }
   }
 

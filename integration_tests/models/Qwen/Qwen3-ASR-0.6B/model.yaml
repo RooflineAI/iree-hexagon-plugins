@@ -1,0 +1,27 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+# Log-mel features for a 4 s clip, and their mask. The prompt is baked into
+# model.py and sized for exactly 400 all-valid frames.
+inputs:
+  - {shape: [1, 128, 400], dtype: float16, generator: normal, seed: 0}
+  - {shape: [1, 400], dtype: int64, generator: ones}
+# Placeholder: never reached while the compile failure below stands.
+tolerances:
+  atol: 2.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 0.5
+compile_cases: [hexagon-vtcm-hmx]
+# A 3 GB import that only reaches the ISel failure below; micro/conv-gelu-4x32x8x50-f16
+# reproduces it in a second. Run with --run-skipped once that is fixed.
+skip: "known COMPILE_FAILURE (LLVM Hexagon ISel, f16 erf GELU); tracked by micro/conv-gelu-4x32x8x50-f16"
+expected_outcomes:
+  - case: hexagon-vtcm-hmx
+    status: COMPILE_FAILURE
+    reason: "v32i1 = setcc"
+    comment: >-
+      LLVM Hexagon ISel failure in the conv 4x480x32x25x480x3x3 + exact-erf GELU dispatch (f16). The plain `hexagon` case fails the same way. With the GELU computed in f32 instead, the compile spends >10 min in HexagonGlobalScheduler and, with -disable-pull-up, then trips the 12 KiB stack-frame gate. Measured 2026-09-29.

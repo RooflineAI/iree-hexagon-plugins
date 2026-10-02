@@ -101,6 +101,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="run only this model from models/ (repeatable).",
     )
     group.addoption(
+        "--run-skipped",
+        action="store_true",
+        default=False,
+        help="also run the models whose model.yaml sets 'skip'.",
+    )
+    group.addoption(
         "--compile-case",
         action="append",
         default=[],
@@ -115,6 +121,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def _selected_specs(config: pytest.Config) -> list[ModelSpec]:
     return discover.select(names=config.getoption("--model") or None)
+
+
+def _param(config: pytest.Config, spec: ModelSpec, *values: object, id: str):
+    """One test parameter, marked skipped if the model's yaml says so.
+
+    A skip mark is evaluated before any fixture is set up, so a skipped model
+    is never imported.
+    """
+    marks = []
+    if spec.skip is not None and not config.getoption("--run-skipped"):
+        marks.append(pytest.mark.skip(reason=f"model.yaml skip: {spec.skip.strip()}"))
+    return pytest.param(*values, marks=marks, id=id)
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -135,13 +153,17 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             )
         metafunc.parametrize(
             ("model_spec", "compile_case"),
-            pairs,
-            ids=[f"{spec.name}-{case.name}" for spec, case in pairs],
+            [
+                _param(metafunc.config, spec, spec, case, id=f"{spec.name}-{case.name}")
+                for spec, case in pairs
+            ],
             scope="session",
         )
         return
     metafunc.parametrize(
-        "model_spec", specs, ids=[spec.name for spec in specs], scope="session"
+        "model_spec",
+        [_param(metafunc.config, spec, spec, id=spec.name) for spec in specs],
+        scope="session",
     )
 
 

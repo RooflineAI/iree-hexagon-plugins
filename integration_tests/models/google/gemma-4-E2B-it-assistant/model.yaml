@@ -1,0 +1,25 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+# Synthetic backbone state for one draft step (see model.py): hidden state,
+# then (k, v) for full attention (head_dim 512) and sliding attention
+# (head_dim 256) over 128 cached positions, then the position id.
+inputs:
+  - {shape: [1, 1, 3072], dtype: float16, generator: normal, seed: 0}
+  - {shape: [1, 1, 128, 512], dtype: float16, generator: normal, seed: 1}
+  - {shape: [1, 1, 128, 512], dtype: float16, generator: normal, seed: 2}
+  - {shape: [1, 1, 128, 256], dtype: float16, generator: normal, seed: 3}
+  - {shape: [1, 1, 128, 256], dtype: float16, generator: normal, seed: 4}
+  - {shape: [1, 1], dtype: int64, generator: uniform, low: 128, high: 129}
+# Measured 2026-09-30 (hexagon-vtcm-hmx): relative L2 0.076%, max abs 0.17.
+# 98% of the output is the mask fill value, so the elementwise check is
+# dominated by it; the tolerances keep a ~3x margin.
+tolerances:
+  atol: 5.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 0.3
+compile_cases: [hexagon-vtcm-hmx]

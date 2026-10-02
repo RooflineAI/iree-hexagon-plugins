@@ -1,0 +1,20 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+inputs:
+  - {shape: [4, 32, 8, 50], dtype: float16, generator: normal, seed: 0}
+# Placeholder: never reached while the compile failure below stands.
+tolerances:
+  atol: 5.0e-2
+  rtol: 5.0e-2
+  relative_l2_percent: 1.0
+expected_outcomes:
+  - case: "*"
+    status: COMPILE_FAILURE
+    reason: "v32i1 = setcc"
+    comment: >-
+      LLVM Hexagon ISel cannot select a v32i1 setcc (setogt) from the f16 math.erf of the GELU fused into dispatch conv_4x32x4x25x32x3x3_f16xf16xf32, in both cases, within a second. The same failure as Qwen/Qwen3-ASR-0.6B (conv_4x480x32x25x480x3x3); the GELU alone, and the conv at batch 1, compile. Measured 2026-10-02.

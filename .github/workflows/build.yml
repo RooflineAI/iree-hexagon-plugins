@@ -198,11 +198,6 @@ jobs:
       - name: Update submodules
         run: |
           build_tools/update_submodules.py
-      - name: Install clang-19
-        run: |
-          wget -O /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:

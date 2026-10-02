@@ -4,4 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-exports_files(["hedron_skip_pch.patch"])
+exports_files([
+    "hedron_skip_pch.patch",
+    "llvm_libstdcxx_no_static_runtime.patch",
+    "llvm_rules_cc_use_libtool_rename.patch",
+])

@@ -242,3 +242,63 @@ func.func @configured_partial_tile(%arg0: tensor<6x6xf32>) -> tensor<6x6xf32> {
   } -> tensor<6x6xf32>
   return %0 : tensor<6x6xf32>
 }
+
+// -----
+
+// A full reduction to a 0-d tensor has no parallel loop to distribute, so
+// zeroing its reduction tiles would leave SCF tiling nothing to tile.
+// The pass is expected to be able to deal with this case.
+// CHECK-LABEL: func.func @configured_full_reduction(
+// CHECK-NOT: scf.forall
+// CHECK: %[[IN:.+]] = iree_hexagon.stage_to_vtcm %{{.*}} : tensor<256xf32>
+// CHECK: linalg.generic
+// CHECK-SAME: iterator_types = ["reduction"]
+// CHECK-SAME: ins(%[[IN]] : tensor<256xf32>)
+// CHECK-NOT: hexagon_vtcm_tiling_config
+// CHECK: return
+
+func.func @configured_full_reduction(%arg0: tensor<256xf32>) -> tensor<f32> {
+  %cst = arith.constant 0.0 : f32
+  %empty = tensor.empty() : tensor<f32>
+  %init = linalg.fill ins(%cst : f32) outs(%empty : tensor<f32>) -> tensor<f32>
+  %0 = linalg.generic {indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> ()>], iterator_types = ["reduction"]} ins(%arg0 : tensor<256xf32>) outs(%init : tensor<f32>) attrs = {hexagon_vtcm_tiling_config = #iree_hexagon.vtcm_tiling_config<tile_sizes = [256]>} {
+  ^bb0(%in: f32, %out: f32):
+    %1 = arith.addf %in, %out : f32
+    linalg.yield %1 : f32
+  } -> tensor<f32>
+  return %0 : tensor<f32>
+}
+
+// -----
+
+// With a producer (an f16 -> f32 cast, as in an RMSNorm dispatch), the cast
+// is fused into the loop: the dispatch input is staged, and the cast writes a
+// fresh VTCM buffer instead of having its DDR result copied in.
+// CHECK-LABEL: func.func @configured_full_reduction_with_producer(
+// CHECK-NOT: scf.forall
+// CHECK: iree_hexagon.stage_to_vtcm %{{.*}} : tensor<256xf16>
+// CHECK: iree_hexagon.vtcm_empty() : tensor<256xf32>
+// CHECK: linalg.generic
+// CHECK-SAME: iterator_types = ["parallel"]
+// CHECK-NOT: iree_hexagon.stage_to_vtcm
+// CHECK: linalg.generic
+// CHECK-SAME: iterator_types = ["reduction"]
+// CHECK: return
+
+func.func @configured_full_reduction_with_producer(%arg0: tensor<256xf16>) -> tensor<f32> {
+  %cst = arith.constant 0.0 : f32
+  %cast_init = tensor.empty() : tensor<256xf32>
+  %cast = linalg.generic {indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>], iterator_types = ["parallel"]} ins(%arg0 : tensor<256xf16>) outs(%cast_init : tensor<256xf32>) {
+  ^bb0(%in: f16, %out: f32):
+    %e = arith.extf %in : f16 to f32
+    linalg.yield %e : f32
+  } -> tensor<256xf32>
+  %empty = tensor.empty() : tensor<f32>
+  %init = linalg.fill ins(%cst : f32) outs(%empty : tensor<f32>) -> tensor<f32>
+  %0 = linalg.generic {indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> ()>], iterator_types = ["reduction"]} ins(%cast : tensor<256xf32>) outs(%init : tensor<f32>) attrs = {hexagon_vtcm_tiling_config = #iree_hexagon.vtcm_tiling_config<tile_sizes = [256]>} {
+  ^bb0(%in: f32, %out: f32):
+    %1 = arith.addf %in, %out : f32
+    linalg.yield %1 : f32
+  } -> tensor<f32>
+  return %0 : tensor<f32>
+}

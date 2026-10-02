@@ -18,6 +18,7 @@
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/TilingInterface.h"
@@ -85,15 +86,28 @@ static Value stageToVTCM(IRRewriter &rewriter, Value tensor, Location loc) {
 
 /// Returns the dispatch tile sizes for the outer `scf.forall`, zeroing
 /// reduction dimensions so this pass only tiles parallel loops.
+///
+/// If that leaves no tiled loop at all (e.g. a full reduction to a 0-d
+/// tensor), SCF tiling would generate no forall. The reductions then get a
+/// single full-extent tile instead: the forall has one iteration, so it is
+/// race-free, and the op is tiled, fused and staged like any other root.
 static SmallVector<OpFoldResult>
 getForallTileSizes(OpBuilder &builder, linalg::LinalgOp op,
                    ArrayRef<int64_t> tileSizes) {
   SmallVector<OpFoldResult> result;
-  for (auto [tileSize, iterType] :
-       llvm::zip_equal(tileSizes, op.getIteratorTypesArray())) {
+  SmallVector<utils::IteratorType> iterators = op.getIteratorTypesArray();
+  for (auto [tileSize, iterType] : llvm::zip_equal(tileSizes, iterators)) {
     int64_t effectiveSize =
         (iterType == utils::IteratorType::reduction) ? 0 : tileSize;
     result.push_back(builder.getIndexAttr(effectiveSize));
+  }
+  if (!llvm::all_of(result, isZeroInteger))
+    return result;
+  SmallVector<Range> loopRanges = op.createLoopRanges(builder, op.getLoc());
+  for (auto [size, range, iterType] :
+       llvm::zip_equal(result, loopRanges, iterators)) {
+    if (iterType == utils::IteratorType::reduction)
+      size = range.size;
   }
   return result;
 }
@@ -161,6 +175,7 @@ applyDispatchWideTiling(IRRewriter &rewriter, linalg::LinalgOp op,
   llvm::DenseSet<Operation *> yieldReplacementsFor =
       getOpsNeedingYieldReplacements(op, tiledAndFusedOps);
 
+  rewriter.setInsertionPoint(op);
   scf::SCFTilingOptions tilingOptions;
   tilingOptions.setTileSizes(getForallTileSizes(rewriter, op, tileSizes));
   tilingOptions.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);

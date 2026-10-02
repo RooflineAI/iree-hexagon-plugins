@@ -19,6 +19,13 @@
 
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 
+/// Index of a node in `DispatchRegisterGraph::nodes`.
+using NodeIdx = unsigned;
+/// Position in the schedule, i.e. an index into `DispatchRegisterGraph::steps`.
+using StepIdx = unsigned;
+/// Index of a linalg op in `DispatchRegisterGraph::ops`.
+using OpIdx = unsigned;
+
 /// What a node stands for. Every node holds at most one value; the kinds
 /// differ in where that value comes from and how its live range is derived.
 enum class NodeKind {
@@ -51,9 +58,8 @@ struct Node {
   Value value;
   /// The body op this node came from, if any.
   Operation *op = nullptr;
-  /// Index into `DispatchRegisterGraph::ops` of the linalg op this node
-  /// belongs to.
-  unsigned owningOp = 0;
+  /// The linalg op this node belongs to.
+  OpIdx owningOp = 0;
   /// anchor dims -> this value's tile dims. Its footprint is derived from it.
   AffineMap shapeMap;
   /// Element type of the value.
@@ -76,8 +82,8 @@ struct Node {
   /// Removed while the graph was built (its work was folded into another
   /// node).
   bool dead = false;
-  /// Node indices this node reads.
-  SmallVector<unsigned> operands;
+  /// Nodes this node reads.
+  SmallVector<NodeIdx> operands;
 
   // --- decided at the end of build, read by evaluate -----------------------
   /// Registers holding this node's value.
@@ -92,34 +98,34 @@ struct Node {
 /// writes the accumulator's next value, and the value left once the phase has
 /// run.
 struct Reduction {
-  unsigned accumulator = 0;
-  unsigned update = 0;
-  unsigned reduced = 0;
+  NodeIdx accumulator = 0;
+  NodeIdx update = 0;
+  NodeIdx reduced = 0;
   /// The accumulator ends up spread across the lanes of a vector and has to
   /// be folded across them when the phase ends.
   bool horizontal = false;
   /// When the reduction runs over several tiles, a horizontal reduction's
   /// accumulator keeps every step's lane-spread partial result live, so it is
   /// at least as wide as the widest reduction-lane operand feeding it.
-  SmallVector<unsigned> wideningOperands;
+  SmallVector<NodeIdx> wideningOperands;
 };
 
 /// A closed position interval [start, end] in the schedule.
 struct LiveInterval {
-  unsigned start = 0;
-  unsigned end = 0;
+  StepIdx start = 0;
+  StepIdx end = 0;
 };
 
 /// One position of the schedule: the node that executes there and how the
 /// live set changes around it. Everything here is tile-independent.
 struct Step {
-  unsigned node = 0;
+  NodeIdx node = 0;
   /// Values that become live at this step.
-  SmallVector<unsigned, 2> starts;
+  SmallVector<NodeIdx, 2> starts;
   /// Operands read here for the last time.
-  SmallVector<unsigned, 2> reusable;
+  SmallVector<NodeIdx, 2> reusable;
   /// Values dead once this step has run.
-  SmallVector<unsigned, 2> ends;
+  SmallVector<NodeIdx, 2> ends;
 };
 
 /// What every node's value holds at one tile, indexed by node.

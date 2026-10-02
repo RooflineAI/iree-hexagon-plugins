@@ -15,13 +15,13 @@ namespace mlir::iree_compiler::hexagon::codegen::planning {
 namespace {
 
 /// Node indices that read `node`.
-SmallVector<SmallVector<unsigned>>
+SmallVector<SmallVector<NodeIdx>>
 buildConsumers(const DispatchRegisterGraph &graph) {
-  SmallVector<SmallVector<unsigned>> consumers(graph.nodes.size());
+  SmallVector<SmallVector<NodeIdx>> consumers(graph.nodes.size());
   for (auto [index, node] : llvm::enumerate(graph.nodes)) {
     if (node.dead)
       continue;
-    for (unsigned operand : node.operands)
+    for (NodeIdx operand : node.operands)
       consumers[operand].push_back(index);
   }
   return consumers;
@@ -29,16 +29,15 @@ buildConsumers(const DispatchRegisterGraph &graph) {
 
 /// Everything `root` transitively reads, following operand edges backwards
 /// and stopping at `stop`.
-llvm::SmallDenseSet<unsigned>
-backwardClosure(const DispatchRegisterGraph &graph, unsigned root,
-                unsigned stop) {
-  llvm::SmallDenseSet<unsigned> visited;
-  SmallVector<unsigned> worklist = {root};
+llvm::SmallDenseSet<NodeIdx> backwardClosure(const DispatchRegisterGraph &graph,
+                                             NodeIdx root, NodeIdx stop) {
+  llvm::SmallDenseSet<NodeIdx> visited;
+  SmallVector<NodeIdx> worklist = {root};
   while (!worklist.empty()) {
-    unsigned index = worklist.pop_back_val();
+    NodeIdx index = worklist.pop_back_val();
     if (index == stop || !visited.insert(index).second)
       continue;
-    for (unsigned operand : graph.nodes[index].operands)
+    for (NodeIdx operand : graph.nodes[index].operands)
       worklist.push_back(operand);
   }
   return visited;
@@ -63,11 +62,11 @@ void markReductionChunkValues(DispatchRegisterGraph &graph) {
   if (!graph.reduction)
     return;
   const Reduction &reduction = *graph.reduction;
-  SmallVector<SmallVector<unsigned>> consumers = buildConsumers(graph);
-  llvm::SmallDenseSet<unsigned> feeding =
+  SmallVector<SmallVector<NodeIdx>> consumers = buildConsumers(graph);
+  llvm::SmallDenseSet<NodeIdx> feeding =
       backwardClosure(graph, reduction.update, reduction.accumulator);
-  for (unsigned index : feeding) {
-    if (llvm::all_of(consumers[index], [&](unsigned consumer) {
+  for (NodeIdx index : feeding) {
+    if (llvm::all_of(consumers[index], [&](NodeIdx consumer) {
           return feeding.contains(consumer);
         }))
       graph.nodes[index].perReductionChunk = true;
@@ -81,17 +80,17 @@ void recognizeMultiplyAccumulates(DispatchRegisterGraph &graph) {
   if (!graph.reduction)
     return;
   Reduction &reduction = *graph.reduction;
-  SmallVector<SmallVector<unsigned>> consumers = buildConsumers(graph);
-  unsigned accumulator = reduction.accumulator;
-  unsigned update = reduction.update;
+  SmallVector<SmallVector<NodeIdx>> consumers = buildConsumers(graph);
+  NodeIdx accumulator = reduction.accumulator;
+  NodeIdx update = reduction.update;
   const Node &add = graph.nodes[update];
   if (!isAdd(add.op) || add.operands.size() != 2)
     return;
 
   // The update has to be `accumulator + something`.
-  unsigned product = add.operands[0] == accumulator   ? add.operands[1]
-                     : add.operands[1] == accumulator ? add.operands[0]
-                                                      : update;
+  NodeIdx product = add.operands[0] == accumulator   ? add.operands[1]
+                    : add.operands[1] == accumulator ? add.operands[0]
+                                                     : update;
   if (product == update || !isMultiply(graph.nodes[product].op))
     return;
   if (graph.nodes[product].operands.size() != 2)
@@ -99,8 +98,8 @@ void recognizeMultiplyAccumulates(DispatchRegisterGraph &graph) {
 
   // Peel an extension off each factor when it exists only to widen it: the
   // instruction natively reads the narrow operand.
-  SmallVector<unsigned> sources;
-  for (unsigned factor : graph.nodes[product].operands) {
+  SmallVector<NodeIdx> sources;
+  for (NodeIdx factor : graph.nodes[product].operands) {
     Node &node = graph.nodes[factor];
     if (isExtension(node.op) && node.operands.size() == 1 &&
         consumers[factor].size() == 1) {
@@ -169,7 +168,7 @@ void findTiledReductionWidening(DispatchRegisterGraph &graph) {
   if (!graph.reduction || !graph.reduction->horizontal)
     return;
   Reduction &reduction = *graph.reduction;
-  for (unsigned operand : graph.nodes[reduction.update].operands) {
+  for (NodeIdx operand : graph.nodes[reduction.update].operands) {
     if (operand == reduction.accumulator)
       continue;
     const Node &source = graph.nodes[operand];

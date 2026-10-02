@@ -115,7 +115,7 @@ NodeWeights DispatchRegisterGraph::weighNodes(ArrayRef<int64_t> tile) const {
   if (reduction && reduction->horizontal && reductionTiled) {
     int64_t &registers = weights.registers[reduction->accumulator];
     int64_t &usefulBits = weights.usefulBits[reduction->accumulator];
-    for (unsigned operand : reduction->wideningOperands) {
+    for (NodeIdx operand : reduction->wideningOperands) {
       registers = std::max(registers, weights.registers[operand]);
       usefulBits = std::max(usefulBits, weights.usefulBits[operand]);
     }
@@ -127,16 +127,16 @@ namespace {
 /// The peak of the live set over the schedule, and where it is reached.
 struct Peak {
   RegisterPressure pressure;
-  unsigned position = 0;
+  StepIdx position = 0;
 };
 } // namespace
 
 /// Liveliness sweep over the nodes in the graph
 static Peak sweepPeak(const DispatchRegisterGraph &graph,
                       ArrayRef<int64_t> tile, const NodeWeights &weights) {
-  auto sum = [](ArrayRef<int64_t> perNode, ArrayRef<unsigned> values) {
+  auto sum = [](ArrayRef<int64_t> perNode, ArrayRef<NodeIdx> values) {
     int64_t total = 0;
-    for (unsigned value : values)
+    for (NodeIdx value : values)
       total += perNode[value];
     return total;
   };
@@ -144,7 +144,7 @@ static Peak sweepPeak(const DispatchRegisterGraph &graph,
   int64_t vectorBits = graph.getConfig().vectorBits;
   int64_t peakRegisters = 0;
   int64_t peakBits = 0;
-  unsigned peakPosition = 0;
+  StepIdx peakPosition = 0;
   int64_t live = 0;
   int64_t liveBits = 0;
   for (auto [position, step] : llvm::enumerate(graph.steps)) {
@@ -219,7 +219,7 @@ ArrayRef<linalg::LinalgOp> DispatchRegisterGraph::getOps() const { return ops; }
 void DispatchRegisterGraph::dump(llvm::raw_ostream &os,
                                  const ArrayRef<int64_t> tileSizes,
                                  const NodeWeights &weights,
-                                 unsigned peak_position,
+                                 StepIdx peak_position,
                                  const RegisterPressure &pressure) const {
 
   os << "dispatch-register-graph: " << ops.size() << " op(s), " << numPhases

@@ -29,7 +29,7 @@ struct TilePropagationResult {
 ///
 /// `reportFailure` receives the reason whenever this returns failure.
 FailureOr<TilePropagationResult>
-propagateTiles(ArrayRef<linalg::LinalgOp> ops, unsigned anchorIndex,
+propagateTiles(ArrayRef<linalg::LinalgOp> ops, OpIdx anchorIndex,
                llvm::function_ref<LogicalResult(const Twine &)> reportFailure);
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning

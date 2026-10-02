@@ -22,7 +22,7 @@ using FailureReporter = llvm::function_ref<LogicalResult(const Twine &)>;
 /// written in terms of anchor dims
 class Propagator {
 public:
-  Propagator(ArrayRef<linalg::LinalgOp> ops, unsigned anchorIndex,
+  Propagator(ArrayRef<linalg::LinalgOp> ops, OpIdx anchorIndex,
              FailureReporter reportFailure)
       : ops(ops), anchorIndex(anchorIndex), reportFailure(reportFailure),
         loopExprs(ops.size()) {}
@@ -38,28 +38,28 @@ private:
 
   /// The expression a tensor `consumer` reads alongside an op already in the
   /// nest gives `loop`, or null if no such tensor addresses it.
-  AffineExpr getSharedInputExpr(unsigned consumerIndex, unsigned loop);
+  AffineExpr getSharedInputExpr(OpIdx consumerIndex, unsigned loop);
 
   /// Records `exprs` as `opIndex`'s loop mapping
   /// or fails if the op was already reached with a different one.
-  LogicalResult assign(unsigned opIndex, ArrayRef<AffineExpr> exprs);
+  LogicalResult assign(OpIdx opIndex, ArrayRef<AffineExpr> exprs);
 
   /// Whichever end is already mapped fixes the tensor's tile; the other is
   /// derived from it. if both are already mapped, they have to agree.
-  LogicalResult linkEdge(unsigned producerIndex, OpResult result,
-                         unsigned consumerIndex, OpOperand *operand);
-  LogicalResult deriveProducer(unsigned producerIndex, AffineMap output,
+  LogicalResult linkEdge(OpIdx producerIndex, OpResult result,
+                         OpIdx consumerIndex, OpOperand *operand);
+  LogicalResult deriveProducer(OpIdx producerIndex, AffineMap output,
                                ArrayRef<AffineExpr> tile);
-  LogicalResult deriveConsumer(unsigned consumerIndex, AffineMap read,
+  LogicalResult deriveConsumer(OpIdx consumerIndex, AffineMap read,
                                ArrayRef<AffineExpr> tile);
 
   ArrayRef<linalg::LinalgOp> ops;
-  unsigned anchorIndex;
+  OpIdx anchorIndex;
   FailureReporter reportFailure;
 
   SmallVector<AnchorDim> anchorDims;
   SmallVector<SmallVector<AffineExpr>> loopExprs;
-  SmallVector<unsigned> worklist;
+  SmallVector<OpIdx> worklist;
 };
 
 AffineExpr Propagator::addPinnedDim(linalg::LinalgOp op, unsigned loop) {
@@ -71,8 +71,7 @@ AffineExpr Propagator::addPinnedDim(linalg::LinalgOp op, unsigned loop) {
 
 /// Both ops read the same tile of a tensor they share, so the loop addressing
 /// one of its dims takes the other op's expression for that dim.
-AffineExpr Propagator::getSharedInputExpr(unsigned consumerIndex,
-                                          unsigned loop) {
+AffineExpr Propagator::getSharedInputExpr(OpIdx consumerIndex, unsigned loop) {
   linalg::LinalgOp consumer = ops[consumerIndex];
   for (OpOperand *operand : consumer.getDpsInputOperands()) {
     AffineMap read = consumer.getMatchingIndexingMap(operand);
@@ -80,8 +79,7 @@ AffineExpr Propagator::getSharedInputExpr(unsigned consumerIndex,
       auto dim = dyn_cast<AffineDimExpr>(result);
       if (!dim || dim.getPosition() != loop)
         continue;
-      for (unsigned otherIndex = 0, e = ops.size(); otherIndex < e;
-           ++otherIndex) {
+      for (OpIdx otherIndex = 0, e = ops.size(); otherIndex < e; ++otherIndex) {
         if (otherIndex == consumerIndex || loopExprs[otherIndex].empty())
           continue;
         linalg::LinalgOp other = ops[otherIndex];
@@ -98,7 +96,7 @@ AffineExpr Propagator::getSharedInputExpr(unsigned consumerIndex,
   return AffineExpr();
 }
 
-LogicalResult Propagator::assign(unsigned opIndex, ArrayRef<AffineExpr> exprs) {
+LogicalResult Propagator::assign(OpIdx opIndex, ArrayRef<AffineExpr> exprs) {
   if (!loopExprs[opIndex].empty()) {
     // already present: check if both ways of reaching it agree
     if (!llvm::equal(loopExprs[opIndex], exprs))
@@ -115,8 +113,7 @@ LogicalResult Propagator::assign(unsigned opIndex, ArrayRef<AffineExpr> exprs) {
 }
 
 /// The producer writes the tensor `output`
-LogicalResult Propagator::deriveProducer(unsigned producerIndex,
-                                         AffineMap output,
+LogicalResult Propagator::deriveProducer(OpIdx producerIndex, AffineMap output,
                                          ArrayRef<AffineExpr> tile) {
   linalg::LinalgOp producer = ops[producerIndex];
   if (!output.isPermutation())
@@ -131,7 +128,7 @@ LogicalResult Propagator::deriveProducer(unsigned producerIndex,
 }
 
 /// The consumer reads the tensor through `read`.
-LogicalResult Propagator::deriveConsumer(unsigned consumerIndex, AffineMap read,
+LogicalResult Propagator::deriveConsumer(OpIdx consumerIndex, AffineMap read,
                                          ArrayRef<AffineExpr> tile) {
   linalg::LinalgOp consumer = ops[consumerIndex];
   SmallVector<AffineExpr> exprs(consumer.getNumLoops());
@@ -159,8 +156,8 @@ LogicalResult Propagator::deriveConsumer(unsigned consumerIndex, AffineMap read,
   return assign(consumerIndex, exprs);
 }
 
-LogicalResult Propagator::linkEdge(unsigned producerIndex, OpResult result,
-                                   unsigned consumerIndex, OpOperand *operand) {
+LogicalResult Propagator::linkEdge(OpIdx producerIndex, OpResult result,
+                                   OpIdx consumerIndex, OpOperand *operand) {
   bool haveProducer = !loopExprs[producerIndex].empty();
   bool haveConsumer = !loopExprs[consumerIndex].empty();
   // noting i known: nothing to do
@@ -220,8 +217,8 @@ FailureOr<TilePropagationResult> Propagator::run() {
 
   // Which op produces each tensor the dispatch's ops hand each other, and
   // which index each op has.
-  llvm::DenseMap<Value, unsigned> producerOf;
-  llvm::DenseMap<Operation *, unsigned> opIndexOf;
+  llvm::DenseMap<Value, OpIdx> producerOf;
+  llvm::DenseMap<Operation *, OpIdx> opIndexOf;
   for (auto [index, op] : llvm::enumerate(ops)) {
     opIndexOf[op] = index;
     for (OpResult result : op->getResults())
@@ -229,7 +226,7 @@ FailureOr<TilePropagationResult> Propagator::run() {
   }
 
   while (!worklist.empty()) {
-    unsigned current = worklist.pop_back_val();
+    OpIdx current = worklist.pop_back_val();
     linalg::LinalgOp op = ops[current];
     // find producers
     for (OpOperand &operand : op->getOpOperands()) {
@@ -290,7 +287,7 @@ FailureOr<TilePropagationResult> Propagator::run() {
 } // namespace
 
 FailureOr<TilePropagationResult>
-propagateTiles(ArrayRef<linalg::LinalgOp> ops, unsigned anchorIndex,
+propagateTiles(ArrayRef<linalg::LinalgOp> ops, OpIdx anchorIndex,
                llvm::function_ref<LogicalResult(const Twine &)> reportFailure) {
   assert(anchorIndex < ops.size() && "anchor must be one of the ops");
   return Propagator(ops, anchorIndex, reportFailure).run();

@@ -162,7 +162,7 @@ private:
   /// Debug only: prints nodes, phases, schedule, weights and the live set at
   /// the peak for the given tile.
   void dump(llvm::raw_ostream &os, const ArrayRef<int64_t> tileSizes,
-            const NodeWeights &weights, unsigned peak_position,
+            const NodeWeights &weights, StepIdx peak_position,
             const RegisterPressure &pressure) const;
 
   DispatchRegisterGraph() = default;

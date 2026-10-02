@@ -81,53 +81,53 @@ public:
 
 private:
   /// Appends `node` and records it as the definition of `node.value`.
-  unsigned addNode(Node node);
+  NodeIdx addNode(Node node);
 
   /// The rank-0 map every invariant uses: its shape does not depend on the
   /// tile, so it costs one splatted register.
   AffineMap getScalarMap() const;
-  AffineMap getOpLoopMap(unsigned opIndex) const;
+  AffineMap getOpLoopMap(OpIdx opIndex) const;
 
   /// Node for a value read by a body op: either one lifted earlier, or a new
   /// `Invariant` for something defined outside the body.
-  FailureOr<unsigned> getOperandNode(Value value, unsigned opIndex);
+  FailureOr<NodeIdx> getOperandNode(Value value, OpIdx opIndex);
 
   /// The invariant holding the constants of `op`'s expansion, created on
   /// first use: every op of the same kind splats the same constants.
-  unsigned getExpansionConstants(Operation &op, Type elementType,
-                                 int64_t registers, unsigned opIndex);
+  NodeIdx getExpansionConstants(Operation &op, Type elementType,
+                                int64_t registers, OpIdx opIndex);
 
   // these helpers return false on failure, and alter the NodeBuilder's State on
   // success
-  LogicalResult buildNodeForOp(unsigned opIndex);
-  LogicalResult addReduceNodes(unsigned opIndex);
-  LogicalResult buildBlockArgsNodes(unsigned opIndex);
+  LogicalResult buildNodeForOp(OpIdx opIndex);
+  LogicalResult addReduceNodes(OpIdx opIndex);
+  LogicalResult buildBlockArgsNodes(OpIdx opIndex);
 
-  LogicalResult buildOperandNode(linalg::LinalgOp op, unsigned opIndex,
+  LogicalResult buildOperandNode(linalg::LinalgOp op, OpIdx opIndex,
                                  ArrayRef<AffineMap> outputShapeMaps,
                                  OpOperand *operand, bool isInput);
-  LogicalResult buildNodesforBody(unsigned opIndex);
-  LogicalResult addResultStoreNodes(unsigned opIndex);
+  LogicalResult buildNodesforBody(OpIdx opIndex);
+  LogicalResult addResultStoreNodes(OpIdx opIndex);
 
   /// Node holding `source` in the layout `wanted`, inserting a `Shuffle`
   /// first if `source` is laid out differently.
-  unsigned addRelayoutNode(unsigned source, AffineMap wanted, unsigned opIndex);
+  NodeIdx addRelayoutNode(NodeIdx source, AffineMap wanted, OpIdx opIndex);
 
   DispatchRegisterGraph &graph;
-  llvm::DenseMap<Value, unsigned> nodeOf;
+  llvm::DenseMap<Value, NodeIdx> nodeOf;
   /// Per op: the node producing each of its results, in result order.
-  SmallVector<SmallVector<unsigned>> resultNodes;
+  SmallVector<SmallVector<NodeIdx>> resultNodes;
   /// Tensor result of an op in the list -> the node holding it.
-  llvm::DenseMap<Value, unsigned> producedTensor;
+  llvm::DenseMap<Value, NodeIdx> producedTensor;
   /// A materialized tensor's `Load`, shared by every consumer of it.
-  llvm::DenseMap<Value, unsigned> materializedLoad;
+  llvm::DenseMap<Value, NodeIdx> materializedLoad;
   /// Per expanded op name: the invariant holding its constant table, shared
   /// by every op of that kind.
-  llvm::StringMap<unsigned> expansionConstants;
+  llvm::StringMap<NodeIdx> expansionConstants;
 };
 
-unsigned NodeBuilder::addNode(Node node) {
-  unsigned index = graph.nodes.size();
+NodeIdx NodeBuilder::addNode(Node node) {
+  NodeIdx index = graph.nodes.size();
   if (node.value)
     nodeOf[node.value] = index;
   graph.nodes.push_back(std::move(node));
@@ -139,11 +139,11 @@ AffineMap NodeBuilder::getScalarMap() const {
                         graph.dispatch->getContext());
 }
 
-AffineMap NodeBuilder::getOpLoopMap(unsigned opIndex) const {
+AffineMap NodeBuilder::getOpLoopMap(OpIdx opIndex) const {
   return graph.anchorToOpLoops[opIndex];
 }
 
-FailureOr<unsigned> NodeBuilder::getOperandNode(Value value, unsigned opIndex) {
+FailureOr<NodeIdx> NodeBuilder::getOperandNode(Value value, OpIdx opIndex) {
   auto found = nodeOf.find(value);
   if (found != nodeOf.end())
     return found->second;
@@ -163,9 +163,8 @@ FailureOr<unsigned> NodeBuilder::getOperandNode(Value value, unsigned opIndex) {
   return addNode(std::move(node));
 }
 
-unsigned NodeBuilder::getExpansionConstants(Operation &op, Type elementType,
-                                            int64_t registers,
-                                            unsigned opIndex) {
+NodeIdx NodeBuilder::getExpansionConstants(Operation &op, Type elementType,
+                                           int64_t registers, OpIdx opIndex) {
   StringRef name = op.getName().getStringRef();
   auto found = expansionConstants.find(name);
   if (found != expansionConstants.end())
@@ -178,7 +177,7 @@ unsigned NodeBuilder::getExpansionConstants(Operation &op, Type elementType,
   node.elementType = elementType;
   node.regClass = RegClass::Vector;
   node.invariantRegisters = registers;
-  unsigned index = addNode(std::move(node));
+  NodeIdx index = addNode(std::move(node));
   expansionConstants[name] = index;
   return index;
 }
@@ -290,8 +289,8 @@ static bool needsFullMaterialization(AffineMap shapeMap,
   return false;
 }
 
-unsigned NodeBuilder::addRelayoutNode(unsigned source, AffineMap wanted,
-                                      unsigned opIndex) {
+NodeIdx NodeBuilder::addRelayoutNode(NodeIdx source, AffineMap wanted,
+                                     OpIdx opIndex) {
   if (haveSameLayout(graph.nodes[source].shapeMap, wanted))
     return source;
 
@@ -308,8 +307,7 @@ unsigned NodeBuilder::addRelayoutNode(unsigned source, AffineMap wanted,
   return addNode(std::move(shuffle));
 }
 
-LogicalResult NodeBuilder::buildOperandNode(linalg::LinalgOp op,
-                                            unsigned opIndex,
+LogicalResult NodeBuilder::buildOperandNode(linalg::LinalgOp op, OpIdx opIndex,
                                             ArrayRef<AffineMap> outputShapeMaps,
                                             OpOperand *operand, bool isInput) {
   BlockArgument arg = op.getMatchingBlockArgument(operand);
@@ -356,13 +354,13 @@ LogicalResult NodeBuilder::buildOperandNode(linalg::LinalgOp op,
   node.fullyMaterialized =
       isInput && // output is written in it layout by construction
       needsFullMaterialization(shapeMap, outputShapeMaps, graph.anchorDims);
-  unsigned index = addNode(std::move(node));
+  NodeIdx index = addNode(std::move(node));
   if (materialized)
     materializedLoad[tensor] = index;
   return success();
 }
 
-LogicalResult NodeBuilder::buildBlockArgsNodes(unsigned opIndex) {
+LogicalResult NodeBuilder::buildBlockArgsNodes(OpIdx opIndex) {
   linalg::LinalgOp op = graph.ops[opIndex];
   bool hasReduction = op.getNumReductionLoops() > 0;
 
@@ -409,7 +407,7 @@ LogicalResult NodeBuilder::buildBlockArgsNodes(unsigned opIndex) {
   return success();
 }
 
-LogicalResult NodeBuilder::buildNodesforBody(unsigned opIndex) {
+LogicalResult NodeBuilder::buildNodesforBody(OpIdx opIndex) {
   linalg::LinalgOp op = graph.ops[opIndex];
   Block &body = op->getRegion(0).front();
 
@@ -417,9 +415,9 @@ LogicalResult NodeBuilder::buildNodesforBody(unsigned opIndex) {
   for (Operation &nested : body) {
     // yield doesnt have its own node, its modeled by the other nodes
     if (isa<linalg::YieldOp>(&nested)) {
-      SmallVector<unsigned> producers;
+      SmallVector<NodeIdx> producers;
       for (Value yielded : nested.getOperands()) {
-        FailureOr<unsigned> producer = getOperandNode(yielded, opIndex);
+        FailureOr<NodeIdx> producer = getOperandNode(yielded, opIndex);
         if (failed(producer))
           return failure();
         producers.push_back(*producer);
@@ -446,7 +444,7 @@ LogicalResult NodeBuilder::buildNodesforBody(unsigned opIndex) {
       node.regClass = classifyResultType(node.value.getType());
       llvm::SmallBitVector dims(graph.anchorDims.size());
       for (Value operand : nested.getOperands()) {
-        FailureOr<unsigned> source = getOperandNode(operand, opIndex);
+        FailureOr<NodeIdx> source = getOperandNode(operand, opIndex);
         if (failed(source))
           return failure();
         node.operands.push_back(*source);
@@ -475,7 +473,7 @@ LogicalResult NodeBuilder::buildNodesforBody(unsigned opIndex) {
   return success();
 }
 
-LogicalResult NodeBuilder::addReduceNodes(unsigned opIndex) {
+LogicalResult NodeBuilder::addReduceNodes(OpIdx opIndex) {
   linalg::LinalgOp op = graph.ops[opIndex];
   if (op.getNumReductionLoops() == 0)
     return success();
@@ -499,7 +497,7 @@ LogicalResult NodeBuilder::addReduceNodes(unsigned opIndex) {
     reduced.elementType = source.elementType;
     reduced.regClass = source.regClass;
     reduced.operands.push_back(accumulator->second);
-    unsigned index = addNode(std::move(reduced));
+    NodeIdx index = addNode(std::move(reduced));
     graph.reduction =
         Reduction{accumulator->second, resultNodes[opIndex][i], index};
     resultNodes[opIndex][i] = index;
@@ -507,7 +505,7 @@ LogicalResult NodeBuilder::addReduceNodes(unsigned opIndex) {
   return success();
 }
 
-LogicalResult NodeBuilder::addResultStoreNodes(unsigned opIndex) {
+LogicalResult NodeBuilder::addResultStoreNodes(OpIdx opIndex) {
   linalg::LinalgOp op = graph.ops[opIndex];
 
   // Plan 4.4 step 2: a result leaves the dispatch unless every use of it is
@@ -515,7 +513,7 @@ LogicalResult NodeBuilder::addResultStoreNodes(unsigned opIndex) {
   // A materialized result is stored as well - that is what materializing it
   // means.
   for (auto [resultIndex, producer] : llvm::enumerate(resultNodes[opIndex])) {
-    unsigned stored = producer;
+    NodeIdx stored = producer;
     if (resultIndex < op->getNumResults()) {
       auto tensor = cast<OpResult>(op->getResult(resultIndex));
       producedTensor[tensor] = producer;
@@ -548,7 +546,7 @@ LogicalResult NodeBuilder::addResultStoreNodes(unsigned opIndex) {
   return success();
 }
 
-LogicalResult NodeBuilder::buildNodeForOp(unsigned opIndex) {
+LogicalResult NodeBuilder::buildNodeForOp(OpIdx opIndex) {
   if (failed(buildBlockArgsNodes(opIndex)))
     return failure();
   if (failed(buildNodesforBody(opIndex)))
@@ -565,7 +563,7 @@ LogicalResult NodeBuilder::run() {
   // build empty nodes first
   resultNodes.assign(graph.ops.size(), {});
   // and create the node for each op
-  for (unsigned index = 0, e = graph.ops.size(); index < e; ++index)
+  for (OpIdx index = 0, e = graph.ops.size(); index < e; ++index)
     if (failed(buildNodeForOp(index)))
       return failure();
   return success();

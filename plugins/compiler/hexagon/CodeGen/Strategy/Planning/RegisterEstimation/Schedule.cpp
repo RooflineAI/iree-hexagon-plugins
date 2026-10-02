@@ -20,7 +20,7 @@
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 namespace {
 
-constexpr unsigned kNotScheduled = std::numeric_limits<unsigned>::max();
+constexpr StepIdx kNotScheduled = std::numeric_limits<StepIdx>::max();
 
 /// Which nodes carry a reduction anchor dim in their tile: those are
 /// the ones that only exist inside the reduction loop.
@@ -37,30 +37,30 @@ llvm::SmallBitVector carriesReduction(const DispatchRegisterGraph &graph) {
 /// itself.
 llvm::SmallBitVector reachesAccumulator(const DispatchRegisterGraph &graph) {
   llvm::SmallBitVector inPhase(graph.nodes.size());
-  SmallVector<unsigned> worklist;
+  SmallVector<NodeIdx> worklist;
   if (graph.reduction) {
     inPhase.set(graph.reduction->accumulator);
     worklist.push_back(graph.reduction->update);
   }
   while (!worklist.empty()) {
-    unsigned index = worklist.pop_back_val();
+    NodeIdx index = worklist.pop_back_val();
     if (inPhase.test(index))
       continue;
     inPhase.set(index);
-    for (unsigned operand : graph.nodes[index].operands)
+    for (NodeIdx operand : graph.nodes[index].operands)
       worklist.push_back(operand);
   }
   return inPhase;
 }
 
 /// collects the indices of the nodes that use each operand
-SmallVector<SmallVector<unsigned>>
+SmallVector<SmallVector<NodeIdx>>
 buildConsumers(const DispatchRegisterGraph &graph) {
-  SmallVector<SmallVector<unsigned>> consumers(graph.nodes.size());
+  SmallVector<SmallVector<NodeIdx>> consumers(graph.nodes.size());
   for (auto [index, node] : llvm::enumerate(graph.nodes)) {
     if (node.dead)
       continue;
-    for (unsigned operand : node.operands)
+    for (NodeIdx operand : node.operands)
       consumers[operand].push_back(index);
   }
   return consumers;
@@ -68,14 +68,14 @@ buildConsumers(const DispatchRegisterGraph &graph) {
 
 /// Everything that transitively reads the value the reduction left behind.
 llvm::SmallBitVector readsReduced(const DispatchRegisterGraph &graph,
-                                  ArrayRef<SmallVector<unsigned>> consumers) {
+                                  ArrayRef<SmallVector<NodeIdx>> consumers) {
   llvm::SmallBitVector reads(graph.nodes.size());
-  SmallVector<unsigned> worklist;
+  SmallVector<NodeIdx> worklist;
   if (graph.reduction)
     worklist.append(consumers[graph.reduction->reduced].begin(),
                     consumers[graph.reduction->reduced].end());
   while (!worklist.empty()) {
-    unsigned index = worklist.pop_back_val();
+    NodeIdx index = worklist.pop_back_val();
     if (reads.test(index))
       continue;
     reads.set(index);
@@ -114,7 +114,7 @@ void assignPlacements(DispatchRegisterGraph &graph) {
   }
 
   // classify where the values live
-  SmallVector<SmallVector<unsigned>> consumers = buildConsumers(graph);
+  SmallVector<SmallVector<NodeIdx>> consumers = buildConsumers(graph);
   llvm::SmallBitVector carries = carriesReduction(graph);
   llvm::SmallBitVector inReduction = reachesAccumulator(graph);
   llvm::SmallBitVector afterReduction = readsReduced(graph, consumers);
@@ -148,7 +148,7 @@ void assignPlacements(DispatchRegisterGraph &graph) {
     if (node.dead || placed.test(index) || node.kind == NodeKind::Store)
       continue;
     std::optional<Placement> earliest;
-    for (unsigned consumer : consumers[index]) {
+    for (NodeIdx consumer : consumers[index]) {
       const Node &reader = graph.nodes[consumer];
       if (reader.kind == NodeKind::Store)
         continue;
@@ -181,14 +181,14 @@ void assignPlacements(DispatchRegisterGraph &graph) {
     if (node.dead || node.kind != NodeKind::Store)
       continue;
     // A reduced value exists once its phase is over
-    if (llvm::any_of(node.operands, [&](unsigned operand) {
+    if (llvm::any_of(node.operands, [&](NodeIdx operand) {
           return graph.nodes[operand].kind == NodeKind::Reduced;
         })) {
       node.placement = Placement{Placement::Epilogue, 0};
       continue;
     }
     node.placement = graph.nodes[node.operands.front()].placement;
-    for (unsigned operand : node.operands)
+    for (NodeIdx operand : node.operands)
       if (getPlacementRank(graph.nodes[operand].placement, graph.numPhases) >
           getPlacementRank(node.placement, graph.numPhases))
         node.placement = graph.nodes[operand].placement;
@@ -198,8 +198,8 @@ void assignPlacements(DispatchRegisterGraph &graph) {
 /// orders the nodes: prologue, each phase, then the epilogue. Within
 /// a phase, nodes are ordered in program order. The exception is a
 /// value, the reduction produces, which is placed at the end of the reduction
-SmallVector<unsigned> buildExecutionOrder(const DispatchRegisterGraph &graph) {
-  SmallVector<unsigned> order;
+SmallVector<NodeIdx> buildExecutionOrder(const DispatchRegisterGraph &graph) {
+  SmallVector<NodeIdx> order;
   auto append = [&](llvm::function_ref<bool(const Node &)> accept) {
     for (auto [index, node] : llvm::enumerate(graph.nodes))
       if (!node.dead && accept(node))
@@ -229,25 +229,24 @@ SmallVector<unsigned> buildExecutionOrder(const DispatchRegisterGraph &graph) {
 
 /// every scheduled nodes live range, from its definition
 /// to its last use, both inclusive.
-void computeLiveIntervals(DispatchRegisterGraph &graph,
-                          ArrayRef<unsigned> order,
-                          ArrayRef<unsigned> positionOf) {
+void computeLiveIntervals(DispatchRegisterGraph &graph, ArrayRef<NodeIdx> order,
+                          ArrayRef<StepIdx> positionOf) {
   graph.live.assign(graph.nodes.size(), LiveInterval{});
   if (order.empty())
     return;
-  unsigned lastPosition = order.size() - 1;
-  auto isScheduled = [&](unsigned node) {
+  StepIdx lastPosition = order.size() - 1;
+  auto isScheduled = [&](NodeIdx node) {
     return positionOf[node] != kNotScheduled;
   };
 
   // convert phase number into position in the schedule
-  SmallVector<unsigned> phaseStart(graph.numPhases, lastPosition);
-  SmallVector<unsigned> phaseEnd(graph.numPhases, 0);
+  SmallVector<StepIdx> phaseStart(graph.numPhases, lastPosition);
+  SmallVector<StepIdx> phaseEnd(graph.numPhases, 0);
   for (auto [position, index] : llvm::enumerate(order)) {
     const Placement &placement = graph.nodes[index].placement;
     if (placement.kind != Placement::InPhase)
       continue;
-    unsigned at = position;
+    StepIdx at = position;
     phaseStart[placement.phase] = std::min(phaseStart[placement.phase], at);
     phaseEnd[placement.phase] = at;
   }
@@ -255,17 +254,17 @@ void computeLiveIntervals(DispatchRegisterGraph &graph,
   llvm::SmallBitVector carries = carriesReduction(graph);
   // start with the phase, where the value is created
   for (auto [position, index] : llvm::enumerate(order))
-    graph.live[index] = LiveInterval{static_cast<unsigned>(position),
-                                     static_cast<unsigned>(position)};
+    graph.live[index] = LiveInterval{static_cast<StepIdx>(position),
+                                     static_cast<StepIdx>(position)};
 
   // extend the live interval of each value, up to its read
   for (auto [position, index] : llvm::enumerate(order)) {
     const Node &node = graph.nodes[index];
-    for (unsigned operand : node.operands) {
+    for (NodeIdx operand : node.operands) {
       if (!isScheduled(operand))
         continue;
       LiveInterval &interval = graph.live[operand];
-      interval.end = std::max<unsigned>(interval.end, position);
+      interval.end = std::max<StepIdx>(interval.end, position);
 
       // if a value is created before a phase and read in every iteration, of
       // the next phase, it needs to be live the entire phase (loop invariant
@@ -289,7 +288,7 @@ void computeLiveIntervals(DispatchRegisterGraph &graph,
         node.kind == NodeKind::Accumulator || carries.test(index))
       continue;
     unsigned phase = node.placement.phase;
-    bool readEveryTrip = llvm::any_of(order, [&](unsigned reader) {
+    bool readEveryTrip = llvm::any_of(order, [&](NodeIdx reader) {
       const Node &other = graph.nodes[reader];
       return carries.test(reader) &&
              other.placement.kind == Placement::InPhase &&
@@ -302,7 +301,7 @@ void computeLiveIntervals(DispatchRegisterGraph &graph,
 
   // The accumulator is is live over the whole phase.
   if (graph.reduction && isScheduled(graph.reduction->accumulator)) {
-    unsigned accumulator = graph.reduction->accumulator;
+    NodeIdx accumulator = graph.reduction->accumulator;
     unsigned phase = graph.nodes[accumulator].placement.phase;
     graph.live[accumulator] = LiveInterval{phaseStart[phase], phaseEnd[phase]};
   }
@@ -317,8 +316,8 @@ void computeLiveIntervals(DispatchRegisterGraph &graph,
 
 /// Turns the order and live ranges into steps: what starts, what may be
 /// reused and what ends at each position.
-void buildSteps(DispatchRegisterGraph &graph, ArrayRef<unsigned> order,
-                ArrayRef<unsigned> positionOf) {
+void buildSteps(DispatchRegisterGraph &graph, ArrayRef<NodeIdx> order,
+                ArrayRef<StepIdx> positionOf) {
   graph.steps.assign(order.size(), Step{});
   for (auto [position, index] : llvm::enumerate(order)) {
     Step &step = graph.steps[position];
@@ -330,7 +329,7 @@ void buildSteps(DispatchRegisterGraph &graph, ArrayRef<unsigned> order,
     // check which operands end here
     if (graph.nodes[index].kind == NodeKind::Shuffle)
       continue;
-    for (unsigned operand : graph.nodes[index].operands) {
+    for (NodeIdx operand : graph.nodes[index].operands) {
       if (positionOf[operand] == kNotScheduled ||
           graph.live[operand].end != position ||
           llvm::is_contained(step.reusable, operand))
@@ -367,9 +366,9 @@ Footprint getSliceFootprint(const DispatchRegisterGraph &graph,
 /// in the same phase, left behind by an earlier one or hoisted.
 /// Several readers may need the broadcast; the first one stands for all of
 /// them, as they share one shape and so one broadcast copy.
-std::optional<unsigned>
-findBroadcastReader(const DispatchRegisterGraph &graph, unsigned index,
-                    ArrayRef<SmallVector<unsigned>> consumers,
+std::optional<NodeIdx>
+findBroadcastReader(const DispatchRegisterGraph &graph, NodeIdx index,
+                    ArrayRef<SmallVector<NodeIdx>> consumers,
                     const llvm::SmallBitVector &carries) {
   const Node &node = graph.nodes[index];
   if (node.kind == NodeKind::Invariant || node.kind == NodeKind::Accumulator ||
@@ -377,8 +376,8 @@ findBroadcastReader(const DispatchRegisterGraph &graph, unsigned index,
       node.shapeMap.getNumResults() == 0)
     return std::nullopt;
   llvm::SmallBitVector dims = getDimsOf(node.shapeMap);
-  std::optional<unsigned> first;
-  for (unsigned consumer : consumers[index]) {
+  std::optional<NodeIdx> first;
+  for (NodeIdx consumer : consumers[index]) {
     const Node &reader = graph.nodes[consumer];
     if (!carries.test(consumer) || reader.placement.kind != Placement::InPhase)
       continue;
@@ -398,7 +397,7 @@ findBroadcastReader(const DispatchRegisterGraph &graph, unsigned index,
 
 /// compute every scheduled node's footprint and temporaries.
 LogicalResult assignFootprints(DispatchRegisterGraph &graph) {
-  SmallVector<SmallVector<unsigned>> consumers = buildConsumers(graph);
+  SmallVector<SmallVector<NodeIdx>> consumers = buildConsumers(graph);
   llvm::SmallBitVector carries = carriesReduction(graph);
   for (auto [index, node] : llvm::enumerate(graph.nodes)) {
     if (node.dead)
@@ -452,7 +451,7 @@ LogicalResult assignFootprints(DispatchRegisterGraph &graph) {
     }
 
     // a value that needs to be broadcasted to its consumers shape
-    if (std::optional<unsigned> reader =
+    if (std::optional<NodeIdx> reader =
             findBroadcastReader(graph, index, consumers, carries))
       node.broadcast =
           *Footprint::resident(graph.nodes[*reader].shapeMap, bits);
@@ -464,14 +463,14 @@ LogicalResult assignFootprints(DispatchRegisterGraph &graph) {
 
 LogicalResult buildSchedule(DispatchRegisterGraph &graph) {
   assignPlacements(graph);
-  SmallVector<unsigned> order = buildExecutionOrder(graph);
-  SmallVector<unsigned> positionOf(graph.nodes.size(), kNotScheduled);
+  SmallVector<NodeIdx> order = buildExecutionOrder(graph);
+  SmallVector<StepIdx> positionOf(graph.nodes.size(), kNotScheduled);
   for (auto [position, index] : llvm::enumerate(order))
     positionOf[index] = position;
 
   // double-check that no consumer is placed after their producers
   for (auto [position, index] : llvm::enumerate(order))
-    for (unsigned operand : graph.nodes[index].operands)
+    for (NodeIdx operand : graph.nodes[index].operands)
       if (positionOf[operand] != kNotScheduled &&
           positionOf[operand] >= position)
         return graph.fail("the schedule places a " +

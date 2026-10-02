@@ -51,9 +51,19 @@ jobs:
   test-cmake:
     needs:
       - build-cmake
+      - test-bazel # avoid concurrent test jobs within same run
     runs-on:
       group: qualcomm
       labels: qc-small
+    # Stopgap mutex for the single phone: qc-small is a pool, so the runner
+    # label does not stop two test jobs from reaching the phone at once. Jobs
+    # sharing this group run one at a time, across workflow runs. Fork PRs
+    # never touch the phone, so they get a per-run group and do not queue.
+    # Caveat: a group holds one running and one pending job, so a further
+    # queued job cancels the pending one even with cancel-in-progress false.
+    concurrency: &phone_lock
+      group: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'phone-1' || format('no-phone-{0}-{1}', github.run_id, github.job) }}
+      cancel-in-progress: false
     env:
       # Fork PRs never receive secrets, so they cannot hold an overlay key and
       # cannot reach the phone. That is the boundary working as intended, not
@@ -227,6 +237,7 @@ jobs:
     runs-on:
       group: qualcomm
       labels: qc-small
+    concurrency: *phone_lock
     env:
       # Fork PRs never receive secrets, so they cannot hold an overlay key and
       # cannot reach the phone. That is the boundary working as intended, not

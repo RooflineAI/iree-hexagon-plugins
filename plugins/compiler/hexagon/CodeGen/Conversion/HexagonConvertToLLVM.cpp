@@ -335,7 +335,8 @@ void HexagonConvertToLLVMPass::runOnOperation() {
         patterns, /*force32BitVectorIndices=*/false);
     vector::populateVectorMaskOpLoweringPatterns(patterns);
     // FIXME: This pass is run twice unneccessarily, once here and another time
-    // in ireeLoweringPipelines.cpp:711. Related to ROO-1458.
+    // in addHexagonLowerToLLVMPasses in LoweringPipelines.cpp. Related to
+    // ROO-1458.
     vector::populateVectorShapeCastLoweringPatterns(patterns);
     // vector::populateVectorFromElementsLoweringPatterns(patterns);
     // vector::populateVectorToElementsLoweringPatterns(patterns);

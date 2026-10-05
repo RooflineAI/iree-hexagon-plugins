@@ -12,7 +12,7 @@
 // from LLVMCPU, it is therefore relevant, at least for now, to open a diff
 // of these two files to see the hexagon-specific differences.
 
-#include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
+#include "hexagon/CodeGen/Pipelines/LoweringPipelines.h"
 
 #include "hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
 #include "hexagon/CodeGen/Pipelines/Bufferization.h"
@@ -50,7 +50,7 @@ static llvm::cl::opt<bool> clHexagonPatchFuncOps(
         "used with `--iree-codegen-debug-patched-func-ops-file-name`."),
     llvm::cl::init(false), llvm::cl::Hidden);
 
-llvm::cl::opt<bool> clHexagonFailOnOutOfBoundsStackAllocation(
+static llvm::cl::opt<bool> clHexagonFailOnOutOfBoundsStackAllocation(
     "iree-hexagon-fail-on-out-of-bounds-stack-allocation",
     llvm::cl::desc("Fail if the upper bound of dynamic stack allocation cannot "
                    "be solved"),
@@ -100,11 +100,7 @@ static llvm::cl::opt<bool> clHexagonEnableProfilerMarkers(
                    "kernel operations."),
     llvm::cl::init(false));
 
-bool isHexagonFailOnOutOfBoundsStackAllocationEnabled() {
-  return clHexagonFailOnOutOfBoundsStackAllocation;
-}
-
-void buildHexagonIreeTranslationRoute(
+void addHexagonExecutableLoweringPasses(
     OpPassManager &variantPassManager,
     const HexagonPipelineOptions &pipelineOpt) {
   (void)pipelineOpt;

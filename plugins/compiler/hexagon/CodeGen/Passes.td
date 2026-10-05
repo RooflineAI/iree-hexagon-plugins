@@ -13,16 +13,6 @@ include "mlir/Pass/PassBase.td"
 // Hexagon Codegen passes (keep alphabetical)
 //------------------------------------------------------------------------------
 
-def FoldDispatchOutputStagingPass :
-    InterfacePass<"iree-hexagon-fold-dispatch-output-staging",
-                  "mlir::FunctionOpInterface"> {
-  let summary = [{
-      Fold output staging tensors produced as
-      `bufferization.alloc_tensor copy(...) {memory_space = 0}` directly into
-      `iree_tensor_ext.dispatch.tensor.store` value operands.
-  }];
-}
-
 def HexagonVTCMTilingPass :
     InterfacePass<"iree-hexagon-vtcm-tiling",
                   "mlir::FunctionOpInterface"> {

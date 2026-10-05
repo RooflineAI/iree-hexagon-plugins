@@ -59,7 +59,6 @@ iree_lit_test_suite(
     "codegen/transforms/convert_matmul_to_hmx_tile_and_fuse.mlir"
     "codegen/transforms/expand_hmx_matmul.mlir"
     "codegen/transforms/expand_hmx_matmul_invalid.mlir"
-    "codegen/transforms/fold_dispatch_output_staging.mlir"
     "codegen/transforms/insert_profiler_markers.mlir"
     "codegen/transforms/lower_vtcm_staging.mlir"
     "codegen/transforms/promote_dma_tag_alloc_to_stack.mlir"

@@ -196,9 +196,8 @@ iree_cc_library(
     "Pipelines/Bufferization.h"
     "Pipelines/ConfigurationPipeline.h"
     "Pipelines/HexagonLowerExecutableTarget.h"
-    "Pipelines/HexagonMlirPipeline.h"
-    "Pipelines/IreeLoweringPipelines.h"
     "Pipelines/LinkingPipeline.h"
+    "Pipelines/LoweringPipelines.h"
     "Pipelines/TranslationPipeline.h"
     "Strategy/KernelDispatch.h"
   SRCS
@@ -208,13 +207,11 @@ iree_cc_library(
     "Pipelines/Bufferization.cpp"
     "Pipelines/ConfigurationPipeline.cpp"
     "Pipelines/HexagonLowerExecutableTarget.cpp"
-    "Pipelines/HexagonMlirPipeline.cpp"
-    "Pipelines/IreeLoweringPipelines.cpp"
     "Pipelines/LinkingPipeline.cpp"
+    "Pipelines/LoweringPipelines.cpp"
     "Pipelines/TranslationPipeline.cpp"
     "Strategy/HexagonSelectLoweringStrategy.cpp"
     "Strategy/KernelDispatch.cpp"
-    "Transforms/FoldDispatchOutputStaging.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
     "Transforms/HexagonVTCMTiling.cpp"
@@ -235,8 +232,6 @@ iree_cc_library(
     MLIRArmSMEToLLVM
     MLIRArmSMEToSCF
     MLIRBufferizationDialect
-    MLIRBufferizationPipelines
-    MLIRBufferizationToMemRef
     MLIRComplexToStandard
     MLIRControlFlowDialect
     MLIRControlFlowTransforms
@@ -253,7 +248,6 @@ iree_cc_library(
     MLIRPDLDialect
     MLIRPDLInterpDialect
     MLIRPass
-    MLIRQuantTransforms
     MLIRReconcileUnrealizedCasts
     MLIRSCFDialect
     MLIRSCFToControlFlow

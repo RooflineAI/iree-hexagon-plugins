@@ -12,7 +12,7 @@
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/Passes.h"
-#include "hexagon/CodeGen/Pipelines/IreeLoweringPipelines.h"
+#include "hexagon/CodeGen/Pipelines/LoweringPipelines.h"
 
 #include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"

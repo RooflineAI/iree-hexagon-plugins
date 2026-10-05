@@ -14,8 +14,6 @@
 #include "hexagon/CodeGen/Pipelines/LinkingPipeline.h"
 #include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
-#include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
-#include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "mlir/Pass/PassRegistry.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {

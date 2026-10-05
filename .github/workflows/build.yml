@@ -187,6 +187,8 @@ jobs:
       - &integration_tests
         name: Integration tests
         if: env.PHONE_ACCESS == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_CI }}
         run: |
           .venv/bin/pytest integration_tests/ -v -rA \
           --iree-compile=build-artifacts/iree-compile \

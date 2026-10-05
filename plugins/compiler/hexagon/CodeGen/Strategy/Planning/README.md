@@ -102,16 +102,19 @@ The pipeline contract determines how VTCM availability is handled:
 - `Unsupported` pipelines skip VTCM planning.
 - `Optional` pipelines attempt VTCM planning when enabled, but retain their
   ordinary strategy when VTCM is disabled, the root is not a tensor-semantics
-  Linalg operation, or the Hexagon tiling utility cannot derive tile sizes.
-- `Required` pipelines diagnose the same conditions instead of silently
-  falling back. HMX uses this contract because its lowering requires VTCM.
+  Linalg operation, or no VTCM tile the tiling pass can realize fits.
+- `Required` pipelines diagnose the same conditions instead of falling back.
+  HMX uses this contract because its lowering requires VTCM.
 
-On success, `hexagon::determineTileSizes` remains responsible for VTCM capacity
-and layout policy. The planner records those sizes on the root and then either
-preserves or suppresses ordinary cache tiling according to
-`CacheTilingWithVTCM`. Suppression is rejected if it would discard a
-hardware-fixed cache tile. Optional failures and successful cache adjustments
-are recorded by `DecisionTrace` under the resource stage.
+`hexagon::determineTileSizes` is responsible for VTCM capacity and layout
+policy, with one restriction: `HexagonVTCMTilingPass` tiles only parallel loops
+and stages every reduction dimension whole, so a plan is only valid if it keeps
+the reductions at their full extent. The planner first keeps the unrestricted
+search's result if it already does, then reruns the search over the parallel
+dimensions only. A root whose reductions do not fit in VTCM even then, or whose
+reduction extent is dynamic (staged whole at runtime, so unbounded), gets no
+VTCM plan. Tiling a reduction through VTCM would need per-chunk staging inside
+the pass, which does not exist yet.
 
 ## Root tile propagation (work in progress)
 

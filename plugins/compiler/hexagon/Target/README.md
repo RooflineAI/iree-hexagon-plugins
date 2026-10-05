@@ -11,9 +11,9 @@ This folder plugs the Hexagon backend into IREE's HAL. It does four jobs:
 The `Target` layer depends on `CodeGen`, never the other way around.
 
 `Target/` has **no direct dependency on IREE's LLVMCPU target plugin**
-(`compiler/plugins/target/LLVMCPU`), nor on `Codegen/LLVMCPU`. The pieces it
-used to borrow from there are now implemented, or vendored, here. See
-[Possible upstream refactor](#possible-upstream-refactor).
+(`compiler/plugins/target/LLVMCPU`), nor on `Codegen/LLVMCPU`.  Some pieces have
+some overlap with LLVMCPU, see [Possible upstream
+refactor](#possible-upstream-refactor) for ideas/a plan of what can be factored.
 
 Some LLVMCPU dependencies remain **indirectly**, through
 `//plugins/compiler/hexagon/CodeGen:codegen`, because CodeGen still reuses

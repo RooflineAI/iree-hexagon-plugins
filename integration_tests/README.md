@@ -38,7 +38,8 @@ pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 ```
 
 Options, all in `conftest.py`: `--model` and `--compile-case` (both
-repeatable), `--keep-device-dir`, `--device-root`, and the four artifact paths.
+repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`, and the four
+artifact paths.
 
 ## Requirements
 
@@ -135,3 +136,17 @@ expected_outcomes:
 ```
 
 `reason` is a substring that **must appear in the log the failure produces**.
+
+## Skipping a model
+
+A model that is too expensive to run while a known failure stands can opt out
+of the default run, while staying in the tree:
+
+```yaml
+skip: "known COMPILE_FAILURE; tracked by micro/conv-gelu-4x32x8x50-f16"
+```
+
+Its tests are reported as skipped with that reason, before any fixture runs,
+so the model is not even imported. `--run-skipped` runs them anyway, e.g.
+`--model=Qwen/Qwen3-ASR-0.6B --run-skipped`. Keep its `expected_outcomes`
+current, so that a run with `--run-skipped` still checks the failure.

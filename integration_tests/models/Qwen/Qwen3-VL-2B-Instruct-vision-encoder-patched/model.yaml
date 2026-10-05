@@ -1,0 +1,36 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Qwen3-VL-2B-Instruct's vision encoder on a real photograph (resnet-50-keyboard's
+# keyboard.png, bicubic-resized to 256x256): 64 image tokens. Four outputs, all
+# checked: the merged image embeddings and the three deepstack features.
+dtype: float16
+inputs:
+  - shape: [1, 3, 256, 256]
+    dtype: float16
+    generator: image
+    image: keyboard-256.png
+# Placeholder until a case passes on device. IREE LLVMCPU on the host lands at
+# 0.15-0.66% relative L2 per output (2026-10-01); torch f16 vs f32 is 0.53%.
+tolerances:
+  atol: 2.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 1.0
+compile_cases: [hexagon, hexagon-vtcm-hmx]
+# Both cases fail (below), and the import is expensive. Run with --run-skipped
+# when working on either bug.
+skip: "known failures in both cases (NaN attention in hexagon, large-vector gate in hexagon-vtcm-hmx)"
+expected_outcomes:
+  - case: hexagon
+    status: ACCURACY_FAILURE
+    reason: "relative L2 error nan%"
+    comment: >-
+      All four outputs are 100% NaN. Localized on device 2026-10-01: in every vision attention, probs @ V (an f32 batch_matmul 16x256x64x256 whose V operand is read as a strided f16 slice of the qkv buffer, transposed and extf'd in the dispatch, with a truncf-to-f16 epilogue) writes inf/NaN into ~42% of its output, from correct inputs; the output projection then spreads NaN everywhere. The same batch_matmul on contiguous f32 operands is correct, and so is this attention in hexagon-vtcm-hmx (0.04%).
+  - case: hexagon-vtcm-hmx
+    status: COMPILE_FAILURE
+    reason: "large vector sizes (16384 bytes)"
+    comment: >-
+      The patch-embedding Conv3d (matmul 256x1024x1536 + bias + position-embedding add) trips the large-vector gate under HMX. With --iree-hexagon-fail-on-large-vector=false the LLVM Hexagon backend aborts in SplitVecRes_BUILD_VECTOR after ~300 s instead. With HMX off it compiles in ~1 s. Measured 2026-10-01; re-measured 2026-10-02 (both cases unchanged), where the oversized values are a vector<32x1536> contract over the whole K = 1536.

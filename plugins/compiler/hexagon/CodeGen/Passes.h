@@ -11,14 +11,14 @@
 
 #include <string>
 
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {
 
-// Similar to the LLVMCPUPipelineOptions struct, but simplified for Hexagon
+// Options shared by Hexagon lowering pipelines.
 struct HexagonPipelineOptions {
   bool useConfiguredVectorSizes = true;
   bool enablePeeling = false;
@@ -39,21 +39,20 @@ void registerHexagonCodeGenPasses();
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonSplitReductionPass(bool enableReassociateFpReductions);
 
-// CPU tiling levels are retained until Hexagon configuration migration.
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
-createHexagonTilePass(IREE::CPU::TilingLevel tilingLevel, bool skipRootOp);
+createHexagonTilePass(IREE::Hexagon::TilingLevel tilingLevel, bool skipRootOp);
 
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonTileAndFuseProducerConsumerPass(
-    IREE::CPU::TilingLevel tilingLevel);
+    IREE::Hexagon::TilingLevel tilingLevel);
 
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonTileRootAndFuseInputOperandsPass(
-    IREE::CPU::TilingLevel tilingLevel);
+    IREE::Hexagon::TilingLevel tilingLevel);
 
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonTileLastOpAndFuseProducerConsumerPass(
-    IREE::CPU::TilingLevel tilingLevel);
+    IREE::Hexagon::TilingLevel tilingLevel);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 

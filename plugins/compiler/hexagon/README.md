@@ -87,10 +87,6 @@ This folder also contains:
 - `Linking/HexagonLinker.*`
   - linker invocation used by serialization.
 
-`Target/` no longer depends directly on IREE's LLVMCPU target plugin.
-`CodeGen/` still reuses LLVMCPU passes, so the dependency remains
-transitively through it.
-
 ### `CodeGen/Passes.*`
 
 `CodeGen/Passes.h` is the main public header for the codegen package.

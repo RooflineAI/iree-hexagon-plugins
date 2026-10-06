@@ -22,9 +22,9 @@ func.func @unsupported_vtcm_footprint(%input: tensor<8x8xindex>) -> tensor<8x8xi
   return %result : tensor<8x8xindex>
 }
 
-// CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 1]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 1]>
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
-// CHECK-DAG: #[[BUFFER_ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 8]>
+// CHECK-DAG: #[[BUFFER_ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 8]>
 // CHECK-DAG: #[[BUFFER_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>>
 // CHECK-DAG: #[[FULL_REDUCTION_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [256]>
 // CHECK-DAG: #[[ROW_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [{{[0-9]+}}, 65536]>

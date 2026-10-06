@@ -32,9 +32,9 @@ func.func @generic_dispatch(%src: tensor<4x128x128xf32>) -> tensor<4x128xf32> at
 // bounded to [1, 1] as well: correctness-first reconciliation cannot widen a
 // consumer beyond the loop it lives in. Recovering a wide elementwise tail here
 // needs a better root tile, not a wider consumer tile.
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
-// CHECK-DAG: #[[REDUCE:.+]] = #iree_cpu.lowering_config<cache_parallel = [4, 0, 0], distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
+// CHECK-DAG: #[[REDUCE:.+]] = #iree_hexagon.lowering_config<cache_parallel = [4, 0, 0], distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @generic_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -56,8 +56,8 @@ func.func @transpose_root_dispatch(%src: tensor<64x128xf32>) -> tensor<128x64xf3
   } -> tensor<128x64xf32>
   return %transposed : tensor<128x64xf32>
 }
-// CHECK-DAG: #[[TRANSPOSE:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 0], distribution = [0, 0], vector_common_parallel = [1, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[TRANSPOSE:.+]] = #iree_hexagon.lowering_config<cache_parallel = [64, 0], distribution = [0, 0], vector_common_parallel = [1, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @transpose_root_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -99,11 +99,11 @@ func.func @softmax_dispatch(%src: tensor<4x1024x1024xf32>, %mask: tensor<4x1024x
   } -> tensor<4x1024x1024xf32>
   return %result : tensor<4x1024x1024xf32>
 }
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
-// CHECK-DAG: #[[MAX:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
-// CHECK-DAG: #[[SUM:.+]] = #iree_cpu.lowering_config<cache_parallel = [4, 0, 0], distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
-// CHECK-DAG: #[[NORM:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
+// CHECK-DAG: #[[MAX:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
+// CHECK-DAG: #[[SUM:.+]] = #iree_hexagon.lowering_config<cache_parallel = [4, 0, 0], distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
+// CHECK-DAG: #[[NORM:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @softmax_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]

@@ -21,7 +21,7 @@ func.func @skip_fill_and_unconfigured_consumer(%input: tensor<16xf32>,
     %init: tensor<16xf32>) -> tensor<16xf32> {
   %c0 = arith.constant 0.0 : f32
   %filled = linalg.fill
-      {lowering_config = #iree_cpu.lowering_config<vector_common_parallel = [4]>}
+      {lowering_config = #iree_hexagon.lowering_config<vector_common_parallel = [4]>}
       ins(%c0 : f32) outs(%init : tensor<16xf32>) -> tensor<16xf32>
   %consumer = linalg.generic {
       indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>],

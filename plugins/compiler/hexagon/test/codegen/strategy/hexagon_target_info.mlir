@@ -14,7 +14,7 @@ func.func @copy_128b_ragged(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attr
   linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
   return
 }
-// CHECK-DAG: #[[COPY128:.+]] = #iree_cpu.lowering_config<distribution = [1, 32], vector_common_parallel = [1, 32]>
+// CHECK-DAG: #[[COPY128:.+]] = #iree_hexagon.lowering_config<distribution = [1, 32], vector_common_parallel = [1, 32]>
 // CHECK-DAG: #[[BUFFER_PIPELINE:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<BufferOpsTileAndVectorize>>
 // CHECK: func.func @copy_128b_ragged(
 // CHECK-SAME: translation_info = #[[BUFFER_PIPELINE]]
@@ -29,7 +29,7 @@ func.func @copy_64b(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {
   linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
   return
 }
-// CHECK-DAG: #[[COPY64:.+]] = #iree_cpu.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
+// CHECK-DAG: #[[COPY64:.+]] = #iree_hexagon.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
 // CHECK: func.func @copy_64b(
 // CHECK: linalg.copy
 // CHECK-SAME: lowering_config = #[[COPY64]]
@@ -43,7 +43,7 @@ func.func @copy_64b_dynamic(%src: memref<?x?xf32>, %dst: memref<?x?xf32>) attrib
   linalg.copy ins(%src : memref<?x?xf32>) outs(%dst : memref<?x?xf32>)
   return
 }
-// CHECK-DAG: #[[DYNAMIC:.+]] = #iree_cpu.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
+// CHECK-DAG: #[[DYNAMIC:.+]] = #iree_hexagon.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
 // CHECK: func.func @copy_64b_dynamic(
 // CHECK-NOT: memref.dim
 // CHECK: linalg.copy
@@ -56,7 +56,7 @@ func.func @feature_override(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attr
   linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
   return
 }
-// CHECK-DAG: #[[CONFIG:.+]] = #iree_cpu.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
+// CHECK-DAG: #[[CONFIG:.+]] = #iree_hexagon.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
 // CHECK: func.func @feature_override(
 // CHECK: linalg.copy
 // CHECK-SAME: lowering_config = #[[CONFIG]]
@@ -68,7 +68,7 @@ func.func @feature_precedence(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) at
   linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
   return
 }
-// CHECK-DAG: #[[CONFIG:.+]] = #iree_cpu.lowering_config<distribution = [1, 32], vector_common_parallel = [1, 32]>
+// CHECK-DAG: #[[CONFIG:.+]] = #iree_hexagon.lowering_config<distribution = [1, 32], vector_common_parallel = [1, 32]>
 // CHECK: func.func @feature_precedence(
 // CHECK: linalg.copy
 // CHECK-SAME: lowering_config = #[[CONFIG]]

@@ -7,8 +7,8 @@
 // Derived from Codegen/LLVMCPU/LLVMCPUSplitReduction.cpp at IREE revision
 // a45adeaa6115e446c898e6eb21fb6edc0e65ddc4.
 
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "hexagon/CodeGen/Passes.h"
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Dialect/Util/Analysis/IntegerDivisibilityAnalysis.h"
 #include "iree/compiler/Dialect/Util/IR/UtilTypes.h"
@@ -488,19 +488,14 @@ void HexagonSplitReductionPass::runOnOperation() {
       LDBG() << "can't find lowering_config, skip SplitReduction";
       return;
     }
-    auto attr = cast<IREE::Codegen::LoweringConfigTilingLevelAttr>(
-        maybeLoweringConfig.getTilingLevelAttr(static_cast<unsigned>(
-            IREE::CPU::TilingLevel::VectorReductionTiles)));
-    ArrayRef<bool> scalableDims = attr.getScalableFlags();
-    if (scalableDims.back()) {
-      LDBG() << "scalable reduction dimensions not yet supported, skip "
-                "SplitReduction";
-      return;
-    }
-    ArrayRef<int64_t> reductionSizes = attr.getSizes();
-    if (reductionSizes.empty()) {
-      LDBG()
-          << "the list of reduction tiling sizes is empty, skip SplitReduction";
+    SmallVector<int64_t> reductionSizes =
+        maybeLoweringConfig.getStaticTilingLevelSizes(
+            static_cast<unsigned>(
+                IREE::Hexagon::TilingLevel::VectorReductionTiles),
+            op);
+    if (reductionSizes.size() != op.getNumLoops() || reductionSizes.empty() ||
+        reductionSizes.back() <= 0) {
+      LDBG() << "no reduction split size for this iteration space";
       return;
     }
 

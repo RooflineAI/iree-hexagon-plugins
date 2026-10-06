@@ -69,7 +69,7 @@ struct PipelineContract {
   /// Returns the loop-tiling scope that consumes `level`.
   LoopTilingScope getLoopTilingScope(ComputeTileLevel level) const;
 
-  /// Root-anchored LLVMCPU passes discover their root through the unique
+  /// Root-anchored Hexagon passes discover their root through the unique
   /// operation carrying a distribution level. Hexagon therefore preserves an
   /// all-zero distribution level on that operation as an anchor marker.
   bool requiresUniqueRootAnchor = false;

@@ -34,7 +34,7 @@ func.func @respect_iterator_rank(%init: tensor<10xf32>) -> tensor<10xf32> {
       %slice = tensor.extract_slice %acc[%iv] [%size] [1]
           : tensor<10xf32> to tensor<?xf32>
       %filled = linalg.fill
-          {lowering_config = #iree_cpu.lowering_config<vector_common_parallel = [4]>}
+          {lowering_config = #iree_hexagon.lowering_config<vector_common_parallel = [4]>}
           ins(%zero : f32) outs(%slice : tensor<?xf32>) -> tensor<?xf32>
       %inserted = tensor.insert_slice %filled into %acc[%iv] [%size] [1]
           : tensor<?xf32> into tensor<10xf32>

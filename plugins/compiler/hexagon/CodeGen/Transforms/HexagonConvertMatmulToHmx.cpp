@@ -22,7 +22,7 @@
 #include "hexagon/CodeGen/IR/HmxContracts.h"
 #include "hexagon/CodeGen/Passes.h"
 
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -377,19 +377,19 @@ static bool isUntiledBatchedHmxMatmul(linalg::LinalgOp linalgOp) {
   return true;
 }
 
-static IREE::CPU::LoweringConfigAttr
+static IREE::Hexagon::LoweringConfigAttr
 getHmxUnpackLoweringConfig(MLIRContext *context) {
   llvm::SmallVector<NamedAttribute> items;
-  // Keep the same root-anchor marker used by the CPU double-tiling pipeline,
-  // but expressed in the HMX unpack domain: [m_tile, n_tile].
+  // Preserve the root-anchor marker in the HMX unpack domain: [m_tile, n_tile].
   items.emplace_back(
-      IREE::CPU::getTilingLevelName(IREE::CPU::TilingLevel::DistributionTiles),
-      IREE::CPU::LoweringConfigAttr::getTilingLevelAttr(context, {0, 0}));
+      IREE::Hexagon::getTilingLevelName(
+          IREE::Hexagon::TilingLevel::DistributionTiles),
+      IREE::Hexagon::LoweringConfigAttr::getTilingLevelAttr(context, {0, 0}));
   items.emplace_back(
-      IREE::CPU::getTilingLevelName(
-          IREE::CPU::TilingLevel::VectorCommonParallelTiles),
-      IREE::CPU::LoweringConfigAttr::getTilingLevelAttr(context, {1, 1}));
-  return IREE::CPU::LoweringConfigAttr::get(context, items);
+      IREE::Hexagon::getTilingLevelName(
+          IREE::Hexagon::TilingLevel::VectorCommonParallelTiles),
+      IREE::Hexagon::LoweringConfigAttr::getTilingLevelAttr(context, {1, 1}));
+  return IREE::Hexagon::LoweringConfigAttr::get(context, items);
 }
 
 // Returns reassociation indices for collapsing/expanding a tensor of rank
@@ -641,10 +641,9 @@ struct HexagonConvertMatmulToHmxPass final
     : public impl::HexagonConvertMatmulToHmxPassBase<
           HexagonConvertMatmulToHmxPass> {
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
-    registry
-        .insert<linalg::LinalgDialect, tensor::TensorDialect,
-                arith::ArithDialect, IREE::Codegen::IREECodegenDialect,
-                IREE::CPU::IREECPUDialect, IREE::Hexagon::IREEHexagonDialect>();
+    registry.insert<linalg::LinalgDialect, tensor::TensorDialect,
+                    arith::ArithDialect, IREE::Codegen::IREECodegenDialect,
+                    IREE::Hexagon::IREEHexagonDialect>();
   }
 
   void runOnOperation() override {

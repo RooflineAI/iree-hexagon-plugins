@@ -11,7 +11,6 @@
 #include "PipelineContract.h"
 
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -24,7 +23,7 @@ constexpr llvm::StringLiteral kHexagonVTCMTilingConfigAttrName =
 /// present on the entry whose op equals DispatchShape::root.
 struct EncodedOpPlan {
   Operation *op = nullptr;
-  IREE::CPU::LoweringConfigAttr loweringConfig;
+  IREE::Hexagon::LoweringConfigAttr loweringConfig;
   IREE::Hexagon::VTCMTilingConfigAttr vtcmConfig;
 };
 
@@ -35,9 +34,10 @@ struct EncodedDispatchPlan {
   llvm::SmallVector<EncodedOpPlan> operations;
 };
 
-/// Mechanically assigns compute tiles to CPU levels using local iterator type
-/// and root coverage, encodes root-only fields, and prepares all attributes
-/// without applying them. The complete plan must already be verified.
+/// Mechanically assigns compute tiles to Hexagon levels using local iterator
+/// type and root coverage, encodes root-only fields, and prepares all
+/// attributes without applying them. The complete plan must already be
+/// verified.
 FailureOr<EncodedDispatchPlan>
 encodeDispatchPlan(const PlanningContext &context,
                    const DispatchShape &dispatchShape, const DispatchPlan &plan,

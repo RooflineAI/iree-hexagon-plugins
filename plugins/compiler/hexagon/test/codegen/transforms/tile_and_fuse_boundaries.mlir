@@ -49,7 +49,7 @@ func.func @input_only_excludes_destination_and_consumer(
   %filled = linalg.fill ins(%c0 : f32) outs(%init : tensor<8x8xf32>)
       -> tensor<8x8xf32>
   %product = linalg.matmul
-      {lowering_config = #iree_cpu.lowering_config<distribution = [8, 8, 0], vector_common_parallel = [4, 4, 0], vector_reduction = [0, 0, 4]>}
+      {lowering_config = #iree_hexagon.lowering_config<distribution = [8, 8, 0], vector_common_parallel = [4, 4, 0], vector_reduction = [0, 0, 4]>}
       ins(%producer, %rhs : tensor<8x16xf32>, tensor<16x8xf32>)
       outs(%filled : tensor<8x8xf32>) -> tensor<8x8xf32>
   %consumer = linalg.generic {
@@ -92,7 +92,7 @@ func.func @vtcm_stage_is_a_fusion_barrier(%input: tensor<8xf32>,
   %consumer = linalg.generic {
       indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> (d0)>],
       iterator_types = ["parallel"],
-      lowering_config = #iree_cpu.lowering_config<distribution = [8], vector_common_parallel = [4]>}
+      lowering_config = #iree_hexagon.lowering_config<distribution = [8], vector_common_parallel = [4]>}
       ins(%staged : tensor<8xf32>) outs(%init : tensor<8xf32>) {
   ^bb0(%in: f32, %out: f32):
     %sum = arith.addf %in, %in : f32

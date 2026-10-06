@@ -121,7 +121,6 @@ iree_cc_library(
     MLIRLinalgDialect
     MLIRTilingInterface
     hexagon_mlir::HexagonLoweringSupport
-    iree::compiler::Codegen::Dialect::CPU::IR::IREECPUDialect
     iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
     iree::compiler::Codegen::Utils
     iree::compiler::Dialect::HAL::IR
@@ -290,7 +289,6 @@ iree_cc_library(
     iree::compiler::Codegen::Common
     iree::compiler::Codegen::Common::CPU::CommonCPUPasses
     iree::compiler::Codegen::Common::TransformDialectInterpreterPass
-    iree::compiler::Codegen::Dialect::CPU::IR::IREECPUDialect
     iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
     iree::compiler::Codegen::Dialect::Codegen::Transforms::IREECodegenTransforms
     iree::compiler::Codegen::Dialect::VectorExt::IR::IREEVectorExtDialect

@@ -50,11 +50,6 @@ static std::optional<SmallVector<int64_t>>
 getTileSizesForEachDims(linalg::LinalgOp op) {
   IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
       getLoweringConfig(op);
-  SmallVector<bool> scalableFlags = loweringConfig.getVectorScalableFlags();
-  if (llvm::count(scalableFlags, true) > 0) {
-    return std::nullopt;
-  }
-
   unsigned numLoops = op.getNumLoops();
   std::optional<SmallVector<int64_t>> vectorSizes =
       loweringConfig.getVectorSizes();
@@ -155,8 +150,7 @@ void HexagonTileToVectorSizePass::runOnOperation() {
     LDBG() << "candidate: " << op;
     std::optional<SmallVector<int64_t>> tileSizes = getTileSizesForEachDims(op);
     if (!tileSizes) {
-      LDBG() << "all the dimensions are either tiled or target scalable tile "
-                "sizes";
+      LDBG() << "cannot infer tile sizes for this operation";
       continue;
     }
     if (llvm::all_of(tileSizes.value(), [](int64_t val) { return val == 0; })) {

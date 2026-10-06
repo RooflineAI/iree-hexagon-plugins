@@ -190,21 +190,21 @@ func.func @main$async_dispatch_2_softmax_4x1024x1024xf32_generic() attributes {t
   %4 = iree_tensor_ext.dispatch.tensor.load %1, offsets = [0, 0], sizes = [4, 1024], strides = [1, 1] : !iree_tensor_ext.dispatch.tensor<readonly:tensor<4x1024xi8>> -> tensor<4x1024xi8>
   %5 = tensor.empty() : tensor<4x1024x1024xf32>
   %6 = tensor.empty() : tensor<4x1024xf32>
-  %7 = linalg.fill {lowering_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>} ins(%cst : f32) outs(%6 : tensor<4x1024xf32>) -> tensor<4x1024xf32>
-  %8 = linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%3 : tensor<4x1024x1024xf32>) outs(%7 : tensor<4x1024xf32>) attrs =  {lowering_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 32, 0], vector_reduction = [0, 0, 8]>} {
+  %7 = linalg.fill {lowering_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>} ins(%cst : f32) outs(%6 : tensor<4x1024xf32>) -> tensor<4x1024xf32>
+  %8 = linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%3 : tensor<4x1024x1024xf32>) outs(%7 : tensor<4x1024xf32>) attrs =  {lowering_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32, 0], vector_reduction = [0, 0, 8]>} {
   ^bb0(%in: f32, %out: f32):
     %12 = arith.maxnumf %in, %out : f32
     linalg.yield %12 : f32
   } -> tensor<4x1024xf32>
-  %9 = linalg.fill {lowering_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>} ins(%cst_0 : f32) outs(%6 : tensor<4x1024xf32>) -> tensor<4x1024xf32>
-  %10 = linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%3, %8 : tensor<4x1024x1024xf32>, tensor<4x1024xf32>) outs(%9 : tensor<4x1024xf32>) attrs =  {hexagon_vtcm_tiling_config = #iree_hexagon.vtcm_tiling_config<tile_sizes = [4, 64, 1024]>, lowering_config = #iree_cpu.lowering_config<distribution = [1, 32, 0], vector_common_parallel = [1, 32, 0], vector_reduction = [0, 0, 8]>} {
+  %9 = linalg.fill {lowering_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>} ins(%cst_0 : f32) outs(%6 : tensor<4x1024xf32>) -> tensor<4x1024xf32>
+  %10 = linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%3, %8 : tensor<4x1024x1024xf32>, tensor<4x1024xf32>) outs(%9 : tensor<4x1024xf32>) attrs =  {hexagon_vtcm_tiling_config = #iree_hexagon.vtcm_tiling_config<tile_sizes = [4, 64, 1024]>, lowering_config = #iree_hexagon.lowering_config<distribution = [1, 32, 0], vector_common_parallel = [1, 32, 0], vector_reduction = [0, 0, 8]>} {
   ^bb0(%in: f32, %in_1: f32, %out: f32):
     %12 = arith.subf %in, %in_1 : f32
     %13 = math.exp %12 : f32
     %14 = arith.addf %13, %out : f32
     linalg.yield %14 : f32
   } -> tensor<4x1024xf32>
-  %11 = linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%4, %3, %8, %10 : tensor<4x1024xi8>, tensor<4x1024x1024xf32>, tensor<4x1024xf32>, tensor<4x1024xf32>) outs(%5 : tensor<4x1024x1024xf32>) attrs =  {lowering_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 32]>} {
+  %11 = linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%4, %3, %8, %10 : tensor<4x1024xi8>, tensor<4x1024x1024xf32>, tensor<4x1024xf32>, tensor<4x1024xf32>) outs(%5 : tensor<4x1024x1024xf32>) attrs =  {lowering_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 32]>} {
   ^bb0(%in: i8, %in_1: f32, %in_2: f32, %in_3: f32, %out: f32):
     %12 = arith.subf %in_1, %in_2 : f32
     %13 = math.exp %12 : f32

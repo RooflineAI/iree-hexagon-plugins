@@ -80,6 +80,7 @@ iree_cc_library(
     "HexagonDialect.cpp"
     "HexagonDialect.cpp.inc"
     "HexagonEnums.cpp.inc"
+    "HexagonLoweringConfig.cpp"
     "HexagonOps.cpp"
     "HexagonOps.cpp.inc"
     "HexagonTilingInterfaceImpl.cpp"

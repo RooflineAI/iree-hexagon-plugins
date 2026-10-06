@@ -15,8 +15,8 @@
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 namespace {
 
-using IREE::CPU::LoweringConfigAttr;
-using IREE::CPU::TilingLevel;
+using IREE::Hexagon::LoweringConfigAttr;
+using IREE::Hexagon::TilingLevel;
 
 SmallVector<int64_t> getSizes(ArrayRef<TileDecision> decisions) {
   return llvm::map_to_vector(
@@ -32,15 +32,8 @@ void appendLevel(SmallVectorImpl<NamedAttribute> &items, MLIRContext *context,
                  bool preserveAllZero = false) {
   if (sizes.empty() || (!preserveAllZero && !anyNonZero(sizes)))
     return;
-  SmallVector<bool> scalableFlags;
-  // Some LLVMCPU pipeline passes index reduction-level scalable flags without
-  // first checking whether they are present. Emit one explicit false flag per
-  // dimension even though Hexagon uses fixed-width vectors.
-  if (level == TilingLevel::VectorReductionTiles)
-    scalableFlags.assign(sizes.size(), false);
-  items.emplace_back(
-      IREE::CPU::getTilingLevelName(level),
-      LoweringConfigAttr::getTilingLevelAttr(context, sizes, scalableFlags));
+  items.emplace_back(IREE::Hexagon::getTilingLevelName(level),
+                     LoweringConfigAttr::getTilingLevelAttr(context, sizes));
 }
 
 LoweringConfigAttr encodeOpConfig(const DispatchShape &shape,
@@ -117,7 +110,7 @@ encodeDispatchPlan(const PlanningContext &context,
     opPlan.op = opShape.op;
     if (opShape.op == dispatchShape.root) {
       const RootTilingPlan &root = plan.strategy.rootTiling;
-      // Root-anchored LLVMCPU passes identify the root by the unique operation
+      // Root-anchored Hexagon passes identify the root by the unique operation
       // carrying a distribution level. Preserve the all-zero Hexagon level as
       // that marker when required by the pipeline contract.
       opPlan.loweringConfig = encodeOpConfig(

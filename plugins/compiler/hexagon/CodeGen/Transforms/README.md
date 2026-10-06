@@ -12,12 +12,15 @@ and the reasons for it, come from upstream.
 
 | file | difference from upstream |
 |---|---|
+| `HexagonCheckIRBeforeLLVMConversion.cpp` | scalable (vscale) allocation bounds and their option removed |
+| `HexagonEmitVectorizationRemarks.cpp` | none |
 | `HexagonPeel.cpp` | none |
 | `HexagonTile.cpp` | scalable tile sizes removed |
 | `HexagonTileAndFuseProducerConsumer.cpp` | scalable tile sizes removed |
 | `HexagonTileToVectorSize.cpp` | none |
 | `HexagonSplitReduction.cpp` | none |
 | `HexagonVectorShapeCastLowering.cpp` | none |
+| `HexagonVerifyVectorSizeLegality.cpp` | native-vector budget is a pass option, set by `--iree-hexagon-max-allowed-number-of-native-vectors` |
 | `HexagonVectorTransposeLowering.cpp` | AVX2 patterns and option removed; AVX-512 16x16 shuffle network removed |
 | `HexagonVirtualVectorLowering.cpp` | ARM/RVV/AArch64 policies and ARM i8mm option removed |
 

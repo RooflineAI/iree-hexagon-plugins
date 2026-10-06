@@ -43,6 +43,8 @@ hal.executable private @test_default {
 
 // CHECK-LABEL: IR Dump After HexagonPeelPass
 // CHECK: func.func @buffer_dispatch
+// CHECK-LABEL: IR Dump After HexagonVerifyVectorSizeLegalityPass
+// CHECK: func.func @buffer_dispatch
 // CHECK-LABEL: IR Dump After HexagonVirtualVectorLoweringPass
 // CHECK: func.func @buffer_dispatch
 // CHECK-LABEL: IR Dump After HexagonVectorTransposeLoweringPass

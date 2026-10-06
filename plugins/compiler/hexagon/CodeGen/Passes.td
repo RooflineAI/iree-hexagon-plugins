@@ -107,6 +107,32 @@ def HexagonTileToVectorSizePass :
   }];
 }
 
+def HexagonCheckIRBeforeLLVMConversionPass :
+    InterfacePass<"iree-hexagon-check-ir-before-llvm-conversion", "mlir::FunctionOpInterface"> {
+  let summary = "Checks stack allocation bounds before LLVM conversion";
+  let options = [
+    Option<"failOnOutOfBounds", "fail-on-out-of-bounds", "bool", "true",
+           "Fails if the upper bound of dynamic stack allocation cannot be"
+           "resolved or is more than the limit.">
+  ];
+}
+
+def HexagonEmitVectorizationRemarksPass :
+    InterfacePass<"iree-hexagon-emit-vectorization-remarks", "mlir::FunctionOpInterface"> {
+  let summary = "Emit vectorization remarks on Linalg ops";
+}
+
+def HexagonVerifyVectorSizeLegalityPass :
+    InterfacePass<"iree-hexagon-verify-vector-size-legality", "mlir::FunctionOpInterface"> {
+  let summary = "Signals errors when vector sizes or contraction iteration volumes reach the native-vector budget";
+  let options = [
+    Option<"maxAllowedNumberOfNativeVectors",
+           "max-allowed-number-of-native-vectors", "int64_t", /*default=*/"512",
+           "Budget, in native vectors, for any vector size or contraction "
+           "iteration volume.">,
+  ];
+}
+
 def HexagonVectorShapeCastLoweringPass :
     InterfacePass<"iree-hexagon-vector-shape-cast-lowering", "mlir::FunctionOpInterface"> {
   let summary = "Pass to lower vector.shape_cast ops.";

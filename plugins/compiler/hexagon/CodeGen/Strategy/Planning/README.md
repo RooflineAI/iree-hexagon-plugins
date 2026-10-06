@@ -18,13 +18,14 @@ The expected flow is:
 | 2. Select strategy | Dispatch shape and target/options | `DispatchStrategy` with pipeline choice and root-owned tiling | Dispatch/root | [`StrategySelection.cpp`](StrategySelection.cpp), [`Strategies/`](Strategies/) |
 | 3. Resolve pipeline contract | Selected pipeline | `PipelineContract` describing downstream pipeline semantics | Pipeline | [`PipelineContract.cpp`](PipelineContract.cpp) |
 | 4. Plan VTCM | Strategy, dispatch shape, contract, and options | Finalized strategy with an optional root `VTCMPlan` and reconciled cache tiles | Dispatch/root | [`VTCMPlanning.cpp`](VTCMPlanning.cpp) |
-| 5. Select compute tiles | Finalized strategy, contract, and one non-root `OpShape` | Optional independent `OpComputeTilePlan` | Per non-root operation | [`ComputeTileSelection.cpp`](ComputeTileSelection.cpp) |
-| 6. Propagate root tile bounds | Complete `DispatchPlan` and contract | Non-root tiles bounded by the root's fusion tile | Dispatch | [`RootTilePropagation.cpp`](RootTilePropagation.cpp) |
-| 7. Verify | Complete `DispatchPlan` and contract | Success or a diagnostic | Dispatch | [`PlanVerification.cpp`](PlanVerification.cpp) |
-| 8. Encode | Verified plan | Typed `EncodedDispatchPlan` attributes | Dispatch/per operation | [`PlanEncoding.cpp`](PlanEncoding.cpp) |
-| 9. Apply | Encoded plan | Mutated IR | Dispatch | [`PlanEncoding.cpp`](PlanEncoding.cpp) |
+| 5. Search root vector tiling *(optional)* | Strategy and dispatch shape | Root `computeTile` replaced by the cheapest tile `DispatchRegisterGraph` scores under the register/unroll budget, if the search is enabled and finds one | Dispatch/root | [`VectorTileSearch.cpp`](VectorTileSearch.cpp) |
+| 6. Select compute tiles | Finalized strategy, contract, and one non-root `OpShape` | Optional independent `OpComputeTilePlan` | Per non-root operation | [`ComputeTileSelection.cpp`](ComputeTileSelection.cpp) |
+| 7. Propagate root tile bounds | Complete `DispatchPlan` and contract | Non-root tiles bounded by the root's fusion tile | Dispatch | [`RootTilePropagation.cpp`](RootTilePropagation.cpp) |
+| 8. Verify | Complete `DispatchPlan` and contract | Success or a diagnostic | Dispatch | [`PlanVerification.cpp`](PlanVerification.cpp) |
+| 9. Encode | Verified plan | Typed `EncodedDispatchPlan` attributes | Dispatch/per operation | [`PlanEncoding.cpp`](PlanEncoding.cpp) |
+| 10. Apply | Encoded plan | Mutated IR | Dispatch | [`PlanEncoding.cpp`](PlanEncoding.cpp) |
 
-Phases 1–8 are read-only with respect to the IR. Applying the encoded plan is
+Phases 1–9 are read-only with respect to the IR. Applying the encoded plan is
 the only planner step allowed to mutate it.
 
 ## Main contracts
@@ -82,12 +83,37 @@ Reusable cross-family primitives are in
 There is currently no separate operation-analysis phase. It can be introduced
 when a strategy consumes a concrete reusable result, such as an estimated
 register footprint per dimension or the expected vectorized dimension.
-This was skipped during the initial implementation, but the expectation
-is to implement some sort of greedy algorithm that uses a query on each op
-to estimate the number of expected registers to be held live.
-It should then combine this information together with the expected live ops at
-any given moment in the dispatch in order to make better tiling decisions and
-avoid register spills or tiles growing excessively and slowing down (or crashing) compilation.
+This was skipped during the initial implementation. A first version of the
+register-footprint-driven tiling this section used to call for now exists as
+the vector tile search (below), gated behind
+`--iree-hexagon-experimental-vector-tile-search`; see
+[`RegisterEstimation/TileSelectionReport.md`](RegisterEstimation/TileSelectionReport.md)
+for the design and [`RegisterEstimation/DispatchRegisterGraph.h`](RegisterEstimation/DispatchRegisterGraph.h)
+for the estimator it queries.
+
+## Vector tile search
+
+After VTCM planning and before non-root compute tiles are selected,
+[`searchRootComputeTile`](VectorTileSearch.cpp) can replace the root's
+compute tile chosen by the strategy (`kContractionMTile`,
+`nTile = vectorWidth`, `kGenericReductionTile`, ...) with one found by
+enumerating every legal tile inside the root's VTCM tile and scoring each
+with `DispatchRegisterGraph::evaluate`
+([`RegisterEstimation/TileSelectionReport.md`](RegisterEstimation/TileSelectionReport.md),
+cost function E). It only runs for pipelines that take the root's vector
+tile from `RootTilingPlan::computeTile` (`DoubleTilingExpert`); HMX's fixed
+M/N tile is a different pipeline and is never affected.
+
+It is opt-in via `PlanningOptions::enableVectorTileSearch`
+(`--iree-hexagon-experimental-vector-tile-search`). The margin and unroll-cap knobs the
+cost function needs live on `VectorTileSearchConfig` (`VectorTileSearch.h`),
+local to the search itself rather than on `PlanningOptions`, since nothing
+else reads them; retune by editing that struct's defaults directly. Disabled,
+unsupported, an oversized search space, no feasible candidate, or a tile
+shape known to crash the Hexagon backend (`matchesKnownHexagonCrashShape`,
+`RegisterEstimation/TileSelectionReport.md` section 11.7) all fall back to
+the strategy's original heuristic tile unchanged, with the reason recorded
+through `DecisionTrace`.
 
 ## VTCM planning
 

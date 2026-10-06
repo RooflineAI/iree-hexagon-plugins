@@ -1,0 +1,15 @@
+# ignore example code from version control
+*.mlir
+# ... except the committed vector-tile-search benchmark suite (bench_all.py)
+!kernels/*.mlir
+# resulting executable
+*.vmfb
+# results of the compilers register Allocation
+pressure.csv
+# results of measure_all.py
+results.csv
+# ... except bench_all.py's committed baseline/search benchmark CSVs (the
+# repo-wide *.csv rule would otherwise also catch these)
+!results/*.csv
+# bench_all.py's regenerable per-kernel correctness reference outputs
+results/baseline_outputs/

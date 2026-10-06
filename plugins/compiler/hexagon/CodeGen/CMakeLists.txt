@@ -64,6 +64,38 @@ iree_tablegen_library(
 
 iree_cc_library(
   NAME
+    DispatchRegisterGraph
+  HDRS
+    "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph-internals.h"
+    "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph.h"
+    "Strategy/Planning/RegisterEstimation/EstimatorConfig.h"
+    "Strategy/Planning/RegisterEstimation/Footprint.h"
+    "Strategy/Planning/RegisterEstimation/TilePropagation.h"
+  SRCS
+    "Strategy/Planning/RegisterEstimation/DispatchRegisterGraph.cpp"
+    "Strategy/Planning/RegisterEstimation/Footprint.cpp"
+    "Strategy/Planning/RegisterEstimation/GraphBuilder.cpp"
+    "Strategy/Planning/RegisterEstimation/Reductions.cpp"
+    "Strategy/Planning/RegisterEstimation/Schedule.cpp"
+    "Strategy/Planning/RegisterEstimation/TilePropagation.cpp"
+  DEPS
+    LLVMSupport
+    MLIRArithDialect
+    MLIRFunctionInterfaces
+    MLIRIR
+    MLIRLinalgDialect
+    MLIRTensorDialect
+    iree::compiler::Dialect::HAL::IR
+    iree::compiler::Dialect::TensorExt::IR
+  ALWAYSLINK
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     DispatchPlanner
   HDRS
     "Strategy/Planning/ComputeTileSelection.h"
@@ -79,6 +111,7 @@ iree_cc_library(
     "Strategy/Planning/Strategies/StrategySupport.h"
     "Strategy/Planning/StrategySelection.h"
     "Strategy/Planning/VTCMPlanning.h"
+    "Strategy/Planning/VectorTileSearch.h"
   SRCS
     "Strategy/Planning/ComputeTileSelection.cpp"
     "Strategy/Planning/DecisionTrace.cpp"
@@ -97,7 +130,9 @@ iree_cc_library(
     "Strategy/Planning/Strategies/StrategySupport.cpp"
     "Strategy/Planning/StrategySelection.cpp"
     "Strategy/Planning/VTCMPlanning.cpp"
+    "Strategy/Planning/VectorTileSearch.cpp"
   DEPS
+    ::DispatchRegisterGraph
     LLVMSupport
     MLIRAnalysis
     MLIRFunctionInterfaces

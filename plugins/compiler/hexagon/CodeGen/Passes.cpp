@@ -23,11 +23,9 @@ namespace {
 #include "hexagon/CodeGen/Passes.h.inc" // IWYU pragma: keep
 } // namespace
 
-void registerHexagonPasses() { registerPasses(); }
-
 void registerHexagonCodeGenPasses() {
   IREE::Hexagon::registerHexagonPipelineBuilder(buildHexagonPipeline);
-  registerHexagonPasses();
+  registerPasses();
 
   static PassPipelineRegistration<> configurationPipeline(
       "iree-hexagon-configuration-pipeline",

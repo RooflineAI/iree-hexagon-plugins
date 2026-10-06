@@ -107,6 +107,31 @@ def HexagonTileToVectorSizePass :
   }];
 }
 
+def HexagonVectorShapeCastLoweringPass :
+    InterfacePass<"iree-hexagon-vector-shape-cast-lowering", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to lower vector.shape_cast ops.";
+}
+
+def HexagonVectorTransposeLoweringPass :
+    InterfacePass<"iree-hexagon-vector-transpose-lowering", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to lower vector.transpose ops.";
+}
+
+def HexagonVirtualVectorLoweringPass :
+    InterfacePass<"iree-hexagon-virtual-vector-lowering", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to lower high level vector operations like contract or multidim reduce ops to lower level vector ops.";
+  let options = [
+    Option<"splitVectorTransfersTo", "split-transfers", "std::string",
+      /*default=*/"",
+      [{Split vector transfers between slow (masked) and fast "
+        "(unmasked) variants. Possible options are:\n"
+          "\tnone [default]: keep unsplit vector.transfer and pay the price\n"
+          "\tlinalg-copy: use linalg.fill + linalg.generic for the slow path\n"
+          "\tvector-transfers: use extra small unmasked vector.transfers for"
+          " the slow path\n}]>,
+  ];
+}
+
 def HexagonVTCMTilingPass :
     InterfacePass<"iree-hexagon-vtcm-tiling",
                   "mlir::FunctionOpInterface"> {

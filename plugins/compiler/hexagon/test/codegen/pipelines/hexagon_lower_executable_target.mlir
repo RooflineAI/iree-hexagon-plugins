@@ -43,7 +43,11 @@ hal.executable private @test_default {
 
 // CHECK-LABEL: IR Dump After HexagonPeelPass
 // CHECK: func.func @buffer_dispatch
-// CHECK-LABEL: IR Dump After LLVMCPUVirtualVectorLoweringPass
+// CHECK-LABEL: IR Dump After HexagonVirtualVectorLoweringPass
+// CHECK: func.func @buffer_dispatch
+// CHECK-LABEL: IR Dump After HexagonVectorTransposeLoweringPass
+// CHECK: func.func @buffer_dispatch
+// CHECK-LABEL: IR Dump After HexagonVectorShapeCastLoweringPass
 // CHECK: func.func @buffer_dispatch
 
 #executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
@@ -146,7 +150,7 @@ hal.executable private @test_conv {
 
 // -----
 
-// CHECK-LABEL: IR Dump After LLVMCPUVectorTransposeLoweringPass
+// CHECK-LABEL: IR Dump After HexagonVectorTransposeLoweringPass
 // CHECK: func.func @data_tiling_dispatch
 
 #executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>

@@ -214,6 +214,7 @@ iree_cc_library(
     "Strategy/KernelDispatch.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
+    "Transforms/HexagonPeel.cpp"
     "Transforms/HexagonSplitReduction.cpp"
     "Transforms/HexagonTile.cpp"
     "Transforms/HexagonTileAndFuseProducerConsumer.cpp"

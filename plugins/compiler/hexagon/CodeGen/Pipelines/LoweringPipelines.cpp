@@ -178,7 +178,7 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
   // backend because of the code size explosion. Therefore, we only enable
   // peeling optionally.
   if (pipelineOpt.enablePeeling)
-    funcPassManager.addPass(createLLVMCPUPeelPass());
+    funcPassManager.addPass(createHexagonPeelPass());
   {
     GenericVectorizationPassOptions options;
     options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
@@ -270,7 +270,7 @@ void addHexagonMultiTilingExpertPassPipeline(
 
   funcPassManager.addPass(createForallToForPass());
   if (pipelineOpt.enablePeeling) {
-    funcPassManager.addPass(createLLVMCPUPeelPass());
+    funcPassManager.addPass(createHexagonPeelPass());
   }
 
   {
@@ -469,7 +469,7 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
   funcPassManager.addPass(iree_compiler::createForallToForPass());
 
   if (pipelineOpt.enablePeeling) {
-    funcPassManager.addPass(createLLVMCPUPeelPass());
+    funcPassManager.addPass(createHexagonPeelPass());
   }
 
   {

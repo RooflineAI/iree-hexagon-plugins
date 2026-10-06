@@ -18,8 +18,8 @@ func.func @hmx_batch_matmul_preserves_batch_tile(%lhs: tensor<4x32x32xf16>, %rhs
   %result = linalg.batch_matmul ins(%lhs, %rhs : tensor<4x32x32xf16>, tensor<4x32x32xf16>) outs(%init : tensor<4x32x32xf16>) -> tensor<4x32x32xf16>
   return %result : tensor<4x32x32xf16>
 }
-// CHECK-DAG: #[[BATCH_FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 32, 32]>
-// CHECK-DAG: #[[BATCH_ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [1, 0, 0, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 32, 32, 0]>
+// CHECK-DAG: #[[BATCH_FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32, 32]>
+// CHECK-DAG: #[[BATCH_ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [1, 0, 0, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 32, 32, 0]>
 // CHECK-DAG: #[[BATCH_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 // CHECK-DAG: #[[BATCH_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config
 // CHECK: func.func @hmx_batch_matmul_preserves_batch_tile(

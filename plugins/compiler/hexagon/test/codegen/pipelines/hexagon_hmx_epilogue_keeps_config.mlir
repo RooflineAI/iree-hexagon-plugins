@@ -17,7 +17,7 @@
 // CHECK-LABEL: IR Dump After HexagonVTCMTilingPass
 // CHECK: func.func @hmx_m1_epilogue_dispatch
 // CHECK: linalg.generic
-// CHECK-SAME: lowering_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
+// CHECK-SAME: lowering_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
 
 // CHECK-LABEL: IR Dump After GenericVectorizationPass
 // CHECK: func.func @hmx_m1_epilogue_dispatch
@@ -28,9 +28,9 @@
 
 #executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#config_fill = #iree_cpu.lowering_config<vector_common_parallel = [32, 32]>
-#config_matmul = #iree_cpu.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0]>
-#config_epilogue = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
+#config_fill = #iree_hexagon.lowering_config<vector_common_parallel = [32, 32]>
+#config_matmul = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0]>
+#config_epilogue = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
 #vtcm = #iree_hexagon.vtcm_tiling_config<tile_sizes = [1, 2048, 256]>
 #translation = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 

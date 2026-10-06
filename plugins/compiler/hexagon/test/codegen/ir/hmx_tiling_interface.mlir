@@ -6,7 +6,7 @@
 
 // Tiling coordinates count physical HMX tiles, so [1, 1] corresponds to a
 // logical 32x32 output tile.
-#tile_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
+#tile_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
 
 // CHECK-LABEL: func.func @tile_unpack_grid(
 // CHECK-DAG: %[[C0:.+]] = arith.constant 0 : index
@@ -34,7 +34,7 @@ func.func @tile_unpack_grid(
 
 // -----
 
-#tile_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
+#tile_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
 
 // The physical source grid remains 2x2, but logical destination tiles are
 // clipped to the remaining rows and columns. This prevents the final tiles from
@@ -64,7 +64,7 @@ func.func @tile_ragged_unpack_grid(
 
 // -----
 
-#tile_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
+#tile_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
 
 // CHECK-LABEL: func.func @tile_matmul_grid(
 // CHECK: scf.for
@@ -91,7 +91,7 @@ func.func @tile_matmul_grid(
 
 // -----
 
-#tile_config = #iree_cpu.lowering_config<vector_common_parallel = [1, 1]>
+#tile_config = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
 
 // After workgroup distribution the logical destination of a ragged matmul is
 // dynamic along N (e.g. `tensor<1537x?xf32>`), so both boundary clips have to

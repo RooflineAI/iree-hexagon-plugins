@@ -155,15 +155,16 @@ introduced with the objective of making this pass more understandable in the fut
 ## Other future improvements (TODO)
 
 In its current state, Hexagon Strategy selection is aiming at having different tile sizes on the same tiling-level.
-This is currently being translated into two different nested loops through the LLVMCPU's tiling passes.
+This is currently being translated into two different nested loops through Hexagon's tiling passes.
 This is required because different hardware units will dictate different tile sizes and it may therefore not be possible to tile them all together.
 Nevertheless, a cleaner approach to this would represent this through different tiling levels.
-That would requires considerable work of modularizing/rewriting the LLVMCPU tiling passes and is open work.
+That would requires considerable work of modularizing/rewriting the Hexagon tiling passes and is open work.
 Another example of this is the HMX pipeline using cache tiling along with VTCM.
-This is a completely arbitrary application of a tiling level of LLVMCPU to Hexagon for a completely different purpose and should also be given its own level.
+This is a completely arbitrary application of the inherited cache-parallel tiling stage for a completely different purpose and should also be given its own level.
 
-In the same direction, we are currently using a dual lowering configuration with attributes from LLVMCPU and custom ones for Hexagon.
-Moving this logic into the custom one for Hexagon require the same work as the issue above.
+Lowering configuration is now owned by Hexagon, retaining the existing stage
+IDs and meanings. VTCM staging remains separate from compute tiling; combining
+these attributes or redesigning the stage meanings would require the work above.
 
 This is currently a huge pass combining a considerable amount of logic from multiple files and creating intermediate structures parallel to the IR.
 This contradicts MLIR conventions and could be reworked in the future to be split into multiple passes, writing temporary stuff to the IR so that it may more easily be checked and unit tested.

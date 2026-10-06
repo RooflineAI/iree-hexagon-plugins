@@ -18,8 +18,8 @@ func.func @fallback_dispatch(%src: tensor<96x96xf32>) -> tensor<98x98xf32> attri
   } : tensor<96x96xf32> to tensor<98x98xf32>
   return %padded : tensor<98x98xf32>
 }
-// CHECK-DAG: #[[PAD:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[PAD:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
 // CHECK: func.func @fallback_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -35,8 +35,8 @@ func.func @fill_root_dispatch() -> tensor<64x128xf32> attributes {hal.executable
   %filled = linalg.fill ins(%cst : f32) outs(%empty : tensor<64x128xf32>) -> tensor<64x128xf32>
   return %filled : tensor<64x128xf32>
 }
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<distribution = [0, 0], vector_common_parallel = [1, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0], vector_common_parallel = [1, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @fill_root_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -52,8 +52,8 @@ func.func @fft_fallback_dispatch(%twiddle_real: tensor<2xf32>, %twiddle_imag: te
   %fft_real, %fft_imag = iree_linalg_ext.fft ins(%c2, %twiddle_real, %twiddle_imag : index, tensor<2xf32>, tensor<2xf32>) outs(%empty_real, %empty_imag : tensor<32xf32>, tensor<32xf32>) : tensor<32xf32>, tensor<32xf32>
   return %fft_real, %fft_imag : tensor<32xf32>, tensor<32xf32>
 }
-// CHECK-DAG: #[[FFT:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FFT:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>
 // CHECK: func.func @fft_fallback_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]

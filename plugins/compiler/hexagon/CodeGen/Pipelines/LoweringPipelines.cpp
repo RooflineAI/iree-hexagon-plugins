@@ -18,11 +18,11 @@
 #include "hexagon/CodeGen/Pipelines/Bufferization.h"
 #include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "hexagon/Conversion/LinalgToLLVM/LinalgToLLVM.h"
 #include "hexagon/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Common/PassUtils.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.h"
 #include "iree/compiler/Dialect/LinalgExt/Transforms/Passes.h"
 #include "iree/compiler/Dialect/Util/Transforms/Passes.h"
@@ -182,7 +182,8 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
   // Skip tiling reduction loops because this is expected to apply on copy ops
   // only.
   funcPassManager.addPass(createHexagonTilePass(
-      IREE::CPU::TilingLevel::VectorCommonParallelTiles, /*skipRootOp=*/false));
+      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles,
+      /*skipRootOp=*/false));
   // This is a divergence from the LLVMCPU pipeline. We do not want to peel
   // operations outside of workgroups since we are not using workgroups. This
   // would fully unroll copy operations in all cases, which crashes the LLVM
@@ -230,22 +231,22 @@ void addHexagonMultiTilingExpertPassPipeline(
   if (isHexagonVTCMTilingEnabled())
     funcPassManager.addPass(createHexagonVTCMTilingPass());
 
-  for (int i : IREE::CPU::getTilingLevelsAsInts()) {
+  for (int i : IREE::Hexagon::getTilingLevelsAsInts()) {
     if (!loweringConfig.hasTilingLevel(i)) {
       continue;
     }
-    auto level = static_cast<IREE::CPU::TilingLevel>(i);
+    auto level = static_cast<IREE::Hexagon::TilingLevel>(i);
     switch (level) {
-    case IREE::CPU::TilingLevel::CacheParallelTiles:
-    case IREE::CPU::TilingLevel::VectorCommonParallelTiles:
+    case IREE::Hexagon::TilingLevel::CacheParallelTiles:
+    case IREE::Hexagon::TilingLevel::VectorCommonParallelTiles:
       funcPassManager.addPass(
           createHexagonTileAndFuseProducerConsumerPass(level));
       break;
-    case IREE::CPU::TilingLevel::CacheReductionTiles:
+    case IREE::Hexagon::TilingLevel::CacheReductionTiles:
       funcPassManager.addPass(
           createHexagonTileRootAndFuseInputOperandsPass(level));
       break;
-    case IREE::CPU::TilingLevel::VectorReductionTiles:
+    case IREE::Hexagon::TilingLevel::VectorReductionTiles:
       // Run SplitReductionPass before the final reduction Fuse pass, because
       // SplitReductionPass takes care of banked-tiling.
       funcPassManager.addPass(createHexagonSplitReductionPass(
@@ -256,12 +257,12 @@ void addHexagonMultiTilingExpertPassPipeline(
       // that all the dimensions are tiled in all the reduction ops. The root
       // op is already tiled, so it is skipped in the pass.
       funcPassManager.addPass(createHexagonTilePass(
-          static_cast<IREE::CPU::TilingLevel>(i), /*skipRootOp=*/true));
+          static_cast<IREE::Hexagon::TilingLevel>(i), /*skipRootOp=*/true));
       break;
-    case IREE::CPU::TilingLevel::VectorInnerParallelTiles:
-    case IREE::CPU::TilingLevel::DistributionTiles:
-    case IREE::CPU::TilingLevel::MaxNumTileLevels:
-    case IREE::CPU::TilingLevel::InvalidLevel:
+    case IREE::Hexagon::TilingLevel::VectorInnerParallelTiles:
+    case IREE::Hexagon::TilingLevel::DistributionTiles:
+    case IREE::Hexagon::TilingLevel::MaxNumTileLevels:
+    case IREE::Hexagon::TilingLevel::InvalidLevel:
       continue;
     };
     funcPassManager.addPass(createFuseTensorPadWithConsumerPass());
@@ -273,7 +274,7 @@ void addHexagonMultiTilingExpertPassPipeline(
   // config for the level. Thus, we use the last operation that has the tiling
   // level as anchor.
   funcPassManager.addPass(createHexagonTileLastOpAndFuseProducerConsumerPass(
-      IREE::CPU::TilingLevel::VectorInnerParallelTiles));
+      IREE::Hexagon::TilingLevel::VectorInnerParallelTiles));
   funcPassManager.addPass(createFuseTensorPadWithConsumerPass());
   funcPassManager.addPass(createConcretizePadResultShapePass());
 
@@ -367,7 +368,7 @@ void addHexagonHmxMatmulExpertPassPipeline(
   // TODO: It would be cleaner to create a dedicated HMX tiling level for this
   // that does not reuse the cache-parallel tiling level.
   funcPassManager.addPass(createHexagonTilePass(
-      IREE::CPU::TilingLevel::CacheParallelTiles, /*skipRootOp=*/false));
+      IREE::Hexagon::TilingLevel::CacheParallelTiles, /*skipRootOp=*/false));
   // The cache-parallel level tiles only the batch dim (to 1) for the HMX path,
   // leaving a batch_matmul<1x...>. HexagonConvertMatmulToHmx rank-reduces that
   // to a plain matmul internally, so no generalize/fold is needed here. No-op
@@ -389,7 +390,7 @@ void addHexagonHmxMatmulExpertPassPipeline(
   // tile-grid domain. Sink the unpack, tensor hmx.matmul, and f32 init producer
   // into the per-HMX-tile loop while leaving the opaque operand packs outside.
   funcPassManager.addPass(createHexagonTileAndFuseProducerConsumerPass(
-      IREE::CPU::TilingLevel::VectorCommonParallelTiles));
+      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles));
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
 
@@ -398,7 +399,7 @@ void addHexagonHmxMatmulExpertPassPipeline(
   // tiles on producers and consumers given that the HMX tile size vastly
   // exceeds the available registers for these ops.
   funcPassManager.addPass(createHexagonTileLastOpAndFuseProducerConsumerPass(
-      IREE::CPU::TilingLevel::VectorInnerParallelTiles));
+      IREE::Hexagon::TilingLevel::VectorInnerParallelTiles));
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
 
@@ -460,12 +461,12 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
 
   funcPassManager.addPass(createHexagonTileAndFuseProducerConsumerPass(
-      IREE::CPU::TilingLevel::VectorCommonParallelTiles));
+      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles));
   funcPassManager.addPass(createFuseTensorPadWithConsumerPass());
   funcPassManager.addPass(createConcretizePadResultShapePass());
 
   funcPassManager.addPass(createHexagonTileRootAndFuseInputOperandsPass(
-      IREE::CPU::TilingLevel::VectorReductionTiles));
+      IREE::Hexagon::TilingLevel::VectorReductionTiles));
   funcPassManager.addPass(createDecomposeConvolutionToLowerDimOpsPass());
   funcPassManager.addPass(createFuseTensorPadWithConsumerPass());
   funcPassManager.addPass(createConcretizePadResultShapePass());
@@ -516,7 +517,8 @@ void addHexagonDataTilingPipeline(OpPassManager &funcPassManager,
   //     createCPULowerToUKernelsPass(clHexagonSkipIntermediateRoundings));
 
   funcPassManager.addPass(createHexagonTilePass(
-      IREE::CPU::TilingLevel::VectorCommonParallelTiles, /*skipRootOp=*/false));
+      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles,
+      /*skipRootOp=*/false));
 
   {
     GenericVectorizationPassOptions options;
@@ -545,11 +547,11 @@ void addHexagonLinalgExtTileAndVectorizePipeline(
     OpPassManager &funcPassManager, const HexagonPipelineOptions &pipelineOpt) {
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
   funcPassManager.addPass(createHexagonTileAndFuseProducerConsumerPass(
-      IREE::CPU::TilingLevel::VectorCommonParallelTiles));
+      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles));
   funcPassManager.addPass(
       IREE::LinalgExt::createConvertAttentionToOnlineAttentionPass());
   funcPassManager.addPass(createHexagonTileRootAndFuseInputOperandsPass(
-      IREE::CPU::TilingLevel::VectorReductionTiles));
+      IREE::Hexagon::TilingLevel::VectorReductionTiles));
   funcPassManager.addPass(
       IREE::LinalgExt::createDecomposeWinogradTransformPass());
   funcPassManager.addPass(IREE::LinalgExt::createDecomposeAttentionPass());
@@ -583,7 +585,7 @@ void addHexagonDefaultPassPipeline(
     const HexagonPipelineOptions &pipelineOptions) {
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOptions);
   funcPassManager.addPass(createHexagonTileLastOpAndFuseProducerConsumerPass(
-      IREE::CPU::TilingLevel::VectorCommonParallelTiles));
+      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles));
   addHexagonBufferizePasses(funcPassManager);
 }
 

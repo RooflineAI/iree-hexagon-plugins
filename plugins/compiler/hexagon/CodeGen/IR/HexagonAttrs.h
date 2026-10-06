@@ -15,6 +15,21 @@ namespace mlir::iree_compiler::IREE::Hexagon {
 
 class IREEHexagonDialect;
 
+/// Stable stage IDs used by the lowering-config interface and pass options.
+enum class TilingLevel {
+  DistributionTiles = 0,
+  CacheParallelTiles = 1,
+  CacheReductionTiles = 2,
+  VectorCommonParallelTiles = 3,
+  VectorReductionTiles = 4,
+  VectorInnerParallelTiles = 5,
+  MaxNumTileLevels = 6,
+  InvalidLevel = 7,
+};
+
+SmallVector<int> getTilingLevelsAsInts();
+StringRef getTilingLevelName(TilingLevel level);
+
 } // namespace mlir::iree_compiler::IREE::Hexagon
 
 // clang-format off: the enum declarations must come before the attributes

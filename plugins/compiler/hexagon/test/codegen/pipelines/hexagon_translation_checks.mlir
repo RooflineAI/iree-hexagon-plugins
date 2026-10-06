@@ -5,12 +5,13 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 // Derived from the local hexagon_lower_executable_target.mlir default case.
-// RUN: iree-opt --iree-hexagon-check-linalg-vectorization=true --iree-hexagon-enable-vtcm-tiling=false --pass-pipeline='builtin.module(hal.executable(hal.executable.variant(iree-hexagon-translation-pipeline)))' --mlir-print-ir-after=iree-hexagon-emit-vectorization-remarks,iree-hexagon-check-ir-before-llvm-conversion %s 2>&1 | FileCheck %s
+// RUN: iree-opt --iree-hexagon-check-linalg-vectorization=true --iree-hexagon-enable-vtcm-tiling=false --pass-pipeline='builtin.module(hal.executable(hal.executable.variant(iree-hexagon-translation-pipeline)))' --mlir-print-ir-after=iree-hexagon-emit-vectorization-remarks,iree-hexagon-check-ir-before-llvm-conversion,iree-hexagon-synchronize-symbol-visibility %s 2>&1 | FileCheck %s
 
 // CHECK-LABEL: IR Dump After HexagonEmitVectorizationRemarksPass
 // CHECK: func.func @default_dispatch
 // CHECK-LABEL: IR Dump After HexagonCheckIRBeforeLLVMConversionPass
 // CHECK: func.func @default_dispatch
+// CHECK-LABEL: IR Dump After HexagonSynchronizeSymbolVisibilityPass
 // CHECK: llvm.func @default_dispatch
 
 #translation = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>

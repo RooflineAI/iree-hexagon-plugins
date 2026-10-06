@@ -107,6 +107,25 @@ def HexagonTileToVectorSizePass :
   }];
 }
 
+def HexagonAssignConstantOrdinalsPass :
+    Pass<"iree-hexagon-assign-constant-ordinals", "IREE::HAL::ExecutableVariantOp"> {
+  let summary = "Assigns executable constant ordinals across Hexagon variants";
+}
+
+def HexagonLinkExecutablesPass :
+    Pass<"iree-hexagon-link-executables", "mlir::ModuleOp"> {
+  let summary = "Links Hexagon HAL executables within the top-level program module";
+  let options = [
+    Option<"target", "target", "std::string", "",
+           "Target backend name whose executables will be linked by this pass.">
+  ];
+}
+
+def HexagonSynchronizeSymbolVisibilityPass :
+    Pass<"iree-hexagon-synchronize-symbol-visibility", "ModuleOp"> {
+  let summary = "Synchronizes LLVM linkage with MLIR symbol visibility";
+}
+
 def HexagonCheckIRBeforeLLVMConversionPass :
     InterfacePass<"iree-hexagon-check-ir-before-llvm-conversion", "mlir::FunctionOpInterface"> {
   let summary = "Checks stack allocation bounds before LLVM conversion";

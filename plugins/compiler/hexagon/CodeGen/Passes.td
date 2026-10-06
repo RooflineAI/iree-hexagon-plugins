@@ -13,6 +13,16 @@ include "mlir/Pass/PassBase.td"
 // Hexagon Codegen passes (keep alphabetical)
 //------------------------------------------------------------------------------
 
+def HexagonSplitReductionPass :
+    InterfacePass<"iree-hexagon-split-reduction", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to splitReduce linalg operations.";
+  let options = [
+    Option<"enableFpReductionReordering", "enable-fp-reduction-reordering",
+      "bool", /*default=*/"false",
+      "Flag to enable reduction reordering on floating points.">,
+  ];
+}
+
 def HexagonTilePass :
     InterfacePass<"iree-hexagon-tile", "mlir::FunctionOpInterface"> {
   let summary = "Pass to tile TilingInterface operations.";
@@ -77,6 +87,19 @@ def HexagonTileAndFuseProducerConsumerPass
               /*default=*/"true",
               "Anchor on the root op to start the tiling. Otherwise, find the "
               "last configured operations before and after the root op or ukernel.">];
+}
+
+def HexagonTileToVectorSizePass :
+    InterfacePass<"iree-hexagon-tile-to-vector-size", "mlir::FunctionOpInterface"> {
+  let summary = "Tile TilingInterface operations to target vector size.";
+  let description = [{
+    Walk through all the TilingInterface operations and tiling the dimensions to
+    target vector sizes, if the lowering config is present and the dimension is
+    known as greater than the vector size.
+
+    It is intended to be used before vectorization that avoids big vectors and
+    stack buffers.
+  }];
 }
 
 def HexagonVTCMTilingPass :

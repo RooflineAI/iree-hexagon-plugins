@@ -239,7 +239,7 @@ void addHexagonMultiTilingExpertPassPipeline(
     case IREE::CPU::TilingLevel::VectorReductionTiles:
       // Run SplitReductionPass before the final reduction Fuse pass, because
       // SplitReductionPass takes care of banked-tiling.
-      funcPassManager.addPass(createLLVMCPUSplitReductionPass(
+      funcPassManager.addPass(createHexagonSplitReductionPass(
           clHexagonEnableReassociateFpReductions));
       funcPassManager.addPass(
           createHexagonTileRootAndFuseInputOperandsPass(level));
@@ -275,7 +275,7 @@ void addHexagonMultiTilingExpertPassPipeline(
 
   {
     funcPassManager.addPass(createTensorToVectorVectorizePadPass());
-    funcPassManager.addPass(createLLVMCPUTileToVectorSizePass());
+    funcPassManager.addPass(createHexagonTileToVectorSizePass());
 
     GenericVectorizationPassOptions options;
     options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
@@ -400,7 +400,7 @@ void addHexagonHmxMatmulExpertPassPipeline(
   {
     // Refine and vectorize fused operations. The HMX pack/matmul/unpack ops
     // lower through their dedicated bufferization and runtime-call path.
-    funcPassManager.addPass(createLLVMCPUTileToVectorSizePass());
+    funcPassManager.addPass(createHexagonTileToVectorSizePass());
 
     GenericVectorizationPassOptions options;
     options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;

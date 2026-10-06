@@ -85,7 +85,7 @@ bool canRefineComputeTileDownstream(const PipelineContract &contract,
                                     Operation *op) {
   if (!contract.runsTileToVectorSize)
     return false;
-  // LLVMCPUTileToVectorSizePass skips linalg.fill unconditionally, on the
+  // HexagonTileToVectorSizePass skips linalg.fill unconditionally, on the
   // grounds that a fill usually feeds a reduction consumer and tiling it
   // would only add a loop. A fill's configured shape therefore has to match
   // the extent it is fused into, because nothing will tile it down to a

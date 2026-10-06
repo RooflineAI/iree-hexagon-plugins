@@ -38,6 +38,9 @@ void registerHexagonCodeGenPasses();
 #define GEN_PASS_DECL
 #include "hexagon/CodeGen/Passes.h.inc" // IWYU pragma: keep
 
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonSplitReductionPass(bool enableReassociateFpReductions);
+
 // CPU tiling levels are retained until Hexagon configuration migration.
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonTilePass(IREE::CPU::TilingLevel tilingLevel, bool skipRootOp);

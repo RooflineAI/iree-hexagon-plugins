@@ -214,8 +214,10 @@ iree_cc_library(
     "Strategy/KernelDispatch.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
+    "Transforms/HexagonSplitReduction.cpp"
     "Transforms/HexagonTile.cpp"
     "Transforms/HexagonTileAndFuseProducerConsumer.cpp"
+    "Transforms/HexagonTileToVectorSize.cpp"
     "Transforms/HexagonVTCMTiling.cpp"
     "Transforms/InsertProfilerMarkers.cpp"
     "Transforms/LowerVTCMStaging.cpp"
@@ -279,6 +281,7 @@ iree_cc_library(
     iree::compiler::Dialect::LinalgExt::IR
     iree::compiler::Dialect::LinalgExt::Transforms
     iree::compiler::Dialect::LinalgExt::Utils
+    iree::compiler::Dialect::Util::Analysis
     iree::compiler::Dialect::Util::IR
     iree::compiler::Dialect::Util::Transforms
     iree::compiler::Transforms

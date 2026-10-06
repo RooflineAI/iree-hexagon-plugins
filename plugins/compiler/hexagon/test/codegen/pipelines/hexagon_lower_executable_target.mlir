@@ -6,7 +6,7 @@
 // RUN:   --mlir-print-ir-after-all \
 // RUN:   --split-input-file %s -o /dev/null 2>&1 | FileCheck %s
 
-// CHECK-LABEL: IR Dump After LLVMCPUTileAndFuseProducerConsumerPass
+// CHECK-LABEL: IR Dump After HexagonTileAndFuseProducerConsumerPass
 // CHECK: func.func @default_dispatch
 
 #translation = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<Default>>

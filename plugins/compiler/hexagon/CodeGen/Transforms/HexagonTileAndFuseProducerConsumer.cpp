@@ -1,0 +1,402 @@
+// Copyright 2024 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Derived from Codegen/LLVMCPU/LLVMCPUTileAndFuseProducerConsumer.cpp at IREE
+// revision a45adeaa6115e446c898e6eb21fb6edc0e65ddc4. Scheduling behavior is
+// preserved for fixed tile sizes.
+
+#include "hexagon/CodeGen/Passes.h"
+#include "iree/compiler/Codegen/Common/TileAndFuseUtils.h"
+#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
+#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
+#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.h"
+#include "iree/compiler/Codegen/Dialect/Codegen/IR/UKernelOps.h"
+#include "iree/compiler/Codegen/Utils/Utils.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
+#include "mlir/Dialect/MemRef/Transforms/Transforms.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/Patterns.h"
+#include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
+#include "mlir/Dialect/SCF/Transforms/Transforms.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/DebugLog.h"
+
+#define DEBUG_TYPE "iree-hexagon-tile-root-and-fuse-producers-consumers"
+
+namespace mlir::iree_compiler::hexagon::codegen {
+
+#define GEN_PASS_DEF_HEXAGONTILEANDFUSEPRODUCERCONSUMERPASS
+#include "hexagon/CodeGen/Passes.h.inc"
+
+/// Returns the operation that has workgroup tiling level and `level` tiling
+/// level in lowering config.
+/// Returns nullptr if there is not exactly one op that meets the conditions.
+static Operation *getRootOp(ArrayRef<Operation *> computeOps,
+                            IREE::CPU::TilingLevel level) {
+  Operation *rootOp = nullptr;
+  for (Operation *op : computeOps) {
+    IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
+        getLoweringConfig(op);
+    if (loweringConfig && loweringConfig.hasWorkgroupTilingLevel() &&
+        loweringConfig.hasTilingLevel(llvm::to_underlying(level))) {
+      if (rootOp) {
+        return nullptr;
+      }
+      rootOp = op;
+    }
+  }
+  return rootOp;
+}
+
+/// Returns the last operation that has `level` tiling level in lowering config
+/// after the root op (or ukernel ops) in the compute sequence.
+static Operation *getLastAnchorOpAfterRootOp(ArrayRef<Operation *> computeOps,
+                                             IREE::CPU::TilingLevel level) {
+  for (Operation *op : llvm::reverse(computeOps)) {
+    IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
+        getLoweringConfig(op);
+    if ((loweringConfig && loweringConfig.hasWorkgroupTilingLevel()) ||
+        isa<IREE::Codegen::UKernelGenericOp>(op)) {
+      break;
+    }
+    if (loweringConfig &&
+        loweringConfig.hasTilingLevel(llvm::to_underlying(level))) {
+      return op;
+    }
+  }
+  return nullptr;
+}
+
+/// Returns the root op and all its transitive consumers in `computeOps`.
+static llvm::SmallDenseSet<Operation *>
+getRootAndTransitiveConsumers(ArrayRef<Operation *> computeOps,
+                              Operation *rootOp) {
+  llvm::SmallDenseSet<Operation *> result;
+  if (!rootOp) {
+    return result;
+  }
+  result.insert(rootOp);
+  for (Operation *op : computeOps) {
+    if (result.contains(op)) {
+      continue;
+    }
+    for (Value operand : op->getOperands()) {
+      if (auto *def = operand.getDefiningOp(); def && result.contains(def)) {
+        result.insert(op);
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+/// Returns the root op and all its transitive producers in `computeOps`.
+static llvm::SmallDenseSet<Operation *>
+getRootAndTransitiveProducers(ArrayRef<Operation *> computeOps,
+                              Operation *rootOp) {
+  llvm::SmallDenseSet<Operation *> result;
+  if (!rootOp) {
+    return result;
+  }
+  result.insert(rootOp);
+  for (Operation *op : llvm::reverse(computeOps)) {
+    if (result.contains(op)) {
+      continue;
+    }
+    for (auto user : op->getUsers()) {
+      if (result.contains(user)) {
+        result.insert(op);
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+/// Returns the last operation that has `level` tiling level in lowering config
+/// before the root op (or ukernel ops) in the compute sequence.
+static Operation *getLastAnchorOpBeforeRootOp(ArrayRef<Operation *> computeOps,
+                                              IREE::CPU::TilingLevel level) {
+  bool foundRootOrUkernelOp = false;
+  for (Operation *op : llvm::reverse(computeOps)) {
+    IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
+        getLoweringConfig(op);
+    if ((loweringConfig && loweringConfig.hasWorkgroupTilingLevel()) ||
+        isa<IREE::Codegen::UKernelGenericOp>(op)) {
+      foundRootOrUkernelOp = true;
+      continue;
+    }
+    if (!foundRootOrUkernelOp) {
+      continue;
+    }
+    if (loweringConfig &&
+        loweringConfig.hasTilingLevel(llvm::to_underlying(level))) {
+      return op;
+    }
+  }
+  return nullptr;
+}
+
+/// Implementation of tile root and fuse producers and consumers greedily. Tile
+/// the root operation and fuse the producers of the root operation then
+/// consumers (finds any missing fusion opportunities, then apply producer
+/// fusion). If `onlyFuseProducerInputOperands` is set, only fuse producer input
+/// operands. `unfusableOps` contains operations that must not be fused as
+/// consumers (e.g., root ops from other anchor chains whose reduction
+/// dimensions would be incorrectly tiled as parallel).
+static FailureOr<Operation *> tileRootAndFuseProducerConsumer(
+    IRRewriter &rewriter, TilingInterface rootOp,
+    IREE::CPU::TilingLevel tilingLevel, bool onlyFuseProducerInputOperands,
+    const llvm::SmallDenseSet<Operation *> &unfusableOps = {}) {
+  auto *context = rewriter.getContext();
+  mlir::DominanceInfo dominanceInfo(rootOp);
+  llvm::SmallDenseSet<Operation *> tiledAndFusedOps;
+  collectTiledAndFusedOps(rootOp, tiledAndFusedOps);
+
+  llvm::DenseSet<Operation *> yieldReplacementsFor;
+  for (auto op : tiledAndFusedOps) {
+    // If an op result is used after `rootOp`, yield a replacement---unless the
+    // op using the result will also later be fused.
+    // For example:
+    //     A
+    //    / \
+    //   |  [B]
+    //    \  /
+    //     C
+    // Assuming we're doing producer-consumer fusion from B, as C uses A, and B
+    // does not properly dominate C, we will yield replacements for A. That is,
+    // unless C will later be fused through consumer fusion.
+    if (llvm::any_of(op->getUsers(), [&](Operation *user) {
+          return dominanceInfo.properlyDominates(rootOp, user) &&
+                 !tiledAndFusedOps.contains(user);
+        })) {
+      yieldReplacementsFor.insert(op);
+    }
+  }
+
+  int64_t numLoops = rootOp.getLoopIteratorTypes().size();
+  auto tileSizesAttr = dyn_cast<IREE::Codegen::LoweringConfigTilingLevelAttr>(
+      getLoweringConfig(rootOp).getTilingLevelAttr(
+          static_cast<unsigned>(tilingLevel)));
+  SmallVector<int64_t> tileSizes(tileSizesAttr.getSizes());
+  tileSizes.resize(numLoops, 0);
+
+  scf::SCFTilingOptions tilingOptions;
+  tilingOptions.setTileSizes(getAsIndexOpFoldResult(context, tileSizes));
+
+  // onlyFuseProducerInputOperands implies reduction tiling.
+  if (!onlyFuseProducerInputOperands) {
+    tilingOptions.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
+  }
+
+  scf::SCFTileAndFuseOptions tileAndFuseOptions;
+  tileAndFuseOptions.setTilingOptions(tilingOptions);
+
+  RewritePatternSet cleanupPatterns(context);
+  tensor::ExtractSliceOp::getCanonicalizationPatterns(cleanupPatterns, context);
+  tensor::DimOp::getCanonicalizationPatterns(cleanupPatterns, context);
+  tensor::populateMergeConsecutiveInsertExtractSlicePatterns(cleanupPatterns);
+  tensor::populateBubbleUpExtractSliceOpPatterns(cleanupPatterns);
+  // When fusing pads we do not want to generate zeroSliceGuards when doing
+  // workgroup tiling. In `GPUApplyTilingLevelPass` we do have an option called
+  // `allowZeroSlices` that can control this but we do not want these
+  // generated if workgroup tiling is happening first.
+  cleanupPatterns.insert<linalg::ExtractSliceOfPadTensorSwapPattern>(
+      context, [](tensor::ExtractSliceOp) { return /*zeroSliceGuard=*/false; });
+  tileAndFuseOptions.cleanupPatterns =
+      FrozenRewritePatternSet(std::move(cleanupPatterns));
+
+  scf::SCFTileAndFuseOptions::ControlFnTy controlFn =
+      [&](tensor::ExtractSliceOp candidateSliceOp, OpResult originalProducer,
+          bool isDestinationOperand)
+      -> std::optional<scf::SCFTileAndFuseOptions::ControlFnResult> {
+    Operation *owner = originalProducer.getOwner();
+    bool yieldProducerReplacement = yieldReplacementsFor.contains(owner);
+    // Do not fuse destination operands if onlyFuseProducerInputOperands is
+    // true.
+    bool shouldFuse = !(onlyFuseProducerInputOperands && isDestinationOperand);
+    if (shouldFuse) {
+      return scf::SCFTileAndFuseOptions::ControlFnResult{
+          yieldProducerReplacement};
+    }
+    return std::nullopt;
+  };
+  tileAndFuseOptions.setFusionControlFn(controlFn);
+  rewriter.setInsertionPoint(rootOp);
+
+  FailureOr<scf::SCFTileAndFuseResult> tiledResults =
+      scf::tileConsumerAndFuseProducersUsingSCF(rewriter, rootOp,
+                                                tileAndFuseOptions);
+  if (failed(tiledResults)) {
+    return failure();
+  }
+
+  // Perform the replacement of tiled and fused values.
+  for (auto [origValue, replacement] : tiledResults->replacements) {
+    Value replacementCopy = replacement;
+    rewriter.replaceUsesWithIf(origValue, replacement, [&](OpOperand &use) {
+      Operation *user = use.getOwner();
+      return !isa<tensor::DimOp>(user) &&
+             dominanceInfo.dominates(replacementCopy, user);
+    });
+  }
+
+  FailureOr<Operation *> rootTiledOp = tiledResults->tiledAndFusedOps.front();
+
+  if (failed(rootTiledOp)) {
+    return failure();
+  }
+  SmallVector<LoopLikeOpInterface> tilingLoops = tiledResults->loops;
+
+  if (!onlyFuseProducerInputOperands) {
+    FailureOr<std::queue<Operation *>> newFusionOpportunities =
+        fuseConsumersIntoForall(
+            rewriter, *rootTiledOp, tilingLoops,
+            [&tiledAndFusedOps, &unfusableOps](Operation *op) {
+              return tiledAndFusedOps.contains(op) &&
+                     !unfusableOps.contains(op);
+            });
+
+    if (failed(newFusionOpportunities)) {
+      LDBG() << "failed to fuse consumers, skip";
+      return tiledResults->tiledAndFusedOps.front();
+    }
+
+    // Because we restrict to at most a single tilable consumer for yielding
+    // a replacement, no new fusion opportunities will yield a replacement,
+    // meaning there is no need to run consumer fusion again afterwards.
+    // TODO: run producer and consumer fusion in one worklist.
+    fuseProducersOfSlices(rewriter, *newFusionOpportunities, tileAndFuseOptions,
+                          tilingLoops);
+  }
+
+  return tiledResults->tiledAndFusedOps.front();
+}
+
+namespace {
+/// This pass starts with the first TilingInterface operation that has
+/// lowering_config attribute, tiles the op and fuses its  consumers and
+/// producers recursively. If the `onlyFuseProducerInputOperands` is set, it
+/// only fuses producer input operands and disables consumer fusion. The
+/// `tilingLevel` must be specified. It picks the `tilingLevel`-th list as
+/// tiling sizes from lowering_config.
+struct HexagonTileAndFuseProducerConsumer
+    : impl::HexagonTileAndFuseProducerConsumerPassBase<
+          HexagonTileAndFuseProducerConsumer> {
+  using impl::HexagonTileAndFuseProducerConsumerPassBase<
+      HexagonTileAndFuseProducerConsumer>::
+      HexagonTileAndFuseProducerConsumerPassBase;
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<arith::ArithDialect, affine::AffineDialect,
+                    linalg::LinalgDialect, scf::SCFDialect,
+                    tensor::TensorDialect>();
+  }
+
+  void runOnOperation() override;
+};
+
+void HexagonTileAndFuseProducerConsumer::runOnOperation() {
+  MLIRContext *context = &getContext();
+  mlir::FunctionOpInterface funcOp = getOperation();
+  IRRewriter rewriter(funcOp);
+
+  SmallVector<Operation *> computeOps = getComputeOps(funcOp);
+
+  Operation *rootOp =
+      getRootOp(computeOps, IREE::CPU::TilingLevel::DistributionTiles);
+
+  // Anchor op paired with the set of ops that must not be fused as consumers
+  // when tiling from that anchor. When anchoring before the root, the root
+  // and its transitive consumers are unfusable; when after, the root and its
+  // transitive producers are unfusable; when on the root itself, nothing is
+  // restricted.
+  struct AnchorInfo {
+    Operation *anchorOp;
+    llvm::SmallDenseSet<Operation *> unfusableOps;
+  };
+  SmallVector<AnchorInfo> anchors;
+
+  if (anchorOnRootOp) {
+    if (Operation *anchorOp = getRootOp(computeOps, tilingLevel)) {
+      anchors.push_back({anchorOp, {}});
+    }
+  } else {
+    if (Operation *anchorOp =
+            getLastAnchorOpAfterRootOp(computeOps, tilingLevel)) {
+      anchors.push_back(
+          {anchorOp, getRootAndTransitiveProducers(computeOps, rootOp)});
+    }
+    if (Operation *anchorOp =
+            getLastAnchorOpBeforeRootOp(computeOps, tilingLevel)) {
+      anchors.push_back(
+          {anchorOp, getRootAndTransitiveConsumers(computeOps, rootOp)});
+    }
+  }
+  if (anchors.empty()) {
+    LDBG() << "unable to find an anchor operation that has "
+           << IREE::CPU::getTilingLevelName(tilingLevel) << " config";
+    return;
+  }
+
+  for (auto &[anchorOp, unfusable] : anchors) {
+    LDBG() << "anchorOp: " << *anchorOp;
+    if (failed(tileRootAndFuseProducerConsumer(
+            rewriter, cast<TilingInterface>(anchorOp), tilingLevel,
+            onlyFuseProducerInputOperands, unfusable))) {
+      funcOp.emitError() << "tiling of level "
+                         << IREE::CPU::getTilingLevelName(tilingLevel)
+                         << " failed\n";
+      return signalPassFailure();
+    }
+  }
+
+  RewritePatternSet patterns(context);
+  linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
+  scf::populateSCFForLoopCanonicalizationPatterns(patterns);
+  scf::ForallOp::getCanonicalizationPatterns(patterns, context);
+  tensor::populateFoldTensorEmptyPatterns(patterns);
+  memref::populateResolveRankedShapedTypeResultDimsPatterns(patterns);
+  // Pull in tensor dialect canonicalization patterns to fold tensor.cast
+  // into producers when possible.
+  context->getLoadedDialect<tensor::TensorDialect>()
+      ->getCanonicalizationPatterns(patterns);
+  if (failed(applyPatternsGreedily(funcOp, std::move(patterns)))) {
+    LDBG() << "----- cleanup failed -----";
+    return signalPassFailure();
+  }
+}
+} // namespace
+
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonTileAndFuseProducerConsumerPass(
+    IREE::CPU::TilingLevel tilingLevel) {
+  HexagonTileAndFuseProducerConsumerPassOptions options;
+  options.tilingLevel = tilingLevel;
+  options.onlyFuseProducerInputOperands = false;
+  return std::make_unique<HexagonTileAndFuseProducerConsumer>(options);
+}
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonTileRootAndFuseInputOperandsPass(
+    IREE::CPU::TilingLevel tilingLevel) {
+  HexagonTileAndFuseProducerConsumerPassOptions options;
+  options.tilingLevel = tilingLevel;
+  options.onlyFuseProducerInputOperands = true;
+  return std::make_unique<HexagonTileAndFuseProducerConsumer>(options);
+}
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonTileLastOpAndFuseProducerConsumerPass(
+    IREE::CPU::TilingLevel tilingLevel) {
+  HexagonTileAndFuseProducerConsumerPassOptions options;
+  options.tilingLevel = tilingLevel;
+  options.anchorOnRootOp = false;
+  return std::make_unique<HexagonTileAndFuseProducerConsumer>(options);
+}
+} // namespace mlir::iree_compiler::hexagon::codegen

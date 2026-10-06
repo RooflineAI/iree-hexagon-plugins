@@ -214,6 +214,8 @@ iree_cc_library(
     "Strategy/KernelDispatch.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
+    "Transforms/HexagonTile.cpp"
+    "Transforms/HexagonTileAndFuseProducerConsumer.cpp"
     "Transforms/HexagonVTCMTiling.cpp"
     "Transforms/InsertProfilerMarkers.cpp"
     "Transforms/LowerVTCMStaging.cpp"

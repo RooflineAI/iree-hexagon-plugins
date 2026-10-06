@@ -1,5 +1,5 @@
 // RUN: iree-opt \
-// RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-convert-matmul-to-hmx,iree-llvmcpu-tile-and-fuse-producer-consumer{tiling-level=vector_common_parallel},canonicalize,cse))' \
+// RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-convert-matmul-to-hmx,iree-hexagon-tile-and-fuse-producer-consumer{tiling-level=vector_common_parallel},canonicalize,cse))' \
 // RUN:   %s | FileCheck %s
 
 // The unpack lowering config makes it the two-dimensional tiling root and

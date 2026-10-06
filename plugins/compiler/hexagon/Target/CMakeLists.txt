@@ -42,6 +42,7 @@ iree_cc_library(
     LLVMTargetParser
     MLIRIR
     iree::compiler::Codegen::Utils
+    iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::TargetConfig
   ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"

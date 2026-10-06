@@ -1,0 +1,88 @@
+// Copyright 2022 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Adapted from Codegen/LLVMCPU/test/check_ir_before_llvm_conversion.mlir
+// at IREE revision a45adeaa6115e446c898e6eb21fb6edc0e65ddc4.
+
+// RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-check-ir-before-llvm-conversion))" %s --verify-diagnostics -split-input-file | FileCheck %s
+
+func.func @dynamic_allocas(%arg0: index) {
+  // expected-error @+1 {{expected no unbounded stack allocations}}
+  %0 = memref.alloca(%arg0) : memref<?xf32>
+  return
+}
+
+// -----
+
+// expected-error @+1 {{exceeded stack allocation limit of 32768 bytes for function. Got 65536 bytes}}
+func.func @static_big_allocas() {
+  %0 = memref.alloca() : memref<16384xi32>
+  return
+}
+
+// -----
+
+#map = affine_map<(d0) -> (-d0, 16384)>
+// expected-error @+1 {{exceeded stack allocation limit of 32768 bytes for function. Got 65536 bytes}}
+func.func @dynamic_big_allocas(%arg0: index) {
+  %0 = affine.min #map(%arg0)
+  %1 = memref.alloca(%0) : memref<?xf32>
+  return
+}
+
+// -----
+
+#map = affine_map<(d0) -> (-d0, 16)>
+// expected-error @+1 {{exceeded stack allocation limit of 32768 bytes for function. Got 65536 bytes}}
+func.func @mix_static_and_dynamic_allocas(%arg0: index) {
+  %0 = affine.min #map(%arg0)
+  %1 = memref.alloca(%0) : memref<?x1024xf32>
+  return
+}
+
+// -----
+
+func.func @non_entry_bb_allocas() {
+  cf.br ^bb1
+ ^bb1() :
+  // expected-error @+1 {{all stack allocations need to be hoisted to the entry block of the function}}
+  %0 = memref.alloca() : memref<16xi32>
+  return
+}
+
+// -----
+
+#map = affine_map<(d0) -> (d0, 16)>
+func.func @nested_op_alloca(%arg0 : index) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  scf.for %iv = %c0 to %arg0 step %c1 {
+    %0 = affine.min #map(%iv)
+    // expected-error @+1 {{all stack allocations need to be hoisted to the entry block of the function}}
+    %1 = memref.alloca(%0) : memref<?xi32>
+  }
+  return
+}
+
+// -----
+
+func.func @complex_alloca() {
+  %0 = memref.alloca() : memref<128xcomplex<f32>>
+  return
+}
+// CHECK-LABEL: func @complex_alloca(
+
+// -----
+
+// Workgroup-local allocs are backed by HAL dispatch local memory, not stack
+// slots. Only the memref.alloca below contributes to the stack allocation
+// limit.
+func.func @workgroup_local_alloc_not_counted_as_stack() {
+  %0 = memref.alloc() : memref<16384xf32, #iree_codegen.workgroup_local>
+  %1 = memref.alloca() : memref<1024xf32>
+  return
+}
+// CHECK-LABEL: func @workgroup_local_alloc_not_counted_as_stack(

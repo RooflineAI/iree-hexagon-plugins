@@ -71,6 +71,18 @@ iree_gentbl_cc_library(
 )
 
 hexagon_plugin_library(
+    name = "TargetConfig",
+    srcs = [],
+    hdrs = ["TargetConfig.h"],
+    hdr_deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)
+
+hexagon_plugin_library(
     name = "DispatchPlanner",
     srcs = [
         "Strategy/Planning/ComputeTileSelection.cpp",
@@ -109,7 +121,6 @@ hexagon_plugin_library(
     hdr_deps = [
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
-        "@iree//compiler/src/iree/compiler/Codegen/LLVMCPU",
         "@iree//compiler/src/iree/compiler/Codegen/Utils",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
         "@iree//compiler/src/iree/compiler/Dialect/Util/IR",
@@ -123,6 +134,7 @@ hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
+        ":TargetConfig",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
     ],
@@ -195,7 +207,9 @@ hexagon_plugin_library(
         "Pipelines/TranslationPipeline.cpp",
         "Strategy/HexagonSelectLoweringStrategy.cpp",
         "Strategy/KernelDispatch.cpp",
+        "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp",
         "Transforms/HexagonConvertMatmulToHmx.cpp",
+        "Transforms/HexagonEmitVectorizationRemarks.cpp",
         "Transforms/HexagonExpandHmxMatmul.cpp",
         "Transforms/HexagonPeel.cpp",
         "Transforms/HexagonSplitReduction.cpp",
@@ -205,6 +219,7 @@ hexagon_plugin_library(
         "Transforms/HexagonVTCMTiling.cpp",
         "Transforms/HexagonVectorShapeCastLowering.cpp",
         "Transforms/HexagonVectorTransposeLowering.cpp",
+        "Transforms/HexagonVerifyVectorSizeLegality.cpp",
         "Transforms/HexagonVirtualVectorLowering.cpp",
         "Transforms/InsertProfilerMarkers.cpp",
         "Transforms/LowerVTCMStaging.cpp",
@@ -287,6 +302,7 @@ hexagon_plugin_library(
         ":HexagonABIToLLVM",
         ":HexagonRuntimeLinking",
         ":PassesIncGen",
+        ":TargetConfig",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
     ],

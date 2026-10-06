@@ -18,7 +18,23 @@ and the reasons for it, come from upstream.
 | `HexagonTileToVectorSize.cpp` | none |
 | `HexagonSplitReduction.cpp` | none |
 | `HexagonVectorShapeCastLowering.cpp` | none |
-| `HexagonVectorTransposeLowering.cpp` | AVX2 patterns and option removed |
+| `HexagonVectorTransposeLowering.cpp` | AVX2 patterns and option removed; AVX-512 16x16 shuffle network removed |
 | `HexagonVirtualVectorLowering.cpp` | ARM/RVV/AArch64 policies and ARM i8mm option removed |
 
 The other passes here (HMX, VTCM, DMA, profiler) were written for Hexagon.
+
+## Shape-cast and transpose lowering
+
+`HexagonVectorShapeCastLowering.cpp` and `HexagonVectorTransposeLowering.cpp`
+only apply upstream MLIR pattern sets. Neither pass encodes Hexagon policy yet;
+they are where Hexagon-specific lowerings of these ops belong.
+
+Transposes become a single 1D `vector.shuffle`, which leaves the whole
+permutation to LLVM's HVX shuffle selection. If profiling shows the generic
+shuffle lowers poorly, HVX transpose networks built on `vshuff`/`vdeal` would go
+in this pass, sized for HVX registers. Currently, HMX's 32x32 tile layouts are
+produced by the HMX conversion, not by `vector.transpose`.
+
+Shape casts use the upstream lowering unchanged. Hexagon-specific cancellations,
+or reshapes that stay within HVX register boundaries, could also be considered
+to improve performance.

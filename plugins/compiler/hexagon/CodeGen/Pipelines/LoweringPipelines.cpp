@@ -136,8 +136,8 @@ static void buildHexagonVectorLoweringPipeline(
     OpPassManager &funcPassManager,
     const HexagonVectorLoweringPassOptions &options) {
   funcPassManager.addPass(createDropVectorUnitDimsPass());
-  funcPassManager.addPass(createLLVMCPUVirtualVectorLoweringPass(
-      LLVMCPUVirtualVectorLoweringPassOptions{options.splitVectorTransfersTo}));
+  funcPassManager.addPass(createHexagonVirtualVectorLoweringPass(
+      HexagonVirtualVectorLoweringPassOptions{options.splitVectorTransfersTo}));
 
   // Make sure we remove redundant vector ops (e.g., vector transposes) before
   // we lower them and can't be optimized away anymore.
@@ -147,9 +147,7 @@ static void buildHexagonVectorLoweringPipeline(
   VectorTransferLoweringPassOptions transferLoweringOptions{false};
   funcPassManager.addPass(
       createVectorTransferLoweringPass(transferLoweringOptions));
-  funcPassManager.addPass(createLLVMCPUVectorTransposeLoweringPass(
-      // This disables special lowering patterns that are useless for Hexagon
-      LLVMCPUVectorTransposeLoweringPassOptions{false}));
+  funcPassManager.addPass(createHexagonVectorTransposeLoweringPass());
 
   // Potentially removes shape_cast and broadcast on unit dims before shape_cast
   // lowering.
@@ -159,7 +157,7 @@ static void buildHexagonVectorLoweringPipeline(
   // by some of the lowerings above (e.g., transpose lowering). There are
   // chances to cancel them out if they are not lowered too early so we lower
   // them at the very end of the pass.
-  funcPassManager.addPass(createLLVMCPUVectorShapeCastLoweringPass());
+  funcPassManager.addPass(createHexagonVectorShapeCastLoweringPass());
 }
 
 } // namespace

@@ -220,6 +220,9 @@ iree_cc_library(
     "Transforms/HexagonTileAndFuseProducerConsumer.cpp"
     "Transforms/HexagonTileToVectorSize.cpp"
     "Transforms/HexagonVTCMTiling.cpp"
+    "Transforms/HexagonVectorShapeCastLowering.cpp"
+    "Transforms/HexagonVectorTransposeLowering.cpp"
+    "Transforms/HexagonVirtualVectorLowering.cpp"
     "Transforms/InsertProfilerMarkers.cpp"
     "Transforms/LowerVTCMStaging.cpp"
     "Transforms/PromoteDMATagAllocToStack.cpp"
@@ -233,9 +236,6 @@ iree_cc_library(
     MLIRAffineToStandard
     MLIRAnalysis
     MLIRArithDialect
-    MLIRArithToArmSME
-    MLIRArmSMEToLLVM
-    MLIRArmSMEToSCF
     MLIRBufferizationDialect
     MLIRComplexToStandard
     MLIRControlFlowDialect
@@ -263,7 +263,6 @@ iree_cc_library(
     MLIRTransformUtils
     MLIRValueBoundsOpInterface
     MLIRVectorDialect
-    MLIRVectorToArmSME
     MLIRVectorToLLVM
     MLIRVectorTransforms
     hexagon_mlir::HexagonLoweringSupport
@@ -272,6 +271,9 @@ iree_cc_library(
     iree::compiler::Codegen::Common::TransformDialectInterpreterPass
     iree::compiler::Codegen::Dialect::CPU::IR::IREECPUDialect
     iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
+    iree::compiler::Codegen::Dialect::Codegen::Transforms::IREECodegenTransforms
+    iree::compiler::Codegen::Dialect::VectorExt::IR::IREEVectorExtDialect
+    iree::compiler::Codegen::Dialect::VectorExt::Transforms::VectorExtTransforms
     iree::compiler::Codegen::Interfaces::PartitionableLoopsInterface
     iree::compiler::Codegen::LLVMCPU
     iree::compiler::Codegen::Transforms

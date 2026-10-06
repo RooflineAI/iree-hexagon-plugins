@@ -17,5 +17,8 @@ and the reasons for it, come from upstream.
 | `HexagonTileAndFuseProducerConsumer.cpp` | scalable tile sizes removed |
 | `HexagonTileToVectorSize.cpp` | none |
 | `HexagonSplitReduction.cpp` | none |
+| `HexagonVectorShapeCastLowering.cpp` | none |
+| `HexagonVectorTransposeLowering.cpp` | AVX2 patterns and option removed |
+| `HexagonVirtualVectorLowering.cpp` | ARM/RVV/AArch64 policies and ARM i8mm option removed |
 
 The other passes here (HMX, VTCM, DMA, profiler) were written for Hexagon.

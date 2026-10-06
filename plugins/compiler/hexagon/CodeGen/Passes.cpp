@@ -23,14 +23,7 @@ namespace {
 #include "hexagon/CodeGen/Passes.h.inc" // IWYU pragma: keep
 } // namespace
 
-void registerHexagonPasses() {
-  // Only register the Hexagon-owned passes.
-  // LLVMCPU passes reused are already registered via
-  // registerCodegenPasses() at global init. Re-registering them here would call
-  // registerCPUPipelineBuilder() a second time, which asserts single
-  // registration.
-  registerPasses();
-}
+void registerHexagonPasses() { registerPasses(); }
 
 void registerHexagonCodeGenPasses() {
   IREE::Hexagon::registerHexagonPipelineBuilder(buildHexagonPipeline);

@@ -13,6 +13,11 @@ include "mlir/Pass/PassBase.td"
 // Hexagon Codegen passes (keep alphabetical)
 //------------------------------------------------------------------------------
 
+def HexagonPeelPass :
+    InterfacePass<"iree-hexagon-peel", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to perform peeling on non-distributed loops.";
+}
+
 def HexagonSplitReductionPass :
     InterfacePass<"iree-hexagon-split-reduction", "mlir::FunctionOpInterface"> {
   let summary = "Pass to splitReduce linalg operations.";

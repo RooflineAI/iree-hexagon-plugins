@@ -41,12 +41,14 @@ hal.executable private @test_default {
 
 // -----
 
+// CHECK-LABEL: IR Dump After HexagonPeelPass
+// CHECK: func.func @buffer_dispatch
 // CHECK-LABEL: IR Dump After LLVMCPUVirtualVectorLoweringPass
 // CHECK: func.func @buffer_dispatch
 
 #executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#translation_buffer = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<BufferOpsTileAndVectorize>>
+#translation_buffer = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<BufferOpsTileAndVectorize>, {enable_loop_peeling}>
 
 hal.executable private @test_buffer {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {
@@ -75,12 +77,14 @@ hal.executable private @test_buffer {
 
 // CHECK-LABEL: IR Dump After HexagonSplitReductionPass
 // CHECK: func.func @double_tiling_dispatch
+// CHECK-LABEL: IR Dump After HexagonPeelPass
+// CHECK: func.func @double_tiling_dispatch
 // CHECK-LABEL: IR Dump After HexagonTileToVectorSizePass
 // CHECK: func.func @double_tiling_dispatch
 
 #executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#translation_double = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>>
+#translation_double = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 #config_double = #iree_cpu.lowering_config<distribution = [1, 1, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 1]>
 
 hal.executable private @test_double_tiling {
@@ -109,10 +113,12 @@ hal.executable private @test_double_tiling {
 
 // CHECK-LABEL: IR Dump After DecomposeConvolutionToLowerDimOpsPass
 // CHECK: func.func @conv_dispatch
+// CHECK-LABEL: IR Dump After HexagonPeelPass
+// CHECK: func.func @conv_dispatch
 
 #executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
-#translation_conv = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<ConvTileAndDecomposeExpert>>
+#translation_conv = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<ConvTileAndDecomposeExpert>, {enable_loop_peeling}>
 
 hal.executable private @test_conv {
   hal.executable.variant public @embedded_elf_hexagon target(#executable_target_embedded_elf_hexagon) {

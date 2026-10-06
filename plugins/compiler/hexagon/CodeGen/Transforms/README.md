@@ -12,6 +12,7 @@ and the reasons for it, come from upstream.
 
 | file | difference from upstream |
 |---|---|
+| `HexagonPeel.cpp` | none |
 | `HexagonTile.cpp` | scalable tile sizes removed |
 | `HexagonTileAndFuseProducerConsumer.cpp` | scalable tile sizes removed |
 | `HexagonTileToVectorSize.cpp` | none |

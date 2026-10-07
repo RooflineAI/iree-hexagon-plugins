@@ -6,7 +6,7 @@
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   --split-input-file %s | FileCheck %s
 
-#target_128 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#target_128 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, native_vector_size = 128 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
 // A ragged bound keeps the full native width because the buffer pipeline peels
 // the remainder. Distribution and compute are identical and root-owned.
@@ -23,7 +23,7 @@ func.func @copy_128b_ragged(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attr
 
 // -----
 
-#target_64 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length64b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#target_64 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length64b", max_stack_allocation_size = 16384 : i64, native_vector_size = 64 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
 func.func @copy_64b(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {hal.executable.target = #target_64} {
   linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
@@ -36,7 +36,7 @@ func.func @copy_64b(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {
 
 // -----
 
-#target_64 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length64b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+#target_64 = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length64b", max_stack_allocation_size = 16384 : i64, native_vector_size = 64 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
 // Dynamic bounds retain the native target width.
 func.func @copy_64b_dynamic(%src: memref<?x?xf32>, %dst: memref<?x?xf32>) attributes {hal.executable.target = #target_64} {
@@ -51,24 +51,13 @@ func.func @copy_64b_dynamic(%src: memref<?x?xf32>, %dst: memref<?x?xf32>) attrib
 
 // -----
 
-#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {target_triple = "hexagon-unknown-unknown-elf", native_vector_size = 32 : i64, cpu_features = "+hvx-length64b"}>
-func.func @feature_override(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {hal.executable.target = #target} {
-  linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
-  return
-}
-// CHECK-DAG: #[[CONFIG:.+]] = #iree_hexagon.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
-// CHECK: func.func @feature_override(
-// CHECK: linalg.copy
-// CHECK-SAME: lowering_config = #[[CONFIG]]
-
-// -----
-
-#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {target_triple = "hexagon-unknown-unknown-elf", native_vector_size = 32 : i64, cpu_features = "+hvx-length64b,+hvx-length128b"}>
-func.func @feature_precedence(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {hal.executable.target = #target} {
+// Without native_vector_size the planner falls back to 128-byte HVX vectors.
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {target_triple = "hexagon-unknown-unknown-elf"}>
+func.func @missing_native_vector_size(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {hal.executable.target = #target} {
   linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
   return
 }
 // CHECK-DAG: #[[CONFIG:.+]] = #iree_hexagon.lowering_config<distribution = [1, 32], vector_common_parallel = [1, 32]>
-// CHECK: func.func @feature_precedence(
+// CHECK: func.func @missing_native_vector_size(
 // CHECK: linalg.copy
 // CHECK-SAME: lowering_config = #[[CONFIG]]

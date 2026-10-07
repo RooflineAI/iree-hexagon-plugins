@@ -5,8 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 // Converts eligible f16 linalg.matmul operations to tensor-level HMX layout
-// and compute operations. This pass runs after VTCM tiling and before LLVMCPU
-// inner tiling
+// and compute operations. This pass runs after VTCM tiling and hmx-stage batch
+// tiling, and before HMX tile-grid tiling.
 //
 // Each operand is packed into a grid of complete 32x32 HMX tiles. Within a
 // tile, the row dimension is interleaved as:
@@ -385,9 +385,9 @@ getHmxUnpackLoweringConfig(MLIRContext *context) {
       IREE::Hexagon::getTilingLevelName(
           IREE::Hexagon::TilingLevel::DistributionTiles),
       IREE::Hexagon::LoweringConfigAttr::getTilingLevelAttr(context, {0, 0}));
+  // One HMX output tile per iteration of the tile grid.
   items.emplace_back(
-      IREE::Hexagon::getTilingLevelName(
-          IREE::Hexagon::TilingLevel::VectorCommonParallelTiles),
+      IREE::Hexagon::getTilingLevelName(IREE::Hexagon::TilingLevel::HmxTiles),
       IREE::Hexagon::LoweringConfigAttr::getTilingLevelAttr(context, {1, 1}));
   return IREE::Hexagon::LoweringConfigAttr::get(context, items);
 }
@@ -680,7 +680,7 @@ struct HexagonConvertMatmulToHmxPass final
                "expected the batch dimension to have been tiled to 1 before "
                "this pass so "
                "it could be rank-reduced to a plain matmul (see the "
-               "cache-parallel batch tiling in "
+               "hmx-stage batch tiling in "
                "addHexagonHmxMatmulExpertPassPipeline)";
       }
     });

@@ -23,8 +23,10 @@ enum class TilingLevel {
   VectorCommonParallelTiles = 3,
   VectorReductionTiles = 4,
   VectorInnerParallelTiles = 5,
-  MaxNumTileLevels = 6,
-  InvalidLevel = 7,
+  VTCMTiles = 6,
+  HmxTiles = 7,
+  /// Not-set default of tiling-level pass options.
+  InvalidLevel = 8,
 };
 
 SmallVector<int> getTilingLevelsAsInts();

@@ -8,9 +8,9 @@
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/CodeGen/Passes.h"
-#include "hexagon/CodeGen/Strategy/KernelDispatch.h"
 
 #include "iree/compiler/Codegen/Common/TileAndFuseUtils.h"
+#include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -35,6 +35,17 @@ namespace IREEHexagon = mlir::iree_compiler::IREE::Hexagon;
 
 #define GEN_PASS_DEF_HEXAGONVTCMTILINGPASS
 #include "hexagon/CodeGen/Passes.h.inc"
+
+constexpr unsigned kVTCMTilingLevel =
+    static_cast<unsigned>(IREEHexagon::TilingLevel::VTCMTiles);
+
+/// Returns the lowering config of `op` if it carries a VTCM stage.
+static IREEHexagon::LoweringConfigAttr getVTCMLoweringConfig(Operation *op) {
+  auto config = getLoweringConfig<IREEHexagon::LoweringConfigAttr>(op);
+  if (!config || !config.hasTilingLevel(kVTCMTilingLevel))
+    return {};
+  return config;
+}
 
 static bool isEmptyBackedTensor(Value tensor) {
   if (tensor.getDefiningOp<tensor::EmptyOp>()) {
@@ -160,10 +171,10 @@ getOpsNeedingYieldReplacements(Operation *rootOp,
 /// loop spans the whole dispatch.
 /// This dispatch-wide tiling is copied from
 /// LLVMCPUTileAndFuseProducerConsumer.cpp.
-LogicalResult
-applyDispatchWideTiling(IRRewriter &rewriter, linalg::LinalgOp op,
-                        IREEHexagon::VTCMTilingConfigAttr config) {
-  ArrayRef<int64_t> tileSizes = config.getTileSizes();
+LogicalResult applyDispatchWideTiling(IRRewriter &rewriter, linalg::LinalgOp op,
+                                      IREEHexagon::LoweringConfigAttr config) {
+  SmallVector<int64_t> tileSizes =
+      config.getStaticTilingLevelSizes(kVTCMTilingLevel, op);
   if (tileSizes.size() != op.getNumLoops()) {
     return op.emitOpError("expected VTCM tile size count to match loop count");
   }
@@ -228,9 +239,18 @@ applyDispatchWideTiling(IRRewriter &rewriter, linalg::LinalgOp op,
     });
   }
 
-  // The VTCM tiling attribute should only be used by this pass, remove it
+  // The VTCM stage is only consumed by this pass; remove it from the tiled
+  // operations while keeping their other stages.
   for (Operation *tiledOp : tiledResults->tiledAndFusedOps) {
-    tiledOp->removeAttr(kHexagonVTCMTilingConfigAttrName);
+    IREEHexagon::LoweringConfigAttr tiledConfig =
+        getVTCMLoweringConfig(tiledOp);
+    if (!tiledConfig)
+      continue;
+    if (IREEHexagon::LoweringConfigAttr remaining =
+            tiledConfig.withoutTilingLevel(IREEHexagon::TilingLevel::VTCMTiles))
+      setLoweringConfig(tiledOp, remaining);
+    else
+      eraseLoweringConfig(tiledOp);
   }
 
   SmallVector<LoopLikeOpInterface> tilingLoops = tiledResults->loops;
@@ -305,10 +325,8 @@ struct HexagonVTCMTilingPass
     FunctionOpInterface funcOp = getOperation();
     SmallVector<linalg::LinalgOp> candidates;
     funcOp.walk([&](linalg::LinalgOp op) {
-      if (op->getAttrOfType<IREEHexagon::VTCMTilingConfigAttr>(
-              kHexagonVTCMTilingConfigAttrName)) {
+      if (getVTCMLoweringConfig(op))
         candidates.push_back(op);
-      }
     });
     if (candidates.size() > 1) {
       candidates[1].emitOpError()
@@ -318,12 +336,8 @@ struct HexagonVTCMTilingPass
 
     IRRewriter rewriter(funcOp.getContext());
     for (linalg::LinalgOp op : candidates) {
-      auto config = op->getAttrOfType<IREEHexagon::VTCMTilingConfigAttr>(
-          kHexagonVTCMTilingConfigAttrName);
-      if (!config) {
-        continue;
-      }
-      if (failed(applyDispatchWideTiling(rewriter, op, config))) {
+      if (failed(applyDispatchWideTiling(rewriter, op,
+                                         getVTCMLoweringConfig(op)))) {
         return signalPassFailure();
       }
     }

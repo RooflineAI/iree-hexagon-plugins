@@ -10,21 +10,17 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Support/LogicalResult.h"
 
-// Hexagon launch-config selection emits translation_info,
-// #iree_hexagon.lowering_config and optional VTCM staging configuration for
-// the Hexagon lowering pipelines.
+// Hexagon launch-config selection emits translation_info and
+// #iree_hexagon.lowering_config, including the optional VTCM stage, for the
+// Hexagon lowering pipelines.
 //
 // Strategy selection is implemented under `Planning/`.
-// This header exposes only the pass-facing facade and the one
-// Hexagon-specific attribute name consumed by later transforms.
+// This header exposes only the pass-facing facade.
 //
 // For runnable examples and the currently expected behavior, see
 // `plugins/compiler/hexagon/test/codegen/strategy/`.
 
 namespace mlir::iree_compiler::hexagon::codegen {
-
-constexpr llvm::StringLiteral kHexagonVTCMTilingConfigAttrName =
-    "hexagon_vtcm_tiling_config";
 
 /// Public facade for Hexagon launch-config selection.
 mlir::LogicalResult initHexagonLaunchConfig(mlir::FunctionOpInterface funcOp);

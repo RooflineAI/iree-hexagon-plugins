@@ -18,9 +18,15 @@
 
 namespace mlir::iree_compiler::IREE::Hexagon {
 
-static constexpr std::array<StringLiteral, 6> tilingLevelNames = {
-    "distribution",           "cache_parallel",   "cache_reduction",
-    "vector_common_parallel", "vector_reduction", "vector_inner_parallel"};
+static constexpr std::array<StringLiteral, 8> tilingLevelNames = {
+    "distribution",
+    "cache_parallel",
+    "cache_reduction",
+    "vector_common_parallel",
+    "vector_reduction",
+    "vector_inner_parallel",
+    "vtcm",
+    "hmx"};
 
 SmallVector<int> getTilingLevelsAsInts() {
   return llvm::to_vector(llvm::seq<int>(0, tilingLevelNames.size()));
@@ -111,6 +117,18 @@ LoweringConfigAttr LoweringConfigAttr::get(MLIRContext *ctx,
 Attribute LoweringConfigAttr::getTilingLevelAttr(MLIRContext *ctx,
                                                  ArrayRef<int64_t> tileSizes) {
   return Codegen::LoweringConfigTilingLevelAttr::get(ctx, tileSizes, {}, {});
+}
+
+LoweringConfigAttr
+LoweringConfigAttr::withoutTilingLevel(TilingLevel level) const {
+  StringRef key = getTilingLevelName(level);
+  SmallVector<NamedAttribute> items;
+  llvm::copy_if(
+      getConfig(), std::back_inserter(items),
+      [&](NamedAttribute item) { return item.getName().getValue() != key; });
+  if (items.empty())
+    return {};
+  return get(getContext(), items);
 }
 
 Attribute LoweringConfigAttr::getTilingLevelAttr(unsigned level) const {

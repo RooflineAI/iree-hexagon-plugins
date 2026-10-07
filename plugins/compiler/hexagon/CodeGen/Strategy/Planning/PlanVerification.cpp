@@ -315,11 +315,9 @@ verifyPipelineRequirements(FunctionOpInterface entryPoint,
     return failure();
   }
   if (strategy.rootTiling.vtcm &&
-      pipelineContract.cacheTilingWithVTCM == CacheTilingWithVTCM::Suppress &&
       llvm::any_of(strategy.rootTiling.cacheTile,
                    [](const TileDecision &tile) { return tile.size != 0; })) {
-    entryPoint.emitError(
-        "selected VTCM plan must suppress cache tiling for this pipeline");
+    entryPoint.emitError("selected VTCM plan must suppress cache tiling");
     return failure();
   }
   return success();
@@ -334,6 +332,7 @@ LogicalResult verifyRootTilingPlan(const OpShape &rootShape,
   if (root.distributionTile.size() != rootRank ||
       root.cacheTile.size() != rootRank ||
       root.computeTile.size() != rootRank ||
+      (!root.hmxTile.empty() && root.hmxTile.size() != rootRank) ||
       (root.vtcm && root.vtcm->tileSizes.size() != rootRank)) {
     rootOp->emitError("Hexagon root plan rank does not match root loop rank");
     return failure();
@@ -341,6 +340,7 @@ LogicalResult verifyRootTilingPlan(const OpShape &rootShape,
   if (failed(verifyTiles(rootOp, root.distributionTile)) ||
       failed(verifyTiles(rootOp, root.cacheTile)) ||
       failed(verifyTiles(rootOp, root.computeTile)) ||
+      failed(verifyTiles(rootOp, root.hmxTile)) ||
       (root.vtcm && failed(verifyTiles(rootOp, root.vtcm->tileSizes))))
     return failure();
 
@@ -349,6 +349,12 @@ LogicalResult verifyRootTilingPlan(const OpShape &rootShape,
       pipelineContract.cacheParallel == LoopTilingScope::Unused) {
     rootOp->emitError(
         "root cache tile is not consumed by the selected pipeline");
+    return failure();
+  }
+  if (llvm::any_of(root.hmxTile,
+                   [](const TileDecision &tile) { return tile.size > 0; }) &&
+      pipelineContract.hmx == LoopTilingScope::Unused) {
+    rootOp->emitError("root HMX tile is not consumed by the selected pipeline");
     return failure();
   }
   return success();

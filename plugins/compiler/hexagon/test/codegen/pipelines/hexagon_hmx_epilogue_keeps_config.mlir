@@ -29,9 +29,8 @@
 #executable_target_embedded_elf_hexagon = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", iree.encoding.resolver = #iree_hexagon.hexagon_encoding_resolver<>, max_stack_allocation_size = 16384 : i64, native_vector_size = 32 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 #pipeline_layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer, "ReadOnly|Indirect">, #hal.pipeline.binding<storage_buffer, Indirect>], flags = Indirect>
 #config_fill = #iree_hexagon.lowering_config<vector_common_parallel = [32, 32]>
-#config_matmul = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0]>
+#config_matmul = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0], vtcm = [1, 2048, 256]>
 #config_epilogue = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
-#vtcm = #iree_hexagon.vtcm_tiling_config<tile_sizes = [1, 2048, 256]>
 #translation = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 
 hal.executable private @test {
@@ -62,7 +61,7 @@ hal.executable private @test {
               affine_map<(d0, d1, d2) -> (d0, d2)>,
               affine_map<(d0, d1, d2) -> (d1, d2)>,
               affine_map<(d0, d1, d2) -> (d0, d1)>]
-            {hexagon_vtcm_tiling_config = #vtcm, lowering_config = #config_matmul}
+            {lowering_config = #config_matmul}
             ins(%x, %w : tensor<1x256xf16>, tensor<2048x256xf16>)
             outs(%init : tensor<1x2048xf32>) -> tensor<1x2048xf32>
         %res = linalg.generic {

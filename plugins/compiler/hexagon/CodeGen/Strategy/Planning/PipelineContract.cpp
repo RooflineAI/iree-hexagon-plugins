@@ -49,14 +49,13 @@ getPipelineContract(IREE::Hexagon::LoweringPipeline pipeline) {
     contract.usesConfiguredVectorSizes = true;
     contract.supportsIndependentNonRootComputeTiles = true;
     contract.vtcmRequirement = VTCMRequirement::Optional;
-    contract.cacheTilingWithVTCM = CacheTilingWithVTCM::Suppress;
     contract.loopPeeling = LoopPeelingSupport::TranslationInfoControlled;
     return contract;
   case Pipeline::HmxMatmulExpert:
     // HMX pack operations zero-pad partial tiles and unpack clips the result to
     // its logical bounds, so this pipeline does not peel loops.
     contract.requiresUniqueRootAnchor = true;
-    contract.cacheParallel = LoopTilingScope::EveryConfiguredOperation;
+    contract.hmx = LoopTilingScope::Root;
     contract.vectorCommonParallel = LoopTilingScope::Root;
     contract.vectorInnerParallel =
         LoopTilingScope::LastConfiguredOnEachSideOfRoot;

@@ -36,12 +36,12 @@ void appendLevel(SmallVectorImpl<NamedAttribute> &items, MLIRContext *context,
                      LoweringConfigAttr::getTilingLevelAttr(context, sizes));
 }
 
-LoweringConfigAttr encodeOpConfig(const DispatchShape &shape,
-                                  const OpShape &opShape,
-                                  ArrayRef<TileDecision> distribution,
-                                  ArrayRef<TileDecision> cache,
-                                  ArrayRef<TileDecision> compute,
-                                  bool preserveZeroDistribution) {
+LoweringConfigAttr
+encodeOpConfig(const DispatchShape &shape, const OpShape &opShape,
+               ArrayRef<TileDecision> distribution,
+               ArrayRef<TileDecision> cache, ArrayRef<TileDecision> compute,
+               ArrayRef<TileDecision> vtcm, ArrayRef<TileDecision> hmx,
+               bool preserveZeroDistribution) {
   SmallVector<int64_t> distributionSizes = getSizes(distribution);
   SmallVector<int64_t> cacheSizes = getSizes(cache);
   SmallVector<int64_t> common(compute.size(), 0);
@@ -73,6 +73,8 @@ LoweringConfigAttr encodeOpConfig(const DispatchShape &shape,
   appendLevel(items, context, TilingLevel::VectorCommonParallelTiles, common);
   appendLevel(items, context, TilingLevel::VectorReductionTiles, reduction);
   appendLevel(items, context, TilingLevel::VectorInnerParallelTiles, inner);
+  appendLevel(items, context, TilingLevel::VTCMTiles, getSizes(vtcm));
+  appendLevel(items, context, TilingLevel::HmxTiles, getSizes(hmx));
   if (items.empty())
     return {};
   return LoweringConfigAttr::get(context, items);
@@ -113,20 +115,21 @@ encodeDispatchPlan(const PlanningContext &context,
       // Root-anchored Hexagon passes identify the root by the unique operation
       // carrying a distribution level. Preserve the all-zero Hexagon level as
       // that marker when required by the pipeline contract.
-      opPlan.loweringConfig = encodeOpConfig(
-          dispatchShape, opShape, root.distributionTile, root.cacheTile,
-          root.computeTile, pipelineContract.requiresUniqueRootAnchor);
-      if (root.vtcm) {
-        opPlan.vtcmConfig = IREE::Hexagon::VTCMTilingConfigAttr::get(
-            mlirContext, getSizes(root.vtcm->tileSizes));
-      }
+      ArrayRef<TileDecision> vtcm;
+      if (root.vtcm)
+        vtcm = root.vtcm->tileSizes;
+      opPlan.loweringConfig =
+          encodeOpConfig(dispatchShape, opShape, root.distributionTile,
+                         root.cacheTile, root.computeTile, vtcm, root.hmxTile,
+                         pipelineContract.requiresUniqueRootAnchor);
     } else if (auto it = nonRootPlansByOp.find(opShape.op);
                it != nonRootPlansByOp.end()) {
       opPlan.loweringConfig = encodeOpConfig(
           dispatchShape, opShape, /*distribution=*/{}, /*cache=*/{},
-          it->second->computeTile, /*preserveZeroDistribution=*/false);
+          it->second->computeTile, /*vtcm=*/{}, /*hmx=*/{},
+          /*preserveZeroDistribution=*/false);
     }
-    if (opPlan.loweringConfig || opPlan.vtcmConfig)
+    if (opPlan.loweringConfig)
       encoded.operations.push_back(opPlan);
   }
 
@@ -159,11 +162,10 @@ LogicalResult applyEncodedDispatchPlan(const EncodedDispatchPlan &encodedPlan) {
     return failure();
   }
   for (const EncodedOpPlan &opPlan : encodedPlan.operations) {
-    if (getLoweringConfig(opPlan.op) ||
-        opPlan.op->hasAttr(kHexagonVTCMTilingConfigAttrName)) {
+    if (getLoweringConfig(opPlan.op)) {
       opPlan.op->emitError(
           "cannot apply Hexagon dispatch plan: operation already has a "
-          "lowering or VTCM configuration");
+          "lowering configuration");
       return failure();
     }
   }
@@ -171,12 +173,8 @@ LogicalResult applyEncodedDispatchPlan(const EncodedDispatchPlan &encodedPlan) {
   if (failed(setTranslationInfo(encodedPlan.entryPoint,
                                 encodedPlan.translationInfo)))
     return failure();
-  for (const EncodedOpPlan &opPlan : encodedPlan.operations) {
-    if (opPlan.loweringConfig)
-      setLoweringConfig(opPlan.op, opPlan.loweringConfig);
-    if (opPlan.vtcmConfig)
-      opPlan.op->setAttr(kHexagonVTCMTilingConfigAttrName, opPlan.vtcmConfig);
-  }
+  for (const EncodedOpPlan &opPlan : encodedPlan.operations)
+    setLoweringConfig(opPlan.op, opPlan.loweringConfig);
   return success();
 }
 

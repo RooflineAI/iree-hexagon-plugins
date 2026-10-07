@@ -16,15 +16,12 @@
 
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 
-constexpr llvm::StringLiteral kHexagonVTCMTilingConfigAttrName =
-    "hexagon_vtcm_tiling_config";
-
-/// Prepared attributes for one operation. Root-only attributes can only be
-/// present on the entry whose op equals DispatchShape::root.
+/// Prepared configuration for one operation. Root-only stages, such as the
+/// VTCM stage, can only be present on the entry whose op equals
+/// DispatchShape::root.
 struct EncodedOpPlan {
   Operation *op = nullptr;
   IREE::Hexagon::LoweringConfigAttr loweringConfig;
-  IREE::Hexagon::VTCMTilingConfigAttr vtcmConfig;
 };
 
 /// Fully prepared configuration. Constructing this object does not mutate IR.

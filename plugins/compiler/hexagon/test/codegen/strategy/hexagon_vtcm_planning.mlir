@@ -17,15 +17,13 @@ func.func @generic_dispatch(%src: tensor<4x128x128xf32>) -> tensor<4x128xf32> at
   return %result : tensor<4x128xf32>
 }
 // CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
-// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32], vtcm = [4, 128, 128]>
 // CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
-// CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [4, 128, 128]>
 // CHECK: func.func @generic_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
 // CHECK: linalg.generic
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[VTCM]]
 // CHECK-SAME: lowering_config = #[[ROOT]]
 
 // -----
@@ -39,15 +37,13 @@ func.func @matmul_dispatch(%lhs: tensor<128x128xf32>, %rhs: tensor<128x128xf32>)
   return %result : tensor<128x128xf32>
 }
 // CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [8, 32]>
-// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8], vtcm = [128, 128, 128]>
 // CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
-// CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [128, 128, 128]>
 // CHECK: func.func @matmul_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
 // CHECK: linalg.matmul
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[VTCM]]
 // CHECK-SAME: lowering_config = #[[ROOT]]
 
 // -----
@@ -72,15 +68,12 @@ func.func @multi_op_dispatch(%src: tensor<8x8xf32>) -> tensor<8x8xf32> attribute
   return %result : tensor<8x8xf32>
 }
 // CHECK-DAG: #[[PRODUCER:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 8]>
-// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0], vector_common_parallel = [1, 8]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0], vector_common_parallel = [1, 8], vtcm = [8, 8]>
 // CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
-// CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [8, 8]>
 // CHECK: func.func @multi_op_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.generic
 // CHECK-SAME: lowering_config = #[[PRODUCER]]
-// CHECK-NOT: hexagon_vtcm_tiling_config
 // CHECK: linalg.generic
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[VTCM]]
 // CHECK-SAME: lowering_config = #[[ROOT]]

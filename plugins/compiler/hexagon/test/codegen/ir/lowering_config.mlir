@@ -7,12 +7,13 @@
 // RUN: iree-opt --split-input-file --verify-diagnostics %s | FileCheck %s
 
 // Roundtrip every stage, including the all-zero distribution root marker.
-// CHECK: #[[CONFIG:.+]] = #iree_hexagon.lowering_config<cache_parallel = [64, 64, 0], cache_reduction = [0, 0, 32], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_inner_parallel = [0, 0, 0], vector_reduction = [0, 0, 8]>
+// CHECK: #[[CONFIG:.+]] = #iree_hexagon.lowering_config<cache_parallel = [64, 64, 0], cache_reduction = [0, 0, 32], distribution = [0, 0, 0], hmx = [1, 1, 0], vector_common_parallel = [8, 32, 0], vector_inner_parallel = [0, 0, 0], vector_reduction = [0, 0, 8], vtcm = [128, 128, 64]>
 // CHECK: module attributes {iree_hexagon.config = #[[CONFIG]]}
 module attributes {iree_hexagon.config = #iree_hexagon.lowering_config<
     distribution = [0, 0, 0], cache_parallel = [64, 64, 0],
     cache_reduction = [0, 0, 32], vector_common_parallel = [8, 32, 0],
-    vector_reduction = [0, 0, 8], vector_inner_parallel = [0, 0, 0]>} {}
+    vector_reduction = [0, 0, 8], vector_inner_parallel = [0, 0, 0],
+    vtcm = [128, 128, 64], hmx = [1, 1, 0]>} {}
 
 // -----
 

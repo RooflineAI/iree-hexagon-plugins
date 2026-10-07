@@ -261,7 +261,8 @@ void addHexagonMultiTilingExpertPassPipeline(
       break;
     case IREE::Hexagon::TilingLevel::VectorInnerParallelTiles:
     case IREE::Hexagon::TilingLevel::DistributionTiles:
-    case IREE::Hexagon::TilingLevel::MaxNumTileLevels:
+    case IREE::Hexagon::TilingLevel::VTCMTiles:
+    case IREE::Hexagon::TilingLevel::HmxTiles:
     case IREE::Hexagon::TilingLevel::InvalidLevel:
       continue;
     };
@@ -339,11 +340,11 @@ void addHexagonMultiTilingExpertPassPipeline(
 //
 // VTCM tiling first isolates the dispatch tile and stages its operands. The HMX
 // conversion then rearranges each eligible matmul into the tile-major hardware
-// layout and replaces it with tileable tensor-level HMX operations. A single
-// common-parallel level splits the result over the HMX output tile grid; the
-// optional inner-parallel level handles dimensions private to fused producers
-// or consumers. K iteration is owned by HMX expansion rather than a generic
-// reduction-tiling level.
+// layout and replaces it with tileable tensor-level HMX operations. The hmx
+// stage tiles batch dimensions to one before the conversion and splits the
+// result over the HMX output tile grid after it; the optional inner-parallel
+// level handles dimensions private to fused producers or consumers. K iteration
+// is owned by HMX expansion rather than a generic reduction-tiling level.
 void addHexagonHmxMatmulExpertPassPipeline(
     OpPassManager &funcPassManager, const HexagonPipelineOptions &pipelineOpt) {
   addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
@@ -360,19 +361,12 @@ void addHexagonHmxMatmulExpertPassPipeline(
   funcPassManager.addPass(createCSEPass());
 
   // Batch matmul support: the HMX conversion/runtime path only handles a plain
-  // (non-batched) matmul. Tile the batch dimension to 1 via the cache-parallel
-  // level (which the heuristics set to tile only the batch dim for HMX), then
-  // fold the resulting unit-batch dimension so `batch_matmul` collapses to a
-  // plain `matmul` before HexagonConvertMatmulToHmx runs. This is a no-op for
-  // non-batched matmuls, whose cache-parallel tiles are all zero.
-  // TODO: It would be cleaner to create a dedicated HMX tiling level for this
-  // that does not reuse the cache-parallel tiling level.
+  // (non-batched) matmul. The root's hmx stage tiles only the batch dimensions
+  // to 1, leaving a batch_matmul<1x...> that HexagonConvertMatmulToHmx
+  // rank-reduces to a plain matmul internally. A non-batched matmul has no hmx
+  // stage, so this is a no-op for it.
   funcPassManager.addPass(createHexagonTilePass(
-      IREE::Hexagon::TilingLevel::CacheParallelTiles, /*skipRootOp=*/false));
-  // The cache-parallel level tiles only the batch dim (to 1) for the HMX path,
-  // leaving a batch_matmul<1x...>. HexagonConvertMatmulToHmx rank-reduces that
-  // to a plain matmul internally, so no generalize/fold is needed here. No-op
-  // for an already non-batched matmul.
+      IREE::Hexagon::TilingLevel::HmxTiles, /*skipRootOp=*/false));
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
 
@@ -382,15 +376,15 @@ void addHexagonHmxMatmulExpertPassPipeline(
   // are handled by padding inside the rearrange: the pack destination
   // (tile-major buffer) is sized to the static upper bound of each dim and the
   // runtime zero-pads the boundary tiles, so the staged (DDR->VTCM) buffers
-  // stay ragged. The following LLVMCPU tiling levels then split the HMX output
-  // tile grid.
+  // stay ragged. The hmx stage on the unpack then splits the HMX output tile
+  // grid.
   funcPassManager.addPass(createHexagonConvertMatmulToHmxPass());
 
   // `hmx.tensor_unpack` carries a derived lowering config in the packed M/N
   // tile-grid domain. Sink the unpack, tensor hmx.matmul, and f32 init producer
   // into the per-HMX-tile loop while leaving the opaque operand packs outside.
   funcPassManager.addPass(createHexagonTileAndFuseProducerConsumerPass(
-      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles));
+      IREE::Hexagon::TilingLevel::HmxTiles));
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
 

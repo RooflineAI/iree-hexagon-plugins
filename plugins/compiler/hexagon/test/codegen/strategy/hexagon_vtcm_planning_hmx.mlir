@@ -19,14 +19,12 @@ func.func @hmx_batch_matmul_preserves_batch_tile(%lhs: tensor<4x32x32xf16>, %rhs
   return %result : tensor<4x32x32xf16>
 }
 // CHECK-DAG: #[[BATCH_FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32, 32]>
-// CHECK-DAG: #[[BATCH_ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [1, 0, 0, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 32, 32, 0]>
+// CHECK-DAG: #[[BATCH_ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0, 0], hmx = [1, 0, 0, 0], vector_common_parallel = [1, 32, 32, 0], vtcm = [{{.*}}]>
 // CHECK-DAG: #[[BATCH_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
-// CHECK-DAG: #[[BATCH_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config
 // CHECK: func.func @hmx_batch_matmul_preserves_batch_tile(
 // CHECK-SAME: translation_info = #[[BATCH_TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[BATCH_FILL]]}
 // CHECK: linalg.batch_matmul
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[BATCH_VTCM]]
 // CHECK-SAME: lowering_config = #[[BATCH_ROOT]]
 
 // -----
@@ -43,7 +41,7 @@ func.func @hmx_deep_k_keeps_reduction_whole(%lhs: tensor<52x7680xf16>, %rhs: ten
   %result = linalg.matmul indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>] ins(%lhs, %rhs : tensor<52x7680xf16>, tensor<896x7680xf16>) outs(%init : tensor<52x896xf32>) -> tensor<52x896xf32>
   return %result : tensor<52x896xf32>
 }
-// CHECK-DAG: #[[DEEP_K_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [{{[0-9]+}}, {{[0-9]+}}, 7680]>
+// CHECK-DAG: #[[DEEP_K_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [{{[0-9]+}}, {{[0-9]+}}, 7680]>
 // CHECK: func.func @hmx_deep_k_keeps_reduction_whole(
 // CHECK: linalg.matmul
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[DEEP_K_VTCM]]
+// CHECK-SAME: lowering_config = #[[DEEP_K_ROOT]]

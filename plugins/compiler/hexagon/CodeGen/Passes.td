@@ -33,7 +33,7 @@ def HexagonConvertMatmulToHmxPass :
                   "mlir::FunctionOpInterface"> {
   let summary = [{
       Convert eligible f16 linalg.matmul operations into tensor-level HMX ops.
-      Runs after VTCM tiling and before LLVMCPU inner tiling. Inputs and output
+      Runs after VTCM tiling and before HMX tile-grid tiling. Inputs and output
       must originate from Hexagon VTCM staging operations. Static, ragged, and
       bounded dynamic dimensions are padded to complete HMX tiles by the pack
       kernels. Results may be f16 or f32.
@@ -158,7 +158,9 @@ def HexagonTileAndFuseProducerConsumerPass
               clEnumValN(IREE::Hexagon::TilingLevel::VectorReductionTiles, "vector_reduction",
                          "Use `vector_reduction` tile sizes."),
               clEnumValN(IREE::Hexagon::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
-                         "Use `vector_inner_parallel` tile sizes.")
+                         "Use `vector_inner_parallel` tile sizes."),
+              clEnumValN(IREE::Hexagon::TilingLevel::HmxTiles, "hmx",
+                         "Use `hmx` tile sizes.")
 
            )}]>,
        Option<"onlyFuseProducerInputOperands",
@@ -196,7 +198,9 @@ def HexagonTilePass :
         clEnumValN(IREE::Hexagon::TilingLevel::VectorReductionTiles, "vector_reduction",
                    "Use `vector_reduction` tile sizes."),
         clEnumValN(IREE::Hexagon::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
-                   "Use `vector_inner_parallel` tile sizes.")
+                   "Use `vector_inner_parallel` tile sizes."),
+        clEnumValN(IREE::Hexagon::TilingLevel::HmxTiles, "hmx",
+                   "Use `hmx` tile sizes.")
       )}]>,
     Option<"skipRootOp", "skip-root-op", "bool", /*default=*/"false",
       "Do not tile the root op if the option is true.">

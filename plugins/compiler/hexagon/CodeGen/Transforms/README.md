@@ -17,8 +17,8 @@ and the reasons for it, come from upstream.
 | `HexagonEmitVectorizationRemarks.cpp` | none |
 | `HexagonLinkExecutables.cpp` | none |
 | `HexagonPeel.cpp` | none |
-| `HexagonTile.cpp` | scalable tile sizes removed |
-| `HexagonTileAndFuseProducerConsumer.cpp` | scalable tile sizes removed |
+| `HexagonTile.cpp` | scalable tile sizes removed; Hexagon tiling levels (adds `hmx`) |
+| `HexagonTileAndFuseProducerConsumer.cpp` | scalable tile sizes removed; Hexagon tiling levels (adds `hmx`) |
 | `HexagonTileToVectorSize.cpp` | fixed-width config interface |
 | `HexagonSplitReduction.cpp` | fixed sizes; absent or unusable split size skips |
 | `HexagonSynchronizeSymbolVisibility.cpp` | none |

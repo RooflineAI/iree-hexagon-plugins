@@ -43,17 +43,6 @@ enum class VTCMRequirement {
   Required,
 };
 
-// TODO: This is currently needed in order for HMX tiling to have an additional
-// level of tiling. This is yet again another place where introducing custom
-// levels of tilings would be best, as documented in the README.md.
-// Such a change would simplify this logic away.
-enum class CacheTilingWithVTCM {
-  /// Retain cache tiling after a VTCM plan is selected.
-  Preserve,
-  /// A selected VTCM plan supersedes ordinary cache tiling.
-  Suppress,
-};
-
 enum class LoopPeelingSupport {
   /// The pipeline does not run loop peeling.
   Unsupported,
@@ -77,13 +66,13 @@ struct PipelineContract {
   LoopTilingScope vectorCommonParallel = LoopTilingScope::Unused;
   LoopTilingScope vectorReduction = LoopTilingScope::Unused;
   LoopTilingScope vectorInnerParallel = LoopTilingScope::Unused;
+  LoopTilingScope hmx = LoopTilingScope::Unused;
   // Runs HexagonTileToVectorSizePass
   bool runsTileToVectorSize = false;
   // Configured vector sizes are consumed by GenericVectorization.
   bool usesConfiguredVectorSizes = false;
   bool supportsIndependentNonRootComputeTiles = false;
   VTCMRequirement vtcmRequirement = VTCMRequirement::Unsupported;
-  CacheTilingWithVTCM cacheTilingWithVTCM = CacheTilingWithVTCM::Preserve;
   LoopPeelingSupport loopPeeling = LoopPeelingSupport::Unsupported;
 };
 

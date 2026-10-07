@@ -112,8 +112,9 @@ struct PlanningContext {
   DecisionTrace &trace;
 };
 
-/// Hexagon-specific outer tensor staging, encoded separately from the CPU
-/// tiling levels and applied before them by the VTCM tiling pass.
+/// Hexagon-specific outer tensor staging, encoded as the `vtcm` stage of the
+/// root's lowering config and applied before the other stages by the VTCM
+/// tiling pass.
 struct VTCMPlan {
   llvm::SmallVector<TileDecision> tileSizes;
 };
@@ -125,6 +126,9 @@ struct RootTilingPlan {
   std::optional<VTCMPlan> vtcm;
   llvm::SmallVector<TileDecision> distributionTile;
   llvm::SmallVector<TileDecision> cacheTile;
+  /// HMX pipeline only: tiles applied to the root before HMX conversion, which
+  /// accepts only an unbatched matmul. Empty for other strategies.
+  llvm::SmallVector<TileDecision> hmxTile;
   /// The root's compute/fusion tile in root-local loop order. This is the sole
   /// source of root compute tiling; root operations do not also receive an
   /// OpComputeTilePlan.

@@ -29,6 +29,17 @@ and the reasons for it, come from upstream.
 
 The other passes here (HMX, VTCM, DMA, profiler) were written for Hexagon.
 
+## Unused ukernel handling
+
+`HexagonTileAndFuseProducerConsumer.cpp` still treats
+`iree_codegen.ukernel.generic` ops as tiling anchors, as LLVMCPU does, and
+`test/codegen/transforms/tile*.mlir` keep the matching upstream cases. Nothing
+in the Hexagon pipelines creates these ops, because the Hexagon pipelines never
+used the LLVMCPU ukernel lowering passes. This handling may be reworked or
+removed in the future. The HMX runtime kernels in
+`plugins/runtime/hexagon/dsp/ukernel/hmx` are not affected. They are not IREE
+ukernels: HMX lowering calls them as `hal.import.static` runtime functions.
+
 ## Shape-cast and transpose lowering
 
 `HexagonVectorShapeCastLowering.cpp` and `HexagonVectorTransposeLowering.cpp`

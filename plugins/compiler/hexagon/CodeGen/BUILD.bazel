@@ -172,7 +172,7 @@ hexagon_plugin_library(
     name = "codegen",
     srcs = [
         "Conversion/HexagonConvertToLLVM.cpp",
-        "Conversion/HexagonLowerHmxToCalls.cpp",
+        "Conversion/HexagonHmxToLLVM.cpp",
         "Passes.cpp",
         "Pipelines/Bufferization.cpp",
         "Pipelines/ConfigurationPipeline.cpp",
@@ -197,6 +197,7 @@ hexagon_plugin_library(
         "Transforms/HexagonVTCMTiling.cpp",
         "Transforms/HexagonVectorShapeCastLowering.cpp",
         "Transforms/HexagonVectorTransposeLowering.cpp",
+        "Transforms/HexagonVerifyHmxRuntimeABI.cpp",
         "Transforms/HexagonVerifyVectorSizeLegality.cpp",
         "Transforms/HexagonVirtualVectorLowering.cpp",
         "Transforms/InsertProfilerMarkers.cpp",
@@ -205,6 +206,7 @@ hexagon_plugin_library(
     ],
     hdrs = [
         "Conversion/HexagonConvertToLLVM.h",
+        "Conversion/HexagonHmxToLLVM.h",
         "Passes.h",
         "Pipelines/Bufferization.h",
         "Pipelines/ConfigurationPipeline.h",

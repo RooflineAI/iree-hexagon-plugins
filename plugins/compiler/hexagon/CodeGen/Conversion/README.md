@@ -9,8 +9,8 @@ conversion target, and one legality decision.
 
 `HexagonConvertToLLVM.cpp` owns the conversion driver. It configures the target
 triple, data layout, and address-space conversions; populates standard MLIR,
-local-executable ABI, Hexagon runtime, HexagonMem, DMA, and HexKL patterns; and
-invokes `applyPartialConversion` once. It also reconciles temporary
+local-executable ABI, Hexagon runtime, HMX, HexagonMem, DMA, and HexKL
+patterns; and invokes `applyPartialConversion` once. It also reconciles temporary
 materializations, classifies native runtime declarations, and invokes the
 external-call policy validation.
 
@@ -33,6 +33,13 @@ conversion:
 - interface binding descriptor construction;
 - all dispatch instrumentation records.
 
+`HexagonHmxToLLVM.{h,cpp}` lowers the bufferized HMX operations to calls into
+the native DSP HMX kernels. Buffers are passed as pointers to their first
+element and sizes and strides as `i32`; the HMX accumulator value only orders
+operations on hardware state, so it converts to no value. The kernel ABI these
+calls rely on (VTCM placement, layout, alignment) is checked beforehand by
+`iree-hexagon-verify-hmx-runtime-abi`, while the memref types still carry it.
+
 `HexagonRuntimeLinking.{h,cpp}` owns recognition of native DSP runtime symbols
 and validation of external calls. Native declarations use `hal.import.static`
 and remain direct unresolved references; the variant-level Hexagon marker tells
@@ -45,8 +52,9 @@ The driver maintains these invariants:
 1. All dialect-conversion patterns use the same `LLVMTypeConverter`.
 2. Hexagon memory-space conversions are installed before any patterns are
    populated.
-3. Standard MLIR, HAL ABI, Hexagon runtime, HexagonMem, DMA, and HexKL
-   operations are legalized by one `applyPartialConversion` invocation.
+3. Standard MLIR, HAL ABI, Hexagon runtime, HMX, HexagonMem, DMA, and HexKL
+   operations are legalized by one `applyPartialConversion` invocation. The
+   whole `iree_hexagon` dialect is illegal afterwards.
 4. Temporary `unrealized_conversion_cast` operations are reconciled inside the
    pass, and any remaining cast is a pass failure.
 5. Native runtime symbols are classified before external calls are validated.

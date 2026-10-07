@@ -632,7 +632,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       .addPredicatedPass(clHexagonInstrumentMemoryAccesses,
                          createInstrumentMemoryAccessesPass);
 
-  modulePassManager.addPass(createHexagonLowerHmxToCallsPass());
+  modulePassManager.addPass(createHexagonVerifyHmxRuntimeABIPass());
 
   modulePassManager.addPass(createHexagonConvertToLLVMPass(
       /*reassociateFpReductions=*/false));

@@ -1,6 +1,7 @@
 // This file checks that malformed Hexagon runtime conversion inputs fail with
 // diagnostics instead of crashing: runtime-state access requires dispatch ABI
-// arguments, and existing profiler helper declarations must be compatible.
+// arguments, existing profiler helper declarations must be compatible, and
+// unexpanded HMX operations are rejected.
 // RUN: iree-opt --verify-diagnostics --split-input-file \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-convert-to-llvm)' %s
 
@@ -47,4 +48,17 @@ module attributes {hal.executable.target = #hexagon_target} {
     iree_hexagon.profiler.end %record : !iree_hexagon.profiler_record
     llvm.return
   }
+}
+
+// -----
+
+// An HMX operation without a lowering to a kernel call must not survive the
+// conversion: earlier stages are expected to expand it.
+func.func private @reject_unexpanded_hmx_matmul(
+    %lhs: memref<1x1x16x32x2xf16, 1>,
+    %rhs: memref<1x1x16x32x2xf16, 1>,
+    %acc: memref<16x32x2xf16, 1>) {
+  // expected-error @+1 {{failed to legalize operation 'iree_hexagon.hmx.matmul' that was explicitly marked illegal}}
+  iree_hexagon.hmx.matmul ins(%lhs, %rhs : memref<1x1x16x32x2xf16, 1>, memref<1x1x16x32x2xf16, 1>) outs(%acc : memref<16x32x2xf16, 1>)
+  return
 }

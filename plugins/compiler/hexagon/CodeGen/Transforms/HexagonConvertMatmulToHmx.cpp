@@ -28,7 +28,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
-#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
@@ -352,7 +351,7 @@ analyzeHmxMatmul(linalg::MatmulOp matmulOp) {
 
 // True for a named f16 batch matmul that would be HMX-eligible after removing
 // its batch dimensions. The batch dim should have been tiled to 1 before this
-// pass so the rank-reducing patterns above could collapse it to a plain matmul;
+// pass so the rank-reducing pattern above could collapse it to a plain matmul;
 // a leftover batch dim means that tiling did not happen.
 static bool isUntiledBatchedHmxMatmul(linalg::LinalgOp linalgOp) {
   if (!isa<linalg::BatchMatmulOp>(linalgOp.getOperation())) {
@@ -473,11 +472,12 @@ static FailureOr<AffineMap> dropUnitBatchDim(AffineMap map,
                         context);
 }
 
-// MLIR's generic contraction rank-reduction rejects named contractions with
-// user-defined maps. The HMX path supports rank-2 transpose-a/transpose-b
-// matmuls, so locally rank-reduce the common unit-batch batch_matmul case while
-// preserving the non-batch maps.
-struct RankReduceUnitBatchMatmulWithUserMaps final
+// Rank-reduces a unit-batch batch_matmul to a matmul by dropping only the batch
+// dimension, preserving the (possibly transposed) maps of the other dimensions.
+// MLIR's generic contraction rank-reduction is not used: besides rejecting
+// user-defined maps, it also drops unit M and N dimensions (matmul -> vecmat /
+// matvec), which turns an HMX-eligible matmul into an op HMX cannot take.
+struct RankReduceUnitBatchMatmul final
     : public OpRewritePattern<linalg::BatchMatmulOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -486,8 +486,7 @@ struct RankReduceUnitBatchMatmulWithUserMaps final
     if (!batchMatmulOp.hasPureTensorSemantics() ||
         batchMatmulOp.getNumDpsInputs() != 2 ||
         batchMatmulOp.getNumDpsInits() != 1 ||
-        batchMatmulOp.getResultTensors().size() != 1 ||
-        !batchMatmulOp.hasUserDefinedMaps()) {
+        batchMatmulOp.getResultTensors().size() != 1) {
       return failure();
     }
 
@@ -650,14 +649,12 @@ struct HexagonConvertMatmulToHmxPass final
     mlir::FunctionOpInterface funcOp = getOperation();
 
     // Reduce named batch_matmul operations whose batch dimension has already
-    // been tiled to one into linalg.matmul. The standard patterns are kept for
-    // canonicalization consistency and may also rank-reduce contractions that
-    // are not ultimately eligible for HMX; that broader simplification is
-    // intentional for now.
+    // been tiled to one into linalg.matmul. Only the batch dimension is
+    // dropped: unit M, N or K dimensions are legal HMX operands (padded to a
+    // tile) and must stay part of the matmul.
     {
       RewritePatternSet patterns(&getContext());
-      patterns.add<RankReduceUnitBatchMatmulWithUserMaps>(&getContext());
-      linalg::populateContractionOpRankReducingPatterns(patterns);
+      patterns.add<RankReduceUnitBatchMatmul>(&getContext());
       if (failed(applyPatternsGreedily(funcOp, std::move(patterns)))) {
         return signalPassFailure();
       }

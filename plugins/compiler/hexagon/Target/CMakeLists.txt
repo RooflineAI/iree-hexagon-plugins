@@ -140,7 +140,6 @@ iree_cc_library(
     MLIRIR
     MLIRLLVMDialect
     MLIRLLVMToLLVMIRTranslation
-    iree::compiler::Dialect::Encoding::IR
     iree::compiler::Dialect::HAL::Target
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::codegen
@@ -170,7 +169,6 @@ iree_cc_library(
     iree::compiler::PluginAPI
     iree::compiler::Utils
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::HexagonBufferizationExternalModels
-    iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::HexagonEncodingExternalModels
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::codegen
   ALWAYSLINK

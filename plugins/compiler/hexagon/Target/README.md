@@ -43,7 +43,7 @@ the **interface between this folder and `CodeGen/`**.
 | file | contents |
 |---|---|
 | `HexagonOptions.*` | `--iree-hexagon-v`, `--iree-hexagon-features`, `--iree-hexagon-linker-path`. Shared by the device and the backend. |
-| `HexagonSession.*` | `PluginSession`: registers the dialects, the external models (bufferization, encoding) and the CodeGen passes, then adds the `hexagon` target device and target backend. |
+| `HexagonSession.*` | `PluginSession`: registers the dialects, the bufferization external models and the CodeGen passes, then adds the `hexagon` target device and target backend. |
 | `HexagonTargetDevice.*` | `HAL::TargetDevice`: builds the default `#hal.device.target` from the backend's executable targets, and matches devices by `hexagon*`. |
 | `HexagonTargetBackend.*` | `HAL::TargetBackend`: builds the executable target attribute, declares the dependent dialects, and forwards to the CodeGen pipelines and to serialization. |
 | `HexagonLLVMTarget.*` | `HexagonTarget` (triple, DSP version, DSP features, data layout, vector width, stack limit) and its config-dict writer; `createHexagonTargetMachine`; `initializeHexagonTarget`. The DSP version and features are stored under the generic `cpu` / `cpu_features` keys, which `createHexagonTargetMachine` reads back. The vector width follows the HVX length feature (64 or 128 bytes). |

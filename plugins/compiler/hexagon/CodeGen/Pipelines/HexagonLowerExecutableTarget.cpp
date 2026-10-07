@@ -111,9 +111,6 @@ LogicalResult buildHexagonPipeline(Attribute pipelineAttr,
       return failure();
     addHexagonHmxMatmulExpertPassPipeline(passManager, pipelineOptions);
     return success();
-  case IREE::Hexagon::LoweringPipeline::DataTiling:
-    addHexagonDataTilingPipeline(passManager, pipelineOptions);
-    return success();
   case IREE::Hexagon::LoweringPipeline::LinalgExtTileAndVectorize:
     addHexagonLinalgExtTileAndVectorizePipeline(passManager, pipelineOptions);
     return success();

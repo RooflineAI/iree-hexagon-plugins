@@ -129,14 +129,16 @@ lowered, not about performing the lowering itself.
 These directories contain the actual Hexagon-specific passes used by the
 pipelines.
 
-The final LLVM conversion architecture, including its relationship
-to HMX lowering, debugging requirements, Hexagon-MLIR integration, and the
-follow-up LLVMCPU dependency work, is documented in
+The final LLVM conversion architecture, including its relationship to HMX
+lowering, the dispatch ABI, external calls and debugging, is documented in
 [`CodeGen/Conversion/README.md`](CodeGen/Conversion/README.md).
 
 - `Conversion/`
   - module-level conversions: HMX-to-runtime-call lowering and the final
     conversion to LLVM, which also classifies native runtime symbols.
 - `Transforms/`
-  - smaller, local canonicalization or adaptation passes used inside the
-    Hexagon lowering flow.
+  - the tensor- and vector-level passes of the lowering pipelines: the
+    Hexagon-owned copies of the former LLVMCPU tiling, vectorization, vector
+    lowering, verification and linking passes, and the passes written for
+    Hexagon (HMX, VTCM, DMA, profiler). See
+    [`CodeGen/Transforms/README.md`](CodeGen/Transforms/README.md).

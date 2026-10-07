@@ -32,7 +32,6 @@ def IREEHexagon_LP_ConvTileAndDecomposeExpert :
     I32EnumAttrCase<"ConvTileAndDecomposeExpert", 3>;
 def IREEHexagon_LP_HmxMatmulExpert :
     I32EnumAttrCase<"HmxMatmulExpert", 4>;
-def IREEHexagon_LP_DataTiling : I32EnumAttrCase<"DataTiling", 5>;
 def IREEHexagon_LP_LinalgExtTileAndVectorize :
     I32EnumAttrCase<"LinalgExtTileAndVectorize", 6>;
 
@@ -43,7 +42,6 @@ def IREEHexagon_LoweringPipeline :
       IREEHexagon_LP_MultiTilingExpert,
       IREEHexagon_LP_ConvTileAndDecomposeExpert,
       IREEHexagon_LP_HmxMatmulExpert,
-      IREEHexagon_LP_DataTiling,
       IREEHexagon_LP_LinalgExtTileAndVectorize
     ]>;
 

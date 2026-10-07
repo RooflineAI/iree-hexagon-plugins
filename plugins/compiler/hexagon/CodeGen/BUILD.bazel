@@ -32,30 +32,6 @@ hexagon_plugin_library(
     ],
 )
 
-hexagon_plugin_library(
-    name = "HexagonEncodingExternalModels",
-    srcs = [
-        "Encoding/HexagonEncodingExternalModels.cpp",
-    ],
-    hdrs = [
-        "Encoding/HexagonEncodingExternalModels.h",
-    ],
-    hdr_deps = [
-        "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
-        "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/Utils",
-        "@iree//compiler/src/iree/compiler/Codegen/ExternalInterfaces:ExternalModels",
-        "@iree//compiler/src/iree/compiler/Codegen/Utils",
-        "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
-        "@iree//compiler/src/iree/compiler/Dialect/Encoding/Utils",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:IR",
-    ],
-    strip_include_prefix = "/plugins/compiler",
-    deps = [
-        "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
-    ],
-)
-
 iree_gentbl_cc_library(
     name = "PassesIncGen",
     strip_include_prefix = "/plugins/compiler",
@@ -249,7 +225,6 @@ hexagon_plugin_library(
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/VectorExt/Transforms:VectorExtTransforms",
         "@iree//compiler/src/iree/compiler/Codegen/Interfaces:PartitionableLoopsInterface",
         "@iree//compiler/src/iree/compiler/Codegen/Utils",
-        "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR:HALDialect",
         "@iree//compiler/src/iree/compiler/Dialect/LinalgExt/IR",

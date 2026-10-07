@@ -7,7 +7,6 @@
 #include "hexagon/Target/HexagonSession.h"
 
 #include "hexagon/CodeGen/Bufferization/HexagonBufferizableOpInterfaceImpl.h"
-#include "hexagon/CodeGen/Encoding/HexagonEncodingExternalModels.h"
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/Passes.h"
 #include "hexagon/Target/HexagonOptions.h"
@@ -53,10 +52,6 @@ struct HexagonSession
     arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
     scf::registerBufferizableOpInterfaceExternalModels(registry);
     scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
-
-    // IREE hooks
-    mlir::iree_compiler::hexagon::codegen::
-        registerHexagonEncodingExternalModels(registry);
   }
 
   void populateHALTargetDevices(HAL::TargetDeviceList &targets) override {

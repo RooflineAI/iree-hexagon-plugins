@@ -38,16 +38,16 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
     addCommonTargetExecutablePreprocessingPasses(
         funcPassManager, clHexagonUseSoftmaxInterFusion);
   }
-  // TODO: Data tiling is completely removed, so this might potentially be
-  // removed, along with the corresponding passes
+
   modulePassManager.addPass(createMaterializeUserConfigsPass());
 
   FunctionLikeNest(modulePassManager)
+      // Without data-tiling encodings, MaterializeDeviceEncoding and
+      // CPUPropagateDataLayout are no-ops. They will be restructured in the
+      // future.
       .addPass(createMaterializeDeviceEncodingPass)
       .addPass(createCPUPropagateDataLayoutPass)
       .addPass(createRematerializeParallelOpsPass)
-      // This pass is removed for hexagon
-      // .addPass(createExpandF16OpToF32Pass)
       .addPass(createConvertAccGEMMToGEMMPass)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 

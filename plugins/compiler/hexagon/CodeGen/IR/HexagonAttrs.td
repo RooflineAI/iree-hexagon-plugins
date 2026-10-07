@@ -92,29 +92,4 @@ def IREEHexagon_PipelineAttr : AttrDef<IREEHexagon_Dialect, "Pipeline", [
   let assemblyFormat = "`<` $value `>`";
 }
 
-//===----------------------------------------------------------------------===//
-// Encoding Resolvers.
-//===----------------------------------------------------------------------===//
-
-def IREEHexagon_HexagonEncodingResolverAttr :
-    AttrDef<IREEHexagon_Dialect, "HexagonEncodingResolver"> {
-  let mnemonic = "hexagon_encoding_resolver";
-  let summary = [{Hexagon-specific encoding resolver.}];
-  let description = [{
-    Custom resolver for Hexagon inspired from IREECPU_CPUEncodingResolverAttr.
-    The attribute stores the executable target configuration so external models
-    can materialize encodings with Hexagon specific layout and tiling
-    information.
-  }];
-
-  let assemblyFormat = "`<` struct(params) `>`";
-
-  let parameters = (ins
-    OptionalParameter<"DictionaryAttr",
-                      "Executable target configuration consumed by the "
-                      "external models during encoding materialisation.">:
-        $configuration
-  );
-}
-
 #endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS

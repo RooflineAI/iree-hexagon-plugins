@@ -29,30 +29,6 @@ iree_cc_library(
   PUBLIC
 )
 
-iree_cc_library(
-  NAME
-    HexagonEncodingExternalModels
-  HDRS
-    "Encoding/HexagonEncodingExternalModels.h"
-  SRCS
-    "Encoding/HexagonEncodingExternalModels.cpp"
-  DEPS
-    LLVMSupport
-    MLIRIR
-    iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
-    iree::compiler::Codegen::Dialect::Codegen::Utils
-    iree::compiler::Codegen::ExternalInterfaces::ExternalModels
-    iree::compiler::Codegen::Utils
-    iree::compiler::Dialect::Encoding::IR
-    iree::compiler::Dialect::Encoding::Utils
-    iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
-  ALWAYSLINK
-  INCLUDES
-    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
-    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
-  PUBLIC
-)
-
 iree_tablegen_library(
   NAME
     PassesIncGen
@@ -296,7 +272,6 @@ iree_cc_library(
     iree::compiler::Codegen::Interfaces::PartitionableLoopsInterface
     iree::compiler::Codegen::Transforms
     iree::compiler::Codegen::Utils
-    iree::compiler::Dialect::Encoding::IR
     iree::compiler::Dialect::HAL::IR
     iree::compiler::Dialect::HAL::IR::HALDialect
     iree::compiler::Dialect::LinalgExt::IR

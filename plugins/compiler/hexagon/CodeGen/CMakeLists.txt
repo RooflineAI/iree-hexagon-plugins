@@ -181,6 +181,7 @@ iree_cc_library(
     codegen
   HDRS
     "Conversion/HexagonConvertToLLVM.h"
+    "Conversion/HexagonHmxToLLVM.h"
     "Passes.h"
     "Pipelines/Bufferization.h"
     "Pipelines/ConfigurationPipeline.h"
@@ -191,7 +192,7 @@ iree_cc_library(
     "Strategy/KernelDispatch.h"
   SRCS
     "Conversion/HexagonConvertToLLVM.cpp"
-    "Conversion/HexagonLowerHmxToCalls.cpp"
+    "Conversion/HexagonHmxToLLVM.cpp"
     "Passes.cpp"
     "Pipelines/Bufferization.cpp"
     "Pipelines/ConfigurationPipeline.cpp"
@@ -216,6 +217,7 @@ iree_cc_library(
     "Transforms/HexagonVTCMTiling.cpp"
     "Transforms/HexagonVectorShapeCastLowering.cpp"
     "Transforms/HexagonVectorTransposeLowering.cpp"
+    "Transforms/HexagonVerifyHmxRuntimeABI.cpp"
     "Transforms/HexagonVerifyVectorSizeLegality.cpp"
     "Transforms/HexagonVirtualVectorLowering.cpp"
     "Transforms/InsertProfilerMarkers.cpp"

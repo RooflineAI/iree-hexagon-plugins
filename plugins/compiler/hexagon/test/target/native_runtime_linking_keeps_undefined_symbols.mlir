@@ -45,20 +45,21 @@ hal.executable public @test {
       llvm.func @hexagon_runtime_alloc_1d(i32, i64, i1) -> !llvm.ptr attributes {hal.import.static}
       llvm.func @hexagon_runtime_dma_wait(i32) attributes {hal.import.static}
       llvm.func @hexkl_matmul_f16f16_f32(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32 attributes {hal.import.static}
-      llvm.func @hexagon_runtime_malloc(i64) -> !llvm.ptr attributes {hal.import.static}
+      llvm.func @hexagon_runtime_malloc(i32) -> !llvm.ptr attributes {hal.import.static}
       llvm.func @hexagon_runtime_free(!llvm.ptr) attributes {hal.import.static}
-      llvm.func @hexagon_runtime_memref_copy(i64, !llvm.ptr, !llvm.ptr) attributes {hal.import.static}
+      llvm.func @hexagon_runtime_memref_copy(i32, !llvm.ptr, !llvm.ptr) attributes {hal.import.static}
       llvm.func @hexagon_runtime_profiler_zone_begin(i32, !llvm.ptr) -> !llvm.ptr attributes {hal.import.static}
       llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {hal.import.static}
 
       llvm.func @export(%arg0: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}, %arg1: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}, %arg2: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}) -> i32 {
         %c0_i32 = llvm.mlir.constant(0 : i32) : i32
+        %c4_i32 = llvm.mlir.constant(4 : i32) : i32
         %c4_i64 = llvm.mlir.constant(4 : i64) : i64
         %false = llvm.mlir.zero : i1
         %null = llvm.mlir.zero : !llvm.ptr
         %buf = llvm.call @hexagon_runtime_alloc_1d(%c0_i32, %c4_i64, %false) : (i32, i64, i1) -> !llvm.ptr
-        %tmp = llvm.call @hexagon_runtime_malloc(%c4_i64) : (i64) -> !llvm.ptr
-        llvm.call @hexagon_runtime_memref_copy(%c4_i64, %null, %null) : (i64, !llvm.ptr, !llvm.ptr) -> ()
+        %tmp = llvm.call @hexagon_runtime_malloc(%c4_i32) : (i32) -> !llvm.ptr
+        llvm.call @hexagon_runtime_memref_copy(%c4_i32, %null, %null) : (i32, !llvm.ptr, !llvm.ptr) -> ()
         llvm.call @hexagon_runtime_free(%tmp) : (!llvm.ptr) -> ()
         llvm.call @hexagon_runtime_dma_wait(%c0_i32) : (i32) -> ()
         %record = llvm.call @hexagon_runtime_profiler_zone_begin(%c0_i32, %null) : (i32, !llvm.ptr) -> (!llvm.ptr)

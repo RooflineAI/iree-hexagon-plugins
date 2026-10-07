@@ -68,9 +68,8 @@ static int run_unpack_f16_case(hmx_test_resource_t *resource,
     }
   }
 
-  iree_hexagon_hmx_unpack_acc_f16_to_f16((uint32_t)(uintptr_t)actual,
-                                         (uint32_t)(uintptr_t)packed, stride,
-                                         rows, cols, row_tiles, col_tiles);
+  iree_hexagon_hmx_unpack_acc_f16_to_f16(actual, packed, stride, rows, cols,
+                                         row_tiles, col_tiles);
   int failures =
       hmx_test_compare_f16(case_name, actual, expected, destination_count);
   failures += hmx_test_compare_bytes(case_name, packed, packed_expected,
@@ -114,9 +113,8 @@ static int run_unpack_f32_case(hmx_test_resource_t *resource,
     }
   }
 
-  iree_hexagon_hmx_unpack_acc_f16_to_f32((uint32_t)(uintptr_t)actual,
-                                         (uint32_t)(uintptr_t)packed, stride,
-                                         rows, cols, row_tiles, col_tiles);
+  iree_hexagon_hmx_unpack_acc_f16_to_f32(actual, packed, stride, rows, cols,
+                                         row_tiles, col_tiles);
   int failures =
       hmx_test_compare_f32(case_name, actual, expected, destination_count);
   failures += hmx_test_compare_bytes(case_name, packed, packed_expected,

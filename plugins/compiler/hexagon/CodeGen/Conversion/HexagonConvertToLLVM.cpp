@@ -7,6 +7,7 @@
 #include "hexagon/CodeGen/Conversion/HexagonConvertToLLVM.h"
 
 #include "hexagon/CodeGen/Conversion/HexagonABIToLLVM.h"
+#include "hexagon/CodeGen/Conversion/HexagonHmxToLLVM.h"
 #include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/IR/HexagonOps.h"
@@ -426,6 +427,7 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   populateHexagonInstrumentationToLLVMConversionPatterns(abi, typeConverter,
                                                          patterns);
   populateHexagonRuntimeToLLVMConversionPatterns(abi, typeConverter, patterns);
+  populateHexagonHmxToLLVMConversionPatterns(typeConverter, patterns);
 
   // Target-specific lowerings participate in the same conversion transaction
   // as the standard and HAL ABI lowerings. Pattern labels supplied by these
@@ -437,13 +439,12 @@ void HexagonConvertToLLVMPass::runOnOperation() {
 
   target.addLegalOp<ModuleOp, IREE::Codegen::DispatchConfigOp>();
   target.markOpRecursivelyLegal<IREE::Codegen::DispatchConfigOp>();
-  target.addIllegalDialect<
-      func::FuncDialect, mlir::arith::ArithDialect, IREE::Util::UtilDialect,
-      IREE::HAL::HALDialect, math::MathDialect, tosa::TosaDialect,
-      hexagonmem::HexagonMemDialect, hexkl::HexKLDialect>();
-  target.addIllegalOp<
-      IREE::Hexagon::GetRuntimeStateOp, IREE::Hexagon::ProfilerBeginOp,
-      IREE::Hexagon::ProfilerEndOp, memref::DmaStartOp, memref::DmaWaitOp>();
+  target.addIllegalDialect<func::FuncDialect, mlir::arith::ArithDialect,
+                           IREE::Util::UtilDialect, IREE::HAL::HALDialect,
+                           math::MathDialect, tosa::TosaDialect,
+                           hexagonmem::HexagonMemDialect, hexkl::HexKLDialect,
+                           IREE::Hexagon::IREEHexagonDialect>();
+  target.addIllegalOp<memref::DmaStartOp, memref::DmaWaitOp>();
 
   if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
     signalPassFailure();

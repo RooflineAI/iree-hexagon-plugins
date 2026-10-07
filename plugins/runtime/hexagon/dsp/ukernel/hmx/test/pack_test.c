@@ -42,9 +42,8 @@ static int run_pack_case(hmx_test_resource_t *resource, const char *case_name,
   }
   hmx_test_pack_reference(expected, source, stride, rows, cols, row_tiles,
                           col_tiles);
-  iree_hexagon_hmx_pack_f16((uint32_t)(uintptr_t)actual,
-                            (uint32_t)(uintptr_t)source, stride, rows, cols,
-                            row_tiles, col_tiles);
+  iree_hexagon_hmx_pack_f16(actual, source, stride, rows, cols, row_tiles,
+                            col_tiles);
   return hmx_test_compare_bytes(case_name, actual, expected, checked_size);
 }
 
@@ -77,9 +76,8 @@ static int run_transposed_pack_case(hmx_test_resource_t *resource,
   }
   hmx_test_pack_transposed_reference(expected, source, stride, interleave,
                                      other, interleave_tiles, other_tiles);
-  iree_hexagon_hmx_pack_transposed_f16(
-      (uint32_t)(uintptr_t)actual, (uint32_t)(uintptr_t)source, stride,
-      interleave, other, interleave_tiles, other_tiles);
+  iree_hexagon_hmx_pack_transposed_f16(actual, source, stride, interleave,
+                                       other, interleave_tiles, other_tiles);
   return hmx_test_compare_bytes(case_name, actual, expected, checked_size);
 }
 

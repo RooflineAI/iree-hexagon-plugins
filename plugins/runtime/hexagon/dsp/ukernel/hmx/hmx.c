@@ -31,17 +31,16 @@ typedef union {
   hmx_half_vector_t halves[2];
 } hmx_vector_halves_t;
 
-void iree_hexagon_hmx_acc_setup_read_f16(uint32_t config) {
-  uint8_t *bias = (uint8_t *)config;
-  memset(bias, 0, HMX_BIAS_BYTES);
+void iree_hexagon_hmx_acc_setup_read_f16(uint8_t *config) {
+  memset(config, 0, HMX_BIAS_BYTES);
   for (uint32_t c = 0; c < HMX_TILE; ++c) {
-    bias[c * 4u + 1u] = 0x3Cu;
+    config[c * 4u + 1u] = 0x3Cu;
   }
 
   // Program bias set 0 as a raw pass-through for FP16 accumulator read-out:
   // scale=1.0 and all additive terms zero. The later convert/read instruction
   // selects this state with Rs=0.
-  Q6_bias_mxmem2_A(bias);
+  Q6_bias_mxmem2_A(config);
 }
 
 void iree_hexagon_hmx_acc_clear_f16(void) { Q6_mxclracc_hf(); }
@@ -108,12 +107,11 @@ static void iree_hexagon_hmx_pack_rm_tile_to_hmx_layout(
 // into a `row_tiles` x `col_tiles` grid of HMX tiles. The grid is sized to the
 // padded upper bound; tiles beyond the valid region are zero-filled so the
 // staged source can stay exactly the logical size.
-void iree_hexagon_hmx_pack_f16(uint32_t dest, uint32_t source,
+void iree_hexagon_hmx_pack_f16(_Float16 *dest, const _Float16 *source,
                                uint32_t source_stride, uint32_t actual_rows,
                                uint32_t actual_cols, uint32_t row_tiles,
                                uint32_t col_tiles) {
   uint8_t *packed_tiles = (uint8_t *)dest;
-  const _Float16 *matrix = (const _Float16 *)source;
   for (uint32_t row_tile = 0; row_tile < row_tiles; ++row_tile) {
     uint32_t valid_rows = iree_hexagon_hmx_tile_extent(actual_rows, row_tile);
     for (uint32_t col_tile = 0; col_tile < col_tiles; ++col_tile) {
@@ -125,7 +123,7 @@ void iree_hexagon_hmx_pack_f16(uint32_t dest, uint32_t source,
         continue;
       }
       iree_hexagon_hmx_pack_rm_tile_to_hmx_layout(
-          tile, matrix, source_stride, row_tile * HMX_TILE, col_tile * HMX_TILE,
+          tile, source, source_stride, row_tile * HMX_TILE, col_tile * HMX_TILE,
           valid_rows, valid_cols);
     }
   }
@@ -207,14 +205,11 @@ static void iree_hexagon_hmx_pack_transposed_full_tile(uint8_t *dest,
 // tiles take the vshuff-ladder fast path, boundary tiles gather the valid
 // transposed sub-region into a zeroed 32x32 scratch (already interleave-major)
 // and reuse the standard row-pair vshuffh, and fully-padding tiles are zeroed.
-void iree_hexagon_hmx_pack_transposed_f16(uint32_t dest, uint32_t source,
-                                          uint32_t source_stride,
-                                          uint32_t actual_interleave,
-                                          uint32_t actual_other,
-                                          uint32_t interleave_tiles,
-                                          uint32_t other_tiles) {
+void iree_hexagon_hmx_pack_transposed_f16(
+    _Float16 *dest, const _Float16 *source, uint32_t source_stride,
+    uint32_t actual_interleave, uint32_t actual_other,
+    uint32_t interleave_tiles, uint32_t other_tiles) {
   uint8_t *packed_tiles = (uint8_t *)dest;
-  const _Float16 *matrix_t = (const _Float16 *)source;
   for (uint32_t i_tile = 0; i_tile < interleave_tiles; ++i_tile) {
     uint32_t valid_i = iree_hexagon_hmx_tile_extent(actual_interleave, i_tile);
     for (uint32_t o_tile = 0; o_tile < other_tiles; ++o_tile) {
@@ -230,8 +225,8 @@ void iree_hexagon_hmx_pack_transposed_f16(uint32_t dest, uint32_t source,
       // Fast path: a full tile whose transposed source rows are vector-aligned.
       if (valid_i >= HMX_TILE && valid_o >= HMX_TILE &&
           (source_stride % HMX_TILE) == 0u) {
-        iree_hexagon_hmx_pack_transposed_full_tile(
-            tile, matrix_t, source_stride, base_i, base_o);
+        iree_hexagon_hmx_pack_transposed_full_tile(tile, source, source_stride,
+                                                   base_i, base_o);
         continue;
       }
       // Boundary/ragged tile: gather the valid transposed sub-region into a
@@ -242,7 +237,7 @@ void iree_hexagon_hmx_pack_transposed_f16(uint32_t dest, uint32_t source,
       memset(scratch, 0, sizeof(scratch));
       for (uint32_t o = 0; o < valid_o; ++o) {
         const _Float16 *src_row =
-            matrix_t + (size_t)(base_o + o) * source_stride + base_i;
+            source + (size_t)(base_o + o) * source_stride + base_i;
         for (uint32_t i = 0; i < valid_i; ++i) {
           scratch[i * HMX_TILE + o] = src_row[i];
         }
@@ -302,13 +297,15 @@ static void iree_hexagon_hmx_unpack_acc_tile(float *dest, const HVX_Vector *src,
 // (possibly ragged) row-major f32 destination of `actual_rows` x `actual_cols`.
 // Only the valid region of each boundary tile is written, so the destination
 // stays exactly the logical size (padding tiles are skipped).
-void iree_hexagon_hmx_unpack_acc_f16_to_f32(
-    uint32_t dest, uint32_t source, uint32_t dest_stride, uint32_t actual_rows,
-    uint32_t actual_cols, uint32_t row_tiles, uint32_t col_tiles) {
+void iree_hexagon_hmx_unpack_acc_f16_to_f32(float *dest, const _Float16 *source,
+                                            uint32_t dest_stride,
+                                            uint32_t actual_rows,
+                                            uint32_t actual_cols,
+                                            uint32_t row_tiles,
+                                            uint32_t col_tiles) {
   // Preserve linalg.matmul DPS semantics: the compiler keeps the f32 init tile
   // in `dest`, while HMX computes the product from a cleared hardware
   // accumulator. Add the converted read-out into that tile.
-  float *dest_base = (float *)dest;
   const uint8_t *src_tiles = (const uint8_t *)source;
   for (uint32_t row_tile = 0; row_tile < row_tiles; ++row_tile) {
     uint32_t valid_rows = iree_hexagon_hmx_tile_extent(actual_rows, row_tile);
@@ -324,7 +321,7 @@ void iree_hexagon_hmx_unpack_acc_f16_to_f32(
           (const HVX_Vector *)(src_tiles + (row_tile * col_tiles + col_tile) *
                                                HMX_TILE_BYTES);
       float *dtile =
-          dest_base + (row_tile * HMX_TILE) * dest_stride + col_tile * HMX_TILE;
+          dest + (row_tile * HMX_TILE) * dest_stride + col_tile * HMX_TILE;
       iree_hexagon_hmx_unpack_acc_tile(dtile, src, dest_stride, valid_rows,
                                        valid_cols);
     }
@@ -387,9 +384,9 @@ static void iree_hexagon_hmx_unpack_acc_tile_f16(_Float16 *dest,
 // for an f16 output matmul; only the valid region of each boundary tile is
 // added to the destination.
 void iree_hexagon_hmx_unpack_acc_f16_to_f16(
-    uint32_t dest, uint32_t source, uint32_t dest_stride, uint32_t actual_rows,
-    uint32_t actual_cols, uint32_t row_tiles, uint32_t col_tiles) {
-  _Float16 *dest_base = (_Float16 *)dest;
+    _Float16 *dest, const _Float16 *source, uint32_t dest_stride,
+    uint32_t actual_rows, uint32_t actual_cols, uint32_t row_tiles,
+    uint32_t col_tiles) {
   const uint8_t *src_tiles = (const uint8_t *)source;
   for (uint32_t row_tile = 0; row_tile < row_tiles; ++row_tile) {
     uint32_t valid_rows = iree_hexagon_hmx_tile_extent(actual_rows, row_tile);
@@ -405,26 +402,31 @@ void iree_hexagon_hmx_unpack_acc_f16_to_f16(
           (const HVX_Vector *)(src_tiles + (row_tile * col_tiles + col_tile) *
                                                HMX_TILE_BYTES);
       _Float16 *dtile =
-          dest_base + (row_tile * HMX_TILE) * dest_stride + col_tile * HMX_TILE;
+          dest + (row_tile * HMX_TILE) * dest_stride + col_tile * HMX_TILE;
       iree_hexagon_hmx_unpack_acc_tile_f16(dtile, src, dest_stride, valid_rows,
                                            valid_cols);
     }
   }
 }
 
-void iree_hexagon_hmx_mma_f16(uint32_t activation, uint32_t weight) {
+void iree_hexagon_hmx_mma_f16(const _Float16 *activation,
+                              const _Float16 *weight) {
+  // Unlike the bias and read-out intrinsics, the activation and weight loads
+  // declare their address operand as a 32-bit integer, so the pointers are
+  // converted here; the conversion is free on the 32-bit DSP.
+  //
   // The activation load consumes the packed activation tile. Rt=0x7FFF selects
   // the full 32-spatial by 32-input-channel region used by one HMX FP16 tile.
-  Q6_activation_hf_mxmem_RR(activation, HMX_ACT_RT);
+  Q6_activation_hf_mxmem_RR((uint32_t)(uintptr_t)activation, HMX_ACT_RT);
 
   // The weight load must immediately follow the activation load to issue one
   // multiply-accumulate. Rt=1920 is the full-tile dW encoding: the byte
   // distance to the last 128 B vector in the packed 32x32 FP16 weight tile.
-  Q6_weight_hf_mxmem_RR(weight, HMX_WEI_RT);
+  Q6_weight_hf_mxmem_RR((uint32_t)(uintptr_t)weight, HMX_WEI_RT);
 }
 
-void iree_hexagon_hmx_acc_read_f16(uint32_t output) {
+void iree_hexagon_hmx_acc_read_f16(_Float16 *output) {
   // Rs=0 selects bias set 0 with no feedback and requests the standard
   // clear+swap behavior after converting the HMX accumulator to FP16 memory.
-  Q6_mxmem_AR_after_hf((void *)output, HMX_CVT_RS);
+  Q6_mxmem_AR_after_hf(output, HMX_CVT_RS);
 }

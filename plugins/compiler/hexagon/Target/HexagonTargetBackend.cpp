@@ -6,7 +6,6 @@
 
 #include "hexagon/Target/HexagonTargetBackend.h"
 
-#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/Pipelines/ConfigurationPipeline.h"
 #include "hexagon/CodeGen/Pipelines/LinkingPipeline.h"
@@ -15,7 +14,6 @@
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "hexagon/Target/HexagonExecutableSerialization.h"
 #include "hexagon/Target/HexagonLLVMTarget.h"
-#include "iree/compiler/Dialect/Encoding/IR/EncodingTypes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -57,10 +55,6 @@ public:
 
     configItems.emplace_back(builder.getNamedAttr(
         "hexagon.version", builder.getStringAttr(hexagonOptions.version)));
-
-    configItems.emplace_back(
-        builder.getStringAttr(IREE::Encoding::kEncodingResolverAttrName),
-        IREE::Hexagon::HexagonEncodingResolverAttr::get(context, {}));
 
     // The first two attributes are only identifiers.
     // The second one interacts with the HAL. It follows the pattern

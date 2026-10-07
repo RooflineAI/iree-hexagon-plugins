@@ -17,8 +17,7 @@ The main compiler-side flow is:
 2. `HexagonSession` registers dialects, passes, target device, and target
    backend.
 3. `HexagonTargetBackend` exposes the `hexagon` executable target to HAL.
-4. `HexagonTargetBackend::getExecutableTarget(...)` injects target config,
-   including the Hexagon encoding resolver attribute.
+4. `HexagonTargetBackend::getExecutableTarget(...)` injects target config.
 5. HAL calls back into the plugin to build:
    - the configuration pipeline,
    - the translation pipeline,

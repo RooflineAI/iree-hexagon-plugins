@@ -50,9 +50,6 @@ void addHexagonHmxMatmulExpertPassPipeline(
     mlir::OpPassManager &funcPassManager,
     const HexagonPipelineOptions &pipelineOpt);
 
-void addHexagonDataTilingPipeline(mlir::OpPassManager &funcPassManager,
-                                  const HexagonPipelineOptions &pipelineOpt);
-
 void addHexagonLinalgExtTileAndVectorizePipeline(
     mlir::OpPassManager &funcPassManager,
     const HexagonPipelineOptions &pipelineOpt);

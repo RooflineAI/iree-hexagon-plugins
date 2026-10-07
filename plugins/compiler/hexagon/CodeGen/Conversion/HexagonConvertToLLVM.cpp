@@ -365,9 +365,11 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   LowerToLLVMOptions options(&getContext(),
                              dataLayoutAnalysis.getAtOrAbove(moduleOp));
   options.dataLayout = llvm::DataLayout(dataLayoutStr);
-  // LLVMCPU enforces the index bitwidth to be the same as the pointer bitwidth.
-  // Hexagon-mlir expects the default bitwidth of 64 though, so skipping it.
-  // options.overrideIndexBitwidth(options.dataLayout.getPointerSizeInBits());
+  // As in LLVMCPU, `index` has the pointer bitwidth (32 bits on Hexagon). The
+  // module's MLIR data layout does not specify one, so the default would be 64.
+  // Runtime arguments of a fixed width are typed explicitly instead of using
+  // the index type.
+  options.overrideIndexBitwidth(options.dataLayout.getPointerSizeInBits());
   LLVMTypeConverter typeConverter(&getContext(), options, &dataLayoutAnalysis);
 
   // Hexagon's LLVM backend represents both DDR and VTCM pointers in address

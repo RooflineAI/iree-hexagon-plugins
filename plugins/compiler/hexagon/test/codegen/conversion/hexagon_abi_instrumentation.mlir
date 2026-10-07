@@ -24,9 +24,18 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK: llvm.shl %[[DISPATCH_ID]], %[[KEY_SHIFT]] : i32
   // CHECK: llvm.getelementptr inbounds {{.+}}[{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, i8
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
+  // CHECK: %[[RECORD_OFFSET:.+]] = llvm.and {{.+}}, {{.+}} : i64
   // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i32, i32, i32, i32, i32, i32, i32, i32)>, !llvm.ptr
-  // CHECK: llvm.shl {{.+}}, {{.+}} : i64
-  // CHECK: llvm.mlir.constant(197634 : i64) : i64
+  // The workgroup key is the record offset as a 32-bit index. Each record
+  // header carries it in its upper 40 bits.
+  // CHECK: %[[KEY:.+]] = llvm.trunc %[[RECORD_OFFSET]] : i64 to i32
+  // CHECK: %[[KEY_64:.+]] = llvm.zext %[[KEY]] : i32 to i64
+  // CHECK: %[[KEY_MASK:.+]] = llvm.mlir.constant(1099511627775 : i64) : i64
+  // CHECK: %[[KEY_MASKED:.+]] = llvm.and %[[KEY_64]], %[[KEY_MASK]] : i64
+  // CHECK: %[[HEADER_SHIFT:.+]] = llvm.mlir.constant(24 : i64) : i64
+  // CHECK: %[[KEY_BITS:.+]] = llvm.shl %[[KEY_MASKED]], %[[HEADER_SHIFT]] : i64
+  // CHECK: %[[VALUE_TYPE:.+]] = llvm.mlir.constant(197634 : i64) : i64
+  // CHECK: llvm.or %[[KEY_BITS]], %[[VALUE_TYPE]] : i64
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
   // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i64, i64)>, !llvm.ptr
   // CHECK: llvm.call @sink_i32(%[[SCALAR:.+]])

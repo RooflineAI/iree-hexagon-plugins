@@ -2,8 +2,10 @@
 // native DSP kernels: buffers are passed as pointers to their first element,
 // sizes and strides as i32, and the accumulator value is erased. The inputs
 // first go through the HMX runtime ABI verification, as in the pipeline.
+// The conversion uses the production Hexagon data layout: 32-bit pointers and
+// therefore a 32-bit index.
 // RUN: iree-opt --split-input-file \
-// RUN:   --pass-pipeline='builtin.module(iree-hexagon-verify-hmx-runtime-abi,iree-hexagon-convert-to-llvm,canonicalize,cse)' \
+// RUN:   --pass-pipeline='builtin.module(iree-hexagon-verify-hmx-runtime-abi,iree-hexagon-convert-to-llvm{target-data-layout=e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048},canonicalize,cse)' \
 // RUN:   %s | FileCheck %s
 
 // The pack/unpack calls take (dest, src, stride, actual_rows, actual_cols,
@@ -13,13 +15,13 @@
 // have no allocation provenance. These assumptions model the alignment
 // guarantees that allocations carry in the full lowering pipeline.
 // CHECK-LABEL: llvm.func @lower_layout_ops(
-// CHECK-SAME:    %{{[^:]+}}: !llvm.ptr, %[[SRC_BASE:[^:]+]]: !llvm.ptr, %[[SRC_OFFSET:[^:]+]]: i64,
+// CHECK-SAME:    %{{[^:]+}}: !llvm.ptr, %[[SRC_BASE:[^:]+]]: !llvm.ptr, %[[SRC_OFFSET:[^:]+]]: i32,
 // CHECK-DAG:     %[[C16:.+]] = llvm.mlir.constant(16 : i32) : i32
 // CHECK-DAG:     %[[C1:.+]] = llvm.mlir.constant(1 : i32) : i32
 // CHECK-DAG:     %[[C32:.+]] = llvm.mlir.constant(32 : i32) : i32
 // CHECK-DAG:     %[[C512:.+]] = llvm.mlir.constant(512 : i32) : i32
-// CHECK:         %[[SRC:.+]] = llvm.getelementptr %[[SRC_BASE]][%[[SRC_OFFSET]]] : (!llvm.ptr, i64) -> !llvm.ptr, f16
-// CHECK:         %[[DST:.+]] = llvm.getelementptr %{{.+}}[%{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+// CHECK:         %[[SRC:.+]] = llvm.getelementptr %[[SRC_BASE]][%[[SRC_OFFSET]]] : (!llvm.ptr, i32) -> !llvm.ptr, f16
+// CHECK:         %[[DST:.+]] = llvm.getelementptr %{{.+}}[%{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, f32
 // CHECK:         llvm.call @iree_hexagon_hmx_pack_f16(%{{.+}}, %[[SRC]], %[[C512]], %[[C32]], %[[C512]], %[[C1]], %[[C16]]) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
 // CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%[[DST]], %{{.+}}, %[[C512]], %[[C32]], %[[C32]], %[[C1]], %[[C1]]) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
 // CHECK-NOT:     llvm.ptrtoint
@@ -66,10 +68,10 @@ func.func private @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index
 // Value-bounds analysis proves that the dynamic logical source occupies at
 // most the statically allocated 2x2 physical grid.
 // CHECK-LABEL: llvm.func @lower_bounded_dynamic_pack(
-// CHECK-SAME:    %[[REQUESTED:.+]]: i64)
-// CHECK:         %[[ROWS:.+]] = llvm.intr.smin(%[[REQUESTED]], %{{.+}}) : (i64, i64) -> i64
-// CHECK:         %[[ROWS_I32:.+]] = llvm.trunc %[[ROWS]] : i64 to i32
-// CHECK:         llvm.call @iree_hexagon_hmx_pack_f16(%{{.+}}, %{{.+}}, %{{.+}}, %[[ROWS_I32]], %{{.+}}, %{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+// CHECK-SAME:    %[[REQUESTED:.+]]: i32)
+// CHECK:         %[[ROWS:.+]] = llvm.intr.smin(%[[REQUESTED]], %{{.+}}) : (i32, i32) -> i32
+// CHECK-NOT:     llvm.trunc
+// CHECK:         llvm.call @iree_hexagon_hmx_pack_f16(%{{.+}}, %{{.+}}, %{{.+}}, %[[ROWS]], %{{.+}}, %{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
 func.func private @lower_bounded_dynamic_pack(%requested_rows: index) {
   %rows = affine.min affine_map<(d0) -> (d0, 64)>(%requested_rows)
   %source_storage = hexagonmem.alloc() : memref<64x64xf16, 1>
@@ -209,13 +211,13 @@ func.func private @lower_direct_single_mma(
 // arguments that carried it are dropped.
 // CHECK-LABEL: llvm.func @lower_acc_loop(
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
-// CHECK:         llvm.br ^[[LOOP:bb[0-9]+]](%{{.+}} : i64)
-// CHECK:       ^[[LOOP]](%{{.+}}: i64):
+// CHECK:         llvm.br ^[[LOOP:bb[0-9]+]](%{{.+}} : i32)
+// CHECK:       ^[[LOOP]](%{{.+}}: i32):
 // CHECK:         llvm.cond_br %{{.+}}, ^[[BODY:bb[0-9]+]], ^[[EXIT:bb[0-9]+]]{{$}}
 // CHECK:       ^[[BODY]]:
 // CHECK:         llvm.call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr) -> ()
 // CHECK:         llvm.call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr) -> ()
-// CHECK:         llvm.br ^[[LOOP]](%{{.+}} : i64)
+// CHECK:         llvm.br ^[[LOOP]](%{{.+}} : i32)
 // CHECK:       ^[[EXIT]]:
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_read_f16(%{{.+}}) : (!llvm.ptr) -> ()
 func.func private @lower_acc_loop(

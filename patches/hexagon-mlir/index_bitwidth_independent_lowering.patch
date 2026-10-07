@@ -1,0 +1,66 @@
+diff --git a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
+--- a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
+@@ -64,6 +64,8 @@
+   // Ensure the value is of an integer type
+   assert(llvm::isa<IntegerType>(val.getType()) && "Expected an integer type");
+   MLIRContext *context = rewriter.getContext();
++  if (val.getType() == rewriter.getI32Type())
++    return val;
+   // Create and return a truncation operation to i32 type
+   return rewriter.create<LLVM::TruncOp>(loc, rewriter.getI32Type(), val);
+ }
+@@ -116,6 +118,8 @@
+   // Get the type of the value
+   mlir::Type type = value.getType();
+   assert(mlir::LLVM::isCompatibleType(type));
++  if (type == rewriter.getI32Type())
++    return value;
+   return rewriter.create<LLVM::TruncOp>(loc, rewriter.getI32Type(), value);
+ }
+ 
+diff --git a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
+--- a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
+@@ -90,9 +90,9 @@
+     numElements = rewriter.create<LLVM::MulOp>(loc, numElements, size);
+   }
+   Value totalSize = rewriter.create<LLVM::MulOp>(loc, numElements, sizeInBytes);
+-  Value sizeI32 =
+-      rewriter.create<LLVM::TruncOp>(loc, rewriter.getI32Type(), totalSize);
+-  return sizeI32;
++  if (totalSize.getType() == rewriter.getI32Type())
++    return totalSize;
++  return rewriter.create<LLVM::TruncOp>(loc, rewriter.getI32Type(), totalSize);
+ }
+ 
+ /// Runtime call prototype for memref type:
+@@ -158,11 +158,10 @@
+       return success();
+     }
+ 
+-    Value alignmentValue;
+-    auto alignmentAttr = op.getAlignment();
+-    Type indexType = getIndexType();
+-    alignmentValue =
+-        createIndexAttrConstant(rewriter, loc, indexType, alignmentAttr);
++    // The runtime takes the alignment as a uint64_t, independently of the
++    // target's index bitwidth.
++    Value alignmentValue = createIndexAttrConstant(
++        rewriter, loc, rewriter.getI64Type(), op.getAlignment());
+ 
+     auto allocFnName = getAllocFnName();
+     FailureOr<LLVM::LLVMFuncOp> funcOp = getAllocFn(
+@@ -186,8 +185,10 @@
+     this->getMemRefDescriptorSizes(loc, memRefType, adaptor.getOperands(),
+                                    rewriter, sizes, strides, size,
+                                    /* sizeInBytes */ true);
+-    sizeAsI32 =
+-        rewriter.create<LLVM::TruncOp>(loc, rewriter.getIntegerType(32), size);
++    sizeAsI32 = size.getType() == rewriter.getI32Type()
++                    ? size
++                    : rewriter.create<LLVM::TruncOp>(
++                          loc, rewriter.getI32Type(), size);
+     mlir::LLVM::CallOp callOp = rewriter.create<LLVM::CallOp>(
+         loc, funcOp.value(),
+         ValueRange({sizeAsI32, alignmentValue, isInVtcmValue}));

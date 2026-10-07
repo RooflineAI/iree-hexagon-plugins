@@ -33,10 +33,12 @@
 //
 // The logic below mirrors the standard MLIR CRunnerUtils memref copy algorithm:
 // copy element-by-element using rank/shape/stride metadata for unranked
-// memrefs.
+// memrefs. Unlike CRunnerUtils, every `index`-typed value (element size, rank,
+// offset, sizes, strides) is an `intptr_t`: the compiler gives `index` the
+// pointer width, so these are 32-bit on the DSP.
 
 typedef struct {
-  int64_t rank;
+  intptr_t rank;
   void *descriptor;
 } hexagon_unranked_memref_t;
 
@@ -46,16 +48,16 @@ typedef struct {
 typedef struct {
   char *basePtr;
   char *data;
-  int64_t offset;
-  int64_t sizes[1];
+  intptr_t offset;
+  intptr_t sizes[1];
 } hexagon_strided_memref_header_t;
 
 typedef struct {
-  int64_t rank;
+  intptr_t rank;
   char *data;
-  int64_t offset;
-  const int64_t *sizes;
-  const int64_t *strides;
+  intptr_t offset;
+  const intptr_t *sizes;
+  const intptr_t *strides;
 } hexagon_dynamic_memref_t;
 
 static int hexagon_unpack_dynamic_memref(const void *unrankedMemrefPtr,
@@ -89,31 +91,31 @@ static int hexagon_unpack_dynamic_memref(const void *unrankedMemrefPtr,
 // Outer dimensions loop and recurse regardless of stride
 //
 // Recursion depth equals the tensor rank.
-static void copy_nd(const char *srcBase, char *dstBase, int64_t rank,
-                    int64_t dim, const int64_t *sizes,
-                    const int64_t *srcStrides, const int64_t *dstStrides,
-                    int64_t elemSize) {
+static void copy_nd(const char *srcBase, char *dstBase, intptr_t rank,
+                    intptr_t dim, const intptr_t *sizes,
+                    const intptr_t *srcStrides, const intptr_t *dstStrides,
+                    intptr_t elemSize) {
   if (dim == rank - 1) {
     // Innermost dimension.
-    int64_t n = sizes[dim];
+    intptr_t n = sizes[dim];
     if (srcStrides[dim] == 1 && dstStrides[dim] == 1) {
       memcpy(dstBase, srcBase, (size_t)(n * elemSize));
     } else {
-      for (int64_t i = 0; i < n; ++i) {
+      for (intptr_t i = 0; i < n; ++i) {
         memcpy(dstBase + i * dstStrides[dim] * elemSize,
                srcBase + i * srcStrides[dim] * elemSize, (size_t)elemSize);
       }
     }
     return;
   }
-  for (int64_t i = 0; i < sizes[dim]; ++i) {
+  for (intptr_t i = 0; i < sizes[dim]; ++i) {
     copy_nd(srcBase + i * srcStrides[dim] * elemSize,
             dstBase + i * dstStrides[dim] * elemSize, rank, dim + 1, sizes,
             srcStrides, dstStrides, elemSize);
   }
 }
 
-void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
+void hexagon_runtime_memref_copy(intptr_t elemSize, void *srcUnranked,
                                  void *dstUnranked) {
   hexagon_dynamic_memref_t src;
   hexagon_dynamic_memref_t dst;
@@ -131,7 +133,7 @@ void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
     return;
   }
 
-  for (int64_t dim = 0; dim < src.rank; ++dim) {
+  for (intptr_t dim = 0; dim < src.rank; ++dim) {
     if (src.sizes[dim] == 0) {
       return;
     }

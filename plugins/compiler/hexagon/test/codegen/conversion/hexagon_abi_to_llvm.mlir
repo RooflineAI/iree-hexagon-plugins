@@ -27,48 +27,43 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK-SAME: %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}) -> i32
   // CHECK-SAME: attributes {llvm.emit_c_interface}
   func.func @entry() attributes {llvm.emit_c_interface} {
-    // Verifies workgroup ID x/y/z field selection and the i32/i16-to-index
-    // extensions from the workgroup-state argument.
+    // Verifies workgroup ID x/y/z field selection from the workgroup-state
+    // argument. With the 32-bit index, i32 fields are used as-is and only the
+    // i16 field is extended.
     // CHECK: %[[ID_X_STATE:.+]] = llvm.load %[[WORKGROUP]]
     // CHECK: %[[ID_X_32:.+]] = llvm.extractvalue %[[ID_X_STATE]][0]
-    // CHECK: %[[ID_X:.+]] = llvm.zext %[[ID_X_32]] : i32 to i64
     %id_x = hal.interface.workgroup.id[0] : index
     // CHECK: %[[ID_Y_STATE:.+]] = llvm.load %[[WORKGROUP]]
     // CHECK: %[[ID_Y_32:.+]] = llvm.extractvalue %[[ID_Y_STATE]][1]
-    // CHECK: %[[ID_Y:.+]] = llvm.zext %[[ID_Y_32]] : i32 to i64
     %id_y = hal.interface.workgroup.id[1] : index
     // CHECK: %[[ID_Z_STATE:.+]] = llvm.load %[[WORKGROUP]]
     // CHECK: %[[ID_Z_16:.+]] = llvm.extractvalue %[[ID_Z_STATE]][2]
-    // CHECK: %[[ID_Z:.+]] = llvm.zext %[[ID_Z_16]] : i16 to i64
+    // CHECK: %[[ID_Z:.+]] = llvm.zext %[[ID_Z_16]] : i16 to i32
     %id_z = hal.interface.workgroup.id[2] : index
 
     // Verifies workgroup size x/y/z field selection from the dispatch-state
     // argument, including the narrower z field.
     // CHECK: %[[SIZE_X_STATE:.+]] = llvm.load %[[DISPATCH]]
     // CHECK: %[[SIZE_X_32:.+]] = llvm.extractvalue %[[SIZE_X_STATE]][0]
-    // CHECK: %[[SIZE_X:.+]] = llvm.zext %[[SIZE_X_32]] : i32 to i64
     %size_x = hal.interface.workgroup.size[0] : index
     // CHECK: %[[SIZE_Y_STATE:.+]] = llvm.load %[[DISPATCH]]
     // CHECK: %[[SIZE_Y_32:.+]] = llvm.extractvalue %[[SIZE_Y_STATE]][1]
-    // CHECK: %[[SIZE_Y:.+]] = llvm.zext %[[SIZE_Y_32]] : i32 to i64
     %size_y = hal.interface.workgroup.size[1] : index
     // CHECK: %[[SIZE_Z_STATE:.+]] = llvm.load %[[DISPATCH]]
     // CHECK: %[[SIZE_Z_16:.+]] = llvm.extractvalue %[[SIZE_Z_STATE]][2]
-    // CHECK: %[[SIZE_Z:.+]] = llvm.zext %[[SIZE_Z_16]] : i16 to i64
+    // CHECK: %[[SIZE_Z:.+]] = llvm.zext %[[SIZE_Z_16]] : i16 to i32
     %size_z = hal.interface.workgroup.size[2] : index
 
     // Verifies workgroup count x/y/z use dispatch-state fields 4/5/6.
     // CHECK: %[[COUNT_X_STATE:.+]] = llvm.load %[[DISPATCH]]
     // CHECK: %[[COUNT_X_32:.+]] = llvm.extractvalue %[[COUNT_X_STATE]][4]
-    // CHECK: %[[COUNT_X:.+]] = llvm.zext %[[COUNT_X_32]] : i32 to i64
     %count_x = hal.interface.workgroup.count[0] : index
     // CHECK: %[[COUNT_Y_STATE:.+]] = llvm.load %[[DISPATCH]]
     // CHECK: %[[COUNT_Y_32:.+]] = llvm.extractvalue %[[COUNT_Y_STATE]][5]
-    // CHECK: %[[COUNT_Y:.+]] = llvm.zext %[[COUNT_Y_32]] : i32 to i64
     %count_y = hal.interface.workgroup.count[1] : index
     // CHECK: %[[COUNT_Z_STATE:.+]] = llvm.load %[[DISPATCH]]
     // CHECK: %[[COUNT_Z_16:.+]] = llvm.extractvalue %[[COUNT_Z_STATE]][6]
-    // CHECK: %[[COUNT_Z:.+]] = llvm.zext %[[COUNT_Z_16]] : i16 to i64
+    // CHECK: %[[COUNT_Z:.+]] = llvm.zext %[[COUNT_Z_16]] : i16 to i32
     %count_z = hal.interface.workgroup.count[2] : index
 
     // Verifies push constant ordinal 1 is loaded as i32 from dispatch-state
@@ -77,7 +72,6 @@ module attributes {hal.executable.target = #hexagon_target} {
     // CHECK: %[[CONSTANT_BASE:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][9]
     // CHECK: %[[CONSTANT_PTR:.+]] = llvm.getelementptr %[[CONSTANT_BASE]][1]
     // CHECK: %[[CONSTANT_32:.+]] = llvm.load %[[CONSTANT_PTR]] : !llvm.ptr -> i32
-    // CHECK: %[[CONSTANT:.+]] = llvm.zext %[[CONSTANT_32]] : i32 to i64
     %constant = hal.interface.constant.load layout(#pipeline_layout) ordinal(1) : index
 
     // Verifies an executable constant loads its linked ordinal and then indexes
@@ -101,6 +95,7 @@ module attributes {hal.executable.target = #hexagon_target} {
                        %executable_constant, %state)
         : (index, index, index, index, index, index, index, index, index,
            index, i32, !iree_hexagon.runtime_state) -> ()
+    // CHECK: llvm.call @consume(%[[ID_X_32]], %[[ID_Y_32]], %[[ID_Z]], %[[SIZE_X_32]], %[[SIZE_Y_32]], %[[SIZE_Z]], %[[COUNT_X_32]], %[[COUNT_Y_32]], %[[COUNT_Z]], %[[CONSTANT_32]], %[[EXEC_CONSTANT]], %[[RUNTIME]]) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, !llvm.ptr) -> ()
     // CHECK: %[[ZERO:.+]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK: llvm.return %[[ZERO]] : i32
     return

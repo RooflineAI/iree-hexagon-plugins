@@ -19,7 +19,6 @@ tensor can be precomputed (transformers/vision_utils.py) and is baked in here.
 import torch
 import torch.nn.functional as F
 from transformers import Qwen3VLForConditionalGeneration
-from transformers.models.qwen3_vl import modeling_qwen3_vl as mq
 from transformers.vision_utils import (
     get_vision_cu_seqlens,
     get_vision_interpolation_indices_and_weights,
@@ -33,44 +32,11 @@ _SIDE = 256  # pixels; a multiple of patch_size * merge_size, so the processor w
 _PATCH, _MERGE, _TEMPORAL, _MEAN, _STD = 16, 2, 2, 0.5, 0.5
 
 
-def _single_segment_attention(
-    self, hidden_states, cu_seqlens, position_embeddings=None, **kwargs
-):
-    # Qwen3VLVisionAttention.forward for one image. Upstream splits q/k/v per
-    # image with torch.split(..., cu_seqlens.tolist()); with one image that is
-    # a no-op, but exported it becomes an index gather that segfaults
-    # torch-mlir's ConvertAtenUnflattenIntOp (the same crash as Qwen3-ASR).
-    seq_length = hidden_states.shape[0]
-    q, k, v = (
-        self.qkv(hidden_states)
-        .reshape(seq_length, 3, self.num_heads, -1)
-        .permute(1, 0, 2, 3)
-        .unbind(0)
-    )
-    cos, sin = position_embeddings
-    q, k = mq.apply_rotary_pos_emb_vision(q, k, cos, sin)
-    q, k, v = (t.transpose(0, 1).unsqueeze(0) for t in (q, k, v))
-    attention = mq.ALL_ATTENTION_FUNCTIONS.get_interface(
-        self.config._attn_implementation, mq.eager_attention_forward
-    )
-    out = attention(
-        self,
-        q,
-        k,
-        v,
-        attention_mask=None,
-        scaling=self.scaling,
-        dropout=0.0,
-        is_causal=False,
-    )[0]
-    return self.proj(out.reshape(seq_length, -1).contiguous())
-
-
 class _F32LayerNorm(torch.nn.LayerNorm):
     # iree-compile lowers an f16 aten.layer_norm with f16 accumulation, which
     # alone puts the merged embeddings 100% (relative L2) off. Computing it in
     # f32 differs from torch's own f16 CPU kernel by at most one f16 ulp per
-    # norm (measured 2026-10-01); the single-segment attention is bit-identical.
+    # norm (measured 2026-10-01).
     def forward(self, x):
         return F.layer_norm(
             x.float(),
@@ -137,8 +103,6 @@ def get_model() -> torch.nn.Module:
     model.to(dtype=torch.float16)
     visual = model.model.visual
     for module in visual.modules():
-        if isinstance(module, mq.Qwen3VLVisionAttention):
-            module.forward = _single_segment_attention.__get__(module)
-        elif type(module) is torch.nn.LayerNorm:
+        if type(module) is torch.nn.LayerNorm:
             module.__class__ = _F32LayerNorm
     return _VisionEncoder(visual)

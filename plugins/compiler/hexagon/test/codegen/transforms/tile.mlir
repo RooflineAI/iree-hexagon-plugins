@@ -10,9 +10,9 @@
 // RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-tile{tiling-level=distribution}))" --split-input-file %s | FileCheck %s
 // RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-tile{tiling-level=vector_common_parallel skip-root-op=true}))" --split-input-file %s | FileCheck %s --check-prefix=SKIP-ROOT
 
-#config0 = #iree_cpu.lowering_config<distribution = [10, 20]>
-#config1 = #iree_cpu.lowering_config<distribution = [10, 20, 30]>
-#config2 = #iree_cpu.lowering_config<distribution = [1, 16]>
+#config0 = #iree_hexagon.lowering_config<distribution = [10, 20]>
+#config1 = #iree_hexagon.lowering_config<distribution = [10, 20, 30]>
+#config2 = #iree_hexagon.lowering_config<distribution = [1, 16]>
 func.func @matmul_bias_add(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>, %arg2 : tensor<?xf32>) -> tensor<?x?xf32> {
   %cst = arith.constant 0.0 : f32
   %c0 = arith.constant 0 : index
@@ -55,7 +55,7 @@ func.func @matmul_bias_add(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>, %ar
 
 // -----
 
-#config = #iree_cpu.lowering_config<distribution = [10, 20, 30]>
+#config = #iree_hexagon.lowering_config<distribution = [10, 20, 30]>
 func.func @do_not_tile_ukernel(%arg0: tensor<?x?x16x1xf32>, %arg1: tensor<?x?x16x1xf32>, %arg2: tensor<?x?x16x16xf32>) -> tensor<?x?x16x16xf32> {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -81,8 +81,8 @@ func.func @do_not_tile_ukernel(%arg0: tensor<?x?x16x1xf32>, %arg1: tensor<?x?x16
 
 // -----
 
-#config0 = #iree_cpu.lowering_config<vector_common_parallel =  [10, 20]>
-#config1 = #iree_cpu.lowering_config<distribution = [10, 20, 30]>
+#config0 = #iree_hexagon.lowering_config<vector_common_parallel =  [10, 20]>
+#config1 = #iree_hexagon.lowering_config<distribution = [10, 20, 30]>
 func.func @matmul_bias_add_skip_matmul(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>, %arg2 : tensor<?xf32>) -> tensor<?x?xf32> {
   %cst = arith.constant 0.0 : f32
   %c0 = arith.constant 0 : index
@@ -122,7 +122,7 @@ func.func @matmul_bias_add_skip_matmul(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?
 
 // An operation whose config lacks the requested level is not tiled, even when
 // it is not the root.
-#config = #iree_cpu.lowering_config<vector_common_parallel = [4]>
+#config = #iree_hexagon.lowering_config<vector_common_parallel = [4]>
 func.func @missing_level(%init: tensor<10xf32>) -> tensor<10xf32> {
   %cst = arith.constant 0.0 : f32
   %0 = linalg.fill {lowering_config = #config} ins(%cst : f32) outs(%init : tensor<10xf32>) -> tensor<10xf32>
@@ -136,7 +136,7 @@ func.func @missing_level(%init: tensor<10xf32>) -> tensor<10xf32> {
 // -----
 
 // tensor.pad ops are not tiled, even with the requested level.
-#config = #iree_cpu.lowering_config<distribution = [4]>
+#config = #iree_hexagon.lowering_config<distribution = [4]>
 func.func @pad_is_not_tiled(%input: tensor<5xf32>) -> tensor<10xf32> {
   %cst = arith.constant 0.0 : f32
   %0 = tensor.pad %input low[0] high[5] {

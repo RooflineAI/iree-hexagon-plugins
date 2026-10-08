@@ -17,9 +17,9 @@ func.func @matmul_dispatch(%lhs: tensor<128x128xf32>, %rhs: tensor<128x128xf32>)
 // The fill is fused into the root's 8x32 tile and cannot be refined further by
 // TileToVectorSize, so it takes the root's fusion tile exactly.
 
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
-// CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 64, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [8, 32]>
+// CHECK-DAG: #[[MATMUL:.+]] = #iree_hexagon.lowering_config<cache_parallel = [64, 64, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @matmul_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -37,9 +37,9 @@ func.func @matmul_512x49x4608_dispatch(%lhs: tensor<512x4608xf32>, %rhs: tensor<
   %result = linalg.matmul ins(%lhs, %rhs : tensor<512x4608xf32>, tensor<4608x49xf32>) outs(%init : tensor<512x49xf32>) -> tensor<512x49xf32>
   return %result : tensor<512x49xf32>
 }
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
-// CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 49, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [8, 32]>
+// CHECK-DAG: #[[MATMUL:.+]] = #iree_hexagon.lowering_config<cache_parallel = [64, 49, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @matmul_512x49x4608_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -56,9 +56,9 @@ func.func @batch_matmul_dispatch(%lhs: tensor<4x128x128xf32>, %rhs: tensor<4x128
   %result = linalg.batch_matmul ins(%lhs, %rhs : tensor<4x128x128xf32>, tensor<4x128x128xf32>) outs(%init : tensor<4x128x128xf32>) -> tensor<4x128x128xf32>
   return %result : tensor<4x128x128xf32>
 }
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 8, 32]>
-// CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 8, 32, 0], vector_reduction = [0, 0, 0, 8]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 8, 32]>
+// CHECK-DAG: #[[MATMUL:.+]] = #iree_hexagon.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 8, 32, 0], vector_reduction = [0, 0, 0, 8]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @batch_matmul_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -103,9 +103,9 @@ func.func @batch_matmul_transposed_rhs_dispatch(%lhs: tensor<4x64x128xf32>, %rhs
       outs(%init : tensor<4x64x64xf32>) -> tensor<4x64x64xf32>
   return %result : tensor<4x64x64xf32>
 }
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 1]>
-// CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 1, 1, 0], vector_reduction = [0, 0, 0, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 1]>
+// CHECK-DAG: #[[MATMUL:.+]] = #iree_hexagon.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 1, 1, 0], vector_reduction = [0, 0, 0, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @batch_matmul_transposed_rhs_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]

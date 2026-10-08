@@ -29,16 +29,14 @@ func.func @hmx_matmul_bias_consumer(%lhs: tensor<128x128xf16>, %rhs: tensor<128x
   } -> tensor<128x128xf16>
   return %result : tensor<128x128xf16>
 }
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [32, 32]>
-// CHECK-DAG: #[[EPILOGUE:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
-// CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0]>
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [32, 32]>
+// CHECK-DAG: #[[EPILOGUE:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0], vtcm = [128, 128, 128]>
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
-// CHECK-DAG: #[[VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [128, 128, 128]>
 // CHECK: func.func @hmx_matmul_bias_consumer(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
 // CHECK: linalg.matmul
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[VTCM]]
 // CHECK-SAME: lowering_config = #[[ROOT]]
 // CHECK: linalg.generic
 // CHECK-SAME: lowering_config = #[[EPILOGUE]]
@@ -65,9 +63,9 @@ func.func @hmx_matmul_broadcast_consumer(%lhs: tensor<128x32xf16>, %rhs: tensor<
   } -> tensor<128x32x64xf16>
   return %result : tensor<128x32x64xf16>
 }
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [32, 32]>
-// CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0]>
-// CHECK-DAG: #[[CONSUMER:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 0], vector_inner_parallel = [0, 0, 64]>
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [32, 32]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0], vtcm = [{{.*}}]>
+// CHECK-DAG: #[[CONSUMER:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 0], vector_inner_parallel = [0, 0, 64]>
 // CHECK-NOT: cache_parallel
 // CHECK: func.func @hmx_matmul_broadcast_consumer(
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}

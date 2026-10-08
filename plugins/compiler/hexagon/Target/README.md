@@ -15,10 +15,6 @@ The `Target` layer depends on `CodeGen`, never the other way around.
 some overlap with LLVMCPU, see [Possible upstream
 refactor](#possible-upstream-refactor) for ideas/a plan of what can be factored.
 
-Some LLVMCPU dependencies remain **indirectly**, through
-`//plugins/compiler/hexagon/CodeGen:codegen`, because CodeGen still reuses
-LLVMCPU passes. That is tracked separately.
-
 ## Control flow
 
 ```

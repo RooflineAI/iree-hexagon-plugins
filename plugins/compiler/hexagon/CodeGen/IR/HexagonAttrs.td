@@ -13,6 +13,58 @@ include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 
+def IREEHexagon_LoweringConfigAttr :
+    AttrDef<IREEHexagon_Dialect, "LoweringConfig", [
+      DeclareAttrInterfaceMethods<IREECodegen_LoweringConfigAttrInterface, [
+        "getWorkgroupTileSizes", "getTilingLevelSizes", "hasTilingLevel",
+        "hasWorkgroupTilingLevel", "getNumTilingLevels",
+        "getStaticTilingLevelSizes", "getTilingLevelAttr", "getVectorSizes"
+      ]>
+    ]> {
+  let mnemonic = "lowering_config";
+  let summary = "Fixed-width tiling configuration for Hexagon lowering";
+  let description = [{
+    Named tiling stages use nonnegative, fixed tile sizes; zero leaves a
+    dimension untiled. All present stages describe the same iteration rank.
+    Stages are distribution, cache_parallel, cache_reduction,
+    vector_common_parallel, vector_reduction, vector_inner_parallel, vtcm and
+    hmx.
+
+    Distribution-stage presence identifies the root, even when all sizes are
+    zero. Vector sizes merge the three vector stages along disjoint dimensions;
+    overlapping nonzero dimensions have no merged vector shape.
+
+      #iree_hexagon.lowering_config<distribution = [0, 0, 0],
+        vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
+
+    The vtcm stage, set only on the root, is the dispatch-wide tile staged into
+    VTCM. HexagonVTCMTilingPass consumes it and removes it from the tiled
+    operations.
+
+    The hmx stage tiles operations in the HMX pipeline into HMX-sized work. On
+    the root matmul it tiles batch dimensions to one before HMX conversion; on
+    the hmx.tensor_unpack created by the conversion it selects the number of
+    HMX output tiles per iteration of the tile grid.
+
+    Shared Codegen tiling-level attributes store the sizes, allowing generic
+    interface consumers to keep using this configuration.
+  }];
+  let parameters = (ins AttrParameter<"DictionaryAttr", "Named tiling stages">:$config);
+  let builders = [
+    AttrBuilder<(ins "llvm::SmallVector<mlir::NamedAttribute>":$items)>,
+  ];
+  let extraClassDeclaration = [{
+    static Attribute getTilingLevelAttr(MLIRContext *ctx,
+                                       ArrayRef<int64_t> tileSizes);
+
+    /// Returns this configuration without `level`, or a null attribute when
+    /// no stage remains.
+    LoweringConfigAttr withoutTilingLevel(TilingLevel level) const;
+  }];
+  let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // Profiler zone type.
 //===----------------------------------------------------------------------===//
@@ -63,31 +115,6 @@ def IREEHexagon_HexagonEncodingResolverAttr :
                       "external models during encoding materialisation.">:
         $configuration
   );
-}
-
-//===----------------------------------------------------------------------===//
-// VTCM tiling configuration.
-//===----------------------------------------------------------------------===//
-
-def IREEHexagon_VTCMTilingConfigAttr :
-    AttrDef<IREEHexagon_Dialect, "VTCMTilingConfig"> {
-  let mnemonic = "vtcm_tiling_config";
-  let genMnemonicAlias = 1;
-  let summary = [{Hexagon-specific VTCM staging and tiling configuration.}];
-  let description = [{
-    Configuration consumed by the Hexagon VTCM tiling pass. The tile sizes are
-    indexed by linalg loop dimension.
-  }];
-
-  let parameters = (ins
-    ArrayRefParameter<"int64_t", "Loop tile sizes for VTCM staging.">:
-        $tile_sizes
-  );
-
-  let assemblyFormat = [{
-    `<` `tile_sizes` `=` `[` $tile_sizes `]` `>`
-  }];
-  let genVerifyDecl = 1;
 }
 
 #endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS

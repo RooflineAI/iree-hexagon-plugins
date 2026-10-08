@@ -70,8 +70,7 @@ LogicalResult configureDispatch(FunctionOpInterface entryPoint,
   if (computeOps.empty())
     return configureDefaultPipeline(entryPoint);
   for (Operation *op : computeOps) {
-    if (getLoweringConfig(op) ||
-        op->hasAttr(kHexagonVTCMTilingConfigAttrName)) {
+    if (getLoweringConfig(op)) {
       op->emitError("expected an unconfigured operation before Hexagon "
                     "dispatch planning");
       return failure();

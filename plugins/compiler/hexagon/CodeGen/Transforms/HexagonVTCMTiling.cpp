@@ -143,7 +143,7 @@ static bool isUsedAsInit(Operation *producer, Operation *user) {
 /// or is dominated by `rootOp` (i.e., a user that comes after the point where
 /// the forall will be inserted). Init-only uses are excluded because they
 /// follow the output tensor chain rather than a data-flow edge.
-/// Fully copied from LLVMCPUTileAndFuseProducerConsumer.cpp
+/// Adapted from Codegen/Common/TileDispatchUsingForall.cpp.
 static llvm::DenseSet<Operation *>
 getOpsNeedingYieldReplacements(Operation *rootOp,
                                const llvm::SmallDenseSet<Operation *> &ops) {
@@ -169,8 +169,7 @@ getOpsNeedingYieldReplacements(Operation *rootOp,
 /// Applies the tiling step to `op`: create an outer dispatch-level
 /// `scf.forall`, fuse producers into it, and then fuse consumers forward so the
 /// loop spans the whole dispatch.
-/// This dispatch-wide tiling is copied from
-/// LLVMCPUTileAndFuseProducerConsumer.cpp.
+/// Adapted from Codegen/Common/TileDispatchUsingForall.cpp.
 LogicalResult applyDispatchWideTiling(IRRewriter &rewriter, linalg::LinalgOp op,
                                       IREEHexagon::LoweringConfigAttr config) {
   SmallVector<int64_t> tileSizes =

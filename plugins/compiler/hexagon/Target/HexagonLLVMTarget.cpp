@@ -53,6 +53,22 @@ void HexagonTarget::storeToConfigAttrs(
                       b.getI64IntegerAttr(maxStackAllocSizeInBytes));
 }
 
+/// Returns the HVX vector register width selected by the feature string:
+/// 128 bytes unless `+hvx-length64b` is requested.
+static int64_t getHvxVectorWidthInBytes(llvm::StringRef features) {
+  int64_t width = 128;
+  llvm::SmallVector<llvm::StringRef> featureList;
+  features.split(featureList, ',', /*MaxSplit=*/-1, /*KeepEmpty=*/false);
+  for (llvm::StringRef feature : featureList) {
+    feature = feature.trim();
+    if (feature == "+hvx-length64b")
+      width = 64;
+    else if (feature == "+hvx-length128b")
+      width = 128;
+  }
+  return width;
+}
+
 HexagonTarget createHexagonTarget(const HexagonOptions &options) {
   HexagonTarget target;
   target.triple = "hexagon-unknown-unknown-elf";
@@ -62,10 +78,7 @@ HexagonTarget createHexagonTarget(const HexagonOptions &options) {
       "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:"
       "32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-"
       "v2048:2048:2048";
-  // TODO: Setting the actual vector bitwidth and using IREE's kernel
-  // dispatching will result in compilation errors.
-  // target.vectorWidthInBytes = 128;
-  target.vectorWidthInBytes = 32;
+  target.vectorWidthInBytes = getHvxVectorWidthInBytes(options.features);
   target.maxStackAllocSizeInBytes = 16 * 1024;
   return target;
 }

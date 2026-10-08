@@ -33,10 +33,6 @@ TargetInfo getTargetInfo(FunctionOpInterface entryPoint) {
   if (std::optional<int64_t> nativeVector =
           getConfigNativeVectorSize(configuration))
     target.nativeVectorBytes = std::max<int64_t>(1, *nativeVector);
-  if (hasFeature(configuration, "+hvx-length128b"))
-    target.nativeVectorBytes = 128;
-  else if (hasFeature(configuration, "+hvx-length64b"))
-    target.nativeVectorBytes = 64;
   return target;
 }
 

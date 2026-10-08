@@ -136,7 +136,6 @@ hexagon_plugin_library(
         "HexagonTargetBackend.h",
     ],
     hdr_deps = [
-        "@iree//compiler/src/iree/compiler/Dialect/Encoding/IR",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
         "@llvm-project//mlir:BuiltinToLLVMIRTranslation",
         "@llvm-project//mlir:IR",
@@ -173,7 +172,6 @@ hexagon_plugin_library(
         ":HexagonTargetDevice",
         "//plugins/compiler/hexagon/CodeGen:codegen",
         "//plugins/compiler/hexagon/CodeGen:HexagonBufferizationExternalModels",
-        "//plugins/compiler/hexagon/CodeGen:HexagonEncodingExternalModels",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonDialectLibs",
         # These dependencies are not present in the base iree-compile binary,

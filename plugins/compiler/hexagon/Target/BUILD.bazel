@@ -46,6 +46,7 @@ hexagon_plugin_library(
     strip_include_prefix = "/plugins/compiler",
     deps = [
         ":HexagonOptions",
+        "//plugins/compiler/hexagon/CodeGen:TargetConfig",
     ],
 )
 

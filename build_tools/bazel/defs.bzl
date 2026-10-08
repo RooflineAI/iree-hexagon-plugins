@@ -56,7 +56,8 @@ def _hexagon_library(name, srcs, hdrs, deps, hdr_deps, **kwargs):
         hdrs = hdrs,
         deps = deps + wrapped_hdr_deps,
         linkstatic = True,
-        alwayslink = True,
+        # A header-only library has no objects to keep alive.
+        alwayslink = bool(srcs),
         **kwargs
     )
 

@@ -6,6 +6,7 @@
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
 
+#include "hexagon/CodeGen/TargetConfig.h"
 #include "iree/compiler/Codegen/Utils/Utils.h"
 #include "mlir/IR/Builders.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -16,14 +17,10 @@
 
 namespace mlir::iree_compiler::hexagon::target {
 
-// Configuration keys shared with the LLVMCPU codegen passes.
-// The upstream helpers writing them live in Codegen/LLVMCPU/Utils.h.
-// TODO: This is in the process of being refactored to remove these
-// dependencies. These lines should be removed once this refactor is complete.
+using codegen::kMaxStackAllocationSizeAttrName;
+using codegen::kNativeVectorSizeAttrName;
+
 static constexpr char kCpuAttrName[] = "cpu";
-static constexpr char kNativeVectorSizeAttrName[] = "native_vector_size";
-static constexpr char kMaxStackAllocationSizeAttrName[] =
-    "max_stack_allocation_size";
 
 // Registers all LLVM components required for Hexagon code generation.
 void initializeHexagonTarget() {

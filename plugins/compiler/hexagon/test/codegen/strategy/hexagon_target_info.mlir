@@ -48,3 +48,27 @@ func.func @copy_64b_dynamic(%src: memref<?x?xf32>, %dst: memref<?x?xf32>) attrib
 // CHECK-NOT: memref.dim
 // CHECK: linalg.copy
 // CHECK-SAME: lowering_config = #[[DYNAMIC]]
+
+// -----
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {target_triple = "hexagon-unknown-unknown-elf", native_vector_size = 32 : i64, cpu_features = "+hvx-length64b"}>
+func.func @feature_override(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {hal.executable.target = #target} {
+  linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
+  return
+}
+// CHECK-DAG: #[[CONFIG:.+]] = #iree_cpu.lowering_config<distribution = [1, 16], vector_common_parallel = [1, 16]>
+// CHECK: func.func @feature_override(
+// CHECK: linalg.copy
+// CHECK-SAME: lowering_config = #[[CONFIG]]
+
+// -----
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {target_triple = "hexagon-unknown-unknown-elf", native_vector_size = 32 : i64, cpu_features = "+hvx-length64b,+hvx-length128b"}>
+func.func @feature_precedence(%src: memref<4x70xf32>, %dst: memref<4x70xf32>) attributes {hal.executable.target = #target} {
+  linalg.copy ins(%src : memref<4x70xf32>) outs(%dst : memref<4x70xf32>)
+  return
+}
+// CHECK-DAG: #[[CONFIG:.+]] = #iree_cpu.lowering_config<distribution = [1, 32], vector_common_parallel = [1, 32]>
+// CHECK: func.func @feature_precedence(
+// CHECK: linalg.copy
+// CHECK-SAME: lowering_config = #[[CONFIG]]

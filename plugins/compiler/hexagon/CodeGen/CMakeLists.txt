@@ -64,6 +64,20 @@ iree_tablegen_library(
 
 iree_cc_library(
   NAME
+    TargetConfig
+  HDRS
+    "TargetConfig.h"
+  DEPS
+    LLVMSupport
+    MLIRIR
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     DispatchPlanner
   HDRS
     "Strategy/Planning/ComputeTileSelection.h"
@@ -98,6 +112,7 @@ iree_cc_library(
     "Strategy/Planning/StrategySelection.cpp"
     "Strategy/Planning/VTCMPlanning.cpp"
   DEPS
+    ::TargetConfig
     LLVMSupport
     MLIRAnalysis
     MLIRFunctionInterfaces
@@ -108,7 +123,6 @@ iree_cc_library(
     hexagon_mlir::HexagonLoweringSupport
     iree::compiler::Codegen::Dialect::CPU::IR::IREECPUDialect
     iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
-    iree::compiler::Codegen::LLVMCPU
     iree::compiler::Codegen::Utils
     iree::compiler::Dialect::HAL::IR
     iree::compiler::Dialect::Util::IR
@@ -212,7 +226,9 @@ iree_cc_library(
     "Pipelines/TranslationPipeline.cpp"
     "Strategy/HexagonSelectLoweringStrategy.cpp"
     "Strategy/KernelDispatch.cpp"
+    "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
+    "Transforms/HexagonEmitVectorizationRemarks.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
     "Transforms/HexagonPeel.cpp"
     "Transforms/HexagonSplitReduction.cpp"
@@ -220,6 +236,10 @@ iree_cc_library(
     "Transforms/HexagonTileAndFuseProducerConsumer.cpp"
     "Transforms/HexagonTileToVectorSize.cpp"
     "Transforms/HexagonVTCMTiling.cpp"
+    "Transforms/HexagonVectorShapeCastLowering.cpp"
+    "Transforms/HexagonVectorTransposeLowering.cpp"
+    "Transforms/HexagonVerifyVectorSizeLegality.cpp"
+    "Transforms/HexagonVirtualVectorLowering.cpp"
     "Transforms/InsertProfilerMarkers.cpp"
     "Transforms/LowerVTCMStaging.cpp"
     "Transforms/PromoteDMATagAllocToStack.cpp"
@@ -228,14 +248,12 @@ iree_cc_library(
     ::HexagonABIToLLVM
     ::HexagonRuntimeLinking
     ::PassesIncGen
+    ::TargetConfig
     LLVMSupport
     MLIRAffineDialect
     MLIRAffineToStandard
     MLIRAnalysis
     MLIRArithDialect
-    MLIRArithToArmSME
-    MLIRArmSMEToLLVM
-    MLIRArmSMEToSCF
     MLIRBufferizationDialect
     MLIRComplexToStandard
     MLIRControlFlowDialect
@@ -263,7 +281,6 @@ iree_cc_library(
     MLIRTransformUtils
     MLIRValueBoundsOpInterface
     MLIRVectorDialect
-    MLIRVectorToArmSME
     MLIRVectorToLLVM
     MLIRVectorTransforms
     hexagon_mlir::HexagonLoweringSupport
@@ -272,6 +289,9 @@ iree_cc_library(
     iree::compiler::Codegen::Common::TransformDialectInterpreterPass
     iree::compiler::Codegen::Dialect::CPU::IR::IREECPUDialect
     iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
+    iree::compiler::Codegen::Dialect::Codegen::Transforms::IREECodegenTransforms
+    iree::compiler::Codegen::Dialect::VectorExt::IR::IREEVectorExtDialect
+    iree::compiler::Codegen::Dialect::VectorExt::Transforms::VectorExtTransforms
     iree::compiler::Codegen::Interfaces::PartitionableLoopsInterface
     iree::compiler::Codegen::LLVMCPU
     iree::compiler::Codegen::Transforms

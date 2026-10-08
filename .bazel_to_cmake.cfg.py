@@ -656,15 +656,16 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
 
     def hexagon_plugin_library(self, deps=None, hdr_deps=None, **kwargs):
         # Bazel-side, hexagon_plugin_library (build_tools/bazel/defs.bzl) wraps
-        # iree_cc_library forcing linkstatic+alwayslink, and threads hdr_deps
-        # through cc_headers_only so they're compile-time-only (satisfying
-        # Bazel's layering_check without re-linking those deps' objects).
+        # iree_cc_library forcing linkstatic (and alwayslink for libraries with
+        # sources), and threads hdr_deps through cc_headers_only so they're
+        # compile-time-only (satisfying Bazel's layering_check without
+        # re-linking those deps' objects).
         # CMake has no equivalent layering enforcement and no per-target
         # static/shared linkage knob (that's a global CMAKE_BUILD_TYPE-ish
         # concern), so this simplifies to a plain ALWAYSLINK cc_library with
-        # hdr_deps folded into deps.
+        # hdr_deps folded into deps. Header-only libraries are not ALWAYSLINK.
         all_deps = list(deps or []) + list(hdr_deps or [])
-        self.cc_library(deps=all_deps, alwayslink=True, **kwargs)
+        self.cc_library(deps=all_deps, alwayslink=bool(kwargs.get("srcs")), **kwargs)
 
     # runtime_lib (build_tools/bazel/overlays/hexagon_mlir/qcom_hexagon_backend/
     # bin/runtime) is the one hexagon_mlir_overlay_library() target also built

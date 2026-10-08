@@ -15,7 +15,7 @@ iree_cc_library(
   NAME
     hmx_ukernels
   COPTS
-    "-flax-vector-conversions=all"
+    "-flax-vector-conversions=integer"
     "-Xclang=-target-feature"
     "-Xclang=+hmxv79"
   HDRS

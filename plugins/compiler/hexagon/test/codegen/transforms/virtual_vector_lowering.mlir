@@ -139,10 +139,10 @@ func.func @lower_gather_nontrivial_leading_dims(
   %c0 = arith.constant 0 : index
   %c2 = arith.constant 2 : index
   %out = iree_vector_ext.transfer_gather %src[%c2, %c0]
-    [%idx : vector<8xindex>], %pad {
+    [%idx : vector<8xindex>], %pad <{
       indexing_maps = [affine_map<(d0)[s0] -> (0, s0)>,
                        affine_map<(d0)[s0] -> (d0)>]
-    } : tensor<4x16xf32>, vector<8xf32>
+    }> : tensor<4x16xf32>, vector<8xf32>
   return %out : vector<8xf32>
 }
 
@@ -159,10 +159,10 @@ func.func @lower_scatter_memref(
     %idx: vector<8xindex>) {
   %c0 = arith.constant 0 : index
   iree_vector_ext.transfer_scatter %src into %dest[%c0, %c0]
-    [%idx : vector<8xindex>] {
+    [%idx : vector<8xindex>] <{
       indexing_maps = [affine_map<(d0)[s0] -> (0, s0)>,
                        affine_map<(d0)[s0] -> (d0)>]
-    } : vector<8xf32>, memref<4x16xf32>
+    }> : vector<8xf32>, memref<4x16xf32>
   return
 }
 // CHECK-LABEL: @lower_scatter_memref

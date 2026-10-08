@@ -13,7 +13,7 @@
 // CHECK:       %[[PACKED_LHS:.+]] = iree_hexagon.hmx.tensor_pack ins(%[[LHS]] : tensor<32x512xf16>) outs(%{{.+}} : tensor<1x16x16x32x2xf16>)
 // CHECK:       %[[PACKED_RHS:.+]] = iree_hexagon.hmx.tensor_pack ins(%[[RHS]] : tensor<512x32xf16>) outs(%{{.+}} : tensor<16x1x16x32x2xf16>)
 // CHECK:       %[[PRODUCT:.+]] = iree_hexagon.hmx.tensor_matmul ins(%[[PACKED_LHS]], %[[PACKED_RHS]]
-// CHECK:       %[[RESULT:.+]] = iree_hexagon.hmx.tensor_unpack ins(%[[PRODUCT]] : tensor<1x1x16x32x2xf16>) outs(%[[INIT]] : tensor<32x32xf32>) {dim = 0 : i64, lowering_config = #{{.+}}}
+// CHECK:       %[[RESULT:.+]] = iree_hexagon.hmx.tensor_unpack ins(%[[PRODUCT]] : tensor<1x1x16x32x2xf16>) outs(%[[INIT]] : tensor<32x32xf32>) <dim = 0> {lowering_config = #{{.+}}}
 // CHECK-NOT:   linalg.matmul
 // CHECK:       return %[[RESULT]]
 func.func @convert_f32_output(
@@ -64,8 +64,8 @@ func.func @convert_f16_output(
 // CHECK-LABEL: func.func @convert_unit_batch_transpose_b(
 // CHECK:       %[[LHS_2D:.+]] = tensor.collapse_shape
 // CHECK:       %[[RHS_2D:.+]] = tensor.collapse_shape
-// CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[LHS_2D]] : tensor<32x64xf16>) {{.*}} {dim = 0 : i64}
-// CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[RHS_2D]] : tensor<32x64xf16>) {{.*}} {dim = 1 : i64}
+// CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[LHS_2D]] : tensor<32x64xf16>) {{.*}} <dim = 0>
+// CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[RHS_2D]] : tensor<32x64xf16>) {{.*}} <dim = 1>
 // CHECK-NOT:   linalg.batch_matmul
 // CHECK-NOT:   linalg.matmul
 // CHECK:       tensor.expand_shape
@@ -93,8 +93,8 @@ func.func @convert_unit_batch_transpose_b(
 // describe where its interleaved logical row dimension appears in the source.
 
 // CHECK-LABEL: func.func @convert_both_inputs_transposed(
-// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} {dim = 1 : i64}
-// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} {dim = 1 : i64}
+// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} <dim = 1>
+// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} <dim = 1>
 // CHECK:       iree_hexagon.hmx.tensor_matmul {{.*}} tensor<2x3x16x32x2xf16>, tensor<3x4x16x32x2xf16>
 // CHECK-NOT:   linalg.matmul
 // CHECK:       return

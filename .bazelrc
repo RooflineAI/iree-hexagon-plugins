@@ -27,6 +27,9 @@ build --copt=-DMLIR_USE_FALLBACK_TYPE_IDS=1
 build --copt=-Wno-error=deprecated-declarations
 build --copt=-Wno-error=implicit-fallthrough
 
+# LLVM now enables LZMA by default, but its XZ dependency cannot target QURT.
+build --@llvm-project//third-party:llvm_enable_lzma=false
+
 # Build only the local CPU runtimes and the Hexagon runtimes.
 build --@iree//runtime/src/iree/hal/drivers:enabled_drivers=local-sync,local-task,hexagon
 

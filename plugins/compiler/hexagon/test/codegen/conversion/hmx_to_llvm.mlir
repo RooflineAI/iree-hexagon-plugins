@@ -35,9 +35,9 @@ func.func private @lower_layout_ops(
   %acc_aligned = memref.assume_alignment %acc, 2048 : memref<16x32x2xf16, 1>
   %dst_aligned = memref.assume_alignment %dst, 128 : memref<32x32xf32, strided<[512, 1], offset: ?>, 1>
   iree_hexagon.hmx.pack ins(%src_aligned : memref<32x512xf16, strided<[512, 1], offset: ?>, 1>)
-      outs(%packed_aligned : memref<1x16x16x32x2xf16, 1>) {dim = 0 : i64}
+      outs(%packed_aligned : memref<1x16x16x32x2xf16, 1>) <dim = 0>
   iree_hexagon.hmx.unpack ins(%acc_aligned : memref<16x32x2xf16, 1>)
-      outs(%dst_aligned : memref<32x32xf32, strided<[512, 1], offset: ?>, 1>) {dim = 0 : i64}
+      outs(%dst_aligned : memref<32x32xf32, strided<[512, 1], offset: ?>, 1>) <dim = 0>
   return
 }
 
@@ -51,7 +51,7 @@ func.func private @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index
   %c32 = arith.constant 32 : index
   %row = arith.muli %row_tile, %c32 : index
   %col = arith.muli %col_tile, %c32 : index
-  %acc_grid = hexagonmem.alloc() {alignment = 2048 : i64} : memref<16x16x16x32x2xf16, 1>
+  %acc_grid = hexagonmem.alloc() <alignment = 2048> : memref<16x16x16x32x2xf16, 1>
   %dst = hexagonmem.alloc() : memref<512x512xf32, 1>
   %acc_tile = memref.subview %acc_grid[%row_tile, %col_tile, 0, 0, 0] [1, 1, 16, 32, 2] [1, 1, 1, 1, 1]
       : memref<16x16x16x32x2xf16, 1> to memref<16x32x2xf16, strided<[64, 2, 1], offset: ?>, 1>
@@ -59,7 +59,7 @@ func.func private @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index
       : memref<512x512xf32, 1> to memref<32x32xf32, strided<[512, 1], offset: ?>, 1>
   iree_hexagon.hmx.unpack ins(%acc_tile : memref<16x32x2xf16, strided<[64, 2, 1], offset: ?>, 1>)
       outs(%dst_tile : memref<32x32xf32, strided<[512, 1], offset: ?>, 1>)
-      {dim = 0 : i64}
+      <dim = 0>
   return
 }
 
@@ -78,10 +78,10 @@ func.func private @lower_bounded_dynamic_pack(%requested_rows: index) {
   %source = memref.subview %source_storage[0, 0] [%rows, 64] [1, 1]
       : memref<64x64xf16, 1>
       to memref<?x64xf16, strided<[64, 1]>, 1>
-  %packed = hexagonmem.alloc() {alignment = 2048 : i64}
+  %packed = hexagonmem.alloc() <alignment = 2048>
       : memref<2x2x16x32x2xf16, 1>
   iree_hexagon.hmx.pack ins(%source : memref<?x64xf16, strided<[64, 1]>, 1>)
-      outs(%packed : memref<2x2x16x32x2xf16, 1>) {dim = 0 : i64}
+      outs(%packed : memref<2x2x16x32x2xf16, 1>) <dim = 0>
   return
 }
 
@@ -93,14 +93,14 @@ func.func private @lower_bounded_dynamic_pack(%requested_rows: index) {
 // CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
 func.func private @lower_bounded_dynamic_rank3_unpack(%requested_cols: index) {
   %cols = affine.min affine_map<(d0) -> (d0, 32)>(%requested_cols)
-  %source = hexagonmem.alloc() {alignment = 2048 : i64}
+  %source = hexagonmem.alloc() <alignment = 2048>
       : memref<16x32x2xf16, 1>
   %dest_storage = hexagonmem.alloc() : memref<32x32xf32, 1>
   %dest = memref.subview %dest_storage[0, 0] [32, %cols] [1, 1]
       : memref<32x32xf32, 1>
       to memref<32x?xf32, strided<[32, 1]>, 1>
   iree_hexagon.hmx.unpack ins(%source : memref<16x32x2xf16, 1>)
-      outs(%dest : memref<32x?xf32, strided<[32, 1]>, 1>) {dim = 0 : i64}
+      outs(%dest : memref<32x?xf32, strided<[32, 1]>, 1>) <dim = 0>
   return
 }
 
@@ -123,7 +123,7 @@ func.func private @lower_transposed_pack(
   %src_aligned = memref.assume_alignment %src, 128 : memref<32x512xf16, strided<[512, 1], offset: ?>, 1>
   %packed_aligned = memref.assume_alignment %packed, 2048 : memref<16x1x16x32x2xf16, 1>
   iree_hexagon.hmx.pack ins(%src_aligned : memref<32x512xf16, strided<[512, 1], offset: ?>, 1>)
-      outs(%packed_aligned : memref<16x1x16x32x2xf16, 1>) {dim = 1 : i64}
+      outs(%packed_aligned : memref<16x1x16x32x2xf16, 1>) <dim = 1>
   return
 }
 
@@ -141,7 +141,7 @@ func.func private @lower_unpack_f16_dest(
   %dst_aligned = memref.assume_alignment %dst, 128 : memref<32x32xf16, strided<[512, 1], offset: ?>, 1>
   iree_hexagon.hmx.unpack ins(%acc_aligned : memref<1x1x16x32x2xf16, 1>)
       outs(%dst_aligned : memref<32x32xf16, strided<[512, 1], offset: ?>, 1>)
-      {dim = 0 : i64}
+      <dim = 0>
   return
 }
 
@@ -164,7 +164,7 @@ func.func private @lower_unpack_grid(
   %dst_aligned = memref.assume_alignment %dst, 128 : memref<64x96xf32, strided<[128, 1], offset: ?>, 1>
   iree_hexagon.hmx.unpack ins(%acc_aligned : memref<2x3x16x32x2xf16, 1>)
       outs(%dst_aligned : memref<64x96xf32, strided<[128, 1], offset: ?>, 1>)
-      {dim = 0 : i64}
+      <dim = 0>
   return
 }
 

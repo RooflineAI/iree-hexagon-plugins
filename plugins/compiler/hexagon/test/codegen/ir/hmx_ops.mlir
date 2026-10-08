@@ -30,10 +30,10 @@ func.func @accumulator_primitives(
 
 // CHECK-LABEL: func.func @buffer_ops(
 // CHECK: iree_hexagon.hmx.pack
-// CHECK-SAME: {dim = 0 : i64}
+// CHECK-SAME: <dim = 0>
 // CHECK: iree_hexagon.hmx.matmul
 // CHECK: iree_hexagon.hmx.unpack
-// CHECK-SAME: {dim = 0 : i64}
+// CHECK-SAME: <dim = 0>
 func.func @buffer_ops(
     %source: memref<32x32xf16, 1>,
     %lhs: memref<1x1x16x32x2xf16, 1>,
@@ -43,7 +43,7 @@ func.func @buffer_ops(
   iree_hexagon.hmx.pack
       ins(%source : memref<32x32xf16, 1>)
       outs(%packed : memref<1x1x16x32x2xf16, 1>)
-      {dim = 0 : i64}
+      <dim = 0>
   iree_hexagon.hmx.matmul
       ins(%lhs, %rhs : memref<1x1x16x32x2xf16, 1>,
                        memref<1x1x16x32x2xf16, 1>)
@@ -51,7 +51,7 @@ func.func @buffer_ops(
   iree_hexagon.hmx.unpack
       ins(%packed : memref<1x1x16x32x2xf16, 1>)
       outs(%result : memref<32x32xf32, 1>)
-      {dim = 0 : i64}
+      <dim = 0>
   return
 }
 
@@ -70,7 +70,7 @@ func.func @tensor_ops(
   %packed_result = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf16>)
       outs(%packed : tensor<1x1x16x32x2xf16>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<1x1x16x32x2xf16>
   %product = iree_hexagon.hmx.tensor_matmul
       ins(%lhs, %rhs : tensor<1x1x16x32x2xf16>,
@@ -80,7 +80,7 @@ func.func @tensor_ops(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%product : tensor<1x1x16x32x2xf16>)
       outs(%result : tensor<32x32xf32>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<32x32xf32>
   return %unpacked : tensor<32x32xf32>
 }

@@ -29,6 +29,7 @@ iree_cc_library(
     hexagon_mlir::include::hexagon::HexKLHeadersLib
     hexagon_mlir::include::hexagon::HexKLTableGen
     hexagon_mlir::lib::Common::HexagonCommon
+  ALWAYSLINK
   PUBLIC
 )
 

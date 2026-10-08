@@ -1,5 +1,5 @@
 diff --git a/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp b/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
-index f44c36dd5d..0943dda8f4 100644
+index 945ee8ff49..23a73d94c0 100644
 --- a/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
 +++ b/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
 @@ -80,6 +80,8 @@ namespace {
@@ -21,7 +21,7 @@ index f44c36dd5d..0943dda8f4 100644
 +      bool allowReturnAllocsFromLoops = false)
 +      : allocationFn(allocationFn), memCpyFn(memCpyFn),
 +        allowReturnAllocsFromLoops(allowReturnAllocsFromLoops) {}
- 
+
    void getDependentDialects(DialectRegistry &registry) const override {
      // clang-format off
 @@ -127,6 +131,7 @@ public:
@@ -30,7 +30,7 @@ index f44c36dd5d..0943dda8f4 100644
    const BufferizationOptions::MemCpyFn memCpyFn = defaultMemCpyFn;
 +  const bool allowReturnAllocsFromLoops = false;
  };
- 
+
  /// Pass to convert from tensor based constants to memref.
 @@ -219,6 +224,7 @@ void EliminateEmptyTensorsPass::runOnOperation() {
    IRRewriter rewriter(funcOp->getContext());
@@ -45,10 +45,10 @@ index f44c36dd5d..0943dda8f4 100644
    options.allocationFn = allocationFn;
    options.memCpyFn = memCpyFn;
 +  options.allowReturnAllocsFromLoops = allowReturnAllocsFromLoops;
-   // Turning off checkParallelRegions assumes that we are not relying too much
-   // on bufferization being conservative. If we are, then this could cause race
-   // conditions. Turning this option off could be a good step in diagnosing
-@@ -342,15 +349,16 @@ void IREEBufferizeConstantsPass::runOnOperation() {
+   // Disable parallel-region conflict checks to avoid conservative copies.
+   options.mayHaveParallelRegions = false;
+
+@@ -339,15 +346,16 @@ void IREEBufferizeConstantsPass::runOnOperation() {
  std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
  createIREEComprehensiveBufferizePass(
      std::optional<BufferizationOptions::AllocationFn> allocationFn,
@@ -66,9 +66,9 @@ index f44c36dd5d..0943dda8f4 100644
 +  return std::make_unique<IREEComprehensiveBufferizePass>(
 +      allocationFn.value(), memCpyFn.value(), allowReturnAllocsFromLoops);
  }
- 
+
  void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
-@@ -368,11 +376,14 @@ void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
+@@ -365,11 +373,14 @@ void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
  void addIREEComprehensiveBufferizePasses(
      OpPassManager &funcPassManager,
      std::optional<BufferizationOptions::AllocationFn> allocationFn,
@@ -86,7 +86,7 @@ index f44c36dd5d..0943dda8f4 100644
 +      allocationFn, memCpyFn, allowReturnAllocsFromLoops));
    addIREEPostBufferizationPasses(funcPassManager);
  }
- 
+
 diff --git a/compiler/src/iree/compiler/Codegen/Common/Passes.h b/compiler/src/iree/compiler/Codegen/Common/Passes.h
 index f1c9273706..a37904c82e 100644
 --- a/compiler/src/iree/compiler/Codegen/Common/Passes.h
@@ -102,7 +102,7 @@ index f1c9273706..a37904c82e 100644
 +    // - restored here after IREE's own wrapper stopped exposing it, since
 +    // some backends still need to opt into it.
 +    bool allowReturnAllocsFromLoops = false);
- 
+
  /// Populate Encoding to Nop pass and canonicalizer pass to the pipeline.
  void addEncodingToNopPasses(FunctionLikeNest &passManager);
 @@ -90,7 +95,8 @@ std::unique_ptr<Pass> createDecomposeMemrefsPass();
@@ -112,7 +112,7 @@ index f1c9273706..a37904c82e 100644
 -    std::optional<BufferizationOptions::MemCpyFn> memCpyFn);
 +    std::optional<BufferizationOptions::MemCpyFn> memCpyFn,
 +    bool allowReturnAllocsFromLoops = false);
- 
+
  /// Create an IREE-specific Transform dialect interpreter pass with all
  /// registrations necessary for IREE.
 diff --git a/compiler/src/iree/compiler/Codegen/Common/Passes.td b/compiler/src/iree/compiler/Codegen/Common/Passes.td
@@ -130,5 +130,5 @@ index 65c21c4ec7..5cee7164a2 100644
 +           "empty-tensor elimination analysis.">
 +  ];
  }
- 
+
  def EmulateNarrowTypePass :

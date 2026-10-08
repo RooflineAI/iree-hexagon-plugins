@@ -31,7 +31,7 @@ func.func @cumulative_size() attributes {
 func.func @alignment_rounding() attributes {
   hal.executable.target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {max_stack_allocation_size = 16 : i64}>
 } {
-  %buffer = memref.alloca() {alignment = 32 : i64} : memref<1xi8>
+  %buffer = memref.alloca() alignment = 32 : memref<1xi8>
   return
 }
 

@@ -45,30 +45,30 @@ module attributes {hal.executable.target = #hexagon_target} {
     %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
 
     // Checks a non-empty marker and zone value 7.
-    %shared0 = iree_hexagon.profiler.begin %state {
+    %shared0 = iree_hexagon.profiler.begin %state <
       extra_info = "shared",
-      zone_type = #iree_hexagon.profiler_zone<marker>
-    } : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+      zone_type = marker
+    > : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
     iree_hexagon.profiler.end %shared0 : !iree_hexagon.profiler_record
 
     // Checks that an identical marker string reuses the same global.
-    %shared1 = iree_hexagon.profiler.begin %state {
+    %shared1 = iree_hexagon.profiler.begin %state <
       extra_info = "shared",
-      zone_type = #iree_hexagon.profiler_zone<copy>
-    } : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+      zone_type = copy
+    > : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
     iree_hexagon.profiler.end %shared1 : !iree_hexagon.profiler_record
 
     // Checks a distinct marker string and the maximum zone value 8.
-    %unique = iree_hexagon.profiler.begin %state {
+    %unique = iree_hexagon.profiler.begin %state <
       extra_info = "unique",
-      zone_type = #iree_hexagon.profiler_zone<unknown>
-    } : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+      zone_type = unknown
+    > : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
     iree_hexagon.profiler.end %unique : !iree_hexagon.profiler_record
 
     // Checks absent extra_info becomes a null pointer and zone 0 is preserved.
-    %empty = iree_hexagon.profiler.begin %state {
-      zone_type = #iree_hexagon.profiler_zone<dsp_execution>
-    } : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+    %empty = iree_hexagon.profiler.begin %state <
+      zone_type = dsp_execution
+    > : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
     iree_hexagon.profiler.end %empty : !iree_hexagon.profiler_record
     llvm.return
   }

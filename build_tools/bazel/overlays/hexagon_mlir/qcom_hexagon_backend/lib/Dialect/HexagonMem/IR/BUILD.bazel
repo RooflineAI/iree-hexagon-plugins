@@ -31,7 +31,6 @@ hexagon_mlir_overlay_library(
     deps = [
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemTableGen",
-        "@hexagon-mlir//qcom_hexagon_backend/include/mlir/Interfaces:CopyOpInterface",
         "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
     ],
 )

@@ -30,8 +30,8 @@ iree_cc_library(
     MLIRSupport
     hexagon_mlir::include::hexagon::HexagonMemHeadersLib
     hexagon_mlir::include::hexagon::HexagonMemTableGen
-    hexagon_mlir::include::mlir::Interfaces::CopyOpInterface
     hexagon_mlir::lib::Common::HexagonCommon
+  ALWAYSLINK
   PUBLIC
 )
 

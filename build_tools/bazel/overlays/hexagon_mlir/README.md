@@ -28,14 +28,9 @@ Overlay path precedence is "overlay wins":
 
 ## Compatibility notes
 
-- Overlaid `CopyOpInterface` implementation:
-  - The LLVM snapshot used here does not provide
-    `mlir/Interfaces/CopyOpInterface.td` and
-    `mlir/Interfaces/CopyOpInterface.h`.
-    These were deprecated and removed long ago.
-  - Overlay provides a copy of the deprecated
-    code at:
-    `qcom_hexagon_backend/include/mlir/Interfaces/`
+- Endian-header shim:
+  - `qcom_hexagon_backend/bin/runtime/multithreading/fake_includes/machine/endian.h`
+    forwards to `<endian.h>` for the Hexagon toolchain.
 - Upstream warning suppressions carried in the overlay:
   - Current LLVM emits deprecation warnings for several
     `hexagon-mlir` libraries because upstream uses deprecated
@@ -45,7 +40,9 @@ Overlay path precedence is "overlay wins":
     `qcom_hexagon_backend/lib/Transforms`, and the
     `qcom_hexagon_backend/lib/Conversion/*ToLLVM` libraries.
   - Overlay also silences `-Wunused-but-set-variable` locally in
-    `qcom_hexagon_backend/lib/Transforms`.
+    `qcom_hexagon_backend/lib/Transforms` and `lib/Conversion/LinalgToLLVM`,
+    `-Wlogical-op-parentheses` in the latter, and selected unused-variable
+    warnings.
 
 ## Dependency model
 

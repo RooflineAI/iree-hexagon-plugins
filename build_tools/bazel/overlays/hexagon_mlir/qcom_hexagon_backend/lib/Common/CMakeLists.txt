@@ -30,6 +30,7 @@ iree_cc_library(
     hexagon_mlir::include::hexagon::ConversionHeadersLib
     hexagon_mlir::include::hexagon::HexagonCommonHeaders
     hexagon_mlir::include::hexagon::HexagonMemHeadersLib
+  ALWAYSLINK
   PUBLIC
 )
 

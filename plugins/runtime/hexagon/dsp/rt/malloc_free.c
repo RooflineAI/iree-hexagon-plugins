@@ -8,23 +8,13 @@
 
 #include "hexagon/dsp/rt/vtcm_pool.h"
 
-#include <limits.h>
 #include <stddef.h>
-#include <stdint.h>
-
-#include "HAP_farf.h"
 
 // Profiler is inserted by the compiler as marker ops around the memref
 // operations that lower to these helpers, so these
 // helpers no longer emit their own profiler zones.
 
-void *hexagon_runtime_malloc(int64_t size) {
-  if (size < 0 || (uint64_t)size > UINT_MAX) {
-    FARF(ERROR, "HEXAGON-RUNTIME-ERROR: malloc failed for invalid size=%lld",
-         (long long)size);
-    return NULL;
-  }
-
+void *hexagon_runtime_malloc(size_t size) {
   return hexagon_dsp_vtcm_pool_allocate(size);
 }
 

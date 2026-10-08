@@ -352,6 +352,25 @@ static InstrumentationEntry appendInstrumentationEntry(
   return entry;
 }
 
+// The workgroup key returned by `hal.instrument.workgroup` is the ring-buffer
+// offset of the workgroup record, carried as an `index`. The offset always fits
+// the index type, while the record header field below needs 64 bits. Returns
+// the header bits: the offset in the upper 40 bits, as consumers expect.
+static Value getWorkgroupKeyHeaderBits(Location loc, Value workgroupKey,
+                                       OpBuilder &builder) {
+  auto i64Type = builder.getI64Type();
+  Value key = workgroupKey;
+  if (key.getType() != i64Type) {
+    key = LLVM::ZExtOp::create(builder, loc, i64Type, key);
+  }
+  return LLVM::ShlOp::create(
+      builder, loc,
+      LLVM::AndOp::create(
+          builder, loc, key,
+          LLVM::ConstantOp::create(builder, loc, i64Type, 0xFFFFFFFFFFll)),
+      LLVM::ConstantOp::create(builder, loc, i64Type, 24));
+}
+
 static int64_t getMemoryAccessByteSize(Type type) {
   if (auto vectorType = dyn_cast<VectorType>(type)) {
     return (vectorType.getNumElements() * vectorType.getElementTypeBitWidth()) /
@@ -372,7 +391,6 @@ struct ConvertHALInstrumentWorkgroupOp
     auto dataLayout =
         getTypeConverter()->getDataLayoutAnalysis()->getAbove(instrumentOp);
     auto i32Type = rewriter.getI32Type();
-    auto i64Type = rewriter.getI64Type();
 
     auto entryType = LLVM::LLVMStructType::getLiteral(
         getContext(), {
@@ -408,16 +426,14 @@ struct ConvertHALInstrumentWorkgroupOp
         },
         dataLayout, rewriter);
 
-    // Prepare the 40-bit key used by all accesses - we do this once so that we
-    // can ensure it's hoisted.
-    // Consumers expect 40 bits of offset << 24 bits.
-    Value workgroupKey = LLVM::ShlOp::create(
-        rewriter, loc,
-        LLVM::AndOp::create(
-            rewriter, loc, entry.offset,
-            LLVM::ConstantOp::create(rewriter, loc, i64Type, 0xFFFFFFFFFFll)),
-        LLVM::ConstantOp::create(rewriter, loc, i64Type, 24));
-
+    // The key is the record offset in the index type; the consumers turn it
+    // into header bits with `getWorkgroupKeyHeaderBits`.
+    Type indexType = getTypeConverter()->getIndexType();
+    Value workgroupKey = entry.offset;
+    if (indexType != workgroupKey.getType()) {
+      workgroupKey =
+          LLVM::TruncOp::create(rewriter, loc, indexType, entry.offset);
+    }
     rewriter.replaceOp(instrumentOp, workgroupKey);
     return success();
   }
@@ -513,7 +529,8 @@ struct ConvertHALInstrumentValueOp
     // 8 bit ordinal
     // 40 bit workgroup offset
     Value header = LLVM::OrOp::create(
-        rewriter, loc, operands.getWorkgroupKey(),
+        rewriter, loc,
+        getWorkgroupKeyHeaderBits(loc, operands.getWorkgroupKey(), rewriter),
         LLVM::ConstantOp::create(
             rewriter, loc, i64Type,
             (instrumentOp.getOrdinal().getZExtValue() << 16) |
@@ -566,7 +583,8 @@ struct ConvertHALInstrumentMemoryLoadOp
     int64_t loadSize = getMemoryAccessByteSize(instrumentOp.getType());
     assert(loadSize <= UINT16_MAX && "16-bit length maximum");
     Value header = LLVM::OrOp::create(
-        rewriter, loc, operands.getWorkgroupKey(),
+        rewriter, loc,
+        getWorkgroupKeyHeaderBits(loc, operands.getWorkgroupKey(), rewriter),
         LLVM::ConstantOp::create(
             rewriter, loc, i64Type,
             (loadSize << 8) | IREE_INSTRUMENT_DISPATCH_TYPE_MEMORY_LOAD));
@@ -614,7 +632,8 @@ struct ConvertHALInstrumentMemoryStoreOp
     int64_t storeSize = getMemoryAccessByteSize(instrumentOp.getType());
     assert(storeSize <= UINT16_MAX && "16-bit length maximum");
     Value header = LLVM::OrOp::create(
-        rewriter, loc, operands.getWorkgroupKey(),
+        rewriter, loc,
+        getWorkgroupKeyHeaderBits(loc, operands.getWorkgroupKey(), rewriter),
         LLVM::ConstantOp::create(
             rewriter, loc, i64Type,
             (storeSize << 8) | IREE_INSTRUMENT_DISPATCH_TYPE_MEMORY_STORE));

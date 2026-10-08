@@ -13,11 +13,14 @@
 //
 // Signature matches the helper declaration emitted by
 // `LLVM::lookupOrCreateMemRefCopyFn`:
-//   void memrefCopy(int64_t elemSize, void* srcUnranked, void* dstUnranked)
+//   void memrefCopy(index elemSize, void* srcUnranked, void* dstUnranked)
 //
 // The `srcUnranked` and `dstUnranked` pointers are expected to point to
-// MLIR-compatible unranked memref descriptors.
-void hexagon_runtime_memref_copy(int64_t elemSize, void *srcUnranked,
+// MLIR-compatible unranked memref descriptors. Every `index` in the signature
+// and in the descriptors has the pointer width, matching the compiler's index
+// bitwidth, so it is an `intptr_t` here (unlike MLIR's CRunnerUtils, which
+// assume a 64-bit index).
+void hexagon_runtime_memref_copy(intptr_t elemSize, void *srcUnranked,
                                  void *dstUnranked);
 
 #endif // HEXAGON_DSP_RT_MEMREF_COPY_H

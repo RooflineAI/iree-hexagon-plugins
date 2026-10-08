@@ -1,19 +1,29 @@
-// RUN: iree-opt \
-// RUN:   --pass-pipeline='builtin.module(iree-hexagon-lower-hmx-to-calls)' \
-// RUN:   --split-input-file %s | FileCheck %s
+// This file checks the conversion of bufferized HMX operations to calls into the
+// native DSP kernels: buffers are passed as pointers to their first element,
+// sizes and strides as i32, and the accumulator value is erased. The inputs
+// first go through the HMX runtime ABI verification, as in the pipeline.
+// RUN: iree-opt --split-input-file \
+// RUN:   --pass-pipeline='builtin.module(iree-hexagon-verify-hmx-runtime-abi,iree-hexagon-convert-to-llvm,canonicalize,cse)' \
+// RUN:   %s | FileCheck %s
 
-// CHECK-LABEL: func.func @lower_layout_ops(
 // The pack/unpack calls take (dest, src, stride, actual_rows, actual_cols,
 // row_tiles, col_tiles): tile counts from the padded grid, actual dims from the
 // (possibly ragged) staged buffer.
-// CHECK:       call @iree_hexagon_hmx_pack_f16(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}) : (i32, i32, i32, i32, i32, i32, i32) -> ()
-// CHECK:       call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}) : (i32, i32, i32, i32, i32, i32, i32) -> ()
-// CHECK-NOT:   iree_hexagon.hmx.pack
-// CHECK-NOT:   iree_hexagon.hmx.unpack
 // The operands in this focused unit test are function arguments and therefore
 // have no allocation provenance. These assumptions model the alignment
 // guarantees that allocations carry in the full lowering pipeline.
-func.func @lower_layout_ops(
+// CHECK-LABEL: llvm.func @lower_layout_ops(
+// CHECK-SAME:    %{{[^:]+}}: !llvm.ptr, %[[SRC_BASE:[^:]+]]: !llvm.ptr, %[[SRC_OFFSET:[^:]+]]: i64,
+// CHECK-DAG:     %[[C16:.+]] = llvm.mlir.constant(16 : i32) : i32
+// CHECK-DAG:     %[[C1:.+]] = llvm.mlir.constant(1 : i32) : i32
+// CHECK-DAG:     %[[C32:.+]] = llvm.mlir.constant(32 : i32) : i32
+// CHECK-DAG:     %[[C512:.+]] = llvm.mlir.constant(512 : i32) : i32
+// CHECK:         %[[SRC:.+]] = llvm.getelementptr %[[SRC_BASE]][%[[SRC_OFFSET]]] : (!llvm.ptr, i64) -> !llvm.ptr, f16
+// CHECK:         %[[DST:.+]] = llvm.getelementptr %{{.+}}[%{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+// CHECK:         llvm.call @iree_hexagon_hmx_pack_f16(%{{.+}}, %[[SRC]], %[[C512]], %[[C32]], %[[C512]], %[[C1]], %[[C16]]) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+// CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%[[DST]], %{{.+}}, %[[C512]], %[[C32]], %[[C32]], %[[C1]], %[[C1]]) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+// CHECK-NOT:     llvm.ptrtoint
+func.func private @lower_layout_ops(
     %src: memref<32x512xf16, strided<[512, 1], offset: ?>, 1>,
     %packed: memref<1x16x16x32x2xf16, 1>,
     %acc: memref<16x32x2xf16, 1>,
@@ -33,10 +43,9 @@ func.func @lower_layout_ops(
 
 // This mirrors the normal pipeline: alignment comes from the allocations and
 // the dynamically selected 32x32 tile, without memref.assume_alignment.
-// CHECK-LABEL: func.func @lower_aligned_tiled_unpack(
-// CHECK:       call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}) : (i32, i32, i32, i32, i32, i32, i32) -> ()
-// CHECK-NOT:   iree_hexagon.hmx.unpack
-func.func @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index) {
+// CHECK-LABEL: llvm.func @lower_aligned_tiled_unpack(
+// CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+func.func private @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index) {
   %c32 = arith.constant 32 : index
   %row = arith.muli %row_tile, %c32 : index
   %col = arith.muli %col_tile, %c32 : index
@@ -56,10 +65,12 @@ func.func @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index) {
 
 // Value-bounds analysis proves that the dynamic logical source occupies at
 // most the statically allocated 2x2 physical grid.
-// CHECK-LABEL: func.func @lower_bounded_dynamic_pack(
-// CHECK:       call @iree_hexagon_hmx_pack_f16
-// CHECK-NOT:   iree_hexagon.hmx.pack
-func.func @lower_bounded_dynamic_pack(%requested_rows: index) {
+// CHECK-LABEL: llvm.func @lower_bounded_dynamic_pack(
+// CHECK-SAME:    %[[REQUESTED:.+]]: i64)
+// CHECK:         %[[ROWS:.+]] = llvm.intr.smin(%[[REQUESTED]], %{{.+}}) : (i64, i64) -> i64
+// CHECK:         %[[ROWS_I32:.+]] = llvm.trunc %[[ROWS]] : i64 to i32
+// CHECK:         llvm.call @iree_hexagon_hmx_pack_f16(%{{.+}}, %{{.+}}, %{{.+}}, %[[ROWS_I32]], %{{.+}}, %{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+func.func private @lower_bounded_dynamic_pack(%requested_rows: index) {
   %rows = affine.min affine_map<(d0) -> (d0, 64)>(%requested_rows)
   %source_storage = hexagonmem.alloc() : memref<64x64xf16, 1>
   %source = memref.subview %source_storage[0, 0] [%rows, 64] [1, 1]
@@ -76,10 +87,9 @@ func.func @lower_bounded_dynamic_pack(%requested_rows: index) {
 
 // A dynamic boundary tile remains legal for rank-3 unpack when its extent is
 // provably no larger than the one 32x32 physical tile.
-// CHECK-LABEL: func.func @lower_bounded_dynamic_rank3_unpack(
-// CHECK:       call @iree_hexagon_hmx_unpack_acc_f16_to_f32
-// CHECK-NOT:   iree_hexagon.hmx.unpack
-func.func @lower_bounded_dynamic_rank3_unpack(%requested_cols: index) {
+// CHECK-LABEL: llvm.func @lower_bounded_dynamic_rank3_unpack(
+// CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+func.func private @lower_bounded_dynamic_rank3_unpack(%requested_cols: index) {
   %cols = affine.min affine_map<(d0) -> (d0, 32)>(%requested_cols)
   %source = hexagonmem.alloc() {alignment = 2048 : i64}
       : memref<16x32x2xf16, 1>
@@ -98,11 +108,14 @@ func.func @lower_bounded_dynamic_rank3_unpack(%requested_cols: index) {
 // transposed runtime packer, which fuses the 32x32 transpose into the pack. The
 // call takes (dest, src, stride, actual_interleave=K=src dim1, actual_other=N=src
 // dim0, interleave_tiles=k=dest dim0, other_tiles=n=dest dim1).
-// CHECK-LABEL: func.func @lower_transposed_pack(
-// CHECK:       call @iree_hexagon_hmx_pack_transposed_f16(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}) : (i32, i32, i32, i32, i32, i32, i32) -> ()
-// CHECK-NOT:   call @iree_hexagon_hmx_pack_f16(
-// CHECK-NOT:   iree_hexagon.hmx.pack
-func.func @lower_transposed_pack(
+// CHECK-LABEL: llvm.func @lower_transposed_pack(
+// CHECK-DAG:     %[[C1:.+]] = llvm.mlir.constant(1 : i32) : i32
+// CHECK-DAG:     %[[C16:.+]] = llvm.mlir.constant(16 : i32) : i32
+// CHECK-DAG:     %[[C32:.+]] = llvm.mlir.constant(32 : i32) : i32
+// CHECK-DAG:     %[[C512:.+]] = llvm.mlir.constant(512 : i32) : i32
+// CHECK:         llvm.call @iree_hexagon_hmx_pack_transposed_f16(%{{.+}}, %{{.+}}, %[[C512]], %[[C512]], %[[C32]], %[[C16]], %[[C1]]) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+// CHECK-NOT:     llvm.call @iree_hexagon_hmx_pack_f16(
+func.func private @lower_transposed_pack(
     %src: memref<32x512xf16, strided<[512, 1], offset: ?>, 1>,
     %packed: memref<16x1x16x32x2xf16, 1>) {
   %src_aligned = memref.assume_alignment %src, 128 : memref<32x512xf16, strided<[512, 1], offset: ?>, 1>
@@ -117,10 +130,9 @@ func.func @lower_transposed_pack(
 // An f16 output matmul unpacks into an f16 destination: the accumulator read-out
 // tile is f16, so the lowering selects the non-widening runtime unpack
 // (de-interleave only) instead of the f16->f32 (widen + add) variant.
-// CHECK-LABEL: func.func @lower_unpack_f16_dest(
-// CHECK:       call @iree_hexagon_hmx_unpack_acc_f16_to_f16(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}) : (i32, i32, i32, i32, i32, i32, i32) -> ()
-// CHECK-NOT:   iree_hexagon.hmx.unpack
-func.func @lower_unpack_f16_dest(
+// CHECK-LABEL: llvm.func @lower_unpack_f16_dest(
+// CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f16(%{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+func.func private @lower_unpack_f16_dest(
     %acc: memref<1x1x16x32x2xf16, 1>,
     %dst: memref<32x32xf16, strided<[512, 1], offset: ?>, 1>) {
   %acc_aligned = memref.assume_alignment %acc, 2048 : memref<1x1x16x32x2xf16, 1>
@@ -135,11 +147,15 @@ func.func @lower_unpack_f16_dest(
 
 // The rank-5 accumulator grid unpacks with a single call; the per-tile loop and
 // boundary clamping live in the runtime, not in MLIR.
-// CHECK-LABEL: func.func @lower_unpack_grid(
-// CHECK:       call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}) : (i32, i32, i32, i32, i32, i32, i32) -> ()
-// CHECK-NOT:   iree_hexagon.hmx.unpack
-// CHECK-NOT:   scf.for
-func.func @lower_unpack_grid(
+// CHECK-LABEL: llvm.func @lower_unpack_grid(
+// CHECK-DAG:     %[[C96:.+]] = llvm.mlir.constant(96 : i32) : i32
+// CHECK-DAG:     %[[C64:.+]] = llvm.mlir.constant(64 : i32) : i32
+// CHECK-DAG:     %[[C128:.+]] = llvm.mlir.constant(128 : i32) : i32
+// CHECK-DAG:     %[[C3:.+]] = llvm.mlir.constant(3 : i32) : i32
+// CHECK-DAG:     %[[C2:.+]] = llvm.mlir.constant(2 : i32) : i32
+// CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}, %{{.+}}, %[[C128]], %[[C64]], %[[C96]], %[[C2]], %[[C3]]) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
+// CHECK-NOT:     llvm.br
+func.func private @lower_unpack_grid(
     %acc: memref<2x3x16x32x2xf16, 1>,
     %dst: memref<64x96xf32, strided<[128, 1], offset: ?>, 1>) {
   %acc_aligned = memref.assume_alignment %acc, 2048 : memref<2x3x16x32x2xf16, 1>
@@ -152,10 +168,10 @@ func.func @lower_unpack_grid(
 
 // -----
 
-// CHECK-LABEL: func.func @lower_acc_setup_read(
-// CHECK:       call @iree_hexagon_hmx_acc_setup_read_f16(%{{.+}}) : (i32) -> ()
-// CHECK-NOT:   iree_hexagon.hmx.acc.setup_read
-func.func @lower_acc_setup_read(%config: memref<256xi8, 1>) {
+// CHECK-LABEL: llvm.func @lower_acc_setup_read(
+// CHECK-SAME:    %{{[^:]+}}: !llvm.ptr, %[[CONFIG:[^:]+]]: !llvm.ptr,
+// CHECK:         llvm.call @iree_hexagon_hmx_acc_setup_read_f16(%[[CONFIG]]) : (!llvm.ptr) -> ()
+func.func private @lower_acc_setup_read(%config: memref<256xi8, 1>) {
   %aligned = memref.assume_alignment %config, 2048 : memref<256xi8, 1>
   iree_hexagon.hmx.acc.setup_read %aligned : memref<256xi8, 1>
   return
@@ -163,14 +179,11 @@ func.func @lower_acc_setup_read(%config: memref<256xi8, 1>) {
 
 // -----
 
-// CHECK-LABEL: func.func @lower_direct_single_mma(
-// CHECK:       call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
-// CHECK:       call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (i32, i32) -> ()
-// CHECK:       call @iree_hexagon_hmx_acc_read_f16(%{{.+}}) : (i32) -> ()
-// CHECK-NOT:   iree_hexagon.hmx.acc.zero
-// CHECK-NOT:   iree_hexagon.hmx.mma
-// CHECK-NOT:   iree_hexagon.hmx.acc.read
-func.func @lower_direct_single_mma(
+// CHECK-LABEL: llvm.func @lower_direct_single_mma(
+// CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
+// CHECK:         llvm.call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr) -> ()
+// CHECK:         llvm.call @iree_hexagon_hmx_acc_read_f16(%{{.+}}) : (!llvm.ptr) -> ()
+func.func private @lower_direct_single_mma(
     %lhs: memref<1x1x16x32x2xf16, 1>,
     %rhs: memref<1x1x16x32x2xf16, 1>,
     %dst: memref<16x32x2xf16, 1>) {
@@ -192,20 +205,20 @@ func.func @lower_direct_single_mma(
 
 // -----
 
-// CHECK-LABEL: func.func @lower_acc_loop(
-// CHECK:       call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
-// CHECK-NOT:   !iree_hexagon.hmx.acc
-// CHECK:       cf.br ^[[LOOP:bb[0-9]+]](%{{.+}} : index)
-// CHECK:       ^[[LOOP]](%{{.+}}: index):
-// CHECK:         cf.cond_br %{{.+}}, ^[[BODY:bb[0-9]+]], ^[[EXIT:bb[0-9]+]]{{$}}
+// The accumulator carried through the loop has no runtime value, so the block
+// arguments that carried it are dropped.
+// CHECK-LABEL: llvm.func @lower_acc_loop(
+// CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
+// CHECK:         llvm.br ^[[LOOP:bb[0-9]+]](%{{.+}} : i64)
+// CHECK:       ^[[LOOP]](%{{.+}}: i64):
+// CHECK:         llvm.cond_br %{{.+}}, ^[[BODY:bb[0-9]+]], ^[[EXIT:bb[0-9]+]]{{$}}
 // CHECK:       ^[[BODY]]:
-// CHECK:         call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (i32, i32) -> ()
-// CHECK:         call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (i32, i32) -> ()
-// CHECK:         cf.br ^[[LOOP]](%{{.+}} : index)
+// CHECK:         llvm.call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr) -> ()
+// CHECK:         llvm.call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr) -> ()
+// CHECK:         llvm.br ^[[LOOP]](%{{.+}} : i64)
 // CHECK:       ^[[EXIT]]:
-// CHECK:       call @iree_hexagon_hmx_acc_read_f16(%{{.+}}) : (i32) -> ()
-// CHECK-NOT:   !iree_hexagon.hmx.acc
-func.func @lower_acc_loop(
+// CHECK:         llvm.call @iree_hexagon_hmx_acc_read_f16(%{{.+}}) : (!llvm.ptr) -> ()
+func.func private @lower_acc_loop(
     %lhs: memref<1x16x16x32x2xf16, 1>,
     %rhs: memref<16x1x16x32x2xf16, 1>,
     %dst: memref<16x32x2xf16, 1>) {
@@ -243,16 +256,16 @@ func.func @lower_acc_loop(
 
 // -----
 
-// CHECK-LABEL: func.func @lower_first_function()
-// CHECK:         call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
-func.func @lower_first_function() {
+// CHECK-LABEL: llvm.func @lower_first_function()
+// CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
+func.func private @lower_first_function() {
   %acc = iree_hexagon.hmx.acc.zero : !iree_hexagon.hmx.acc<32x32xf32>
   return
 }
 
-// CHECK-LABEL: func.func @lower_second_function()
-// CHECK:         call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
-func.func @lower_second_function() {
+// CHECK-LABEL: llvm.func @lower_second_function()
+// CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
+func.func private @lower_second_function() {
   %acc = iree_hexagon.hmx.acc.zero : !iree_hexagon.hmx.acc<32x32xf32>
   return
 }

@@ -58,7 +58,7 @@ namespace {
 // hexKL programs the FP16 accumulator-read bias table from a 256-byte block at
 // config+12288. A full tile-sized scratch keeps the allocation and future
 // config layouts naturally aligned to `IREE::Hexagon::kHmxAlignment`, which is
-// what `HexagonLowerHmxToCallsPass` requires of every buffer reaching the
+// what `HexagonVerifyHmxRuntimeABIPass` requires of every buffer reaching the
 // runtime kernels.
 constexpr int64_t kHmxAccReadConfigBytes = 2048;
 

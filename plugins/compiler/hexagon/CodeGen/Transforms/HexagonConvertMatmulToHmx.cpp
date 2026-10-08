@@ -293,7 +293,7 @@ analyzeHmxMatmul(linalg::MatmulOp matmulOp) {
   // HMX layout conversion and its runtime kernels require every operand to be
   // VTCM-resident. This is an early tensor-level pipeline check: rewrite only
   // values whose VTCM staging marker is preserved through supported tensor and
-  // loop carriers. HexagonLowerHmxToCalls separately validates the concrete
+  // loop carriers. HexagonVerifyHmxRuntimeABI separately validates the concrete
   // memref memory space, layout, and alignment after bufferization at the
   // runtime ABI boundary. Inputs must originate at stage_to_vtcm; the
   // destination may pass through destination-style operations, but must

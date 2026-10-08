@@ -1,5 +1,5 @@
 // RUN: iree-opt \
-// RUN:   --pass-pipeline='builtin.module(iree-hexagon-lower-hmx-to-calls)' \
+// RUN:   --pass-pipeline='builtin.module(iree-hexagon-verify-hmx-runtime-abi)' \
 // RUN:   --split-input-file --verify-diagnostics %s
 
 func.func @reject_unknown_alignment(
@@ -94,23 +94,5 @@ func.func @reject_strided_accumulator_config(
   // expected-error @+1 {{config must be contiguous}}
   iree_hexagon.hmx.acc.setup_read %aligned
       : memref<256xi8, strided<[2]>, 1>
-  return
-}
-
-// -----
-
-func.func @reject_unexpanded_hmx_matmul(
-    %lhs: memref<1x1x16x32x2xf16, 1>,
-    %rhs: memref<1x1x16x32x2xf16, 1>,
-    %acc: memref<16x32x2xf16, 1>) {
-  // expected-error @+1 {{unexpected HMX operation remained after lowering}}
-  iree_hexagon.hmx.matmul ins(%lhs, %rhs : memref<1x1x16x32x2xf16, 1>, memref<1x1x16x32x2xf16, 1>) outs(%acc : memref<16x32x2xf16, 1>)
-  return
-}
-
-// -----
-
-// expected-error @+1 {{unexpected HMX accumulator in function signature after lowering}}
-func.func @reject_residual_accumulator_argument(%acc: !iree_hexagon.hmx.acc<32x32xf32>) {
   return
 }

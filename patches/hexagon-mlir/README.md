@@ -19,6 +19,7 @@ Other patches provide plugin integration or fix bugs independently of LLVM.
 | [llvm_adt_api_updates.patch](llvm_adt_api_updates.patch) | LLVM runtime-header compatibility | Align copied StringMap/hash implementations with current LLVM headers: initialization, linear probing/removal and the core `xxh3_64bits` signature. |
 | [misc_build_fixes.patch](misc_build_fixes.patch) | Release-build bug fix / portability | Move stride/width computation out of assertions so it still executes with `NDEBUG`; initialize outputs and reject unsupported layouts. Also fix an unused capture and use `int64_t` rather than platform-dependent `long`. |
 | [pass_registration_macros.patch](pass_registration_macros.patch) | Expose plugin APIs / LLVM compatibility | Export DMA, HexKL and HexagonMem conversion-pattern population functions and labels so the plugin can use one configured type converter. Also update generated-pass macros and base namespaces. |
+| [remove_copy_op_interface.patch](remove_copy_op_interface.patch) | LLVM compatibility / remove unused API | Remove the unused `CopyOpInterface` trait and its two includes from `hexagonmem.copy`, following LLVM's removal. Replaces the interface copy previously built by the Bazel/CMake overlay. |
 | [vector_math_pattern_population_api.patch](vector_math_pattern_population_api.patch) | LLVM compatibility | Replace removed math expansion helpers with the aggregate API and split vector multi-reduction lowering into reorder, flatten and unroll population calls. |
 
 ## Index width versus constant attributes

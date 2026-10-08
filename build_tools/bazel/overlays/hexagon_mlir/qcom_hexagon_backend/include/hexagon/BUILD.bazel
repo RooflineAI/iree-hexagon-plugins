@@ -61,11 +61,10 @@ cc_library(
     name = "HexagonMemHeadersLib",
     hdrs = [":HexagonMemHeaders"],
     include_prefix = "hexagon-mlir",
+    # Vendor sources include hexagon/... directly as well as the plugin prefix.
+    includes = [".."],
     strip_include_prefix = ".",
-    deps = [
-        ":HexagonMemTableGen",
-        "@hexagon-mlir//qcom_hexagon_backend/include/mlir/Interfaces:CopyOpInterface",
-    ],
+    deps = [":HexagonMemTableGen"],
 )
 
 filegroup(
@@ -148,7 +147,6 @@ td_library(
     ],
     includes = ["/qcom_hexagon_backend/include"],
     deps = [
-        "@hexagon-mlir//qcom_hexagon_backend/include/mlir/Interfaces:CopyOpInterfaceTdFiles",
         "@llvm-project//mlir:AttrTdFiles",
         "@llvm-project//mlir:BuiltinDialectTdFiles",
         "@llvm-project//mlir:DestinationStyleOpInterfaceTdFiles",

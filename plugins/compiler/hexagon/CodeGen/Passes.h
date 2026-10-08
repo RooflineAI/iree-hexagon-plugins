@@ -29,10 +29,8 @@ struct HexagonVectorLoweringPassOptions {
   std::string splitVectorTransfersTo = "";
 };
 
-// Registers Hexagon-owned passes for custom pipelines and debugging utilities.
-void registerHexagonPasses();
-
-// Registers Hexagon pass pipelines (configuration, translation, linking).
+// Registers Hexagon passes and pass pipelines (configuration, translation,
+// linking).
 void registerHexagonCodeGenPasses();
 
 #define GEN_PASS_DECL

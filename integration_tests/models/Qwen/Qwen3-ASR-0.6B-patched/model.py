@@ -19,9 +19,6 @@ Instance-level patches, all bit-identical in eager torch on this clip:
   * the encoder's window bookkeeping (cu_seqlens, valid post-CNN positions) is
     computed once from an all-valid 400-frame mask and frozen - torch.export
     cannot trace it, it depends on mask values;
-  * the attention skips the `split` into windows when there is one window: the
-    export of that split produces a torch.aten.unflatten.int that segfaults
-    torch-mlir's ConvertAtenUnflattenIntOp on every target;
   * the audio-placeholder count check is dropped (data-dependent, and the
     processor guarantees it).
 """
@@ -60,18 +57,13 @@ def _static_encoder(encoder: torch.nn.Module) -> None:
             .unsqueeze(0)
             for proj in (self.q_proj, self.k_proj, self.v_proj)
         )
-        if len(split_lengths) == 1:
-            out = F.scaled_dot_product_attention(q, k, v, scale=self.scaling)
-        else:
-            out = torch.cat(
-                [
-                    F.scaled_dot_product_attention(qq, kk, vv, scale=self.scaling)
-                    for qq, kk, vv in zip(
-                        *(t.split(split_lengths, 2) for t in (q, k, v))
-                    )
-                ],
-                dim=2,
-            )
+        out = torch.cat(
+            [
+                F.scaled_dot_product_attention(qq, kk, vv, scale=self.scaling)
+                for qq, kk, vv in zip(*(t.split(split_lengths, 2) for t in (q, k, v)))
+            ],
+            dim=2,
+        )
         return self.out_proj(out.transpose(1, 2).reshape(seq_length, -1).contiguous())
 
     def encoder_forward(self, input_features, input_features_mask, **kwargs):

@@ -8,7 +8,7 @@ func.func @reject_unknown_alignment(
   %packed_aligned = memref.assume_alignment %packed, 2048 : memref<1x1x16x32x2xf16, 1>
   // expected-error @+1 {{source must be known to be 64-byte aligned}}
   iree_hexagon.hmx.pack ins(%src : memref<32x32xf16, 1>)
-      outs(%packed_aligned : memref<1x1x16x32x2xf16, 1>) {dim = 0 : i64}
+      outs(%packed_aligned : memref<1x1x16x32x2xf16, 1>) <dim = 0>
   return
 }
 
@@ -21,7 +21,7 @@ func.func @reject_non_vtcm(
   %packed_aligned = memref.assume_alignment %packed, 2048 : memref<1x1x16x32x2xf16, 1>
   // expected-error @+1 {{source must be in VTCM memory space 1}}
   iree_hexagon.hmx.pack ins(%src_aligned : memref<32x32xf16>)
-      outs(%packed_aligned : memref<1x1x16x32x2xf16, 1>) {dim = 0 : i64}
+      outs(%packed_aligned : memref<1x1x16x32x2xf16, 1>) <dim = 0>
   return
 }
 
@@ -42,14 +42,14 @@ func.func @reject_misaligned_mma(
 // -----
 
 func.func @reject_arbitrary_dynamic_subview_offset(%col: index) {
-  %source = memref.alloc() {alignment = 2048 : i64} : memref<16x32x2xf16, 1>
-  %dest = memref.alloc() {alignment = 128 : i64} : memref<32x64xf32, 1>
+  %source = memref.alloc() alignment = 2048 : memref<16x32x2xf16, 1>
+  %dest = memref.alloc() alignment = 128 : memref<32x64xf32, 1>
   %dest_tile = memref.subview %dest[0, %col] [32, 32] [1, 1]
       : memref<32x64xf32, 1> to memref<32x32xf32, strided<[64, 1], offset: ?>, 1>
   // expected-error @+1 {{destination must be known to be 128-byte aligned}}
   iree_hexagon.hmx.unpack ins(%source : memref<16x32x2xf16, 1>)
       outs(%dest_tile : memref<32x32xf32, strided<[64, 1], offset: ?>, 1>)
-      {dim = 0 : i64}
+      <dim = 0>
   return
 }
 
@@ -61,11 +61,11 @@ func.func @reject_unbounded_dynamic_pack_grid(%rows: index) {
   %source = memref.subview %source_storage[0, 0] [%rows, 64] [1, 1]
       : memref<128x64xf16, 1>
       to memref<?x64xf16, strided<[64, 1]>, 1>
-  %packed = hexagonmem.alloc() {alignment = 2048 : i64}
+  %packed = hexagonmem.alloc() <alignment = 2048>
       : memref<2x2x16x32x2xf16, 1>
   // expected-error @+1 {{could not prove an upper bound for source dimension 0}}
   iree_hexagon.hmx.pack ins(%source : memref<?x64xf16, strided<[64, 1]>, 1>)
-      outs(%packed : memref<2x2x16x32x2xf16, 1>) {dim = 0 : i64}
+      outs(%packed : memref<2x2x16x32x2xf16, 1>) <dim = 0>
   return
 }
 
@@ -73,7 +73,7 @@ func.func @reject_unbounded_dynamic_pack_grid(%rows: index) {
 
 // Same observation as for the test reject_unbounded_dynamic_pack_grid
 func.func @reject_unbounded_dynamic_rank3_unpack(%cols: index) {
-  %source = hexagonmem.alloc() {alignment = 2048 : i64}
+  %source = hexagonmem.alloc() <alignment = 2048>
       : memref<16x32x2xf16, 1>
   %dest_storage = hexagonmem.alloc() : memref<32x64xf32, 1>
   %dest = memref.subview %dest_storage[0, 0] [32, %cols] [1, 1]
@@ -81,7 +81,7 @@ func.func @reject_unbounded_dynamic_rank3_unpack(%cols: index) {
       to memref<32x?xf32, strided<[64, 1]>, 1>
   // expected-error @+1 {{could not prove an upper bound for rank-3 unpack destination dimension 1}}
   iree_hexagon.hmx.unpack ins(%source : memref<16x32x2xf16, 1>)
-      outs(%dest : memref<32x?xf32, strided<[64, 1]>, 1>) {dim = 0 : i64}
+      outs(%dest : memref<32x?xf32, strided<[64, 1]>, 1>) <dim = 0>
   return
 }
 

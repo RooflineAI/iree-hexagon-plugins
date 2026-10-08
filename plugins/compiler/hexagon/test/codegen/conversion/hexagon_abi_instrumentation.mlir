@@ -25,7 +25,7 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK: llvm.getelementptr inbounds {{.+}}[{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, i8
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
   // CHECK: %[[RECORD_OFFSET:.+]] = llvm.and {{.+}}, {{.+}} : i64
-  // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i32, i32, i32, i32, i32, i32, i32, i32)>, !llvm.ptr
+  // CHECK: llvm.store {{.+}} <alignment = 16> : !llvm.struct<(i32, i32, i32, i32, i32, i32, i32, i32)>, !llvm.ptr
   // The workgroup key is the record offset as a 32-bit index. Each record
   // header carries it in its upper 40 bits.
   // CHECK: %[[KEY:.+]] = llvm.trunc %[[RECORD_OFFSET]] : i64 to i32
@@ -37,17 +37,17 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK: %[[VALUE_TYPE:.+]] = llvm.mlir.constant(197634 : i64) : i64
   // CHECK: llvm.or %[[KEY_BITS]], %[[VALUE_TYPE]] : i64
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
-  // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i64, i64)>, !llvm.ptr
+  // CHECK: llvm.store {{.+}} <alignment = 16> : !llvm.struct<(i64, i64)>, !llvm.ptr
   // CHECK: llvm.call @sink_i32(%[[SCALAR:.+]])
   // CHECK: %[[LOADED:.+]] = llvm.load {{.+}} : !llvm.ptr -> f32
   // CHECK: llvm.mlir.constant(1028 : i64) : i64
   // CHECK: llvm.ptrtoint {{.+}} : !llvm.ptr to i64
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
-  // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i64, i64)>, !llvm.ptr
+  // CHECK: llvm.store {{.+}} <alignment = 16> : !llvm.struct<(i64, i64)>, !llvm.ptr
   // CHECK: llvm.mlir.constant(1029 : i64) : i64
   // CHECK: llvm.ptrtoint {{.+}} : !llvm.ptr to i64
   // CHECK: llvm.atomicrmw add {{.+}}, {{.+}} monotonic
-  // CHECK: llvm.store {{.+}} {alignment = 16 : i64} : !llvm.struct<(i64, i64)>, !llvm.ptr
+  // CHECK: llvm.store {{.+}} <alignment = 16> : !llvm.struct<(i64, i64)>, !llvm.ptr
   // CHECK: llvm.store %[[LOADED]], {{.+}} : f32, !llvm.ptr
   func.func @instrument_supported() {
     %c0 = arith.constant 0 : index

@@ -36,14 +36,14 @@ func.func @partial_transfer(%base: memref<?x8xf32>, %i: index) -> vector<4x8xf32
 // CHECK: %[[M0:.*]] = vector.extract %[[MASK]][0]
 // CHECK: %[[R0:.*]] = scf.if %[[M0]]
 // CHECK: vector.load %[[BASE]]
-// CHECK-SAME: {alignment = 16 : i64}
+// CHECK-SAME: alignment = 16
 // CHECK: vector.insert {{.*}}, %[[PASS]] [0]
 // CHECK: } else {
 // CHECK: scf.yield %[[PASS]]
 // CHECK: %[[M1:.*]] = vector.extract %[[MASK]][1]
 // CHECK: scf.if %[[M1]]
 // CHECK: vector.load %[[BASE]]
-// CHECK-SAME: {alignment = 16 : i64}
+// CHECK-SAME: alignment = 16
 // CHECK: vector.insert {{.*}}, %[[R0]] [1]
 // CHECK: } else {
 // CHECK: scf.yield %[[R0]]
@@ -51,7 +51,7 @@ func.func @partial_transfer(%base: memref<?x8xf32>, %i: index) -> vector<4x8xf32
 func.func @masked_aligned_gather(%base: memref<4x8xf32>, %indices: vector<2xi32>,
     %mask: vector<2xi1>, %pass: vector<2xf32>, %i: index, %j: index) -> vector<2xf32>
     attributes {hal.executable.target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {target_triple = "hexagon-unknown-unknown-elf", cpu_features = "+hvxv79,+hvx-length128b"}>} {
-  %r = vector.gather %base[%i, %j] [%indices], %mask, %pass {alignment = 16 : i64}
+  %r = vector.gather %base[%i, %j] [%indices], %mask, %pass alignment = 16
       : memref<4x8xf32>, vector<2xi32>, vector<2xi1>, vector<2xf32> into vector<2xf32>
   return %r : vector<2xf32>
 }

@@ -1,7 +1,8 @@
 diff --git a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
+index b1a420d..a69afbe 100644
 --- a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
 +++ b/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp
-@@ -64,6 +64,8 @@
+@@ -62,6 +62,8 @@ static Value truncToI32(ConversionPatternRewriter &rewriter, Location loc,
    // Ensure the value is of an integer type
    assert(llvm::isa<IntegerType>(val.getType()) && "Expected an integer type");
    MLIRContext *context = rewriter.getContext();
@@ -10,7 +11,7 @@ diff --git a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp b/q
    // Create and return a truncation operation to i32 type
    return rewriter.create<LLVM::TruncOp>(loc, rewriter.getI32Type(), val);
  }
-@@ -116,6 +118,8 @@
+@@ -114,6 +116,8 @@ Value convertToI32Type(mlir::Location loc, Value value,
    // Get the type of the value
    mlir::Type type = value.getType();
    assert(mlir::LLVM::isCompatibleType(type));
@@ -18,11 +19,19 @@ diff --git a/qcom_hexagon_backend/lib/Conversion/DMAToLLVM/DMAToLLVMPass.cpp b/q
 +    return value;
    return rewriter.create<LLVM::TruncOp>(loc, rewriter.getI32Type(), value);
  }
- 
+
 diff --git a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
+index 8828398..90ba0c3 100644
 --- a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
 +++ b/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLLVMPass.cpp
-@@ -90,9 +90,9 @@
+@@ -84,15 +84,15 @@ static Value computeAllocationSize(MemRefType type,
+
+   // Compute number of elements.
+   Value numElements = rewriter.create<LLVM::ConstantOp>(
+-      loc, indexType, rewriter.getIndexAttr(1));
++      loc, indexType, 1);
+   for (int pos = 0; pos < type.getRank(); ++pos) {
+     auto size = desc.size(rewriter, loc, pos);
      numElements = rewriter.create<LLVM::MulOp>(loc, numElements, size);
    }
    Value totalSize = rewriter.create<LLVM::MulOp>(loc, numElements, sizeInBytes);
@@ -33,12 +42,12 @@ diff --git a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLL
 +    return totalSize;
 +  return rewriter.create<LLVM::TruncOp>(loc, rewriter.getI32Type(), totalSize);
  }
- 
+
  /// Runtime call prototype for memref type:
-@@ -158,11 +158,10 @@
+@@ -158,11 +158,10 @@ struct LowerAlloc : public ConvertOpToLLVMPattern<hexagonmem::AllocOp> {
        return success();
      }
- 
+
 -    Value alignmentValue;
 -    auto alignmentAttr = op.getAlignment();
 -    Type indexType = getIndexType();
@@ -48,10 +57,10 @@ diff --git a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLL
 +    // target's index bitwidth.
 +    Value alignmentValue = createIndexAttrConstant(
 +        rewriter, loc, rewriter.getI64Type(), op.getAlignment());
- 
+
      auto allocFnName = getAllocFnName();
      FailureOr<LLVM::LLVMFuncOp> funcOp = getAllocFn(
-@@ -186,8 +185,10 @@
+@@ -186,8 +185,10 @@ struct LowerAlloc : public ConvertOpToLLVMPattern<hexagonmem::AllocOp> {
      this->getMemRefDescriptorSizes(loc, memRefType, adaptor.getOperands(),
                                     rewriter, sizes, strides, size,
                                     /* sizeInBytes */ true);
@@ -64,3 +73,13 @@ diff --git a/qcom_hexagon_backend/lib/Conversion/HexagonMemToLLVM/HexagonMemToLL
      mlir::LLVM::CallOp callOp = rewriter.create<LLVM::CallOp>(
          loc, funcOp.value(),
          ValueRange({sizeAsI32, alignmentValue, isInVtcmValue}));
+@@ -294,8 +295,7 @@ struct LowerCopy : public ConvertOpToLLVMPattern<hexagonmem::CopyOp> {
+                          : adaptor.getTarget();
+
+     // Now promote the unranked descriptors to the stack.
+-    auto one = rewriter.create<LLVM::ConstantOp>(loc, getIndexType(),
+-                                                 rewriter.getIndexAttr(1));
++    auto one = rewriter.create<LLVM::ConstantOp>(loc, getIndexType(), 1);
+     auto promote = [&](Value desc) {
+       auto ptrType = LLVM::LLVMPointerType::get(rewriter.getContext());
+       auto allocated =

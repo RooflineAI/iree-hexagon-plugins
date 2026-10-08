@@ -16,6 +16,7 @@
 # patches are skipped.
 
 set -euo pipefail
+shopt -s nullglob
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"

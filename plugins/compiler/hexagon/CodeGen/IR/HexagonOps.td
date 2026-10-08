@@ -65,7 +65,7 @@ def IREEHexagon_ProfilerBeginOp :
   let results = (outs IREEHexagon_ProfilerRecordType:$record);
 
   let assemblyFormat =
-      "$state attr-dict `:` type($state) `->` type($record)";
+      "$state prop-dict attr-dict `:` type($state) `->` type($record)";
 }
 
 def IREEHexagon_ProfilerEndOp :
@@ -218,7 +218,7 @@ def IREEHexagon_HmxPackOp :
 
   let assemblyFormat = [{
     `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
-    attr-dict
+    prop-dict attr-dict
   }];
 
   let hasVerifier = 1;
@@ -244,7 +244,7 @@ def IREEHexagon_HmxUnpackOp :
 
   let assemblyFormat = [{
     `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
-    attr-dict
+    prop-dict attr-dict
   }];
 
   let hasVerifier = 1;
@@ -321,7 +321,7 @@ def IREEHexagon_TensorHmxPackOp :
 
   let assemblyFormat = [{
     `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
-    attr-dict `->` type($result)
+    prop-dict attr-dict `->` type($result)
   }];
 
   let extraClassDeclaration = [{
@@ -366,7 +366,7 @@ def IREEHexagon_TensorHmxUnpackOp :
 
   let assemblyFormat = [{
     `ins` `(` $source `:` type($source) `)` `outs` `(` $dest `:` type($dest) `)`
-    attr-dict `->` type($result)
+    prop-dict attr-dict `->` type($result)
   }];
 
   let extraClassDeclaration = [{

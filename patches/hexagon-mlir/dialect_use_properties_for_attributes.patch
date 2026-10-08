@@ -22,6 +22,28 @@ index ca78ef9..db19545 100644
  }
 
  #endif // HEXAGON_DIALECT_HEXAGONMEM_IR_HEXAGONMEM_DIALECT_TD
+diff --git a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemOps.td b/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemOps.td
+index 55a520f..5904a65 100644
+--- a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemOps.td
++++ b/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemOps.td
+@@ -57,7 +57,7 @@ def HexagonMem_AllocOp : HexagonMem_Op<"alloc"> {
+   let results = (outs Res<AnyMemRefType, "",
+                           [MemAlloc<DefaultResource, 0, FullEffect>]>:$buffer);
+
+-  let assemblyFormat = "`(`$dynamicSizes`)` attr-dict `:` qualified(type($buffer))";
++  let assemblyFormat = "`(`$dynamicSizes`)` prop-dict attr-dict `:` qualified(type($buffer))";
+
+   let hasVerifier = 1;
+ }
+@@ -156,7 +156,7 @@ def HexagonMem_ConvertLayoutOp : HexagonMem_Op<"convert_layout"> {
+
+   let assemblyFormat = [{
+     `ins` `(` $source `:` type($source)`)` `,`
+-      `outs` `(` $target `:` type($target)`)` attr-dict
++      `outs` `(` $target `:` type($target)`)` prop-dict attr-dict
+   }];
+
+   // TODO
 diff --git a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonTPtr/IR/HexagonTPtrDialect.td b/qcom_hexagon_backend/include/hexagon/Dialect/HexagonTPtr/IR/HexagonTPtrDialect.td
 index 7e1f2d7..8c36ae8 100644
 --- a/qcom_hexagon_backend/include/hexagon/Dialect/HexagonTPtr/IR/HexagonTPtrDialect.td

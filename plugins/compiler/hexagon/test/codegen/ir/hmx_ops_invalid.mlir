@@ -22,7 +22,7 @@ func.func @reject_pack_dim(
   // expected-error @+1 {{dim must be 0 or 1}}
   %packed = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf16>)
-      outs(%dest : tensor<1x1x16x32x2xf16>) {dim = 2 : i64}
+      outs(%dest : tensor<1x1x16x32x2xf16>) <dim = 2>
       -> tensor<1x1x16x32x2xf16>
   return
 }
@@ -35,7 +35,7 @@ func.func @reject_dynamic_physical_suffix(
   // expected-error @+1 {{destination must have the static physical suffix [16, 32, 2]}}
   %packed = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf16>)
-      outs(%dest : tensor<1x1x?x32x2xf16>) {dim = 0 : i64}
+      outs(%dest : tensor<1x1x?x32x2xf16>) <dim = 0>
       -> tensor<1x1x?x32x2xf16>
   return
 }
@@ -48,7 +48,7 @@ func.func @reject_dynamic_physical_grid(
   // expected-error @+1 {{destination must have positive static tile-grid dimensions}}
   %packed = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf16>)
-      outs(%dest : tensor<?x1x16x32x2xf16>) {dim = 0 : i64}
+      outs(%dest : tensor<?x1x16x32x2xf16>) <dim = 0>
       -> tensor<?x1x16x32x2xf16>
   return
 }
@@ -61,7 +61,7 @@ func.func @reject_pack_source_rank(
   // expected-error @+1 {{source must be a rank-2 f16 shaped value}}
   %packed = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<1x32x32xf16>)
-      outs(%dest : tensor<1x1x16x32x2xf16>) {dim = 0 : i64}
+      outs(%dest : tensor<1x1x16x32x2xf16>) <dim = 0>
       -> tensor<1x1x16x32x2xf16>
   return
 }
@@ -74,7 +74,7 @@ func.func @reject_pack_source_type(
   // expected-error @+1 {{source must be a rank-2 f16 shaped value}}
   %packed = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf32>)
-      outs(%dest : tensor<1x1x16x32x2xf16>) {dim = 0 : i64}
+      outs(%dest : tensor<1x1x16x32x2xf16>) <dim = 0>
       -> tensor<1x1x16x32x2xf16>
   return
 }
@@ -87,7 +87,7 @@ func.func @reject_pack_result_not_tied_to_init(
   // expected-error @+1 {{failed to verify that all of {dest, result} have same type}}
   %packed = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf16>)
-      outs(%dest : tensor<1x1x16x32x2xf16>) {dim = 0 : i64}
+      outs(%dest : tensor<1x1x16x32x2xf16>) <dim = 0>
       -> tensor<2x1x16x32x2xf16>
   return
 }
@@ -99,7 +99,7 @@ func.func @reject_undersized_pack_grid(
     %dest: memref<1x1x16x32x2xf16, 1>) {
   // expected-error @+1 {{destination grid does not cover ceil(rows/32) logical tiles}}
   iree_hexagon.hmx.pack ins(%source : memref<64x32xf16, 1>)
-      outs(%dest : memref<1x1x16x32x2xf16, 1>) {dim = 0 : i64}
+      outs(%dest : memref<1x1x16x32x2xf16, 1>) <dim = 0>
   return
 }
 
@@ -169,7 +169,7 @@ func.func @reject_large_single_tile_unpack(
   // expected-error @+1 {{a rank-3 source can unpack at most one logical 32x32 tile}}
   %result = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<16x32x2xf16>)
-      outs(%dest : tensor<33x32xf32>) {dim = 0 : i64}
+      outs(%dest : tensor<33x32xf32>) <dim = 0>
       -> tensor<33x32xf32>
   return
 }
@@ -181,7 +181,7 @@ func.func @reject_undersized_unpack_grid(
   // expected-error @+1 {{source grid does not cover ceil(rows/32) logical tiles}}
   %result = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<1x1x16x32x2xf16>)
-      outs(%dest : tensor<33x32xf32>) {dim = 0 : i64}
+      outs(%dest : tensor<33x32xf32>) <dim = 0>
       -> tensor<33x32xf32>
   return
 }
@@ -193,7 +193,7 @@ func.func @reject_unpack_dim(
   // expected-error @+1 {{dim must be 0}}
   %result = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<1x1x16x32x2xf16>)
-      outs(%dest : tensor<32x32xf32>) {dim = 1 : i64}
+      outs(%dest : tensor<32x32xf32>) <dim = 1>
       -> tensor<32x32xf32>
   return
 }
@@ -205,7 +205,7 @@ func.func @reject_unpack_destination_type(
   // expected-error @+1 {{destination must be a rank-2 f16 or f32 value}}
   %result = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<1x1x16x32x2xf16>)
-      outs(%dest : tensor<32x32xi32>) {dim = 0 : i64}
+      outs(%dest : tensor<32x32xi32>) <dim = 0>
       -> tensor<32x32xi32>
   return
 }

@@ -30,7 +30,7 @@ func.func @bufferize_hmx_chain(
   %packed_result = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf16>)
       outs(%packed : tensor<1x1x16x32x2xf16>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<1x1x16x32x2xf16>
   %product = iree_hexagon.hmx.tensor_matmul
       ins(%lhs, %rhs : tensor<1x1x16x32x2xf16>,
@@ -40,7 +40,7 @@ func.func @bufferize_hmx_chain(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%product : tensor<1x1x16x32x2xf16>)
       outs(%result : tensor<32x32xf32>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<32x32xf32>
   return %unpacked : tensor<32x32xf32>
 }
@@ -62,7 +62,7 @@ func.func @bufferize_write_only_pack_dest(
   %packed = iree_hexagon.hmx.tensor_pack
       ins(%source : tensor<32x32xf16>)
       outs(%dest : tensor<1x1x16x32x2xf16>)
-      {dim = 0 : i64} -> tensor<1x1x16x32x2xf16>
+      <dim = 0> -> tensor<1x1x16x32x2xf16>
   return %packed, %dest
       : tensor<1x1x16x32x2xf16>, tensor<1x1x16x32x2xf16>
 }
@@ -106,6 +106,6 @@ func.func @bufferize_read_write_unpack_dest(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<1x1x16x32x2xf16>)
       outs(%dest : tensor<32x32xf32>)
-      {dim = 0 : i64} -> tensor<32x32xf32>
+      <dim = 0> -> tensor<32x32xf32>
   return %unpacked, %dest : tensor<32x32xf32>, tensor<32x32xf32>
 }

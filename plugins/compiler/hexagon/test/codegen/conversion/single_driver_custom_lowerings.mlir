@@ -16,7 +16,7 @@ module {
     %c0 = arith.constant 0 : index
     %c4 = arith.constant 4 : index
     %src = memref.alloc() : memref<4xf32>
-    %dst = hexagonmem.alloc() {alignment = 128 : i64} : memref<4xf32, 1>
+    %dst = hexagonmem.alloc() <alignment = 128> : memref<4xf32, 1>
     %tag = memref.alloca() : memref<1xi32>
     memref.dma_start %src[%c0], %dst[%c0], %c4, %tag[%c0]
         : memref<4xf32>, memref<4xf32, 1>, memref<1xi32>

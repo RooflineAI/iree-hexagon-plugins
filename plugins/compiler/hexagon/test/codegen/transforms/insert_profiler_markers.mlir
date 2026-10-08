@@ -17,17 +17,17 @@ func.func @insert_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
 
 // CHECK-LABEL: func.func @insert_markers(
 // CHECK: %[[CTX:.*]] = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
-// CHECK: %[[ALLOC_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "hexagonmem.alloc", zone_type = #iree_hexagon.profiler_zone<memory_management>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[ALLOC_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "hexagonmem.alloc"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: hexagonmem.alloc
 // CHECK-NEXT: iree_hexagon.profiler.end %[[ALLOC_REC]] : !iree_hexagon.profiler_record
-// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "hexagonmem.copy", zone_type = #iree_hexagon.profiler_zone<memory_management>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "hexagonmem.copy"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: hexagonmem.copy
 // CHECK-NEXT: iree_hexagon.profiler.end %[[COPY_REC]] : !iree_hexagon.profiler_record
-// CHECK: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "compute.inner_loop", zone_type = #iree_hexagon.profiler_zone<marker>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = marker, extra_info = "compute.inner_loop"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: scf.for
 // CHECK: }
 // CHECK-NEXT: iree_hexagon.profiler.end %[[LOOP_REC]] : !iree_hexagon.profiler_record
-// CHECK: %[[DEALLOC_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "hexagonmem.dealloc", zone_type = #iree_hexagon.profiler_zone<memory_management>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[DEALLOC_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "hexagonmem.dealloc"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: hexagonmem.dealloc
 // CHECK-NEXT: iree_hexagon.profiler.end %[[DEALLOC_REC]] : !iree_hexagon.profiler_record
 
@@ -50,10 +50,10 @@ func.func @nested_loop_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
 // CHECK: %[[CTX:.*]] = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
 // CHECK-NOT: extra_info = "compute.inner_loop"
 // CHECK: scf.for
-// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "hexagonmem.copy", zone_type = #iree_hexagon.profiler_zone<memory_management>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "hexagonmem.copy"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: hexagonmem.copy
 // CHECK-NEXT: iree_hexagon.profiler.end %[[COPY_REC]] : !iree_hexagon.profiler_record
-// CHECK-NEXT: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "compute.inner_loop", zone_type = #iree_hexagon.profiler_zone<marker>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK-NEXT: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = marker, extra_info = "compute.inner_loop"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: scf.for
 // CHECK-NOT: iree_hexagon.profiler.begin
 // CHECK: scf.for
@@ -73,15 +73,15 @@ func.func @memory_management_markers(%src: memref<4xf32>, %dst: memref<4xf32>) {
 // CHECK-LABEL: func.func @memory_management_markers(
 // CHECK: %[[CTX:.*]] = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
 
-// CHECK: %[[ALLOC_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "kernel_allocation", zone_type = #iree_hexagon.profiler_zone<memory_management>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[ALLOC_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "kernel_allocation"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: memref.alloc
 // CHECK-NEXT: iree_hexagon.profiler.end %[[ALLOC_REC]] : !iree_hexagon.profiler_record
 
-// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "memref_copy", zone_type = #iree_hexagon.profiler_zone<memory_management>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "memref_copy"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: memref.copy
 // CHECK-NEXT: iree_hexagon.profiler.end %[[COPY_REC]] : !iree_hexagon.profiler_record
 
-// CHECK: %[[FREE_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] {extra_info = "kernel_free", zone_type = #iree_hexagon.profiler_zone<memory_management>} : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[FREE_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "kernel_free"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: memref.dealloc
 // CHECK-NEXT: iree_hexagon.profiler.end %[[FREE_REC]] : !iree_hexagon.profiler_record
 

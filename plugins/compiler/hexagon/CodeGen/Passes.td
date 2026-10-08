@@ -13,13 +13,97 @@ include "mlir/Pass/PassBase.td"
 // Hexagon Codegen passes (keep alphabetical)
 //------------------------------------------------------------------------------
 
-def FoldDispatchOutputStagingPass :
-    InterfacePass<"iree-hexagon-fold-dispatch-output-staging",
-                  "mlir::FunctionOpInterface"> {
-  let summary = [{
-      Fold output staging tensors produced as
-      `bufferization.alloc_tensor copy(...) {memory_space = 0}` directly into
-      `iree_tensor_ext.dispatch.tensor.store` value operands.
+def HexagonPeelPass :
+    InterfacePass<"iree-hexagon-peel", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to perform peeling on non-distributed loops.";
+}
+
+def HexagonSplitReductionPass :
+    InterfacePass<"iree-hexagon-split-reduction", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to splitReduce linalg operations.";
+  let options = [
+    Option<"enableFpReductionReordering", "enable-fp-reduction-reordering",
+      "bool", /*default=*/"false",
+      "Flag to enable reduction reordering on floating points.">,
+  ];
+}
+
+def HexagonTilePass :
+    InterfacePass<"iree-hexagon-tile", "mlir::FunctionOpInterface"> {
+  let summary = "Pass to tile TilingInterface operations.";
+  let description = [{
+    Walk through all the TilingInterface operations and apply the tiling, if the
+    given level is found in the operation's lowering config.
+  }];
+  let options = [
+    Option<"tilingLevel", "tiling-level", "IREE::CPU::TilingLevel",
+      /*default=*/"IREE::CPU::TilingLevel::InvalidLevel",
+      "Tiling level used to retrieve the configuration from lowering_config.",
+      [{llvm::cl::values(
+        clEnumValN(IREE::CPU::TilingLevel::DistributionTiles, "distribution",
+                   "Use `distribution` tile sizes."),
+        clEnumValN(IREE::CPU::TilingLevel::CacheParallelTiles, "cache_parallel",
+                   "Use `cache_parallel` tile sizes."),
+        clEnumValN(IREE::CPU::TilingLevel::CacheReductionTiles, "cache_reduction",
+                   "Use `cache_reduction` tile sizes."),
+        clEnumValN(IREE::CPU::TilingLevel::VectorCommonParallelTiles, "vector_common_parallel",
+                   "Use `vector_common_parallel` tile sizes."),
+        clEnumValN(IREE::CPU::TilingLevel::VectorReductionTiles, "vector_reduction",
+                   "Use `vector_reduction` tile sizes."),
+        clEnumValN(IREE::CPU::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
+                   "Use `vector_inner_parallel` tile sizes.")
+      )}]>,
+    Option<"skipRootOp", "skip-root-op", "bool", /*default=*/"false",
+      "Do not tile the root op if the option is true.">
+  ];
+}
+
+def HexagonTileAndFuseProducerConsumerPass
+    : InterfacePass<"iree-hexagon-tile-and-fuse-producer-consumer",
+                    "mlir::FunctionOpInterface"> {
+  let summary = "Pass to tile root op and fuse with producer and consumer "
+                "TilingInterface ops.";
+  let options =
+      [Option<"tilingLevel", "tiling-level", "IREE::CPU::TilingLevel",
+           /*default=*/"IREE::CPU::TilingLevel::VectorInnerParallelTiles",
+           "The tiling level used to retrieve the configuration from lowering_config",
+           [{llvm::cl::values(
+              clEnumValN(IREE::CPU::TilingLevel::DistributionTiles, "distribution",
+                         "Use `distribution` tile sizes."),
+              clEnumValN(IREE::CPU::TilingLevel::CacheParallelTiles, "cache_parallel",
+                         "Use `cache_parallel` tile sizes."),
+              clEnumValN(IREE::CPU::TilingLevel::CacheReductionTiles, "cache_reduction",
+                         "Use `cache_reduction` tile sizes."),
+              clEnumValN(IREE::CPU::TilingLevel::VectorCommonParallelTiles, "vector_common_parallel",
+                         "Use `vector_common_parallel` tile sizes."),
+              clEnumValN(IREE::CPU::TilingLevel::VectorReductionTiles, "vector_reduction",
+                         "Use `vector_reduction` tile sizes."),
+              clEnumValN(IREE::CPU::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
+                         "Use `vector_inner_parallel` tile sizes.")
+
+           )}]>,
+       Option<"onlyFuseProducerInputOperands",
+              "only-fuse-producer-input-operands", "bool",
+              /*default=*/"false",
+              "Specifies if we only want to fuse producer's input operands. "
+              "This is helpful to tile&fuse in case of reduction dimensions.">,
+       Option<"anchorOnRootOp",
+              "anchor-on-root-op", "bool",
+              /*default=*/"true",
+              "Anchor on the root op to start the tiling. Otherwise, find the "
+              "last configured operations before and after the root op or ukernel.">];
+}
+
+def HexagonTileToVectorSizePass :
+    InterfacePass<"iree-hexagon-tile-to-vector-size", "mlir::FunctionOpInterface"> {
+  let summary = "Tile TilingInterface operations to target vector size.";
+  let description = [{
+    Walk through all the TilingInterface operations and tiling the dimensions to
+    target vector sizes, if the lowering config is present and the dimension is
+    known as greater than the vector size.
+
+    It is intended to be used before vectorization that avoids big vectors and
+    stack buffers.
   }];
 }
 

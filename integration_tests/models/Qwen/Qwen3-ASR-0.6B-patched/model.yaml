@@ -16,12 +16,13 @@ tolerances:
   rtol: 5.0e-2
   relative_l2_percent: 0.5
 compile_cases: [hexagon-vtcm-hmx]
-# A 3 GB import that only reaches the ISel failure below; micro/conv-gelu-4x32x8x50-f16
-# reproduces it in a second. Run with --run-skipped once that is fixed.
-skip: "known COMPILE_FAILURE (LLVM Hexagon ISel, f16 erf GELU); tracked by micro/conv-gelu-4x32x8x50-f16"
+# A 3 GB import, then ~50 min of compile before the failure below;
+# micro/conv-gelu-4x32x8x50-f16 reproduces the same dispatch shape. Run with
+# --run-skipped once that is fixed.
+skip: "known COMPILE_FAILURE (scalarized f16 erf GELU, stack-frame gate); tracked by micro/conv-gelu-4x32x8x50-f16"
 expected_outcomes:
   - case: hexagon-vtcm-hmx
     status: COMPILE_FAILURE
-    reason: "v32i1 = setcc"
+    reason: "stack frame exceeds the configured limit"
     comment: >-
-      LLVM Hexagon ISel failure in the conv 4x480x32x25x480x3x3 + exact-erf GELU dispatch (f16). The plain `hexagon` case fails the same way. With the GELU computed in f32 instead, the compile spends >10 min in HexagonGlobalScheduler and, with -disable-pull-up, then trips the 12 KiB stack-frame gate. Measured 2026-09-29.
+      The audio encoder's fused f16 conv and erf-GELU dispatches scalarize division across unrolled tiles, producing heavy spilling. Compilation takes about 50 minutes, and the roughly 150 KB stack frames exceed the configured 12 KiB limit. The smaller micro/conv-gelu-4x32x8x50-f16 model reproduces this compile-cost and stack-pressure problem.

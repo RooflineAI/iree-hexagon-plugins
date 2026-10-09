@@ -17,6 +17,10 @@ The inputs are the four tensors the vision encoder produces
 three deepstack features. The token ids and their positions are baked in: random
 token ids would contain no image slots, and get_rope_index is a Python loop over
 the token stream.
+
+The deepstack addition is replaced, on this instance, by an equivalent with
+static shapes that the importer can handle (bit-identical in eager torch); see
+_static_deepstack.
 """
 
 import types
@@ -32,14 +36,27 @@ _PROMPT = "Describe this image in one sentence."
 
 
 def _static_deepstack(self, hidden_states, visual_pos_masks, visual_embeds):
-    # Qwen3VLTextModel._deepstack_process does h[mask, :] += embeds. Its
-    # data-dependent shape exports, but iree-turbine's importer rejects the
-    # size assertion it carries ("Unimplemented call_function: target=ge").
-    # Same values, static shape: gather the i-th embedding for the i-th masked
-    # position (batch 1).
+    # Replaces Qwen3VLTextModel._deepstack_process, which adds the i-th row of
+    # visual_embeds to the i-th image-token position of the prompt:
+    #
+    #     hidden_states[visual_pos_masks, :] += visual_embeds
+    #
+    # Indexing with a boolean mask gives a tensor whose length depends on the
+    # mask's values. torch.export accepts that, but the importer does not: it
+    # fails on the size check that comes with it ("Unimplemented
+    # call_function: target=<built-in function ge>").
+    #
+    # The same sum, with only static shapes: number the image tokens 0, 1, 2,
+    # ... in prompt order (a running count of the mask), fetch that row of
+    # visual_embeds at every position, and keep it only where the mask is set.
+    # The count runs over the flattened [batch, seq] mask, which is the order
+    # boolean indexing uses, so this holds for any batch size.
     visual_embeds = visual_embeds.to(hidden_states.dtype)
-    index = (visual_pos_masks.long().cumsum(-1) - 1).clamp(min=0)
-    gathered = visual_embeds.index_select(0, index[0]).unsqueeze(0)
+    row = visual_pos_masks.reshape(-1).long().cumsum(0) - 1
+    # Positions before the first image token count -1; any valid row will do
+    # there, since the mask discards it.
+    row = row.clamp(min=0)
+    gathered = visual_embeds.index_select(0, row).view(*visual_pos_masks.shape, -1)
     mask = visual_pos_masks.unsqueeze(-1)
     return hidden_states + torch.where(mask, gathered, torch.zeros_like(gathered))
 

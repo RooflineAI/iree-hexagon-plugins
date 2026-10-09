@@ -1,0 +1,83 @@
+diff --git a/lib/Conversion/TorchToTMTensor/TorchToTMTensor.cpp b/lib/Conversion/TorchToTMTensor/TorchToTMTensor.cpp
+index 07e2c7f0..1457f357 100644
+--- a/lib/Conversion/TorchToTMTensor/TorchToTMTensor.cpp
++++ b/lib/Conversion/TorchToTMTensor/TorchToTMTensor.cpp
+@@ -457,6 +457,11 @@ public:
+     if (!matchPattern(op.getDim(), m_TorchConstantInt(&dim)))
+       return rewriter.notifyMatchFailure(op,
+                                          "unimplemented: dim is not constant");
++    // The index/src reformatting below indexes per-dimension arrays with dim,
++    // so a negative dim (e.g. -1) has to be normalized first.
++    dim = toPositiveDim(dim, selfType.getRank());
++    if (!isValidDim(dim, selfType.getRank()))
++      return rewriter.notifyMatchFailure(op, "dim is statically invalid");
+ 
+     // Get the inputs reformatted for the TMScatterOp
+     auto [indices, updates] =
+@@ -1273,6 +1278,11 @@ public:
+     int64_t dim;
+     if (!matchPattern(op.getDim(), m_TorchConstantInt(&dim)))
+       return rewriter.notifyMatchFailure(op, "'dim' is not constant");
++    // The index/src reformatting below indexes per-dimension arrays with dim,
++    // so a negative dim (e.g. -1) has to be normalized first.
++    dim = toPositiveDim(dim, selfType.getRank());
++    if (!isValidDim(dim, selfType.getRank()))
++      return rewriter.notifyMatchFailure(op, "'dim' is statically invalid");
+ 
+     bool includeSelf;
+     if (!matchPattern(op.getIncludeSelf(), m_TorchConstantBool(&includeSelf)))
+diff --git a/test/Conversion/TorchToTMTensor/basic.mlir b/test/Conversion/TorchToTMTensor/basic.mlir
+index d3340169..348d6057 100644
+--- a/test/Conversion/TorchToTMTensor/basic.mlir
++++ b/test/Conversion/TorchToTMTensor/basic.mlir
+@@ -197,3 +197,50 @@ func.func @scatter_src_dim2(%arg0: !torch.vtensor<[2,2,5,8],f32>, %arg1: !torch.
+   %0 = torch.aten.scatter.src %arg0, %int2, %arg1, %arg2 : !torch.vtensor<[2,2,5,8],f32>, !torch.int, !torch.vtensor<[2,2,1,8],si64>, !torch.vtensor<[2,2,1,8],f32> -> !torch.vtensor<[2,2,5,8],f32>
+   return %0 : !torch.vtensor<[2,2,5,8],f32>
+ }
++
++// -----
++
++// A negative dim must select the same dimension as its positive equivalent
++// (here 1): the scatter index replaces the second coordinate of each update.
++// CHECK-LABEL: @scatter_src_negative_dim
++// CHECK:         %[[IDX:.*]] = tensor.extract %{{.*}} : tensor<2x3xi64>
++// CHECK:         %[[SRC:.*]] = tensor.extract %{{.*}} : tensor<2x3xf32>
++// CHECK:         %[[ROW:.*]] = arith.index_cast %{{.*}} : index to i64
++// CHECK:         linalg.yield %[[ROW]], %[[IDX]], %[[SRC]] : i64, i64, f32
++// CHECK:       tm_tensor.scatter {dimension_map = array<i64: 0, 1>} unique_indices(false) ins(%{{.*}}, %{{.*}} : tensor<?xf32>, tensor<?x2xi64>) outs(%{{.*}} : tensor<2x8xf32>) {
++func.func @scatter_src_negative_dim(%arg0: !torch.vtensor<[2,8],f32>, %arg1: !torch.vtensor<[2,3],si64>, %arg2: !torch.vtensor<[2,3],f32>) -> !torch.vtensor<[2,8],f32> {
++  %int-1 = torch.constant.int -1
++  %0 = torch.aten.scatter.src %arg0, %int-1, %arg1, %arg2 : !torch.vtensor<[2,8],f32>, !torch.int, !torch.vtensor<[2,3],si64>, !torch.vtensor<[2,3],f32> -> !torch.vtensor<[2,8],f32>
++  return %0 : !torch.vtensor<[2,8],f32>
++}
++
++// -----
++
++// CHECK-LABEL: @scatter_add_negative_dim
++// CHECK:         %[[IDX:.*]] = tensor.extract %{{.*}} : tensor<2x3xi64>
++// CHECK:         %[[SRC:.*]] = tensor.extract %{{.*}} : tensor<2x3xf32>
++// CHECK:         %[[ROW:.*]] = arith.index_cast %{{.*}} : index to i64
++// CHECK:         linalg.yield %[[ROW]], %[[IDX]], %[[SRC]] : i64, i64, f32
++// CHECK:       tm_tensor.scatter {dimension_map = array<i64: 0, 1>} unique_indices(false) ins(%{{.*}}, %{{.*}} : tensor<?xf32>, tensor<?x2xi64>) outs(%{{.*}} : tensor<2x8xf32>) {
++// CHECK:         arith.addf
++func.func @scatter_add_negative_dim(%arg0: !torch.vtensor<[2,8],f32>, %arg1: !torch.vtensor<[2,3],si64>, %arg2: !torch.vtensor<[2,3],f32>) -> !torch.vtensor<[2,8],f32> {
++  %int-1 = torch.constant.int -1
++  %0 = torch.aten.scatter_add %arg0, %int-1, %arg1, %arg2 : !torch.vtensor<[2,8],f32>, !torch.int, !torch.vtensor<[2,3],si64>, !torch.vtensor<[2,3],f32> -> !torch.vtensor<[2,8],f32>
++  return %0 : !torch.vtensor<[2,8],f32>
++}
++
++// -----
++
++// CHECK-LABEL: @scatter_reduce_negative_dim
++// CHECK:         %[[IDX:.*]] = tensor.extract %{{.*}} : tensor<2x3xi64>
++// CHECK:         %[[SRC:.*]] = tensor.extract %{{.*}} : tensor<2x3xf32>
++// CHECK:         %[[ROW:.*]] = arith.index_cast %{{.*}} : index to i64
++// CHECK:         linalg.yield %[[ROW]], %[[IDX]], %[[SRC]] : i64, i64, f32
++// CHECK:       tm_tensor.scatter {dimension_map = array<i64: 0, 1>} unique_indices(false) ins(%{{.*}}, %{{.*}} : tensor<?xf32>, tensor<?x2xi64>) outs(%{{.*}} : tensor<2x8xf32>) {
++func.func @scatter_reduce_negative_dim(%arg0: !torch.vtensor<[2,8],f32>, %arg1: !torch.vtensor<[2,3],si64>, %arg2: !torch.vtensor<[2,3],f32>) -> !torch.vtensor<[2,8],f32> {
++  %int-1 = torch.constant.int -1
++  %str = torch.constant.str "sum"
++  %true = torch.constant.bool true
++  %0 = torch.aten.scatter_reduce.two %arg0, %int-1, %arg1, %arg2, %str, %true : !torch.vtensor<[2,8],f32>, !torch.int, !torch.vtensor<[2,3],si64>, !torch.vtensor<[2,3],f32>, !torch.str, !torch.bool -> !torch.vtensor<[2,8],f32>
++  return %0 : !torch.vtensor<[2,8],f32>
++}

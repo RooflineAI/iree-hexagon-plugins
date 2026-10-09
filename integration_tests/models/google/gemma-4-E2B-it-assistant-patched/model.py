@@ -12,11 +12,8 @@ backbone's last-layer KV for each attention type. model.yaml feeds those as
 seeded normals: q_len 1 over kv_len 128. Output is the drafter's logits.
 
 The masked embedder's forward is replaced, on this instance, by an equivalent that export
-and iree-compile can handle (bit-identical in eager torch):
-  * the mask value stays a 0-d tensor instead of a Python float from `.item()`;
-  * the final `scatter` becomes an `index_put` - `scatter.src` segfaults
-    iree-compile in torch-mlir's TorchToTMTensor
-    (convertTorchScatterIndexAndSrcToTMScatterIndexAndSrc), on every target.
+can handle (bit-identical in eager torch): the mask value stays a 0-d tensor
+instead of a Python float from `.item()`.
 """
 
 import types
@@ -50,9 +47,7 @@ def _masked_embedder_forward(self, hidden_states, lm_head_weight):
     mask_value = selected_logits.min() - 1.0
     output = mask_value.expand(batch, seq_len, self.vocab_size).clone()
     idx = selected_canonical.view(batch, seq_len, -1)
-    b = torch.arange(batch).view(batch, 1, 1).expand_as(idx)
-    s = torch.arange(seq_len).view(1, seq_len, 1).expand_as(idx)
-    return output.index_put((b, s, idx), selected_logits)
+    return output.scatter(-1, idx, selected_logits)
 
 
 class _Drafter(torch.nn.Module):

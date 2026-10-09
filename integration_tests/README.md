@@ -22,7 +22,7 @@ runtime package and the device-tools zip are expected to be built separately and
 passed as an argument to the pytest command.
 
 ```sh
-build_tools/create_test_venv.sh                 # creates ./.venv from requirements.txt
+build_tools/create_test_venv.sh                 # builds/installs this source compiler
 .venv/bin/pytest integration_tests/ -v -rA \
     --iree-compile=<path> --runtime-zip=<path> --device-tools-zip=<path> --lld=<path>
 ```
@@ -40,6 +40,14 @@ pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 (all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`, and the four
 artifact paths.
+
+The helper installs this checkout's compiler Python bindings editably. Rerun it
+after compiler/importer changes. An existing wheel can also be installed to avoid
+rebuilding compiler dependencies:
+
+```sh
+build_tools/create_test_venv.sh [venv-dir] --compiler-wheel <wheel-path>
+```
 
 ## Requirements
 

@@ -111,18 +111,40 @@ def manifest(spec: ModelSpec) -> dict[str, Any]:
         "inputs": [dataclasses.asdict(entry) for entry in spec.inputs],
         "decompositions": list(DECOMPOSITION_NAMES),
         "versions": _tool_versions(),
+        "compiler": _compiler_provenance(),
     }
 
 
 def _tool_versions() -> dict[str, str]:
     """Versions of everything between the model definition and the MLIR."""
     versions: dict[str, str] = {}
-    for distribution in ("torch", "transformers", "iree-turbine"):
+    for distribution in ("torch", "transformers", "iree-turbine", "iree-base-compiler"):
         try:
             versions[distribution] = importlib.metadata.version(distribution)
         except importlib.metadata.PackageNotFoundError:
             versions[distribution] = "absent"
     return versions
+
+
+def _compiler_provenance() -> dict[str, Any]:
+    """Read the assembled package identity once per import, without binary hashing.
+
+    The suite exports afresh each session; this records which compiler/importer
+    produced the artifact, without introducing a persistent import cache.
+    """
+    import iree.compiler
+
+    compiler_root = Path(iree.compiler.__file__).resolve().parent
+    provenance = compiler_root / "_build_provenance.json"
+    if provenance.is_file():
+        return json.loads(provenance.read_text())
+    # Keep manually prepared wheel environments usable and make their origin
+    # explicit. create_test_venv.sh requires provenance for source/CI packages.
+    return {
+        "distribution": "iree-base-compiler",
+        "version": importlib.metadata.version("iree-base-compiler"),
+        "build_id": None,
+    }
 
 
 def build_decomposition_table(ops: list[Any]) -> dict[Any, Any]:

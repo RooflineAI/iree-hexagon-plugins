@@ -17,8 +17,9 @@ COMPILER_BIN_TARGETS=(
 COMPILER_LIB_TARGETS=(
     @iree//lib:IREECompiler
 )
-# Already zips, passed on as they are.
+# Packaged archives, passed on as they are.
 ZIP_TARGETS=(
+    //build_tools/python_compiler:wheel
     //integration_tests/device/tools:device_tools_aarch64_android
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy

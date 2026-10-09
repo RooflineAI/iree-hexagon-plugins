@@ -1,0 +1,17 @@
+diff --git a/utils/bazel/torch-mlir-overlay/BUILD.bazel b/utils/bazel/torch-mlir-overlay/BUILD.bazel
+--- a/utils/bazel/torch-mlir-overlay/BUILD.bazel
++++ b/utils/bazel/torch-mlir-overlay/BUILD.bazel
+@@ -11,6 +11,13 @@ package(
+     ],
+ )
+ 
++# Importers are also packaged in IREE's compiler Python namespace.
++exports_files([
++    "python/torch_mlir/extras/fx_as_strided.py",
++    "python/torch_mlir/extras/fx_importer.py",
++    "python/torch_mlir/extras/onnx_importer.py",
++])
++
+ # Torch Dialect/IR
+ td_library(
+     name = "MLIRTorchOpsIncGenTdFiles",

@@ -106,6 +106,17 @@ bazel build //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 
 ### Development tooling
 
+Create the integration-test Python environment with this checkout's compiler
+bindings and torch-mlir importer, plus locked external dependencies:
+
+```sh
+build_tools/create_test_venv.sh
+```
+
+Repeat this after compiler/importer edits to rebuild the editable package.
+See [Python compiler packaging](build_tools/python_compiler/README.md) and
+[integration tests](integration_tests/README.md) for verification and CI setup.
+
 Generate a compilation database for clangd and other C/C++ tooling with:
 
 ```sh

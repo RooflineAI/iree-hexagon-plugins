@@ -150,6 +150,15 @@ def HexagonSelectLoweringStrategyPass :
   }];
 }
 
+def HexagonSpecializeHmxContractionsPass :
+    InterfacePass<"iree-hexagon-specialize-hmx-contractions",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Rewrite HMX-eligible linalg.generic contractions as named linalg.matmul
+      or linalg.batch_matmul operations.
+  }];
+}
+
 def HexagonSplitReductionPass :
     InterfacePass<"iree-hexagon-split-reduction", "mlir::FunctionOpInterface"> {
   let summary = "Pass to splitReduce linalg operations.";

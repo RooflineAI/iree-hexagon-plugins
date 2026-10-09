@@ -7,6 +7,8 @@
 #include "Strategy.h"
 #include "StrategySupport.h"
 
+#include "../DecisionTrace.h"
+
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -106,18 +108,37 @@ SmallVector<TileDecision> inferContractionComputeTile(
 
 } // namespace
 
+bool isHmxCandidateContraction(linalg::LinalgOp op) {
+  return linalg::isaContractionOpInterface(op) &&
+         analyzeSupportedContraction(op).has_value() && hasHmxElementTypes(op);
+}
+
 FailureOr<std::optional<DispatchStrategy>>
 selectHmxStrategy(const PlanningContext &context,
                   const DispatchShape &dispatchShape) {
   if (!context.options.enableHmxMatmul)
     return std::optional<DispatchStrategy>{};
   auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(dispatchShape.root);
-  if (!linalgOp || !linalg::isaContractionOpInterface(linalgOp))
+  if (!linalgOp || !isHmxCandidateContraction(linalgOp))
     return std::optional<DispatchStrategy>{};
+  // HexagonConvertMatmulToHmx converts only named linalg.matmul and
+  // linalg.batch_matmul. Planning HMX for any other contraction would leave
+  // its K dimension untiled and the contraction unconverted, to be vectorized
+  // whole. HexagonSpecializeHmxContractions rewrites matmul-shaped generics
+  // before planning, so one that still gets here was not recognized: warn,
+  // and let the regular contraction strategy plan it.
+  if (!isa<linalg::MatmulOp, linalg::BatchMatmulOp>(linalgOp.getOperation())) {
+    linalgOp->emitWarning()
+        << "matmul-like '" << linalgOp->getName()
+        << "' is not lowered to HMX: only named linalg.matmul and "
+           "linalg.batch_matmul are; planning it without HMX";
+    context.trace.record(DecisionStage::Strategy, DecisionKind::Rejected,
+                         "HMX-eligible contraction is not a named "
+                         "linalg.matmul or linalg.batch_matmul");
+    return std::optional<DispatchStrategy>{};
+  }
   std::optional<linalg::ContractionDimensions> dimensions =
       analyzeSupportedContraction(linalgOp);
-  if (!dimensions || !hasHmxElementTypes(linalgOp))
-    return std::optional<DispatchStrategy>{};
 
   const OpShape &shape = getRootShape(dispatchShape);
   SmallVector<TileDecision> compute = inferContractionComputeTile(

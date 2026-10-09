@@ -1,0 +1,104 @@
+diff --git a/lib/Conversion/TorchToLinalg/DataMovement.cpp b/lib/Conversion/TorchToLinalg/DataMovement.cpp
+index fa849956..3ad3f8bf 100644
+--- a/lib/Conversion/TorchToLinalg/DataMovement.cpp
++++ b/lib/Conversion/TorchToLinalg/DataMovement.cpp
+@@ -729,6 +729,35 @@ public:
+ 
+     outputSizes = expandTy.getShape();
+ 
++    // tensor.expand_shape requires a static input dim to expand into static
++    // result dims only, and its builder that infers the output shape crashes
++    // otherwise. Torch shape inference can still leave such a result dim
++    // unknown, e.g. tensor<52xf32> unflattened into tensor<1x1x?x1xf32>.
++    // Compute those dims from the static input dim. The expand_shape below
++    // then produces this refined type, which is cast back to expandTy.
++    ArrayRef<int64_t> inputSizes = inputTy.getShape();
++    SmallVector<int64_t> refinedOutputSizes(outputSizes);
++    for (int64_t i = 0; i < outputRank; ++i) {
++      if (!ShapedType::isDynamic(refinedOutputSizes[i]))
++        continue;
++      if (i < dimInt || i >= dimInt + numSizes) {
++        refinedOutputSizes[i] = inputSizes[i < dimInt ? i : i - numSizes + 1];
++        continue;
++      }
++      if (ShapedType::isDynamic(inputSizes[dimInt]) ||
++          numDynamicReassocDims != 1)
++        continue;
++      int64_t staticProduct = 1;
++      for (int64_t j = dimInt; j < dimInt + numSizes; ++j)
++        if (j != i)
++          staticProduct *= outputSizes[j];
++      if (staticProduct == 0 || inputSizes[dimInt] % staticProduct != 0)
++        return rewriter.notifyMatchFailure(
++            op, "unflattened sizes do not divide the input dim");
++      refinedOutputSizes[i] = inputSizes[dimInt] / staticProduct;
++    }
++    auto refinedExpandTy = expandTy.clone(refinedOutputSizes);
++
+     if (!inputAllStatic && outputAllStatic) {
+       // The output tensor type is all static, but the input tensor type is not.
+       // Construct input with static shapes.
+@@ -772,9 +801,11 @@ public:
+         for (int i = dimInt + numSizes; i < outputRank; ++i)
+           reassociations[i - numSizes + 1].push_back(i);
+       }
+-      expand = tensor::ExpandShapeOp::create(rewriter, loc, expandTy, self,
+-                                             reassociations)
++      expand = tensor::ExpandShapeOp::create(rewriter, loc, refinedExpandTy,
++                                             self, reassociations)
+                    .getResult();
++      if (refinedExpandTy != expandTy)
++        expand = tensor::CastOp::create(rewriter, loc, expandTy, expand);
+     } else {
+       reassocSizes = getTypeConvertedValues(rewriter, loc, getTypeConverter(),
+                                             reassocSizes);
+diff --git a/test/Conversion/TorchToLinalg/datamovement.mlir b/test/Conversion/TorchToLinalg/datamovement.mlir
+index 5dc66506..4d53b47b 100644
+--- a/test/Conversion/TorchToLinalg/datamovement.mlir
++++ b/test/Conversion/TorchToLinalg/datamovement.mlir
+@@ -117,6 +117,45 @@ func.func @aten.unflatten.int$dynamic_input_dim(%arg0: !torch.vtensor<[1,?,96],f
+ 
+ // -----
+ 
++// A static source dim expanded into a group with a dynamic result dim. This
++// used to crash in tensor::ExpandShapeOp's output-shape inference. The
++// dynamic dim is computed statically (52) and cast back to the result type.
++// CHECK-LABEL:   func.func @aten.unflatten.int$static_input_dynamic_group(
++// CHECK:           %[[IN:.*]] = torch_c.to_builtin_tensor %{{.*}} : !torch.vtensor<[52],f32> -> tensor<52xf32>
++// CHECK:           %[[EXP:.*]] = tensor.expand_shape %[[IN]] {{\[\[}}0, 1, 2, 3]] output_shape [1, 1, 52, 1] : tensor<52xf32> into tensor<1x1x52x1xf32>
++// CHECK:           %[[CAST:.*]] = tensor.cast %[[EXP]] : tensor<1x1x52x1xf32> to tensor<1x1x?x1xf32>
++// CHECK:           %[[OUT:.*]] = torch_c.from_builtin_tensor %[[CAST]] : tensor<1x1x?x1xf32> -> !torch.vtensor<[1,1,?,1],f32>
++// CHECK:           return %[[OUT]] : !torch.vtensor<[1,1,?,1],f32>
++func.func @aten.unflatten.int$static_input_dynamic_group(%arg0: !torch.vtensor<[52],f32>) -> !torch.vtensor<[1,1,?,1],f32> {
++  %int0 = torch.constant.int 0
++  %int1 = torch.constant.int 1
++  %int-1 = torch.constant.int -1
++  %0 = torch.prim.ListConstruct %int1, %int1, %int-1, %int1 : (!torch.int, !torch.int, !torch.int, !torch.int) -> !torch.list<int>
++  %1 = torch.aten.unflatten.int %arg0, %int0, %0 : !torch.vtensor<[52],f32>, !torch.int, !torch.list<int> -> !torch.vtensor<[1,1,?,1],f32>
++  return %1 : !torch.vtensor<[1,1,?,1],f32>
++}
++
++// -----
++
++// A static source dim outside the unflattened group whose result dim is
++// dynamic. Same crash, through a single-dim reassociation group.
++// CHECK-LABEL:   func.func @aten.unflatten.int$static_input_dynamic_outer_dim(
++// CHECK:           %[[IN:.*]] = torch_c.to_builtin_tensor %{{.*}} : !torch.vtensor<[4,12],f32> -> tensor<4x12xf32>
++// CHECK:           %[[EXP:.*]] = tensor.expand_shape %[[IN]] {{\[\[}}0], [1, 2]] output_shape [4, 3, 4] : tensor<4x12xf32> into tensor<4x3x4xf32>
++// CHECK:           %[[CAST:.*]] = tensor.cast %[[EXP]] : tensor<4x3x4xf32> to tensor<?x3x?xf32>
++// CHECK:           %[[OUT:.*]] = torch_c.from_builtin_tensor %[[CAST]] : tensor<?x3x?xf32> -> !torch.vtensor<[?,3,?],f32>
++// CHECK:           return %[[OUT]] : !torch.vtensor<[?,3,?],f32>
++func.func @aten.unflatten.int$static_input_dynamic_outer_dim(%arg0: !torch.vtensor<[4,12],f32>) -> !torch.vtensor<[?,3,?],f32> {
++  %int1 = torch.constant.int 1
++  %int3 = torch.constant.int 3
++  %int-1 = torch.constant.int -1
++  %0 = torch.prim.ListConstruct %int3, %int-1 : (!torch.int, !torch.int) -> !torch.list<int>
++  %1 = torch.aten.unflatten.int %arg0, %int1, %0 : !torch.vtensor<[4,12],f32>, !torch.int, !torch.list<int> -> !torch.vtensor<[?,3,?],f32>
++  return %1 : !torch.vtensor<[?,3,?],f32>
++}
++
++// -----
++
+ // CHECK-LABEL:   func.func @aten.permute$identity_permutation(
+ // CHECK-SAME:                                        %[[VAL_0:.*]]: !torch.vtensor<[64,32,16,8,4],f32>) -> !torch.vtensor<[64,32,16,8,4],f32> {
+ // CHECK:           %[[VAL_1:.*]] = torch_c.to_builtin_tensor %[[VAL_0]] : !torch.vtensor<[64,32,16,8,4],f32> -> tensor<64x32x16x8x4xf32>

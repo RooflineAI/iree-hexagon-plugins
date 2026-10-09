@@ -151,7 +151,10 @@ out-of-range dim with `isValidDim` in both patterns. The lit tests in
 exactly the lowering of the equivalent positive dim, for `scatter.src`,
 `scatter_add` and `scatter_reduce.two`. The CHECK lines were validated
 against the unpatched lowering of the positive dim, and they reject the
-lowering of the wrong dim (0).
+lowering of the wrong dim (0). The unpatched compiler (the iree-base-compiler
+3.12.0 `iree-opt`) crashes on the new cases; the Bazel-built `iree-opt` with
+the patch passes the whole file. The Gemma-4 drafter uses the original
+`scatter(-1, ...)` again and matches torch on the device.
 
 **Upstream.** Unfixed on torch-mlir main. No issue or PR found. This is a
 small, obviously-correct PR for llvm/torch-mlir.

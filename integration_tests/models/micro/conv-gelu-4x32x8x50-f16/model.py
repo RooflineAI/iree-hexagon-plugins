@@ -6,10 +6,8 @@
 
 """A strided 3x3 conv with an exact (erf) GELU fused in, in f16.
 
-The reduced form of Qwen3-ASR's audio-encoder conv stem
-(Qwen/Qwen3-ASR-0.6B), so that the LLVM Hexagon ISel failure it hits is
-tracked without importing the whole model. Each part alone compiles: the bare
-GELU, and the same conv at batch 1.
+Exercises compilation of the fused conv and GELU without importing the full
+Qwen3-ASR audio encoder.
 """
 
 import torch

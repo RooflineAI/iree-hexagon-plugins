@@ -1,0 +1,106 @@
+diff --git a/llvm/lib/CodeGen/SelectionDAG/LegalizeVectorTypes.cpp b/llvm/lib/CodeGen/SelectionDAG/LegalizeVectorTypes.cpp
+index ef88647a16de..52165c245c59 100644
+--- a/llvm/lib/CodeGen/SelectionDAG/LegalizeVectorTypes.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/LegalizeVectorTypes.cpp
+@@ -7780,6 +7780,24 @@ SDValue DAGTypeLegalizer::WidenVecRes_SETCC(SDNode *N) {
+                         InOp2, ZeroIdx);
+   }
+ 
++  // The inputs may widen to more elements than the result. On Hexagon with
++  // 128-byte HVX, v25f16 widens to v64f16 while v25i1 widens to v32i1. Compare
++  // at the inputs' width and keep the leading lanes: the extra lanes only
++  // compare the poison padding.
++  EVT WideInOpVT = InOp1.getValueType();
++  if (WideInOpVT != WidenInVT && WideInOpVT.isFixedLengthVector() &&
++      WidenInVT.isFixedLengthVector() &&
++      WideInOpVT.getVectorElementType() == WidenInVT.getVectorElementType() &&
++      WideInOpVT.getVectorNumElements() > WidenInVT.getVectorNumElements()) {
++    SDLoc dl(N);
++    EVT WideResVT =
++        EVT::getVectorVT(*DAG.getContext(), WidenVT.getVectorElementType(),
++                         WideInOpVT.getVectorElementCount());
++    SDValue WideSetCC =
++        DAG.getNode(ISD::SETCC, dl, WideResVT, InOp1, InOp2, N->getOperand(2));
++    return DAG.getExtractSubvector(dl, WidenVT, WideSetCC, 0);
++  }
++
+   // Assume that the input and output will be widen appropriately.  If not,
+   // we will have to unroll it at some point.
+   assert(InOp1.getValueType() == WidenInVT &&
+diff --git a/llvm/test/CodeGen/Hexagon/autohvx/widen-setcc-fp-non-pow2.ll b/llvm/test/CodeGen/Hexagon/autohvx/widen-setcc-fp-non-pow2.ll
+new file mode 100644
+index 000000000000..75db0fc57272
+--- /dev/null
++++ b/llvm/test/CodeGen/Hexagon/autohvx/widen-setcc-fp-non-pow2.ll
+@@ -0,0 +1,71 @@
++; RUN: llc -mtriple=hexagon -mcpu=hexagonv79 -mattr=+hvxv79,+hvx-length128b < %s | FileCheck %s
++
++; An f16 compare with 17 to 31 lanes widens its operands to v64f16, a full
++; 128-byte HVX vector, but its v<N>i1 result only to v32i1. Type legalization
++; used to build `v32i1 = setcc v64f16, v64f16`, which cannot be selected
++; ("Cannot select: v32i1 = setcc"). The compare must be done on the full
++; v64f16 operands, with the result narrowed afterwards.
++
++; CHECK-LABEL: f0:
++; CHECK: vcmp.gt(v{{[0-9]+}}.hf,v{{[0-9]+}}.hf)
++define <25 x i1> @f0(<25 x half> %a0) #0 {
++  %v0 = fcmp olt <25 x half> %a0, zeroinitializer
++  ret <25 x i1> %v0
++}
++
++; CHECK-LABEL: f1:
++; CHECK: vcmp.gt(v{{[0-9]+}}.hf,v{{[0-9]+}}.hf)
++; CHECK: vmux
++define void @f1(ptr %a0, ptr %a1, ptr %a2, ptr %a3, ptr %a4) #0 {
++  %x = load <25 x half>, ptr %a0, align 2
++  %y = load <25 x half>, ptr %a1, align 2
++  %p = load <25 x half>, ptr %a2, align 2
++  %q = load <25 x half>, ptr %a3, align 2
++  %c = fcmp ogt <25 x half> %x, %y
++  %s = select <25 x i1> %c, <25 x half> %p, <25 x half> %q
++  store <25 x half> %s, ptr %a4, align 2
++  ret void
++}
++
++; CHECK-LABEL: f2:
++; CHECK: vcmp.gt(v{{[0-9]+}}.hf,v{{[0-9]+}}.hf)
++; CHECK: vmux
++define void @f2(ptr %a0, ptr %a1, ptr %a2, ptr %a3, ptr %a4) #0 {
++  %x = load <17 x half>, ptr %a0, align 2
++  %p = load <17 x half>, ptr %a2, align 2
++  %q = load <17 x half>, ptr %a3, align 2
++  %c = fcmp olt <17 x half> %x, zeroinitializer
++  %s = select <17 x i1> %c, <17 x half> %p, <17 x half> %q
++  store <17 x half> %s, ptr %a4, align 2
++  ret void
++}
++
++; CHECK-LABEL: f3:
++; CHECK: vcmp.gt(v{{[0-9]+}}.hf,v{{[0-9]+}}.hf)
++; CHECK: vmux
++define void @f3(ptr %a0, ptr %a1, ptr %a2, ptr %a3, ptr %a4) #0 {
++  %x = load <31 x half>, ptr %a0, align 2
++  %p = load <31 x half>, ptr %a2, align 2
++  %q = load <31 x half>, ptr %a3, align 2
++  %c = fcmp ogt <31 x half> %x, zeroinitializer
++  %s = select <31 x i1> %c, <31 x half> %p, <31 x half> %q
++  store <31 x half> %s, ptr %a4, align 2
++  ret void
++}
++
++; CHECK-LABEL: f4:
++; CHECK: vcmp.gt(v{{[0-9]+}}.hf,v{{[0-9]+}}.hf)
++; CHECK: |= vcmp.gt(v{{[0-9]+}}.hf,v{{[0-9]+}}.hf)
++; CHECK: vmux
++define void @f4(ptr %a0, ptr %a1, ptr %a2, ptr %a3, ptr %a4) #0 {
++  %x = load <25 x half>, ptr %a0, align 2
++  %y = load <25 x half>, ptr %a1, align 2
++  %p = load <25 x half>, ptr %a2, align 2
++  %q = load <25 x half>, ptr %a3, align 2
++  %c = fcmp oeq <25 x half> %x, %y
++  %s = select <25 x i1> %c, <25 x half> %p, <25 x half> %q
++  store <25 x half> %s, ptr %a4, align 2
++  ret void
++}
++
++attributes #0 = { nounwind }

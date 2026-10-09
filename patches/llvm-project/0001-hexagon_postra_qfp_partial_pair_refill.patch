@@ -1,0 +1,186 @@
+diff --git a/llvm/lib/Target/Hexagon/HexagonPostRAHandleQFP.cpp b/llvm/lib/Target/Hexagon/HexagonPostRAHandleQFP.cpp
+index 242883ef32f4..e3079c811624 100644
+--- a/llvm/lib/Target/Hexagon/HexagonPostRAHandleQFP.cpp
++++ b/llvm/lib/Target/Hexagon/HexagonPostRAHandleQFP.cpp
+@@ -916,6 +916,28 @@ void HexagonPostRAHandleQFP::collectLivenessForSubregs(
+   SubRegKillSet[UseInstr] = std::make_pair(isHiSubRegKilled, isLoSubRegKilled);
+ }
+ 
++// Returns true if DefMI may be the reaching def of the subregister SubReg at
++// the instruction UseMI, which reads a register pair containing SubReg.
++//
++// The RDF graph links such a pair use to the refill of the whole pair even
++// when one half is redefined in between, so it cannot answer this per half.
++// Look for the nearest def of SubReg before UseMI in UseMI's block instead: if
++// there is one, it is the only reaching def of SubReg there. Otherwise keep
++// the previous assumption that DefMI reaches it.
++static bool isReachingDefOfSubReg(const MachineInstr *DefMI,
++                                  const MachineInstr *UseMI, Register SubReg,
++                                  const TargetRegisterInfo *TRI) {
++  const MachineBasicBlock *MBB = UseMI->getParent();
++  MachineBasicBlock::const_reverse_iterator I(UseMI);
++  for (++I; I != MBB->rend(); ++I) {
++    if (&*I == DefMI)
++      return true;
++    if (I->modifiesRegister(SubReg, TRI))
++      return false;
++  }
++  return true;
++}
++
+ // Store all refill instructions.
+ void HexagonPostRAHandleQFP::collectQFPStackRefill(
+     NodeAddr<StmtNode *> *StNode) {
+@@ -960,9 +982,22 @@ void HexagonPostRAHandleQFP::collectConvQFInstr(NodeAddr<DefNode *> &RegDef) {
+         if (QFNonSatMIs.contains(QFConvInstr))
+           Op = QFNonSatMIs[QFConvInstr];
+ 
+-        // Def is double type
+-        if (Hexagon::HvxWRRegClass.contains(DefReg))
+-          Op = ConvOperand::HiLo;
++        // Def is double type. It need not reach both halves of the use: a
++        // half that was redefined in between (e.g. by a qf producer) no
++        // longer holds the refilled IEEE value, and converting it again
++        // would reinterpret qf bits as IEEE. Only mark the reached halves.
++        if (Hexagon::HvxWRRegClass.contains(DefReg)) {
++          if (isReachingDefOfSubReg(DefInstr, QFConvInstr,
++                                    HRI->getSubReg(UseReg, Hexagon::vsub_lo),
++                                    HRI))
++            Op |= ConvOperand::Lo;
++          if (isReachingDefOfSubReg(DefInstr, QFConvInstr,
++                                    HRI->getSubReg(UseReg, Hexagon::vsub_hi),
++                                    HRI))
++            Op |= ConvOperand::Hi;
++          if (Op == ConvOperand::Undefined)
++            continue;
++        }
+         // Def is lo of double type
+         else if (DefReg == HRI->getSubReg(UseReg, Hexagon::vsub_lo))
+           Op |= ConvOperand::Lo;
+diff --git a/llvm/test/CodeGen/Hexagon/autohvx/xqf-postra-conv-double-partial-refill.mir b/llvm/test/CodeGen/Hexagon/autohvx/xqf-postra-conv-double-partial-refill.mir
+new file mode 100644
+index 000000000000..77fd96ce3d48
+--- /dev/null
++++ b/llvm/test/CodeGen/Hexagon/autohvx/xqf-postra-conv-double-partial-refill.mir
+@@ -0,0 +1,121 @@
++# A refill of a register pair feeds a qf32 -> hf conversion, but one half of
++# the pair is redefined by a qf32 producer between the refill and the
++# conversion. Only the half that still holds the refilled IEEE value may get a
++# sf -> qf32 conversion. Converting the redefined half again reinterprets its
++# qf32 bits as sf and produces garbage (inf/NaN after the conversion to hf).
++# The control function redefines neither half, so both halves are converted.
++# (Its unrelated qf producer only keeps the pass from skipping the function.)
++
++# RUN: llc -march=hexagon -mcpu=hexagonv79 -mattr=+hvxv79,+hvx-length128B \
++# RUN: -run-pass=handle-qfp-spills-refills -verify-machineinstrs %s -o - \
++# RUN: | FileCheck %s
++
++# CHECK-LABEL: name: lo_redefined
++# CHECK:      $w2 = PS_vloadrw_ai %stack.0, 0
++# CHECK-NEXT: $v4 = V6_vadd_sf killed $v0, $v10
++# CHECK-NOT:  $v4 = V6_vadd_sf
++# CHECK:      $v5 = V6_vadd_sf killed renamable $v5, killed $v30
++# CHECK-NEXT: $v0 = V6_vconv_hf_qf32 killed $w2
++
++# CHECK-LABEL: name: hi_redefined
++# CHECK:      $w2 = PS_vloadrw_ai %stack.0, 0
++# CHECK-NEXT: $v5 = V6_vadd_sf killed $v0, $v10
++# CHECK-NOT:  $v5 = V6_vadd_sf
++# CHECK:      $v4 = V6_vadd_sf killed renamable $v4, killed $v30
++# CHECK-NEXT: $v0 = V6_vconv_hf_qf32 killed $w2
++
++# The shape seen in practice: the refill is in the loop preheader and the
++# conversion in the loop, where the lo half is redefined on every iteration.
++# CHECK-LABEL: name: lo_redefined_in_loop
++# CHECK:      bb.1:
++# CHECK:      $v4 = V6_vadd_sf killed $v0, $v10
++# CHECK-NOT:  $v4 = V6_vadd_sf
++# CHECK:      $v5 = V6_vadd_sf killed renamable $v5, killed $v30
++# CHECK-NEXT: $v0 = V6_vconv_hf_qf32 $w2
++# CHECK-NEXT: $v5 = V6_vconv_sf_qf32 killed $v5
++# CHECK-NOT:  $v4 = V6_vconv_sf_qf32
++# CHECK:      ENDLOOP0
++
++# CHECK-LABEL: name: none_redefined
++# CHECK:      $w2 = PS_vloadrw_ai %stack.0, 0
++# CHECK-DAG:  $v4 = V6_vadd_sf killed renamable $v4
++# CHECK-DAG:  $v5 = V6_vadd_sf killed renamable $v5
++# CHECK:      $v0 = V6_vconv_hf_qf32 killed $w2
++
++--- |
++  define void @lo_redefined() #0 { ret void }
++  define void @hi_redefined() #0 { ret void }
++  define void @lo_redefined_in_loop() #0 { ret void }
++  define void @none_redefined() #0 { ret void }
++  attributes #0 = { "target-features"="+hvx-ieee-fp" }
++...
++---
++name: lo_redefined
++tracksRegLiveness: true
++stack:
++  - { id: 0, type: spill-slot, size: 256, alignment: 128 }
++body: |
++  bb.0:
++    liveins: $r1, $v0, $v10
++    $w2 = PS_vloadrw_ai %stack.0, 0 :: (load (s2048) from %stack.0, align 128)
++    $v4 = V6_vadd_sf killed $v0, $v10
++    $v0 = V6_vconv_hf_qf32 killed $w2
++    V6_vS32b_ai killed $r1, 0, killed $v0
++    PS_jmpret $r31, implicit-def dead $pc
++...
++---
++name: hi_redefined
++tracksRegLiveness: true
++stack:
++  - { id: 0, type: spill-slot, size: 256, alignment: 128 }
++body: |
++  bb.0:
++    liveins: $r1, $v0, $v10
++    $w2 = PS_vloadrw_ai %stack.0, 0 :: (load (s2048) from %stack.0, align 128)
++    $v5 = V6_vadd_sf killed $v0, $v10
++    $v0 = V6_vconv_hf_qf32 killed $w2
++    V6_vS32b_ai killed $r1, 0, killed $v0
++    PS_jmpret $r31, implicit-def dead $pc
++...
++---
++name: lo_redefined_in_loop
++tracksRegLiveness: true
++stack:
++  - { id: 0, type: spill-slot, size: 256, alignment: 128 }
++body: |
++  bb.0:
++    successors: %bb.1
++    liveins: $r0, $r1, $v10
++    $w2 = PS_vloadrw_ai %stack.0, 0 :: (load (s2048) from %stack.0, align 128)
++    J2_loop0i %bb.1, 8, implicit-def $lc0, implicit-def $sa0, implicit-def $usr
++
++  bb.1:
++    successors: %bb.2, %bb.1
++    liveins: $r0, $r1, $v10, $w2
++    $v0 = V6_vL32Ub_ai $r0, 0
++    $v4 = V6_vadd_sf killed $v0, $v10
++    $v0 = V6_vconv_hf_qf32 $w2
++    V6_vS32b_ai $r1, 0, killed $v0
++    $r0 = A2_addi killed $r0, 128
++    $r1 = A2_addi killed $r1, 128
++    ENDLOOP0 %bb.1, implicit-def $pc, implicit-def $lc0, implicit $sa0, implicit $lc0
++    J2_jump %bb.2, implicit-def dead $pc
++
++  bb.2:
++    PS_jmpret $r31, implicit-def dead $pc
++...
++---
++name: none_redefined
++tracksRegLiveness: true
++stack:
++  - { id: 0, type: spill-slot, size: 256, alignment: 128 }
++body: |
++  bb.0:
++    liveins: $r1, $v0, $v10
++    $v6 = V6_vadd_sf killed $v0, $v10
++    V6_vS32b_ai $r1, 128, killed $v6
++    $w2 = PS_vloadrw_ai %stack.0, 0 :: (load (s2048) from %stack.0, align 128)
++    $v0 = V6_vconv_hf_qf32 killed $w2
++    V6_vS32b_ai killed $r1, 0, killed $v0
++    PS_jmpret $r31, implicit-def dead $pc
++...

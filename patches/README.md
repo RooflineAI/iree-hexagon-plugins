@@ -7,7 +7,7 @@ inside `third-party/`.
 
 - [IREE](iree/README.md): embedded Bazel builds, Hexagon integration and
   APIs needed by the plugin.
-- [LLVM](llvm-project/README.md): no active source patches after the upgrade.
+- [LLVM](llvm-project/README.md): Hexagon backend fixes not yet upstream.
 - [torch-mlir](torch-mlir/README.md): source importer packaging and Torch
   input conversion fixes.
 

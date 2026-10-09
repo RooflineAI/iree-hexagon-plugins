@@ -51,6 +51,15 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
       .addPass(createConvertAccGEMMToGEMMPass)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 
+  // Strategy selection uses the operation kind to choose HMX or vector
+  // lowering. Specialize eligible generics first: HMX conversion accepts named
+  // matmuls, and the lowering config must be attached to the op that will be
+  // lowered.
+  if (isHexagonHmxMatmulEnabled()) {
+    FunctionLikeNest(modulePassManager)
+        .addPass(createHexagonSpecializeHmxContractionsPass);
+  }
+
   modulePassManager.addPass(createHexagonSelectLoweringStrategyPass());
   LLVM_DEBUG({
     llvm::dbgs() << "Hexagon codegen configuration pass pipeline:\n";

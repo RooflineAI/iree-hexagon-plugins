@@ -15,7 +15,16 @@
 
 #include <optional>
 
+namespace mlir::linalg {
+class LinalgOp;
+} // namespace mlir::linalg
+
 namespace mlir::iree_compiler::hexagon::codegen::planning {
+
+/// Returns whether `op` is a contraction the HMX strategy can plan: one M, N
+/// and K dimension, at most one batch dimension, and f16 inputs. HMX lowering
+/// additionally requires a named linalg.matmul or linalg.batch_matmul.
+bool isHmxCandidateContraction(linalg::LinalgOp op);
 
 /// A dispatch strategy selector has three outcomes:
 ///   - success(nullopt): it does not apply;

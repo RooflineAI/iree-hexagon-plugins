@@ -14,23 +14,11 @@ inputs:
     generator: image
     image: keyboard-256.png
 # IREE LLVMCPU on the host lands at 0.15-0.66% relative L2 per output
-# (2026-10-01); torch f16 vs f32 is 0.53%. On device, hexagon lands at
-# 0.73/0.15/0.29/0.46% (2026-10-08): output0 has little margin under 1%.
+# (2026-10-01); torch f16 vs f32 is 0.53%. On device (2026-10-09), hexagon
+# lands at 0.73/0.15/0.29/0.46% and hexagon-vtcm-hmx at 0.72/0.19/0.32/0.70%:
+# output0 has little margin under 1% in both.
 tolerances:
   atol: 2.0e-1
   rtol: 5.0e-2
   relative_l2_percent: 1.0
 compile_cases: [hexagon, hexagon-vtcm-hmx]
-# hexagon passes since the LLVM patch
-# patches/llvm-project/0001-hexagon_postra_qfp_partial_pair_refill.patch
-# (ROO-2035; before it, all four outputs were 100% NaN from probs @ V, tracked
-# by micro/probs-v-truncf-16x256x64x256-f32). hexagon-vtcm-hmx still fails
-# (below), and the import is expensive. Run with --run-skipped when working on
-# either case.
-skip: "known COMPILE_FAILURE in hexagon-vtcm-hmx (large-vector gate); hexagon passes"
-expected_outcomes:
-  - case: hexagon-vtcm-hmx
-    status: COMPILE_FAILURE
-    reason: "large vector sizes"
-    comment: >-
-      The patch-embedding Conv3d (matmul 256x1024x1536 + bias + position-embedding add) trips the large-vector gate under HMX. With --iree-hexagon-fail-on-large-vector=false the LLVM Hexagon backend aborts in SplitVecRes_BUILD_VECTOR after ~300 s instead. With HMX off it compiles in ~1 s. Measured 2026-10-01; re-measured 2026-10-02 (both cases unchanged), where the oversized values are a vector<32x1536> contract over the whole K = 1536. Since d6cb23b raised the large-vector limit the message reports 65536 bytes (2026-10-08); the reason omits the byte count.

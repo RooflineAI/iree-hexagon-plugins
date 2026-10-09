@@ -1,0 +1,211 @@
+# Copyright 2026 RooflineAI GmbH
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_python//python:packaging.bzl", "py_wheel")
+load(":defs.bzl", "PYTHON_COPTS", "PYTHON_FEATURES", "compiler_python_package", "mlir_python_extension")
+
+package(default_visibility = ["//visibility:public"])
+
+py_binary(
+    name = "assemble",
+    srcs = ["assemble.py"],
+    python_version = "3.11",
+)
+
+# Compile the upstream NoCAPI source/header groups with the IREE Python package
+# prefix. The upstream precompiled target uses the standalone `mlir` prefix.
+# C API implementations and LLVM/MLIR objects come from libIREECompiler.
+cc_library(
+    name = "MLIRBindingsPythonCoreNoCAPI",
+    srcs = ["@llvm-project//mlir:MLIRBindingsPythonSourceFiles"],
+    hdrs = ["@llvm-project//mlir:MLIRBindingsPythonCoreHeaders"],
+    copts = PYTHON_COPTS,
+    features = PYTHON_FEATURES,
+    deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:CAPIAsyncHeaders",
+        "@llvm-project//mlir:CAPIDebugHeaders",
+        "@llvm-project//mlir:CAPIIRHeaders",
+        "@llvm-project//mlir:CAPITransformsHeaders",
+        "@llvm-project//mlir:MLIRBindingsPythonLibHeaders",
+        "@llvm-project//mlir:MLIRBindingsPythonNanobindHeaders",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:config",
+        "@nanobind",
+        "@rules_python//python/cc:current_py_cc_headers",
+    ],
+)
+
+mlir_python_extension(
+    name = "_mlir",
+    src = "@llvm-project//mlir:lib/Bindings/Python/MainModule.cpp",
+    deps = [":MLIRBindingsPythonCoreNoCAPI"],
+)
+
+cc_library(
+    name = "core_shared",
+    srcs = [":_mlir.so"],
+)
+
+mlir_python_extension(
+    name = "_mlirDialectsLinalg",
+    src = "@llvm-project//mlir:lib/Bindings/Python/DialectLinalg.cpp",
+    deps = ["@llvm-project//mlir:CAPILinalgHeaders"],
+)
+
+mlir_python_extension(
+    name = "_mlirDialectsLLVM",
+    src = "@llvm-project//mlir:lib/Bindings/Python/DialectLLVM.cpp",
+    deps = [
+        "@llvm-project//mlir:CAPILLVMHeaders",
+        "@llvm-project//mlir:CAPITargetHeaders",
+    ],
+)
+
+mlir_python_extension(
+    name = "_mlirDialectsPDL",
+    src = "@llvm-project//mlir:lib/Bindings/Python/DialectPDL.cpp",
+    deps = ["@llvm-project//mlir:CAPIPDLHeaders"],
+)
+
+mlir_python_extension(
+    name = "_mlirDialectsGPU",
+    src = "@llvm-project//mlir:lib/Bindings/Python/DialectGPU.cpp",
+    deps = ["@llvm-project//mlir:CAPIGPUHeaders"],
+)
+
+mlir_python_extension(
+    name = "_mlirDialectsTransform",
+    src = "@llvm-project//mlir:lib/Bindings/Python/DialectTransform.cpp",
+    deps = [
+        "@llvm-project//mlir:CAPITransformDialectHeaders",
+    ],
+)
+
+mlir_python_extension(
+    name = "_mlirGPUPasses",
+    src = "@llvm-project//mlir:lib/Bindings/Python/GPUPasses.cpp",
+    deps = ["@llvm-project//mlir:CAPIGPUHeaders"],
+)
+
+mlir_python_extension(
+    name = "_mlirLinalgPasses",
+    src = "@llvm-project//mlir:lib/Bindings/Python/LinalgPasses.cpp",
+    deps = ["@llvm-project//mlir:CAPILinalgHeaders"],
+)
+
+mlir_python_extension(
+    name = "_mlirTransformInterpreter",
+    src = "@llvm-project//mlir:lib/Bindings/Python/TransformInterpreter.cpp",
+    deps = ["@llvm-project//mlir:CAPITransformDialectTransformsHeaders"],
+)
+
+compiler_python_package(
+    name = "package",
+    srcs = [
+        # IREE tools/API/build sources and dialects from
+        # compiler/bindings/python/CMakeLists.txt at the configured pin.
+        "@iree//compiler/bindings/python:CompilerPyFiles",
+        "@iree//compiler/bindings/python:FlowOpsPyFiles",
+        "@iree//compiler/bindings/python:HALOpsPyFiles",
+        "@iree//compiler/bindings/python:IREECodegenOpsPyFiles",
+        "@iree//compiler/bindings/python:IREEGPUOpsPyFiles",
+        "@iree//compiler/bindings/python:PreprocessingTransformExtensionsOpsPyFiles",
+        "@iree//compiler/bindings/python:StreamOpsPyFiles",
+        "@iree//compiler/bindings/python:TensorExtOpsPyFiles",
+        "@iree//compiler/bindings/python:UtilOpsPyFiles",
+        "@iree//compiler/bindings/python:VMOpsPyFiles",
+        # MLIR core and dialect Python sources/generated wrappers.
+        "@llvm-project//mlir/python:DialectCorePyFiles",
+        "@llvm-project//mlir/python:ExtrasPyFiles",
+        "@llvm-project//mlir/python:IRPyFiles",
+        "@llvm-project//mlir/python:MlirLibsPyFiles",
+        "@llvm-project//mlir/python:PassManagerPyFiles",
+        "@llvm-project//mlir/python:RewritePyFiles",
+        "@llvm-project//mlir/python:AffineOpsPyFiles",
+        "@llvm-project//mlir/python:ArithOpsPyFiles",
+        "@llvm-project//mlir/python:BuiltinOpsPyFiles",
+        "@llvm-project//mlir/python:ComplexOpsPyFiles",
+        "@llvm-project//mlir/python:ControlFlowOpsPyFiles",
+        "@llvm-project//mlir/python:FuncPyFiles",
+        "@llvm-project//mlir/python:GPUOpsPackagePassesPyFiles",
+        "@llvm-project//mlir/python:GPUOpsPackagePyFiles",
+        "@llvm-project//mlir/python:GPUOpsPyFiles",
+        "@llvm-project//mlir/python:LLVMOpsPyFiles",
+        "@llvm-project//mlir/python:LinalgOpsPackageOpDSLLangPyFiles",
+        "@llvm-project//mlir/python:LinalgOpsPackageOpDSLOpsPyFiles",
+        "@llvm-project//mlir/python:LinalgOpsPackageOpDSLPyFiles",
+        "@llvm-project//mlir/python:LinalgOpsPackagePassesPyFiles",
+        "@llvm-project//mlir/python:LinalgOpsPackagePyFiles",
+        "@llvm-project//mlir/python:LinalgOpsPyFiles",
+        "@llvm-project//mlir/python:MathOpsPyFiles",
+        "@llvm-project//mlir/python:MemRefOpsPyFiles",
+        "@llvm-project//mlir/python:NVVMOpsPyFiles",
+        "@llvm-project//mlir/python:PDLPyFiles",
+        "@llvm-project//mlir/python:ROCDLOpsPyFiles",
+        "@llvm-project//mlir/python:SCFPyFiles",
+        "@llvm-project//mlir/python:ShapeOpsPyFiles",
+        "@llvm-project//mlir/python:TensorOpsPyFiles",
+        "@llvm-project//mlir/python:TosaOpsPyFiles",
+        "@llvm-project//mlir/python:VectorOpsPyFiles",
+        "@llvm-project//mlir/python:TransformOpsPyFiles",
+        "@llvm-project//mlir/python:TransformOpsPackagePyFiles",
+        "@llvm-project//mlir/python:TransformExtrasPackagePyFiles",
+        "@llvm-project//mlir/python:TransformInterpreterPackagePyFiles",
+        # All importer siblings required at this torch-mlir pin.
+        "@torch-mlir//:python/torch_mlir/extras/fx_importer.py",
+        "@torch-mlir//:python/torch_mlir/extras/fx_as_strided.py",
+        "@torch-mlir//:python/torch_mlir/extras/onnx_importer.py",
+        ":_mlir.so",
+        ":_mlirDialectsGPU.so",
+        ":_mlirDialectsLLVM.so",
+        ":_mlirDialectsLinalg.so",
+        ":_mlirDialectsPDL.so",
+        ":_mlirDialectsTransform.so",
+        ":_mlirGPUPasses.so",
+        ":_mlirLinalgPasses.so",
+        ":_mlirTransformInterpreter.so",
+        "@iree//compiler/bindings/python:_ireeCompilerDialects.so",
+        "@iree//compiler/bindings/python:_site_initialize_0.so",
+        "@iree//compiler/bindings/python:iree-compile",
+        "@iree//compiler/bindings/python:iree-link",
+        "@iree//compiler/bindings/python:iree-lld",
+        "@iree//compiler/bindings/python:iree-opt",
+        "@iree//lib:IREECompiler",
+    ],
+    metadata = "pyproject.toml",
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+py_wheel(
+    name = "wheel",
+    abi = "cp311",
+    distribution = "iree-base-compiler",
+    entry_points = {
+        "console_scripts": [
+            "iree-build = iree.build.__main__:main",
+            "iree-compile = iree.compiler.tools.scripts.iree_compile.__main__:main",
+            "iree-link = iree.compiler.tools.scripts.iree_link.__main__:main",
+            "iree-opt = iree.compiler.tools.scripts.iree_opt.__main__:main",
+            "iree-import-onnx = iree.compiler.tools.import_onnx.__main__:_cli_main",
+            "iree-ir-tool = iree.compiler.tools.ir_tool.__main__:_cli_main",
+        ],
+    },
+    platform = select({
+        "@platforms//cpu:x86_64": "linux_x86_64",
+        "@platforms//cpu:aarch64": "linux_aarch64",
+    }),
+    python_requires = ">=3.11,<3.12",
+    python_tag = "cp311",
+    requires = [
+        "numpy",
+        "sympy",
+    ],
+    strip_path_prefixes = ["build_tools/python_compiler/package"],
+    summary = "IREE compiler built from the configured repository sources",
+    target_compatible_with = ["@platforms//os:linux"],
+    version = "3.12.0+source",
+    deps = [":package"],
+)

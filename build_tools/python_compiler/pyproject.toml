@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iree-base-compiler"
+version = "3.12.0+source"
+description = "IREE compiler built from the configured repository sources"
+requires-python = ">=3.11,<3.12"
+dependencies = ["numpy", "sympy"]
+
+[project.scripts]
+iree-build = "iree.build.__main__:main"
+iree-compile = "iree.compiler.tools.scripts.iree_compile.__main__:main"
+iree-link = "iree.compiler.tools.scripts.iree_link.__main__:main"
+iree-opt = "iree.compiler.tools.scripts.iree_opt.__main__:main"
+iree-import-onnx = "iree.compiler.tools.import_onnx.__main__:_cli_main"
+iree-ir-tool = "iree.compiler.tools.ir_tool.__main__:_cli_main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["iree.compiler*", "iree.build*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"*" = ["*.so", "*.json", "*.pyi", "iree-compile", "iree-link", "iree-opt", "iree-lld"]

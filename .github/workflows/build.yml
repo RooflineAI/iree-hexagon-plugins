@@ -77,6 +77,11 @@ jobs:
         with:
           name: build-artifacts-cmake
           path: build-artifacts
+      - name: Download compiler Python wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts-bazel
+          path: compiler-python-artifacts
       - &prep_build_artifacts
         name: Prepare build artifacts
         run: |
@@ -174,16 +179,23 @@ jobs:
           adb shell getprop ro.product.model
       - &install_uv
         name: Install UV
-        if: env.PHONE_ACCESS == 'true'
         uses: astral-sh/setup-uv@v3
         with:
           python-version: "3.11"
           enable-cache: false
       - &setup_test_env
         name: Setup environment for integration tests
-        if: env.PHONE_ACCESS == 'true'
         run: |
-          build_tools/create_test_venv.sh
+          # test-cmake uses the same source-built Python bindings as test-bazel.
+          # The explicit CLI/runtime artifacts above select the build being tested.
+          wheel_dir=build-artifacts
+          if [ -d compiler-python-artifacts ]; then
+            wheel_dir=compiler-python-artifacts
+          fi
+          wheels=("$wheel_dir"/iree_base_compiler-*.whl)
+          test "${#wheels[@]}" -eq 1
+          test -f "${wheels[0]}"
+          build_tools/create_test_venv.sh --compiler-wheel "${wheels[0]}"
       - &integration_tests
         name: Integration tests
         if: env.PHONE_ACCESS == 'true'

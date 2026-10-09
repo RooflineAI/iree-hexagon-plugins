@@ -5,6 +5,9 @@ pyelftools==0.33
 pytest==8.4.2
 
 iree-turbine==3.9.0
+# The host runtime remains a wheel; the compiler is provided by the Bazel build
+# when creating the test venv. Keep this independent of the compiler wheel pin.
+iree-base-runtime==3.12.0
 torch==2.9.0+cpu
 setuptools==84.0.0
 transformers==5.15.0

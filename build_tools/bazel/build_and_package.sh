@@ -11,6 +11,7 @@ TARGETS=(
     @iree//tools:iree-run-module
     @iree//tools:iree-benchmark-module
     @llvm-project//lld:ld.lld
+    //build_tools/python_compiler:wheel
     //integration_tests/device/tools:device_tools_aarch64_android
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy

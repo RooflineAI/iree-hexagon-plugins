@@ -10,6 +10,8 @@ inside `third-party/`.
 - [IREE](iree/README.md): embedded Bazel builds, Hexagon integration and
   APIs needed by the plugin.
 - [LLVM](llvm-project/README.md): no active source patches after the upgrade.
+- [torch-mlir](torch-mlir/README.md): source importer packaging and Torch
+  input conversion fixes.
 
 Patches directly in this folder are applied by Bazel module overrides in
 [`MODULE.bazel`](../MODULE.bazel), rather than the submodule patch helper.

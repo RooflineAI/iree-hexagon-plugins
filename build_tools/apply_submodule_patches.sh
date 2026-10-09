@@ -27,6 +27,7 @@ submodules=(
     "iree:third-party/iree"
     "hexagon-mlir:third-party/hexagon-mlir"
     "llvm-project:third-party/llvm-project"
+    "torch-mlir:third-party/torch-mlir"
 )
 
 for entry in "${submodules[@]}"; do

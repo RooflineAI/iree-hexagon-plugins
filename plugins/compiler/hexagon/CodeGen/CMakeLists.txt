@@ -214,6 +214,7 @@ iree_cc_library(
     "Transforms/HexagonMarkThreadForalls.cpp"
     "Transforms/HexagonPeel.cpp"
     "Transforms/HexagonPrivatizeThreadAllocations.cpp"
+    "Transforms/HexagonSpecializeHmxContractions.cpp"
     "Transforms/HexagonSplitReduction.cpp"
     "Transforms/HexagonSynchronizeSymbolVisibility.cpp"
     "Transforms/HexagonTile.cpp"

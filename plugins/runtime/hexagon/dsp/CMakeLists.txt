@@ -32,9 +32,9 @@ iree_cc_library(
   DEPS
     ::qurt_lib
     hexagon_mlir::bin::runtime::runtime_lib
-    iree::hal::local::executable_library
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::hexagon_arm_dsp
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::pmu::hexagon_pmu_helpers
+    iree_hexagon_plugins::plugins::runtime::hexagon::dsp::rt::executable_library
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::rt::hexagon_rt_library
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::ukernel::hmx::hmx_ukernels
     iree_hexagon_plugins::plugins::runtime::hexagon::interface::hexagon_dsp_skel_hdr_lib

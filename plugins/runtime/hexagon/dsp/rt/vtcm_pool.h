@@ -27,6 +27,28 @@ void *hexagon_dsp_vtcm_pool_allocate(size_t nbytes);
  */
 void hexagon_dsp_vtcm_pool_free(void *ptr);
 
+/**
+ * @brief Get the number of VTCM bytes currently allocated.
+ *
+ * Counts every allocation from the VTCM pool, including the ones generated
+ * code makes through hexagon-mlir's runtime, at their allocated (rounded)
+ * size.
+ * @return allocated bytes, 0 if VTCM has not been acquired
+ */
+size_t hexagon_dsp_vtcm_pool_get_in_use(void);
+
+/**
+ * @brief Restart peak tracking from the bytes currently allocated.
+ */
+void hexagon_dsp_vtcm_pool_reset_peak(void);
+
+/**
+ * @brief Get the highest number of VTCM bytes allocated at once since the last
+ *        hexagon_dsp_vtcm_pool_reset_peak().
+ * @return peak allocated bytes, 0 if VTCM has not been acquired
+ */
+size_t hexagon_dsp_vtcm_pool_get_peak(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif // __cplusplus

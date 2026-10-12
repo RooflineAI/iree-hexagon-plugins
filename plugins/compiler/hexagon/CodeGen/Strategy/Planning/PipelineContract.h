@@ -74,6 +74,15 @@ struct PipelineContract {
   bool supportsIndependentNonRootComputeTiles = false;
   VTCMRequirement vtcmRequirement = VTCMRequirement::Unsupported;
   LoopPeelingSupport loopPeeling = LoopPeelingSupport::Unsupported;
+  /// Whether the dispatch may execute HVX instructions. Encoded as a dispatch
+  /// resource for the DSP scheduler. HMX use is implied by `hmx` instead.
+  ///
+  /// True for every pipeline today: besides the explicit vectorization, LLVM's
+  /// vectorizers may emit HVX for any loop when the target features enable it.
+  bool usesHVX = true;
+
+  /// Whether the dispatch uses the HMX matrix unit.
+  bool usesHMX() const { return hmx != LoopTilingScope::Unused; }
 };
 
 /// Returns the contract for a pipeline routed through the Hexagon backend.

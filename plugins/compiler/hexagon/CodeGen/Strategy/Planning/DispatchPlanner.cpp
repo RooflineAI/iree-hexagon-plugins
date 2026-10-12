@@ -118,6 +118,10 @@ LogicalResult configureDispatch(FunctionOpInterface entryPoint,
   if (failed(verifyDispatchPlan(context, *shape, plan, *contract)))
     return failure();
 
+  /// FIXME: This is necessary to account for VTCM temporaries that still occur,
+  /// if no vtcm is used otherwise
+  planHeapTemporaryVTCM(context, *shape, plan);
+
   FailureOr<EncodedDispatchPlan> encoded =
       encodeDispatchPlan(context, *shape, plan, *contract);
   if (failed(encoded))

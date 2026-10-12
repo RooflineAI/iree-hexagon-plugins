@@ -473,6 +473,8 @@ typedef struct iree_hal_executable_dispatch_attrs_v0_t {
   // leave both words 0.
   hexagon_dispatch_flags_t hexagon_flags;
   // Bytes of VTCM the dispatch allocates at peak, as planned by the compiler.
+  // INT64_MAX if the compiler could not bound it: the dispatch needs all of
+  // VTCM.
   uint64_t vtcm_bytes;
   // Unused. Must be 0.
   uint64_t reserved_1[3];

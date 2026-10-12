@@ -83,17 +83,20 @@ def check_dispatch_resources(
 
     Every run is checked for:
     - at least one export logged,
-    - every export carrying compiler-recorded resources (`valid=1`),
+    - every export carrying compiler-recorded resources (`valid=1`), unless
+      the model's `allow_invalid` expectation accepts exports without them,
     - HMX implying HVX, and no HMX in the plain `hexagon` case,
     - no dispatch exceeding its declared VTCM.
     `expectations` adds the model's own checks for `case_name`.
     """
     resources = parse_dispatch_resources(logcat)
+    expectations = tuple(e for e in expectations if e.case in ("*", case_name))
+    allow_invalid = any(e.allow_invalid for e in expectations)
     problems: list[str] = []
     if not resources:
         problems.append("no HEXAGON-DISPATCH-RESOURCES line in the logcat")
     for entry in resources:
-        if not entry.valid:
+        if not entry.valid and not allow_invalid:
             problems.append(f"{entry.name}: no compiler-recorded resources")
         if entry.hmx and not entry.hvx:
             problems.append(f"{entry.name}: uses HMX but not HVX")
@@ -105,8 +108,6 @@ def check_dispatch_resources(
             f"declared {violation.declared}"
         )
     for expectation in expectations:
-        if expectation.case not in ("*", case_name):
-            continue
         if expectation.any_hmx is not None:
             any_hmx = any(entry.hmx for entry in resources)
             if any_hmx != expectation.any_hmx:

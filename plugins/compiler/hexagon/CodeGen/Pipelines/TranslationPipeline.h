@@ -19,6 +19,7 @@ void buildHexagonTranslationPassPipeline(
     const HexagonPipelineOptions &pipelineOptions = HexagonPipelineOptions{});
 
 bool isHexagonVTCMTilingEnabled();
+int64_t getHexagonVTCMTileBudgetBytes();
 bool isHexagonHmxMatmulEnabled();
 
 } // namespace mlir::iree_compiler::hexagon::codegen

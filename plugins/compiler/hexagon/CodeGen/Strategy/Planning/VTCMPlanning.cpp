@@ -112,8 +112,9 @@ bool keepsReductionsWhole(linalg::LinalgOp op, ArrayRef<int64_t> tiles) {
 /// miss a fit that unit parallel tiles would give.
 std::optional<SmallVector<int64_t>>
 determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
+  const int64_t budgetBytes = context.options.vtcmTileBudgetBytes;
   std::optional<SmallVector<int64_t>> tiles =
-      ::mlir::hexagon::determineTileSizes(op);
+      ::mlir::hexagon::determineTileSizes(op, /*tilingDims=*/{}, budgetBytes);
   if (tiles && keepsReductionsWhole(op, *tiles))
     return tiles;
 
@@ -126,7 +127,7 @@ determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
                        "reduction dimensions whole; "
                        "retrying over parallel dimensions only");
   return ::mlir::hexagon::determineTileSizes(
-      op, llvm::to_vector_of<int64_t>(parallelDims));
+      op, llvm::to_vector_of<int64_t>(parallelDims), budgetBytes);
 }
 
 } // namespace
@@ -158,9 +159,10 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
         Twine("failed to derive required VTCM tile sizes: ") + *reason,
         *reason);
   }
-  // VTCM capacity and layout policy remain owned by the Hexagon lowering
-  // utility; this planning stage only restricts it to tiles the VTCM tiling
-  // pass can realize, and records the result in the dispatch plan.
+  // The VTCM layout policy remains owned by the Hexagon lowering utility,
+  // searching within the tile budget from the planning options; this planning
+  // stage only restricts it to tiles the VTCM tiling pass can realize, and
+  // records the result in the dispatch plan.
   std::optional<SmallVector<int64_t>> tileSizes =
       determineStagedTileSizes(context, linalgOp);
   if (!tileSizes) {

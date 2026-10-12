@@ -37,6 +37,10 @@ from integration_tests.stages.compiling import (
     CompileCase,
     compile_model,
 )
+from integration_tests.stages.dispatch_resources import (
+    DispatchResourcesError,
+    check_dispatch_resources,
+)
 from integration_tests.stages.running import run_module_on_device
 
 
@@ -101,6 +105,15 @@ def _run_pipeline(
         print(f"  {key}: {value:.2f}s")
     if result.exit_code != 0:
         return Outcome(Status.RUNTIME_FAILURE, result.describe())
+
+    try:
+        check_dispatch_resources(
+            logcat=result.logcat,
+            case_name=compile_case.name,
+            expectations=model_spec.dispatch_resources,
+        )
+    except DispatchResourcesError as err:
+        return Outcome(Status.DISPATCH_RESOURCES_FAILURE, f"{err}\n{result.describe()}")
 
     try:
         check_output_files(

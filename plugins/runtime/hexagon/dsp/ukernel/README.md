@@ -21,6 +21,19 @@ path without changing the HMX IR contracts.
 HMX microkernels have their own Bazel library so target features and
 force-linking do not leak into the general runtime helpers.
 
+## HMX output precision
+
+On v79, floating-point HMX accumulator readout stores `f16`; there is no direct
+`f32` store. The accumulator has wider precision, but these kernels round its
+output to `f16`. For an `f32` destination, `iree_hexagon_hmx_unpack_acc_f16_to_f32`
+widens that result, preserving the precision and range limits of the `f16`
+readout.
+
+Recovering more precision would require additional work, such as retaining the
+accumulator, reading a high part and a scaled residual, and combining them on
+HVX. The current kernels do not implement this. Its accuracy, range handling,
+and execution cost need evaluation before adding such a mode.
+
 ## Testing
 
 The `hmx/test` package cross-compiles small shared objects and executes them in

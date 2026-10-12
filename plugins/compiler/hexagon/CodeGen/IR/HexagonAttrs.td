@@ -108,7 +108,8 @@ def IREEHexagon_DispatchResourcesAttr :
     Hexagon extension of the executable's dispatch attributes.
 
     `vtcm_bytes` is the peak VTCM the dispatch allocates, 0 if it does not use
-    VTCM.
+    VTCM, and `kUnboundedVTCMBytes` (INT64_MAX) if the planner cannot bound it,
+    so the dispatch must be treated as needing all of VTCM.
 
       #iree_hexagon.dispatch_resources<hvx = true, hmx = false,
                                        vtcm_bytes = 1048576>
@@ -128,6 +129,10 @@ def IREEHexagon_DispatchResourcesAttr :
     static constexpr StringLiteral getAttrName() {
       return StringLiteral("iree_hexagon.dispatch_resources");
     }
+
+    /// `vtcm_bytes` of a dispatch whose VTCM use cannot be bounded.
+    static constexpr int64_t kUnboundedVTCMBytes =
+        std::numeric_limits<int64_t>::max();
   }];
 }
 

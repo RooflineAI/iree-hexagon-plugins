@@ -19,7 +19,11 @@ func.func @generic_dispatch(%src: tensor<4x128x128xf32>) -> tensor<4x128xf32> at
 // CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [1, 1, 0], vector_reduction = [0, 0, 32], vtcm = [4, 128, 128]>
 // CHECK-NOT: #iree_hexagon.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
+// VTCM footprint of one [4, 128, 128] tile, each staged operand rounded to the
+// 2 KiB VTCM allocation granularity: the 4x128x128xf32 input (256 KiB), the
+// fill's 4x128xf32 output (2 KiB) and the reduction's init (2 KiB) =
+// 262144 + 2 x 2048 = 266240.
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling, iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = 266240>}>
 // CHECK: func.func @generic_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
@@ -39,7 +43,9 @@ func.func @matmul_dispatch(%lhs: tensor<128x128xf32>, %rhs: tensor<128x128xf32>)
 // CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [8, 32]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8], vtcm = [128, 128, 128]>
 // CHECK-NOT: #iree_hexagon.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
+// VTCM footprint of one [128, 128, 128] tile: lhs, rhs, the fill's output and
+// the matmul's init, each a 128x128xf32 tile (64 KiB) = 4 x 65536 = 262144.
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling, iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = 262144>}>
 // CHECK: func.func @matmul_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
@@ -70,7 +76,11 @@ func.func @multi_op_dispatch(%src: tensor<8x8xf32>) -> tensor<8x8xf32> attribute
 // CHECK-DAG: #[[PRODUCER:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 8]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0], vector_common_parallel = [1, 8], vtcm = [8, 8]>
 // CHECK-NOT: #iree_hexagon.lowering_config
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
+// VTCM footprint of one [8, 8] tile: the fill's output, %src and the shared
+// %init, each an 8x8xf32 tile (256 B) rounded up to 2 KiB = 3 x 2048 = 6144.
+// The fused %producer is not staged, and the root's %init tile is the
+// producer's, so it is counted once.
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling, iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = 6144>}>
 // CHECK: func.func @multi_op_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.generic

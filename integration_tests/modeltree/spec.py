@@ -105,6 +105,9 @@ class DispatchResourcesCheck:
     case: str = "*"
     # Whether at least one dispatch uses HMX. None leaves it unchecked.
     any_hmx: bool | None = None
+    # Accept dispatches without compiler-recorded resources (`valid=0`), i.e.
+    # dispatches the planner left to the unplanned Default pipeline.
+    allow_invalid: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

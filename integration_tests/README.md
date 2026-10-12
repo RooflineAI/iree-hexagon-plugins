@@ -127,6 +127,9 @@ dispatch_resources:
   - {case: hexagon-vtcm-hmx, any_hmx: true}   # no case: every case
 ```
 
+`allow_invalid: true` accepts dispatches without recorded resources, which the
+planner left to the unplanned Default pipeline.
+
 A large model may need more than the default 600 seconds to push its module
 and to run on the device:
 

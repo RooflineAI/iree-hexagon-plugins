@@ -11,10 +11,12 @@
 // Last synchronized: 2026-09-28
 //
 // Copied so the Hexagon target does not depend on the LLVMCPU target plugin.
-// Only the namespace, header guard and includes differ from upstream; keep it
-// in sync with the runtime's iree/hal/local/executable_library.h. A
-// static_assert in HexagonExecutableSerialization.cpp fails the build when the
-// runtime's latest version moves past Version::LATEST. See Target/README.md.
+// Differs from upstream in the namespace, header guard and includes, and in the
+// Hexagon extension of the dispatch attrs (`hexagon_flags`, `vtcm_bytes`). Keep
+// it in sync with the Hexagon-owned runtime copy
+// hexagon/dsp/rt/executable_library.h. static_asserts in
+// HexagonExecutableSerialization.cpp fail the build when the version or the
+// dispatch attrs layout diverge. See Target/README.md.
 
 #ifndef ROOF_HEXAGON_TARGET_LIBRARYBUILDER_H_
 #define ROOF_HEXAGON_TARGET_LIBRARYBUILDER_H_
@@ -95,6 +97,23 @@ public:
   enum class DispatchFlags : uint64_t {
     // IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_NONE
     NONE = 0ull,
+    // IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_SEQUENTIAL
+    SEQUENTIAL = 1ull << 0,
+    // IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_WORKGROUP_SIZE_DYNAMIC
+    WORKGROUP_SIZE_DYNAMIC = 1ull << 1,
+  };
+
+  // hexagon_dispatch_flags_t (Hexagon extension of the dispatch attrs, see
+  // hexagon/dsp/rt/executable_library.h).
+  enum class HexagonDispatchFlags : uint64_t {
+    // HEXAGON_DISPATCH_FLAG_NONE
+    NONE = 0ull,
+    // HEXAGON_DISPATCH_FLAG_RESOURCES_VALID
+    RESOURCES_VALID = 1ull << 0,
+    // HEXAGON_DISPATCH_FLAG_USES_HVX
+    USES_HVX = 1ull << 1,
+    // HEXAGON_DISPATCH_FLAG_USES_HMX
+    USES_HMX = 1ull << 2,
   };
 
   // iree_hal_executable_dispatch_attrs_v0_t
@@ -109,6 +128,12 @@ public:
     uint8_t bindingCount = 0;
     // Size of the workgroup, if a compile-time constant.
     uint32_t workgroupSize[3] = {0};
+    // Hexagon extension: resources the planner recorded for the dispatch.
+    // Bitwise OR of HexagonDispatchFlags values.
+    uint64_t hexagonFlags = 0;
+    // Hexagon extension: planned peak VTCM bytes. Only meaningful if
+    // hexagonFlags has RESOURCES_VALID.
+    uint64_t vtcmBytes = 0;
   };
 
   // iree_hal_executable_source_location_v0_t

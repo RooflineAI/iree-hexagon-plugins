@@ -131,11 +131,21 @@ eventually deleted. Only these things differ:
   copy linked into the same `iree-compile`;
 - the header guard;
 - the stale includes (`LLVMTargetOptions.h`, `UtilTypes.h`), replaced by
-  `mlir/Support/LLVM.h`.
+  `mlir/Support/LLVM.h`;
+- the Hexagon extension of the dispatch attributes: `hexagon_flags` and
+  `vtcm_bytes`, carrying the dispatch resources the planner recorded, take the
+  first two words of IREE's `reserved_1`.
 
-The header of `LibraryBuilder.h` records the IREE revision and ABI version it
-was copied at. `HexagonExecutableSerialization.cpp` has a `static_assert`
-comparing `LibraryBuilder::Version::LATEST` with the runtime's
-`IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST`. An IREE bump that changes the
-executable library ABI therefore breaks the build instead of failing on the
-DSP. When that happens, re-sync the copy from upstream and update the header.
+Because of that extension, the runtime side of the ABI is Hexagon-owned too:
+`plugins/runtime/hexagon/dsp/rt/executable_library.h` is a copy of IREE's
+`iree/hal/local/executable_library.h` with the same extension, included by both
+the DSP runtime and `HexagonExecutableSerialization.cpp` instead of IREE's.
+
+The headers of both copies record the IREE revision and ABI version they were
+copied at. `HexagonExecutableSerialization.cpp` has `static_assert`s comparing
+`LibraryBuilder::Version::LATEST` with the owned header's
+`IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST`, and the dispatch-attribute flags
+and field offsets with the LLVM struct `makeDispatchAttrsType` emits. When an
+IREE bump changes the executable library ABI, re-sync both copies from upstream
+together, keep the extension (marked `HEXAGON EXTENSION` in the header), and
+update both headers.

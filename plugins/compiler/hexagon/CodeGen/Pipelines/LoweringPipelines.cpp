@@ -542,6 +542,8 @@ void addHexagonDefaultPassPipeline(
 }
 
 void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
+  // Must run before ReconcileTranslationInfo erases the translation info.
+  variantPassManager.addPass(createHexagonPropagateDispatchResourcesPass());
   OpPassManager &modulePassManager = variantPassManager.nest<ModuleOp>();
   modulePassManager.addPass(createReconcileTranslationInfoPass());
   modulePassManager.addPass(createCSEPass());

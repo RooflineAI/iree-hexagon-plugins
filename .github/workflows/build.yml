@@ -297,8 +297,21 @@ jobs:
       - pre-commit
       - test-cmake
       - test-bazel
+    # always(): without it a skipped or failed dependency skips this job, and
+    # GitHub treats a skipped required check as passing. The remaining
+    # condition mirrors pre-commit: runs that skip on purpose (stacked PRs,
+    # title/body edits) have nothing to gate.
+    if: always() && (github.event_name != 'pull_request' || (github.event.pull_request.base.ref == 'main' && (github.event.action != 'edited' || github.event.changes.base)))
     runs-on: ubuntu-24.04
     steps:
       - name: gatekeeper
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          true
+          echo "needs results: ${RESULTS}"
+          for r in ${RESULTS}; do
+            if [ "$r" != "success" ]; then
+              echo "::error::A required job did not succeed (failed, cancelled or skipped)."
+              exit 1
+            fi
+          done

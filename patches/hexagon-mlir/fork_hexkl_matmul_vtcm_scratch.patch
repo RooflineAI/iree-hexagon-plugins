@@ -1,0 +1,98 @@
+diff --git a/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h b/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h
+index cd39520..1801b04 100644
+--- a/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h
++++ b/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h
+@@ -19,4 +19,19 @@ int hexkl_matmul_f16f16_f32(uint64_t n_row, uint64_t n_col, uint64_t n_inner,
+                             const _Float16 *restrict inAct,
+                             const _Float16 *restrict inW);
+ }
++
++extern "C" {
++/// Bytes of VTCM scratch hexkl_matmul_f16f16_f32_with_scratch needs.
++size_t hexkl_matmul_f16f16_f32_scratch_bytes(uint64_t n_row, uint64_t n_col,
++                                             uint64_t n_inner);
++
++/// hexkl_matmul_f16f16_f32 with caller-provided VTCM scratch of at least
++/// hexkl_matmul_f16f16_f32_scratch_bytes() bytes, aligned to
++/// HEXKL_HMX_ACTIVATION_ALIGNMENT (2048) bytes.
++int hexkl_matmul_f16f16_f32_with_scratch(uint64_t n_row, uint64_t n_col,
++                                         uint64_t n_inner, float *restrict outM,
++                                         const _Float16 *restrict inAct,
++                                         const _Float16 *restrict inW,
++                                         void *vtcm_scratch);
++}
+ #endif // # HEXAGON_BIN_RUNTIME_INCLUDE_HEXKLAPI_H
+diff --git a/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp b/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp
+index 766a2cb..346e0d8 100644
+--- a/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp
++++ b/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp
+@@ -17,6 +17,26 @@ int hexkl_matmul_f16f16_f32(uint64_t n_row, uint64_t n_col, uint64_t n_inner,
+                             const _Float16 *restrict inAct,
+                             const _Float16 *restrict inW) {
+   int ret = AEE_SUCCESS;
++  const size_t vtcm_size =
++      hexkl_matmul_f16f16_f32_scratch_bytes(n_row, n_col, n_inner);
++  void *vtcm_scratch =
++      hexagon_runtime_alloc_1d(vtcm_size, HEXKL_HMX_ACTIVATION_ALIGNMENT, true);
++  if (!vtcm_scratch) {
++    printf("[HEXKL_MICRO][ERROR] VTCM allocation failed\n");
++    return AEE_ENOMEMORY;
++  }
++  ret = hexkl_matmul_f16f16_f32_with_scratch(n_row, n_col, n_inner, outM, inAct,
++                                             inW, vtcm_scratch);
++  hexagon_runtime_free_1d(vtcm_scratch);
++  return ret;
++}
++
++int hexkl_matmul_f16f16_f32_with_scratch(uint64_t n_row, uint64_t n_col,
++                                         uint64_t n_inner, float *restrict outM,
++                                         const _Float16 *restrict inAct,
++                                         const _Float16 *restrict inW,
++                                         void *vtcm_scratch) {
++  int ret = AEE_SUCCESS;
+ 
+   uint32_t N = n_row;
+   uint32_t M = n_col;
+@@ -51,19 +71,14 @@ int hexkl_matmul_f16f16_f32(uint64_t n_row, uint64_t n_col, uint64_t n_inner,
+   // Total VTCM (aligned data + config)
+   const size_t vtcm_size = data_bytes_aligned + config_bytes;
+ 
+-  uint8_t *vtcm_base =
+-      (uint8_t *)hexagon_runtime_alloc_1d(vtcm_size, align, true);
+-  if (!vtcm_base) {
+-    printf("[HEXKL_MICRO][ERROR] VTCM allocation failed\n");
+-    return AEE_ENOMEMORY;
+-  }
++  // Caller-provided, vtcm_size bytes and align aligned.
++  uint8_t *vtcm_base = (uint8_t *)vtcm_scratch;
+ 
+   const size_t hmx_config_offset = data_bytes_aligned;
+   // Optional sanity checks
+   if ((hmx_config_offset + config_bytes) > vtcm_size ||
+       (hmx_config_offset % align)) {
+     printf("[HEXKL_MICRO][ERROR] HMX config placement invalid\n");
+-    hexagon_runtime_free_1d(vtcm_base);
+     return AEE_EFAILED;
+   }
+ 
+@@ -136,7 +151,19 @@ int hexkl_matmul_f16f16_f32(uint64_t n_row, uint64_t n_col, uint64_t n_inner,
+     }
+   }
+ 
+-  hexagon_runtime_free_1d(vtcm_base);
+   return ret;
+ }
++
++size_t hexkl_matmul_f16f16_f32_scratch_bytes(uint64_t n_row, uint64_t n_col,
++                                             uint64_t n_inner) {
++  (void)n_row;
++  (void)n_col;
++  // Same layout as in hexkl_matmul_f16f16_f32_with_scratch.
++  const size_t align = HEXKL_HMX_ACTIVATION_ALIGNMENT;
++  const size_t row_tiles_in_A = (n_inner + (HEXKL_HMX_F16_BLOCK_N_INNER - 1)) /
++                                HEXKL_HMX_F16_BLOCK_N_INNER;
++  const size_t data_bytes = align * (2 * row_tiles_in_A + 2);
++  const size_t data_bytes_aligned = ((data_bytes + align - 1) / align) * align;
++  return data_bytes_aligned + hexkl_micro_hmx_config_size();
++}
+ }

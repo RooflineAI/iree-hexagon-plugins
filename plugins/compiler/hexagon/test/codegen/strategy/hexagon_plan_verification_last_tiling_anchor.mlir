@@ -1,11 +1,11 @@
-// LLVMCPUTileLastOpAndFuseProducerConsumerPass can select independent anchors
+// HexagonTileLastOpAndFuseProducerConsumerPass can select independent anchors
 // on either side of the distribution root. Verify end-to-end that a live
 // producer before the root is tiled at its inner-parallel level.
 //
 // RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling=false \
 // RUN:   --mlir-disable-threading \
-// RUN:   --mlir-print-ir-after=iree-llvmcpu-tile-and-fuse-producer-consumer \
+// RUN:   --mlir-print-ir-after=iree-hexagon-tile-and-fuse-producer-consumer \
 // RUN:   --mlir-print-ir-module-scope \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy,func.func(iree-hexagon-lower-executable-target))' \
 // RUN:   %s 2>&1 | FileCheck %s
@@ -40,7 +40,7 @@ func.func @producer_has_root_private_dimension(
   return %producer, %root : tensor<4x8x64xf32>, tensor<4x8xf32>
 }
 
-// CHECK-LABEL: IR Dump After LLVMCPUTileAndFuseProducerConsumerPass: iree-llvmcpu-tile-and-fuse-producer-consumer{anchor-on-root-op=false
+// CHECK-LABEL: IR Dump After HexagonTileAndFuseProducerConsumerPass: iree-hexagon-tile-and-fuse-producer-consumer{anchor-on-root-op=false
 // CHECK-SAME: tiling-level=vector_inner_parallel}
 // CHECK-LABEL: func.func @producer_has_root_private_dimension(
 // CHECK: scf.forall (%[[INNER_IV:.+]]) = (0) to (64) step (32)

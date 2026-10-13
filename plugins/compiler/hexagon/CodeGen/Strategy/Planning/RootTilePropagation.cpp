@@ -36,7 +36,7 @@ namespace mlir::iree_compiler::hexagon::codegen::planning {
 //     and adds a mask - while a tile *smaller* than the fused extent is
 //     rejected outright unless some pass first tiles the operation down to it.
 //
-//  2. LLVMCPUTileToVectorSizePass is the pass that would perform that inner
+//  2. HexagonTileToVectorSizePass is the pass that would perform that inner
 //     tiling, and it declines two cases: it leaves a dimension alone when the
 //     requested size exceeds the slice, and it skips linalg.fill entirely. A
 //     fused fill therefore has no route to a smaller configured shape, and an

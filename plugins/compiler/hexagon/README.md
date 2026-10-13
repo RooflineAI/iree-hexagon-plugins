@@ -117,19 +117,10 @@ IREE's HAL expects three main pipelines that will be called in order:
 - `TranslationPipeline.cpp`
 - `LinkingPipeline.cpp`
 
-Finally, Hexagon's Translation pipeline is currently in an experimental state. As such,
-it currently has two different pipelines under development that are likely to be removed in the future:
-
-- `HexagonMlirPipeline.*`
-  - experimental route inspired by hexagon-mlir.
-- `IreeLoweringPipelines.*`
-  - Hexagon-adapted versions of IREE/LLVMCPU lowering sequences.
-
 ### `CodeGen/Strategy/`
 
-This directory contains passes centered about deciding how a dispatch should be lowered,
-not about performing the lowering itself. It is currently only usable when triggering the
-IreeLoweringPipelines for translation using the appropriate flags.
+This directory contains passes centered about deciding how a dispatch should be
+lowered, not about performing the lowering itself.
 
 - `HexagonSelectLoweringStrategy.cpp`
   - pass wrapper that drives strategy selection.

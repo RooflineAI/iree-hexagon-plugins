@@ -11,6 +11,7 @@
 
 #include <string>
 
+#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -28,8 +29,7 @@ struct HexagonVectorLoweringPassOptions {
   std::string splitVectorTransfersTo = "";
 };
 
-// Registers the passes reused from the LLVMCPU backend so they can be
-// referenced by name (e.g. from custom pipelines or debugging utilities).
+// Registers Hexagon-owned passes for custom pipelines and debugging utilities.
 void registerHexagonPasses();
 
 // Registers Hexagon pass pipelines (configuration, translation, linking).
@@ -37,6 +37,25 @@ void registerHexagonCodeGenPasses();
 
 #define GEN_PASS_DECL
 #include "hexagon/CodeGen/Passes.h.inc" // IWYU pragma: keep
+
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonSplitReductionPass(bool enableReassociateFpReductions);
+
+// CPU tiling levels are retained until Hexagon configuration migration.
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonTilePass(IREE::CPU::TilingLevel tilingLevel, bool skipRootOp);
+
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonTileAndFuseProducerConsumerPass(
+    IREE::CPU::TilingLevel tilingLevel);
+
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonTileRootAndFuseInputOperandsPass(
+    IREE::CPU::TilingLevel tilingLevel);
+
+std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
+createHexagonTileLastOpAndFuseProducerConsumerPass(
+    IREE::CPU::TilingLevel tilingLevel);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 

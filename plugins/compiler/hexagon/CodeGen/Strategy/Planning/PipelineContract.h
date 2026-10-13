@@ -77,7 +77,7 @@ struct PipelineContract {
   LoopTilingScope vectorCommonParallel = LoopTilingScope::Unused;
   LoopTilingScope vectorReduction = LoopTilingScope::Unused;
   LoopTilingScope vectorInnerParallel = LoopTilingScope::Unused;
-  // Runs LLVMCPUTileToVectorSizePass
+  // Runs HexagonTileToVectorSizePass
   bool runsTileToVectorSize = false;
   // Configured vector sizes are consumed by GenericVectorization.
   bool usesConfiguredVectorSizes = false;

@@ -1,5 +1,5 @@
 // RUN: iree-opt \
-// RUN:   --pass-pipeline='builtin.module(func.func(iree-llvmcpu-tile-and-fuse-producer-consumer{tiling-level=vector_common_parallel}))' \
+// RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-tile-and-fuse-producer-consumer{tiling-level=vector_common_parallel}))' \
 // RUN:   --split-input-file %s | FileCheck %s
 
 // These tests exercise the HMX producer- and consumer-fusion mappings directly.

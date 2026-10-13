@@ -196,9 +196,8 @@ iree_cc_library(
     "Pipelines/Bufferization.h"
     "Pipelines/ConfigurationPipeline.h"
     "Pipelines/HexagonLowerExecutableTarget.h"
-    "Pipelines/HexagonMlirPipeline.h"
-    "Pipelines/IreeLoweringPipelines.h"
     "Pipelines/LinkingPipeline.h"
+    "Pipelines/LoweringPipelines.h"
     "Pipelines/TranslationPipeline.h"
     "Strategy/KernelDispatch.h"
   SRCS
@@ -208,15 +207,18 @@ iree_cc_library(
     "Pipelines/Bufferization.cpp"
     "Pipelines/ConfigurationPipeline.cpp"
     "Pipelines/HexagonLowerExecutableTarget.cpp"
-    "Pipelines/HexagonMlirPipeline.cpp"
-    "Pipelines/IreeLoweringPipelines.cpp"
     "Pipelines/LinkingPipeline.cpp"
+    "Pipelines/LoweringPipelines.cpp"
     "Pipelines/TranslationPipeline.cpp"
     "Strategy/HexagonSelectLoweringStrategy.cpp"
     "Strategy/KernelDispatch.cpp"
-    "Transforms/FoldDispatchOutputStaging.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
+    "Transforms/HexagonPeel.cpp"
+    "Transforms/HexagonSplitReduction.cpp"
+    "Transforms/HexagonTile.cpp"
+    "Transforms/HexagonTileAndFuseProducerConsumer.cpp"
+    "Transforms/HexagonTileToVectorSize.cpp"
     "Transforms/HexagonVTCMTiling.cpp"
     "Transforms/InsertProfilerMarkers.cpp"
     "Transforms/LowerVTCMStaging.cpp"
@@ -235,8 +237,6 @@ iree_cc_library(
     MLIRArmSMEToLLVM
     MLIRArmSMEToSCF
     MLIRBufferizationDialect
-    MLIRBufferizationPipelines
-    MLIRBufferizationToMemRef
     MLIRComplexToStandard
     MLIRControlFlowDialect
     MLIRControlFlowTransforms
@@ -253,7 +253,6 @@ iree_cc_library(
     MLIRPDLDialect
     MLIRPDLInterpDialect
     MLIRPass
-    MLIRQuantTransforms
     MLIRReconcileUnrealizedCasts
     MLIRSCFDialect
     MLIRSCFToControlFlow
@@ -283,6 +282,7 @@ iree_cc_library(
     iree::compiler::Dialect::LinalgExt::IR
     iree::compiler::Dialect::LinalgExt::Transforms
     iree::compiler::Dialect::LinalgExt::Utils
+    iree::compiler::Dialect::Util::Analysis
     iree::compiler::Dialect::Util::IR
     iree::compiler::Dialect::Util::Transforms
     iree::compiler::Transforms

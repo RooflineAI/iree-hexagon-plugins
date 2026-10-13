@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 // This header declares the translation-stage Hexagon pipeline builder and
-// route-shaping policy accessors owned by TranslationPipeline.cpp.
+// feature policy accessors owned by TranslationPipeline.cpp.
 
 #ifndef ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
 #define ROOF_HEXAGON_CODEGEN_TRANSLATIONPIPELINE_H_
@@ -19,7 +19,6 @@ void buildHexagonTranslationPassPipeline(
     const HexagonPipelineOptions &pipelineOptions = HexagonPipelineOptions{});
 
 bool isHexagonVTCMTilingEnabled();
-bool isHexagonMlirLinalgLoweringEnabled();
 bool isHexagonHmxMatmulEnabled();
 
 } // namespace mlir::iree_compiler::hexagon::codegen

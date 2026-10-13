@@ -1,5 +1,5 @@
 // RUN: iree-opt \
-// RUN:   --pass-pipeline='builtin.module(func.func(iree-llvmcpu-tile{tiling-level=vector_common_parallel}))' \
+// RUN:   --pass-pipeline='builtin.module(func.func(iree-hexagon-tile{tiling-level=vector_common_parallel}))' \
 // RUN:   --split-input-file %s | FileCheck %s
 
 // These tests exercise the regular tiling paths of the HMX tensor operations.

@@ -550,7 +550,7 @@ void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
   modulePassManager.addPass(IREE::Util::createDropCompilerHintsPass());
 }
 
-void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
+void addHexagonPreLLVMConversionPasses(OpPassManager &modulePassManager) {
   FunctionLikeNest(modulePassManager)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 
@@ -631,7 +631,9 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       .addPass(createCSEPass)
       .addPredicatedPass(clHexagonInstrumentMemoryAccesses,
                          createInstrumentMemoryAccessesPass);
+}
 
+void addHexagonConvertToLLVMPasses(OpPassManager &modulePassManager) {
   modulePassManager.addPass(createHexagonVerifyHmxRuntimeABIPass());
 
   modulePassManager.addPass(createHexagonConvertToLLVMPass(

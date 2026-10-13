@@ -296,9 +296,9 @@ buildExecutableMetadata(llvm::Module &llvmModule,
           mlir::cast<mlir::IntegerAttr>(workgroupSizeValues[2]).getInt());
     }
 
-    // Hardware resources the dispatch planner recorded, for the DSP
-    // scheduler. Without them RESOURCES_VALID stays clear and the DSP assumes
-    // the dispatch needs every resource.
+    // Hardware resources HexagonAnnotateDispatchResourcesPass measured, for
+    // the DSP scheduler. Without them RESOURCES_VALID stays clear and the DSP
+    // assumes the dispatch needs every resource.
     if (auto resources =
             exportOp->getAttrOfType<IREE::Hexagon::DispatchResourcesAttr>(
                 IREE::Hexagon::DispatchResourcesAttr::getAttrName())) {

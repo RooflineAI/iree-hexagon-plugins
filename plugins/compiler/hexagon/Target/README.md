@@ -133,7 +133,8 @@ eventually deleted. Only these things differ:
 - the stale includes (`LLVMTargetOptions.h`, `UtilTypes.h`), replaced by
   `mlir/Support/LLVM.h`;
 - the Hexagon extension of the dispatch attributes: `hexagon_flags` and
-  `vtcm_bytes`, carrying the dispatch resources the planner recorded, take the
+  `vtcm_bytes`, carrying the dispatch resources HexagonAnnotateDispatchResourcesPass
+  measured, take the
   first two words of IREE's `reserved_1`.
 
 Because of that extension, the runtime side of the ABI is Hexagon-owned too:

@@ -13,6 +13,30 @@ include "mlir/Pass/PassBase.td"
 // Hexagon Codegen passes (keep alphabetical)
 //------------------------------------------------------------------------------
 
+def HexagonAnnotateDispatchResourcesPass :
+    Pass<"iree-hexagon-annotate-dispatch-resources",
+         "IREE::HAL::ExecutableVariantOp"> {
+  let summary = [{
+      Records the hardware resources each dispatch uses on its
+      hal.executable.export.
+  }];
+  let description = [{
+    Walks each entry point and the functions it calls on the final IR before
+    LLVM conversion and annotates its export with
+    `#iree_hexagon.dispatch_resources`, which serialization encodes for the DSP
+    scheduler:
+    - `hmx`: the dispatch contains HMX ops.
+    - `hvx`: the dispatch has vector values or uses HMX. LLVM's loop and SLP
+      vectorizers are disabled, so no other HVX code appears later.
+    - `vtcm_bytes`: the sum of every heap allocation at the size the runtime
+      allocates for it. Heap memory, `malloc` included, is served from the
+      VTCM pool.
+    An export whose VTCM use cannot be bounded, e.g. because of a dynamically
+    sized allocation, is left unannotated and the DSP assumes the dispatch
+    needs every resource.
+  }];
+}
+
 def HexagonAssignConstantOrdinalsPass :
     Pass<"iree-hexagon-assign-constant-ordinals", "IREE::HAL::ExecutableVariantOp"> {
   let summary = "Assigns executable constant ordinals across Hexagon variants";

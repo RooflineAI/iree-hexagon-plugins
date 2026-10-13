@@ -102,13 +102,14 @@ def IREEHexagon_DispatchResourcesAttr :
   let summary = "Hardware resources a dispatch needs on the DSP.";
   let description = [{
     Records the hardware units and the VTCM a dispatch uses, so the DSP can
-    decide which dispatches may run concurrently. The dispatch planner sets it
-    in the translation info configuration when it picks the strategy; it is
-    then copied to the `hal.executable.export` and serialized into the
-    Hexagon extension of the executable's dispatch attributes.
+    decide which dispatches may run concurrently.
+    HexagonAnnotateDispatchResourcesPass measures them on the final IR before
+    LLVM conversion and sets the attribute on the `hal.executable.export`;
+    serialization encodes it into the Hexagon extension of the executable's
+    dispatch attributes.
 
-    `vtcm_bytes` is the peak VTCM the dispatch allocates, 0 if it does not use
-    VTCM.
+    `vtcm_bytes` bounds the peak VTCM the dispatch allocates, 0 if it does not
+    use VTCM.
 
       #iree_hexagon.dispatch_resources<hvx = true, hmx = false,
                                        vtcm_bytes = 1048576>
@@ -123,8 +124,8 @@ def IREEHexagon_DispatchResourcesAttr :
   }];
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
-    /// Name under which the attribute is stored in the translation info
-    /// configuration and on the `hal.executable.export`.
+    /// Name under which the attribute is stored on the
+    /// `hal.executable.export`.
     static constexpr StringLiteral getAttrName() {
       return StringLiteral("iree_hexagon.dispatch_resources");
     }

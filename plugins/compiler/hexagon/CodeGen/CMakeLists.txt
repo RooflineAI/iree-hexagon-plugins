@@ -202,6 +202,7 @@ iree_cc_library(
     "Pipelines/TranslationPipeline.cpp"
     "Strategy/HexagonSelectLoweringStrategy.cpp"
     "Strategy/KernelDispatch.cpp"
+    "Transforms/HexagonAnnotateDispatchResources.cpp"
     "Transforms/HexagonAssignConstantOrdinals.cpp"
     "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"

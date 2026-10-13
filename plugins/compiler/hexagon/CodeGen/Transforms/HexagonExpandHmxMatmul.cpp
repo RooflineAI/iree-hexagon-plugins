@@ -55,6 +55,13 @@ namespace mlir::iree_compiler::hexagon::codegen {
 
 namespace {
 
+// hexKL programs the FP16 accumulator-read bias table from a 256-byte block at
+// config+12288. A full tile-sized scratch keeps the allocation and future
+// config layouts naturally aligned to `IREE::Hexagon::kHmxAlignment`, which is
+// what `HexagonVerifyHmxRuntimeABIPass` requires of every buffer reaching the
+// runtime kernels.
+constexpr int64_t kHmxAccReadConfigBytes = 2048;
+
 static MemRefType getIdentityLayoutType(MemRefType type) {
   return MemRefType::get(type.getShape(), type.getElementType(),
                          MemRefLayoutAttrInterface{}, type.getMemorySpace());
@@ -112,8 +119,8 @@ struct HexagonExpandHmxMatmulPass final
     };
 
     auto configTy =
-        MemRefType::get({IREE::Hexagon::kHmxAccReadConfigBytes},
-                        rewriter.getI8Type(), MemRefLayoutAttrInterface{},
+        MemRefType::get({kHmxAccReadConfigBytes}, rewriter.getI8Type(),
+                        MemRefLayoutAttrInterface{},
                         IntegerAttr::get(rewriter.getI32Type(), 1));
     Value config = createEntryAlloc(configTy, IREE::Hexagon::kHmxAlignment);
     {

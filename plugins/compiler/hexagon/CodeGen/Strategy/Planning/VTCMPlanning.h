@@ -22,15 +22,6 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
                              const PipelineContract &contract,
                              DispatchStrategy &strategy);
 
-/// FIXME:
-///  For a plan without VTCM staging, estimates the VTCM that heap temporaries
-///  take once compute tiles are final, and records it in the plan.
-///  This mutates plan state only; it never mutates IR.
-///  This is necessary for mallocs that end up in VTCM
-void planHeapTemporaryVTCM(const PlanningContext &context,
-                           const DispatchShape &dispatchShape,
-                           DispatchPlan &plan);
-
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 
 #endif // ROOF_HEXAGON_CODEGEN_PLANNING_VTCMPLANNING_H_

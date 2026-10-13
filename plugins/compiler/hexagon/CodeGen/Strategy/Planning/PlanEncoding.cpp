@@ -90,25 +90,13 @@ encodeDispatchPlan(const PlanningContext &context,
   EncodedDispatchPlan encoded;
   encoded.entryPoint = entryPoint;
   MLIRContext *mlirContext = entryPoint.getContext();
-  SmallVector<NamedAttribute> pipelineConfigItems;
+  DictionaryAttr pipelineConfig;
   if (plan.strategy.requestLoopPeeling) {
-    pipelineConfigItems.emplace_back(getEnableLoopPeelingAttrName(mlirContext),
-                                     UnitAttr::get(mlirContext));
+    StringAttr name = getEnableLoopPeelingAttrName(mlirContext);
+    pipelineConfig = DictionaryAttr::get(
+        mlirContext,
+        ArrayRef<NamedAttribute>{{name, UnitAttr::get(mlirContext)}});
   }
-  // The dispatch's hardware resources, as decided by the plan. The values are
-  // copied to the export and serialized for the DSP scheduler unchanged. A
-  // plan whose VTCM use could not be bounded declares all of VTCM.
-  using IREE::Hexagon::DispatchResourcesAttr;
-  const std::optional<VTCMPlan> &vtcmPlan = plan.strategy.rootTiling.vtcm;
-  int64_t vtcmBytes =
-      (vtcmPlan ? vtcmPlan->footprintBytes : plan.heapTemporaryVTCMBytes)
-          .value_or(DispatchResourcesAttr::kUnboundedVTCMBytes);
-  pipelineConfigItems.emplace_back(
-      DispatchResourcesAttr::getAttrName(),
-      DispatchResourcesAttr::get(mlirContext, pipelineContract.usesHVX,
-                                 pipelineContract.usesHMX(), vtcmBytes));
-  DictionaryAttr pipelineConfig =
-      DictionaryAttr::get(mlirContext, pipelineConfigItems);
   encoded.translationInfo = IREE::Codegen::TranslationInfoAttr::get(
       mlirContext,
       IREE::Hexagon::PipelineAttr::get(mlirContext, plan.strategy.pipeline),

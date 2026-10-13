@@ -23,17 +23,11 @@ func.func @unsupported_vtcm_footprint(%input: tensor<8x8xindex>) -> tensor<8x8xi
 }
 
 // CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 1]>
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling, iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = {{[0-9]+}}>}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK-DAG: #[[BUFFER_ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 8]>
-// CHECK-DAG: #[[BUFFER_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = {{[0-9]+}}>}>
-// @full_reduction_to_scalar: each staged operand is rounded to the 2 KiB VTCM
-// allocation granularity: 256xf32 input (1 KiB) + 0-d f32 output = 2 x 2 KiB.
-// CHECK-DAG: #[[FULL_REDUCTION_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling, iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = 4096>}>
+// CHECK-DAG: #[[BUFFER_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>>
 // CHECK-DAG: #[[FULL_REDUCTION_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [256]>
 // CHECK-DAG: #[[OVERSIZED_ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0], vector_common_parallel = [4, 0], vector_reduction = [0, 8]>
-// @row_reduction_fits_with_parallel_tiles: a 4x65536xf32 input tile (1 MiB)
-// plus the 4xf32 fill and reduction init tiles, each rounded to 2 KiB.
-// CHECK-DAG: #[[ROW_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling, iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = 1052672>}>
 // CHECK-DAG: #[[ROW_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [{{[0-9]+}}, 65536]>
 // CHECK: func.func @unsupported_vtcm_footprint(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -82,7 +76,6 @@ func.func @full_reduction_to_scalar(%input: tensor<256xf32>) -> tensor<f32> attr
 }
 
 // CHECK: func.func @full_reduction_to_scalar(
-// CHECK-SAME: translation_info = #[[FULL_REDUCTION_TRANSLATION]]
 // CHECK: linalg.generic
 // CHECK-SAME: lowering_config = #[[FULL_REDUCTION_ROOT]]
 // CHECK: return
@@ -133,7 +126,6 @@ func.func @row_reduction_fits_with_parallel_tiles(%input: tensor<64x65536xf32>) 
 }
 
 // CHECK: func.func @row_reduction_fits_with_parallel_tiles(
-// CHECK-SAME: translation_info = #[[ROW_TRANSLATION]]
 // CHECK: linalg.generic
 // CHECK-SAME: lowering_config = #[[ROW_ROOT]]
 // CHECK: return

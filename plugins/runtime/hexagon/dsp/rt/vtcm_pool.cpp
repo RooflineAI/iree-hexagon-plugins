@@ -49,20 +49,3 @@ void hexagon_dsp_vtcm_pool_free(void *ptr) {
   }
   vtcm_pool->Free(ptr, nbytes);
 }
-
-size_t hexagon_dsp_vtcm_pool_get_in_use(void) {
-  VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
-  return vtcm_pool ? vtcm_pool->InUseBytes() : 0;
-}
-
-void hexagon_dsp_vtcm_pool_reset_peak(void) {
-  VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
-  if (vtcm_pool) {
-    vtcm_pool->ResetPeakInUseBytes();
-  }
-}
-
-size_t hexagon_dsp_vtcm_pool_get_peak(void) {
-  VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
-  return vtcm_pool ? vtcm_pool->PeakInUseBytes() : 0;
-}

@@ -74,17 +74,4 @@ int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
                                                   uint32_t export_ordinal,
                                                   const char **out_name);
 
-/**
- * @brief Get the dispatch attributes of an export.
- *
- * @param[in] executable_handle handle of the executable
- * @param[in] export_ordinal number of exported function
- * @param[out] out_attrs dispatch attributes of the export, or NULL if the
- *             executable has no attribute table
- * @retval AEE_SUCCESS for success
- */
-int hexagon_dsp_executable_get_dispatch_attrs(
-    int64 executable_handle, uint32_t export_ordinal,
-    const iree_hal_executable_dispatch_attrs_v0_t **out_attrs);
-
 #endif // #ifndef HEXAGON_DSP_EXECUTABLE_H

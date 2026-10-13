@@ -94,23 +94,6 @@ class SemanticCheck:
 
 
 @dataclasses.dataclass(frozen=True)
-class DispatchResourcesCheck:
-    """A model's own expectation on the per-dispatch resources the DSP logs.
-
-    The generic checks in `stages/dispatch_resources.py` run for every model;
-    these add what only the model knows, e.g. that it must use HMX.
-    """
-
-    # No `case` means the check covers every compile case.
-    case: str = "*"
-    # Whether at least one dispatch uses HMX. None leaves it unchecked.
-    any_hmx: bool | None = None
-    # Accept dispatches without compiler-recorded resources (`valid=0`), i.e.
-    # dispatches the planner left to the unplanned Default pipeline.
-    allow_invalid: bool = False
-
-
-@dataclasses.dataclass(frozen=True)
 class ModelSpec:
     """One entry of the model tree."""
 
@@ -126,7 +109,6 @@ class ModelSpec:
     # configurations; other configurations are requested explicitly.
     compile_cases: tuple[str, ...] = DEFAULT_COMPILE_CASE_NAMES
     semantic_check: SemanticCheck | None = None
-    dispatch_resources: tuple[DispatchResourcesCheck, ...] = ()
     extra_compile_flags: tuple[str, ...] = ()
     # Seconds the module push, and separately iree-run-module on the device,
     # may take before they are killed.

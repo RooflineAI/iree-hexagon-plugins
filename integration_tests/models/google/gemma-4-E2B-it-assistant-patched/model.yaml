@@ -23,8 +23,3 @@ tolerances:
   rtol: 5.0e-2
   relative_l2_percent: 0.3
 compile_cases: [hexagon-vtcm-hmx]
-# Two 0-d scalar dispatches (the position id cast to f32, and x - 1 between a
-# full reduction and a broadcast) have no loops, so the planner leaves them to
-# the unplanned Default pipeline without recorded resources.
-dispatch_resources:
-  - {allow_invalid: true}

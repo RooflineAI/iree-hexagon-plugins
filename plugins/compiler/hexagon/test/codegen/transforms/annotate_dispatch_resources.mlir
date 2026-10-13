@@ -21,15 +21,11 @@ hal.executable private @executable {
       %c1 = arith.constant 1 : index
       hal.return %c1, %c1, %c1 : index, index, index
     }
-    hal.executable.export public @alloc_in_loop ordinal(3) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
+    hal.executable.export public @hmx ordinal(3) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
       %c1 = arith.constant 1 : index
       hal.return %c1, %c1, %c1 : index, index, index
     }
-    hal.executable.export public @hmx ordinal(4) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
-      %c1 = arith.constant 1 : index
-      hal.return %c1, %c1, %c1 : index, index, index
-    }
-    hal.executable.export public @calls_helper ordinal(5) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
+    hal.executable.export public @calls_helper ordinal(4) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
       %c1 = arith.constant 1 : index
       hal.return %c1, %c1, %c1 : index, index, index
     }
@@ -61,16 +57,6 @@ hal.executable private @executable {
         hexagonmem.dealloc %e : memref<1000xi8, 1>
         return
       }
-      func.func @alloc_in_loop() {
-        %c0 = arith.constant 0 : index
-        %c1 = arith.constant 1 : index
-        %c4 = arith.constant 4 : index
-        scf.for %i = %c0 to %c4 step %c1 {
-          %a = memref.alloc() : memref<250xf32>
-          memref.dealloc %a : memref<250xf32>
-        }
-        return
-      }
       func.func @hmx() {
         %acc = iree_hexagon.hmx.acc.zero : !iree_hexagon.hmx.acc<32x32xf32>
         return
@@ -94,17 +80,15 @@ hal.executable private @executable {
 // CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = 0>}
 // CHECK-LABEL: hal.executable.export public @allocs
 // CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 7312>}
-// CHECK-LABEL: hal.executable.export public @alloc_in_loop
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 1000>}
 // CHECK-LABEL: hal.executable.export public @hmx
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = true, vtcm_bytes = 0>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = true, vtcm_bytes = 0>}
 // CHECK-LABEL: hal.executable.export public @calls_helper
 // CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 1000>}
 
 // -----
 
-// A dynamically sized allocation cannot be bounded: the export stays
-// unannotated, so the DSP assumes the dispatch needs every resource.
+// A dynamically sized allocation cannot be bounded: the export declares all of
+// VTCM (INT64_MAX).
 
 #target = #hal.executable.target<"hexagon", "embedded-elf-hexagon">
 #layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer>]>
@@ -118,7 +102,7 @@ hal.executable private @executable {
     builtin.module {
       func.func @dynamic() {
         %n = arith.constant 4 : index
-        // expected-warning @+1 {{cannot bound the VTCM this allocation takes; the dispatch is left without resource annotation}}
+        // expected-warning @+1 {{cannot bound the VTCM this allocation takes; the dispatch declares all of VTCM}}
         %a = memref.alloc(%n) : memref<?xf32>
         memref.dealloc %a : memref<?xf32>
         return
@@ -128,5 +112,69 @@ hal.executable private @executable {
 }
 
 // CHECK-LABEL: hal.executable.export public @dynamic
-// CHECK-NOT:   iree_hexagon.dispatch_resources
-// CHECK:       builtin.module
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 9223372036854775807>}
+
+// -----
+
+// Allocations are counted once, which bounds the peak only outside loops. One
+// left inside a loop op should have been hoisted.
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon">
+#layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer>]>
+
+hal.executable private @executable {
+  hal.executable.variant public @variant target(#target) {
+    hal.executable.export public @alloc_in_scf_loop ordinal(0) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
+      %c1 = arith.constant 1 : index
+      hal.return %c1, %c1, %c1 : index, index, index
+    }
+    builtin.module {
+      func.func @alloc_in_scf_loop() {
+        %c0 = arith.constant 0 : index
+        %c1 = arith.constant 1 : index
+        %c4 = arith.constant 4 : index
+        scf.for %i = %c0 to %c4 step %c1 {
+          // expected-error @+1 {{VTCM allocation inside a loop; it should have been hoisted out of the loop}}
+          %a = memref.alloc() : memref<250xf32>
+          memref.dealloc %a : memref<250xf32>
+        }
+        return
+      }
+    }
+  }
+}
+
+// -----
+
+// The same for a loop after SCF-to-CF conversion, a control-flow cycle.
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon">
+#layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer>]>
+
+hal.executable private @executable {
+  hal.executable.variant public @variant target(#target) {
+    hal.executable.export public @alloc_in_cfg_loop ordinal(0) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
+      %c1 = arith.constant 1 : index
+      hal.return %c1, %c1, %c1 : index, index, index
+    }
+    builtin.module {
+      func.func @alloc_in_cfg_loop() {
+        %c0 = arith.constant 0 : index
+        %c1 = arith.constant 1 : index
+        %c4 = arith.constant 4 : index
+        cf.br ^header(%c0 : index)
+      ^header(%i: index):
+        %cond = arith.cmpi slt, %i, %c4 : index
+        cf.cond_br %cond, ^body, ^exit
+      ^body:
+        // expected-error @+1 {{VTCM allocation inside a loop; it should have been hoisted out of the loop}}
+        %a = memref.alloc() : memref<250xf32>
+        memref.dealloc %a : memref<250xf32>
+        %next = arith.addi %i, %c1 : index
+        cf.br ^header(%next : index)
+      ^exit:
+        return
+      }
+    }
+  }
+}

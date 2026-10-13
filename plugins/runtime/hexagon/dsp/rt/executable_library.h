@@ -467,12 +467,15 @@ typedef struct iree_hal_executable_dispatch_attrs_v0_t {
   // table.
   uint16_t parameter_count;
   // HEXAGON EXTENSION (was upstream `reserved_1[0..1]`): resources the
-  // dispatch needs, recorded by the compiler's strategy planner. Only
+  // dispatch needs, measured by the compiler's
+  // HexagonAnnotateDispatchResourcesPass. Only
   // meaningful if `hexagon_flags` has
   // HEXAGON_DISPATCH_FLAG_RESOURCES_VALID set; binaries without the extension
   // leave both words 0.
   hexagon_dispatch_flags_t hexagon_flags;
-  // Bytes of VTCM the dispatch allocates at peak, as planned by the compiler.
+  // Bytes of VTCM the dispatch allocates at peak, as bounded by the compiler.
+  // INT64_MAX if the compiler could not bound it: the dispatch needs all of
+  // VTCM.
   uint64_t vtcm_bytes;
   // Unused. Must be 0.
   uint64_t reserved_1[3];

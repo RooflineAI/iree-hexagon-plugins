@@ -71,6 +71,18 @@ iree_gentbl_cc_library(
 )
 
 hexagon_plugin_library(
+    name = "TargetConfig",
+    srcs = [],
+    hdrs = ["TargetConfig.h"],
+    hdr_deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:IR",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)
+
+hexagon_plugin_library(
     name = "DispatchPlanner",
     srcs = [
         "Strategy/Planning/ComputeTileSelection.cpp",
@@ -109,7 +121,6 @@ hexagon_plugin_library(
     hdr_deps = [
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
-        "@iree//compiler/src/iree/compiler/Codegen/LLVMCPU",
         "@iree//compiler/src/iree/compiler/Codegen/Utils",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
         "@iree//compiler/src/iree/compiler/Dialect/Util/IR",
@@ -123,6 +134,7 @@ hexagon_plugin_library(
     ],
     strip_include_prefix = "/plugins/compiler",
     deps = [
+        ":TargetConfig",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
     ],
@@ -195,7 +207,9 @@ hexagon_plugin_library(
         "Pipelines/TranslationPipeline.cpp",
         "Strategy/HexagonSelectLoweringStrategy.cpp",
         "Strategy/KernelDispatch.cpp",
+        "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp",
         "Transforms/HexagonConvertMatmulToHmx.cpp",
+        "Transforms/HexagonEmitVectorizationRemarks.cpp",
         "Transforms/HexagonExpandHmxMatmul.cpp",
         "Transforms/HexagonPeel.cpp",
         "Transforms/HexagonSplitReduction.cpp",
@@ -203,6 +217,10 @@ hexagon_plugin_library(
         "Transforms/HexagonTileAndFuseProducerConsumer.cpp",
         "Transforms/HexagonTileToVectorSize.cpp",
         "Transforms/HexagonVTCMTiling.cpp",
+        "Transforms/HexagonVectorShapeCastLowering.cpp",
+        "Transforms/HexagonVectorTransposeLowering.cpp",
+        "Transforms/HexagonVerifyVectorSizeLegality.cpp",
+        "Transforms/HexagonVirtualVectorLowering.cpp",
         "Transforms/InsertProfilerMarkers.cpp",
         "Transforms/LowerVTCMStaging.cpp",
         "Transforms/PromoteDMATagAllocToStack.cpp",
@@ -225,6 +243,9 @@ hexagon_plugin_library(
         "@iree//compiler/src/iree/compiler/Codegen/Common/CPU:CommonCPUPasses",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
+        "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/Transforms:IREECodegenTransforms",
+        "@iree//compiler/src/iree/compiler/Codegen/Dialect/VectorExt/IR:IREEVectorExtDialect",
+        "@iree//compiler/src/iree/compiler/Codegen/Dialect/VectorExt/Transforms:VectorExtTransforms",
         "@iree//compiler/src/iree/compiler/Codegen/Interfaces:PartitionableLoopsInterface",
         "@iree//compiler/src/iree/compiler/Codegen/LLVMCPU",
         "@iree//compiler/src/iree/compiler/Codegen/Utils",
@@ -244,9 +265,6 @@ hexagon_plugin_library(
         "@llvm-project//mlir:AffineToStandard",
         "@llvm-project//mlir:Analysis",
         "@llvm-project//mlir:ArithDialect",
-        "@llvm-project//mlir:ArithToArmSME",
-        "@llvm-project//mlir:ArmSMEToLLVM",
-        "@llvm-project//mlir:ArmSMEToSCF",
         "@llvm-project//mlir:BufferizationDialect",
         "@llvm-project//mlir:ComplexToStandard",
         "@llvm-project//mlir:ConvertToLLVM",
@@ -275,7 +293,6 @@ hexagon_plugin_library(
         "@llvm-project//mlir:TransformDialect",
         "@llvm-project//mlir:ValueBoundsOpInterface",
         "@llvm-project//mlir:VectorDialect",
-        "@llvm-project//mlir:VectorToArmSME",
         "@llvm-project//mlir:VectorToLLVM",
         "@llvm-project//mlir:VectorTransforms",
     ],
@@ -285,6 +302,7 @@ hexagon_plugin_library(
         ":HexagonABIToLLVM",
         ":HexagonRuntimeLinking",
         ":PassesIncGen",
+        ":TargetConfig",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
     ],

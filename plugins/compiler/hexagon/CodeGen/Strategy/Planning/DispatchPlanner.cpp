@@ -16,8 +16,8 @@
 #include "StrategySelection.h"
 #include "VTCMPlanning.h"
 
+#include "hexagon/CodeGen/TargetConfig.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
-#include "iree/compiler/Codegen/LLVMCPU/Utils.h"
 #include "iree/compiler/Codegen/Utils/Utils.h"
 #include "iree/compiler/Dialect/HAL/IR/HALTypes.h"
 

@@ -61,6 +61,12 @@ static llvm::cl::opt<bool> clHexagonFailOnLargeVector(
     llvm::cl::desc("Fail if there are operations with large vectors"),
     llvm::cl::init(true));
 
+static llvm::cl::opt<int64_t> clHexagonMaxAllowedNumberOfNativeVectors(
+    "iree-hexagon-max-allowed-number-of-native-vectors",
+    llvm::cl::desc("Budget, in native vectors, used by "
+                   "--iree-hexagon-fail-on-large-vector"),
+    llvm::cl::init(512));
+
 static llvm::cl::opt<bool> clHexagonCheckLinalgVectorization(
     "iree-hexagon-check-linalg-vectorization",
     llvm::cl::desc(
@@ -132,12 +138,20 @@ namespace {
 // Codegen pipelines.
 //===---------------------------------------------------------------------===//
 
+static void addLargeVectorCheck(OpPassManager &funcPassManager) {
+  if (!clHexagonFailOnLargeVector)
+    return;
+  funcPassManager.addPass(createHexagonVerifyVectorSizeLegalityPass(
+      HexagonVerifyVectorSizeLegalityPassOptions{
+          clHexagonMaxAllowedNumberOfNativeVectors}));
+}
+
 static void buildHexagonVectorLoweringPipeline(
     OpPassManager &funcPassManager,
     const HexagonVectorLoweringPassOptions &options) {
   funcPassManager.addPass(createDropVectorUnitDimsPass());
-  funcPassManager.addPass(createLLVMCPUVirtualVectorLoweringPass(
-      LLVMCPUVirtualVectorLoweringPassOptions{options.splitVectorTransfersTo}));
+  funcPassManager.addPass(createHexagonVirtualVectorLoweringPass(
+      HexagonVirtualVectorLoweringPassOptions{options.splitVectorTransfersTo}));
 
   // Make sure we remove redundant vector ops (e.g., vector transposes) before
   // we lower them and can't be optimized away anymore.
@@ -147,9 +161,7 @@ static void buildHexagonVectorLoweringPipeline(
   VectorTransferLoweringPassOptions transferLoweringOptions{false};
   funcPassManager.addPass(
       createVectorTransferLoweringPass(transferLoweringOptions));
-  funcPassManager.addPass(createLLVMCPUVectorTransposeLoweringPass(
-      // This disables special lowering patterns that are useless for Hexagon
-      LLVMCPUVectorTransposeLoweringPassOptions{false}));
+  funcPassManager.addPass(createHexagonVectorTransposeLoweringPass());
 
   // Potentially removes shape_cast and broadcast on unit dims before shape_cast
   // lowering.
@@ -159,7 +171,7 @@ static void buildHexagonVectorLoweringPipeline(
   // by some of the lowerings above (e.g., transpose lowering). There are
   // chances to cancel them out if they are not lowered too early so we lower
   // them at the very end of the pass.
-  funcPassManager.addPass(createLLVMCPUVectorShapeCastLoweringPass());
+  funcPassManager.addPass(createHexagonVectorShapeCastLoweringPass());
 }
 
 } // namespace
@@ -191,9 +203,7 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
     // triggered when it should or being triggered excessively, which often
     // makes this check useless. This would prevent compilation size and time
     // exploding, easing development.
-    if (clHexagonFailOnLargeVector) {
-      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
-    }
+    addLargeVectorCheck(funcPassManager);
   }
 
   // Run IREE specific passes before vector lowering expert.
@@ -284,9 +294,7 @@ void addHexagonMultiTilingExpertPassPipeline(
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
-    if (clHexagonFailOnLargeVector) {
-      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
-    }
+    addLargeVectorCheck(funcPassManager);
   }
 
   // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
@@ -409,9 +417,7 @@ void addHexagonHmxMatmulExpertPassPipeline(
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
-    if (clHexagonFailOnLargeVector) {
-      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
-    }
+    addLargeVectorCheck(funcPassManager);
   }
 
   // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
@@ -481,9 +487,7 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
-    if (clHexagonFailOnLargeVector) {
-      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
-    }
+    addLargeVectorCheck(funcPassManager);
   }
 
   // Eliminate redundant transfer_read/write to avoid stack allocations.
@@ -523,9 +527,7 @@ void addHexagonDataTilingPipeline(OpPassManager &funcPassManager,
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
-    if (clHexagonFailOnLargeVector) {
-      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
-    }
+    addLargeVectorCheck(funcPassManager);
   }
 
   addHexagonBufferizePasses(funcPassManager);
@@ -564,9 +566,7 @@ void addHexagonLinalgExtTileAndVectorizePipeline(
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
-    if (clHexagonFailOnLargeVector) {
-      funcPassManager.addPass(createLLVMCPUVerifyVectorSizeLegalityPass());
-    }
+    addLargeVectorCheck(funcPassManager);
   }
 
   addHexagonBufferizePasses(funcPassManager);
@@ -607,7 +607,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       // Linalg -> SCF
       .addPass(createMemrefCopyToLinalgPass)
       .addPredicatedPass(clHexagonCheckLinalgVectorization,
-                         createLLVMCPUEmitVectorizationRemarksPass)
+                         createHexagonEmitVectorizationRemarksPass)
       .addPass(createConvertLinalgToLoopsPass)
       .addPass(createConvertBf16ArithToF32Pass)
       .addPass([]() {
@@ -654,8 +654,8 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
       .addPass(createCleanupBufferAllocViewPass)
       // Checking stack allocation before converting to CF dialect is easier.
       .addPass([&]() {
-        return createLLVMCPUCheckIRBeforeLLVMConversionPass(
-            LLVMCPUCheckIRBeforeLLVMConversionPassOptions{
+        return createHexagonCheckIRBeforeLLVMConversionPass(
+            HexagonCheckIRBeforeLLVMConversionPassOptions{
                 clHexagonFailOnOutOfBoundsStackAllocation});
       })
       // SCF -> CF

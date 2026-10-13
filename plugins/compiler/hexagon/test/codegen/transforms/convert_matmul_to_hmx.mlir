@@ -320,3 +320,77 @@ func.func @do_not_convert_f64_output(
       outs(%init : tensor<32x32xf64>) -> tensor<32x32xf64>
   return %result : tensor<32x32xf64>
 }
+
+// -----
+
+// Only the unit batch dimension may be rank-reduced. A unit M dimension must
+// survive, otherwise the contraction becomes a linalg.vecmat that is not
+// HMX-eligible and is left behind with a lowering config written for the
+// batch_matmul (gemma-4-E2B-it-assistant, main$async_dispatch_136).
+
+// CHECK-LABEL: func.func @convert_unit_batch_unit_m(
+// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} -> tensor<1x2x16x32x2xf16>
+// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} -> tensor<2x3x16x32x2xf16>
+// CHECK:       iree_hexagon.hmx.tensor_matmul
+// CHECK:       iree_hexagon.hmx.tensor_unpack {{.*}} tensor<1x96xf32>
+// CHECK-NOT:   linalg.vecmat
+// CHECK-NOT:   linalg.batch_matmul
+func.func @convert_unit_batch_unit_m(
+    %lhs: tensor<1x1x64xf16>, %rhs: tensor<1x64x96xf16>)
+    -> tensor<1x1x96xf32> {
+  %c0 = arith.constant 0.0 : f32
+  %lhs_vtcm = iree_hexagon.stage_to_vtcm %lhs : tensor<1x1x64xf16>
+  %rhs_vtcm = iree_hexagon.stage_to_vtcm %rhs : tensor<1x64x96xf16>
+  %init = iree_hexagon.vtcm_empty() : tensor<1x1x96xf32>
+  %filled = linalg.fill ins(%c0 : f32) outs(%init : tensor<1x1x96xf32>)
+      -> tensor<1x1x96xf32>
+  %result = linalg.batch_matmul
+      ins(%lhs_vtcm, %rhs_vtcm : tensor<1x1x64xf16>, tensor<1x64x96xf16>)
+      outs(%filled : tensor<1x1x96xf32>) -> tensor<1x1x96xf32>
+  return %result : tensor<1x1x96xf32>
+}
+
+// -----
+
+// A plain matmul with a unit M dimension stays a matmul and is converted, with
+// M padded to one physical tile.
+
+// CHECK-LABEL: func.func @convert_unit_m(
+// CHECK:       iree_hexagon.hmx.tensor_matmul
+// CHECK:       iree_hexagon.hmx.tensor_unpack {{.*}} tensor<1x96xf32>
+// CHECK-NOT:   linalg.vecmat
+func.func @convert_unit_m(
+    %lhs: tensor<1x64xf16>, %rhs: tensor<64x96xf16>) -> tensor<1x96xf32> {
+  %c0 = arith.constant 0.0 : f32
+  %lhs_vtcm = iree_hexagon.stage_to_vtcm %lhs : tensor<1x64xf16>
+  %rhs_vtcm = iree_hexagon.stage_to_vtcm %rhs : tensor<64x96xf16>
+  %init = iree_hexagon.vtcm_empty() : tensor<1x96xf32>
+  %filled = linalg.fill ins(%c0 : f32) outs(%init : tensor<1x96xf32>)
+      -> tensor<1x96xf32>
+  %result = linalg.matmul
+      ins(%lhs_vtcm, %rhs_vtcm : tensor<1x64xf16>, tensor<64x96xf16>)
+      outs(%filled : tensor<1x96xf32>) -> tensor<1x96xf32>
+  return %result : tensor<1x96xf32>
+}
+
+// -----
+
+// Likewise, a unit N dimension must not turn the matmul into a linalg.matvec.
+
+// CHECK-LABEL: func.func @convert_unit_n(
+// CHECK:       iree_hexagon.hmx.tensor_matmul
+// CHECK:       iree_hexagon.hmx.tensor_unpack {{.*}} tensor<64x1xf32>
+// CHECK-NOT:   linalg.matvec
+func.func @convert_unit_n(
+    %lhs: tensor<64x64xf16>, %rhs: tensor<64x1xf16>) -> tensor<64x1xf32> {
+  %c0 = arith.constant 0.0 : f32
+  %lhs_vtcm = iree_hexagon.stage_to_vtcm %lhs : tensor<64x64xf16>
+  %rhs_vtcm = iree_hexagon.stage_to_vtcm %rhs : tensor<64x1xf16>
+  %init = iree_hexagon.vtcm_empty() : tensor<64x1xf32>
+  %filled = linalg.fill ins(%c0 : f32) outs(%init : tensor<64x1xf32>)
+      -> tensor<64x1xf32>
+  %result = linalg.matmul
+      ins(%lhs_vtcm, %rhs_vtcm : tensor<64x64xf16>, tensor<64x1xf16>)
+      outs(%filled : tensor<64x1xf32>) -> tensor<64x1xf32>
+  return %result : tensor<64x1xf32>
+}

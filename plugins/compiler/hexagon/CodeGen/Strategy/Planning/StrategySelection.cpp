@@ -72,6 +72,11 @@ selectDispatchStrategy(const PlanningContext &context,
       DecisionStage::Strategy, DecisionKind::Selected, rootShape->ordinal,
       dispatchShape.root->getName().getStringRef(), "root cache tile",
       selectedStrategy->rootTiling.cacheTile);
+  if (!selectedStrategy->rootTiling.hmxTile.empty())
+    context.trace.recordTilePlan(
+        DecisionStage::Strategy, DecisionKind::Selected, rootShape->ordinal,
+        dispatchShape.root->getName().getStringRef(), "root HMX tile",
+        selectedStrategy->rootTiling.hmxTile);
   context.trace.recordTilePlan(
       DecisionStage::Strategy, DecisionKind::Selected, rootShape->ordinal,
       dispatchShape.root->getName().getStringRef(), "root compute tile",

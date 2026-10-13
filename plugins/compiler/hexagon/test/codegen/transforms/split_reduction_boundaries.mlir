@@ -34,7 +34,7 @@ func.func @static_integer_reduction(%input: tensor<32xi32>, %init: tensor<i32>)
       indexing_maps = [affine_map<(d0) -> (d0)>, affine_map<(d0) -> ()>],
       iterator_types = ["reduction"]}
       ins(%input : tensor<32xi32>) outs(%init : tensor<i32>)
-      attrs = {lowering_config = #iree_cpu.lowering_config<vector_reduction = [8]>} {
+      attrs = {lowering_config = #iree_hexagon.lowering_config<vector_reduction = [8]>} {
   ^bb0(%in: i32, %out: i32):
     %sum = arith.addi %in, %out : i32
     linalg.yield %sum : i32

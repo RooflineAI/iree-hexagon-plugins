@@ -48,7 +48,7 @@ This is a compromise aimed at making the logic simpler to understand.
 
 The central ownership rules are:
 
-1. Distribution, cache, root compute tiling, and VTCM belong only to
+1. Distribution, cache, HMX, root compute tiling, and VTCM belong only to
    `RootTilingPlan`.
 2. Non-root compute tiles are selected independently from each operation's own
    shape, then bounded by the root's fusion tile where the two overlap.
@@ -94,8 +94,9 @@ avoid register spills or tiles growing excessively and slowing down (or crashing
 VTCM planning runs after strategy selection and pipeline-contract resolution,
 but before non-root compute tiles are selected. The strategy has already
 chosen its ordinary root distribution, cache, and compute tiles at this point.
-[`planVTCMTiling`](VTCMPlanning.cpp) may add a root-only `VTCMPlan` and adjust
-the root cache tile according to the pipeline contract; it never mutates IR.
+[`planVTCMTiling`](VTCMPlanning.cpp) may add a root-only `VTCMPlan`. When it
+does, it clears the root cache tile, because VTCM staging replaces cache tiling.
+It never mutates IR.
 
 The pipeline contract determines how VTCM availability is handled:
 
@@ -155,15 +156,10 @@ introduced with the objective of making this pass more understandable in the fut
 ## Other future improvements (TODO)
 
 In its current state, Hexagon Strategy selection is aiming at having different tile sizes on the same tiling-level.
-This is currently being translated into two different nested loops through the LLVMCPU's tiling passes.
+This is currently being translated into two different nested loops through Hexagon's tiling passes.
 This is required because different hardware units will dictate different tile sizes and it may therefore not be possible to tile them all together.
 Nevertheless, a cleaner approach to this would represent this through different tiling levels.
-That would requires considerable work of modularizing/rewriting the LLVMCPU tiling passes and is open work.
-Another example of this is the HMX pipeline using cache tiling along with VTCM.
-This is a completely arbitrary application of a tiling level of LLVMCPU to Hexagon for a completely different purpose and should also be given its own level.
-
-In the same direction, we are currently using a dual lowering configuration with attributes from LLVMCPU and custom ones for Hexagon.
-Moving this logic into the custom one for Hexagon require the same work as the issue above.
+That would requires considerable work of modularizing/rewriting the Hexagon tiling passes and is open work.
 
 This is currently a huge pass combining a considerable amount of logic from multiple files and creating intermediate structures parallel to the IR.
 This contradicts MLIR conventions and could be reworked in the future to be split into multiple passes, writing temporary stuff to the IR so that it may more easily be checked and unit tested.

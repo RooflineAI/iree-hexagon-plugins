@@ -119,7 +119,6 @@ hexagon_plugin_library(
         "Strategy/Planning/VTCMPlanning.h",
     ],
     hdr_deps = [
-        "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
         "@iree//compiler/src/iree/compiler/Codegen/Utils",
         "@iree//compiler/src/iree/compiler/Dialect/HAL/IR",
@@ -244,7 +243,6 @@ hexagon_plugin_library(
         "@iree//compiler/src/iree/compiler/Codegen/Transforms",
         "@iree//compiler/src/iree/compiler/Codegen/Common:TransformDialectInterpreterPass",
         "@iree//compiler/src/iree/compiler/Codegen/Common/CPU:CommonCPUPasses",
-        "@iree//compiler/src/iree/compiler/Codegen/Dialect/CPU/IR:IREECPUDialect",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/IR:IREECodegenDialect",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/Codegen/Transforms:IREECodegenTransforms",
         "@iree//compiler/src/iree/compiler/Codegen/Dialect/VectorExt/IR:IREEVectorExtDialect",

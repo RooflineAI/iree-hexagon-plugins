@@ -8,9 +8,9 @@
 // revision a45adeaa6115e446c898e6eb21fb6edc0e65ddc4. Scheduling behavior is
 // preserved for fixed tile sizes.
 
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "hexagon/CodeGen/Passes.h"
 #include "iree/compiler/Codegen/Common/TileAndFuseUtils.h"
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/UKernelOps.h"
@@ -40,7 +40,7 @@ namespace mlir::iree_compiler::hexagon::codegen {
 /// level in lowering config.
 /// Returns nullptr if there is not exactly one op that meets the conditions.
 static Operation *getRootOp(ArrayRef<Operation *> computeOps,
-                            IREE::CPU::TilingLevel level) {
+                            IREE::Hexagon::TilingLevel level) {
   Operation *rootOp = nullptr;
   for (Operation *op : computeOps) {
     IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
@@ -59,7 +59,7 @@ static Operation *getRootOp(ArrayRef<Operation *> computeOps,
 /// Returns the last operation that has `level` tiling level in lowering config
 /// after the root op (or ukernel ops) in the compute sequence.
 static Operation *getLastAnchorOpAfterRootOp(ArrayRef<Operation *> computeOps,
-                                             IREE::CPU::TilingLevel level) {
+                                             IREE::Hexagon::TilingLevel level) {
   for (Operation *op : llvm::reverse(computeOps)) {
     IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
         getLoweringConfig(op);
@@ -123,8 +123,9 @@ getRootAndTransitiveProducers(ArrayRef<Operation *> computeOps,
 
 /// Returns the last operation that has `level` tiling level in lowering config
 /// before the root op (or ukernel ops) in the compute sequence.
-static Operation *getLastAnchorOpBeforeRootOp(ArrayRef<Operation *> computeOps,
-                                              IREE::CPU::TilingLevel level) {
+static Operation *
+getLastAnchorOpBeforeRootOp(ArrayRef<Operation *> computeOps,
+                            IREE::Hexagon::TilingLevel level) {
   bool foundRootOrUkernelOp = false;
   for (Operation *op : llvm::reverse(computeOps)) {
     IREE::Codegen::LoweringConfigAttrInterface loweringConfig =
@@ -154,7 +155,7 @@ static Operation *getLastAnchorOpBeforeRootOp(ArrayRef<Operation *> computeOps,
 /// dimensions would be incorrectly tiled as parallel).
 static FailureOr<Operation *> tileRootAndFuseProducerConsumer(
     IRRewriter &rewriter, TilingInterface rootOp,
-    IREE::CPU::TilingLevel tilingLevel, bool onlyFuseProducerInputOperands,
+    IREE::Hexagon::TilingLevel tilingLevel, bool onlyFuseProducerInputOperands,
     const llvm::SmallDenseSet<Operation *> &unfusableOps = {}) {
   auto *context = rewriter.getContext();
   mlir::DominanceInfo dominanceInfo(rootOp);
@@ -311,7 +312,7 @@ void HexagonTileAndFuseProducerConsumer::runOnOperation() {
   SmallVector<Operation *> computeOps = getComputeOps(funcOp);
 
   Operation *rootOp =
-      getRootOp(computeOps, IREE::CPU::TilingLevel::DistributionTiles);
+      getRootOp(computeOps, IREE::Hexagon::TilingLevel::DistributionTiles);
 
   // Anchor op paired with the set of ops that must not be fused as consumers
   // when tiling from that anchor. When anchoring before the root, the root
@@ -342,7 +343,7 @@ void HexagonTileAndFuseProducerConsumer::runOnOperation() {
   }
   if (anchors.empty()) {
     LDBG() << "unable to find an anchor operation that has "
-           << IREE::CPU::getTilingLevelName(tilingLevel) << " config";
+           << IREE::Hexagon::getTilingLevelName(tilingLevel) << " config";
     return;
   }
 
@@ -352,7 +353,7 @@ void HexagonTileAndFuseProducerConsumer::runOnOperation() {
             rewriter, cast<TilingInterface>(anchorOp), tilingLevel,
             onlyFuseProducerInputOperands, unfusable))) {
       funcOp.emitError() << "tiling of level "
-                         << IREE::CPU::getTilingLevelName(tilingLevel)
+                         << IREE::Hexagon::getTilingLevelName(tilingLevel)
                          << " failed\n";
       return signalPassFailure();
     }
@@ -377,7 +378,7 @@ void HexagonTileAndFuseProducerConsumer::runOnOperation() {
 
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonTileAndFuseProducerConsumerPass(
-    IREE::CPU::TilingLevel tilingLevel) {
+    IREE::Hexagon::TilingLevel tilingLevel) {
   HexagonTileAndFuseProducerConsumerPassOptions options;
   options.tilingLevel = tilingLevel;
   options.onlyFuseProducerInputOperands = false;
@@ -385,7 +386,7 @@ createHexagonTileAndFuseProducerConsumerPass(
 }
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonTileRootAndFuseInputOperandsPass(
-    IREE::CPU::TilingLevel tilingLevel) {
+    IREE::Hexagon::TilingLevel tilingLevel) {
   HexagonTileAndFuseProducerConsumerPassOptions options;
   options.tilingLevel = tilingLevel;
   options.onlyFuseProducerInputOperands = true;
@@ -393,7 +394,7 @@ createHexagonTileRootAndFuseInputOperandsPass(
 }
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonTileLastOpAndFuseProducerConsumerPass(
-    IREE::CPU::TilingLevel tilingLevel) {
+    IREE::Hexagon::TilingLevel tilingLevel) {
   HexagonTileAndFuseProducerConsumerPassOptions options;
   options.tilingLevel = tilingLevel;
   options.anchorOnRootOp = false;

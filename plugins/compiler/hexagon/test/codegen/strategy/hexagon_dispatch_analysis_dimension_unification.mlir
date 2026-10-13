@@ -35,11 +35,11 @@ func.func @shared_init_between_producer_and_fill(%q: tensor<16x128x128xf32>, %rh
   return %result : tensor<16x128x128xf32>
 }
 
-// CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 1, 1, 0], vector_reduction = [0, 0, 0, 32]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 1, 1, 0], vector_reduction = [0, 0, 0, 32]>
 // The producer's innermost dimension is k, so it keeps the root's 32 there.
-// CHECK-DAG: #[[PRODUCER:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 32]>
+// CHECK-DAG: #[[PRODUCER:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 32]>
 // The fill's innermost dimension is n, whose tile really is 1.
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 1]>
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 1]>
 // CHECK: func.func @shared_init_between_producer_and_fill(
 // CHECK: linalg.generic
 // CHECK-SAME: lowering_config = #[[PRODUCER]]

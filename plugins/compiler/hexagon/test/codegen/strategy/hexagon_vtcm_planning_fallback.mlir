@@ -22,13 +22,13 @@ func.func @unsupported_vtcm_footprint(%input: tensor<8x8xindex>) -> tensor<8x8xi
   return %result : tensor<8x8xindex>
 }
 
-// CHECK-DAG: #[[ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 1]>
+// CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 1]>
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
-// CHECK-DAG: #[[BUFFER_ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 8]>
+// CHECK-DAG: #[[BUFFER_ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [8, 0], distribution = [0, 0], vector_common_parallel = [1, 8]>
 // CHECK-DAG: #[[BUFFER_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>>
-// CHECK-DAG: #[[FULL_REDUCTION_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [256]>
-// CHECK-DAG: #[[ROW_VTCM:.+]] = #iree_hexagon.vtcm_tiling_config<tile_sizes = [{{[0-9]+}}, 65536]>
-// CHECK-NOT: hexagon_vtcm_tiling_config
+// CHECK-DAG: #[[FULL_REDUCTION_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [256]>
+// CHECK-DAG: #[[OVERSIZED_ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0], vector_common_parallel = [4, 0], vector_reduction = [0, 8]>
+// CHECK-DAG: #[[ROW_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [{{[0-9]+}}, 65536]>
 // CHECK: func.func @unsupported_vtcm_footprint(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.generic
@@ -50,7 +50,6 @@ func.func @buffer_semantics_generic(%input: memref<8x8xf32>, %output: memref<8x8
   return
 }
 
-// CHECK-NOT: hexagon_vtcm_tiling_config
 // CHECK: func.func @buffer_semantics_generic(
 // CHECK-SAME: translation_info = #[[BUFFER_TRANSLATION]]
 // CHECK: linalg.generic
@@ -78,7 +77,7 @@ func.func @full_reduction_to_scalar(%input: tensor<256xf32>) -> tensor<f32> attr
 
 // CHECK: func.func @full_reduction_to_scalar(
 // CHECK: linalg.generic
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[FULL_REDUCTION_VTCM]]
+// CHECK-SAME: lowering_config = #[[FULL_REDUCTION_ROOT]]
 // CHECK: return
 
 // -----
@@ -103,7 +102,8 @@ func.func @oversized_row_reduction(%input: tensor<4x1048576xf32>) -> tensor<4xf3
 }
 
 // CHECK: func.func @oversized_row_reduction(
-// CHECK-NOT: hexagon_vtcm_tiling_config
+// CHECK: linalg.generic
+// CHECK-SAME: lowering_config = #[[OVERSIZED_ROOT]]
 // CHECK: return
 
 // -----
@@ -127,5 +127,5 @@ func.func @row_reduction_fits_with_parallel_tiles(%input: tensor<64x65536xf32>) 
 
 // CHECK: func.func @row_reduction_fits_with_parallel_tiles(
 // CHECK: linalg.generic
-// CHECK-SAME: hexagon_vtcm_tiling_config = #[[ROW_VTCM]]
+// CHECK-SAME: lowering_config = #[[ROW_ROOT]]
 // CHECK: return

@@ -8,7 +8,6 @@
 #include "hexagon/CodeGen/Passes.h"
 #include "hexagon/CodeGen/Strategy/KernelDispatch.h"
 
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUDialect.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenDialect.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {
@@ -24,7 +23,6 @@ class HexagonSelectLoweringStrategyPass final
 public:
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<mlir::iree_compiler::IREE::Hexagon::IREEHexagonDialect,
-                    mlir::iree_compiler::IREE::CPU::IREECPUDialect,
                     mlir::iree_compiler::IREE::Codegen::IREECodegenDialect>();
   }
 

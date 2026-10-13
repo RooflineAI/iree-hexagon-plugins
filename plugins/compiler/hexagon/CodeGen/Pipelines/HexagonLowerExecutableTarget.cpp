@@ -31,6 +31,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Interfaces/TilingInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {
@@ -150,6 +151,26 @@ void HexagonLowerExecutableTargetPass::runOnOperation() {
     funcOp.emitOpError("unsupported pipeline on Hexagon target");
     return signalPassFailure();
   }
+  // Attribute verification checks the stage structure. Iteration rank depends
+  // on the annotated operation and must be checked before scheduling tiling.
+  WalkResult configCheck = funcOp.walk([](TilingInterface op) {
+    auto config = getLoweringConfig<IREE::Hexagon::LoweringConfigAttr>(op);
+    if (!config)
+      return WalkResult::advance();
+    size_t rank = op.getLoopIteratorTypes().size();
+    for (int level : IREE::Hexagon::getTilingLevelsAsInts()) {
+      if (config.hasTilingLevel(level) &&
+          config.getStaticTilingLevelSizes(level, op).size() != rank) {
+        op.emitOpError(
+            "Hexagon lowering config rank must match iteration rank ")
+            << rank;
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+  if (configCheck.wasInterrupted())
+    return signalPassFailure();
   HexagonCodegenPipelineOptions options(pipelineOpts,
                                         getRootLoweringConfig(funcOp));
   if (failed(hexagonPipeline.buildPipeline(passManager, &options))) {

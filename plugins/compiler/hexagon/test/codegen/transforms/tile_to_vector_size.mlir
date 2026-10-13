@@ -9,7 +9,7 @@
 
 // RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-tile-to-vector-size))" --split-input-file %s | FileCheck %s
 
-#config = #iree_cpu.lowering_config<vector_common_parallel = [10, 20, 0], vector_reduction = [0, 0, 30]>
+#config = #iree_hexagon.lowering_config<vector_common_parallel = [10, 20, 0], vector_reduction = [0, 0, 30]>
 func.func @matmul_all_dims_untiled(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>, %arg2 : tensor<?x?xf32>) -> tensor<?x?xf32> {
   %0 = linalg.matmul {lowering_config = #config}
       ins(%arg0, %arg1 : tensor<?x?xf32>, tensor<?x?xf32>)
@@ -24,7 +24,7 @@ func.func @matmul_all_dims_untiled(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf
 
 // -----
 
-#config = #iree_cpu.lowering_config<vector_common_parallel = [10, 20, 0, 0], vector_reduction = [0, 0, 30, 30]>
+#config = #iree_hexagon.lowering_config<vector_common_parallel = [10, 20, 0, 0], vector_reduction = [0, 0, 30, 30]>
 func.func @invalid_matmul_vector_config(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>, %arg2 : tensor<?x?xf32>) -> tensor<?x?xf32> {
   %0 = linalg.matmul {lowering_config = #config}
       ins(%arg0, %arg1 : tensor<?x?xf32>, tensor<?x?xf32>)
@@ -37,7 +37,7 @@ func.func @invalid_matmul_vector_config(%arg0 : tensor<?x?xf32>, %arg1 : tensor<
 
 // -----
 
-#config = #iree_cpu.lowering_config<vector_common_parallel = [10, 30, 0], vector_reduction = [0, 0, 20]>
+#config = #iree_hexagon.lowering_config<vector_common_parallel = [10, 30, 0], vector_reduction = [0, 0, 20]>
 func.func @static_matmul_with_vector_size(%arg0 : tensor<10x20xf32>, %arg1 : tensor<20x30xf32>, %arg2 : tensor<10x30xf32>) -> tensor<10x30xf32> {
   %0 = linalg.matmul {lowering_config = #config}
       ins(%arg0, %arg1 : tensor<10x20xf32>, tensor<20x30xf32>)
@@ -50,7 +50,7 @@ func.func @static_matmul_with_vector_size(%arg0 : tensor<10x20xf32>, %arg1 : ten
 
 // -----
 
-#config = #iree_cpu.lowering_config<vector_common_parallel = [10, 30, 0], vector_reduction = [0, 0, 20]>
+#config = #iree_hexagon.lowering_config<vector_common_parallel = [10, 30, 0], vector_reduction = [0, 0, 20]>
 func.func @static_matmul_with_untiled_K_dim(%arg0 : tensor<10x40xf32>, %arg1 : tensor<40x30xf32>, %arg2 : tensor<10x30xf32>) -> tensor<10x30xf32> {
   %0 = linalg.matmul {lowering_config = #config}
       ins(%arg0, %arg1 : tensor<10x40xf32>, tensor<40x30xf32>)
@@ -69,7 +69,7 @@ func.func @static_matmul_with_untiled_K_dim(%arg0 : tensor<10x40xf32>, %arg1 : t
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 10)>
 #map1 = affine_map<(d0)[s0] -> (-d0 + s0, 20)>
 #map2 = affine_map<(d0)[s0] -> (-d0 + s0, 60)>
-#config = #iree_cpu.lowering_config<vector_common_parallel = [10, 20, 0], vector_reduction = [0, 0, 30]>
+#config = #iree_hexagon.lowering_config<vector_common_parallel = [10, 20, 0], vector_reduction = [0, 0, 30]>
 func.func @matmul_tiled_MxNxK_to_10x20x60(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?x?xf32>, %arg2 : tensor<?x?xf32>) -> tensor<?x?xf32> {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index

@@ -23,5 +23,4 @@ func.func @hmx_without_vtcm(%lhs: tensor<32x32xf16>, %rhs: tensor<32x32xf16>) ->
 // CHECK: func.func @hmx_without_vtcm(
 // CHECK-NOT: translation_info
 // CHECK-NOT: lowering_config
-// CHECK-NOT: hexagon_vtcm_tiling_config
 // CHECK: return

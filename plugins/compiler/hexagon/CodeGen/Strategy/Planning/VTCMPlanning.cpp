@@ -46,11 +46,6 @@ LogicalResult suppressCacheTiling(const PlanningContext &context,
        llvm::enumerate(strategy.rootTiling.cacheTile)) {
     if (tile.size == 0)
       continue;
-    if (tile.hardwareFixed) {
-      dispatchShape.root->emitError(
-          "cannot suppress a hardware-fixed Hexagon cache tile for VTCM");
-      return failure();
-    }
     int64_t previousSize = tile.size;
     tile.size = 0;
     context.trace.recordAdjustment(
@@ -181,8 +176,7 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
     vtcm.tileSizes.push_back(TileDecision{tile});
   strategy.rootTiling.vtcm = std::move(vtcm);
 
-  if (contract.cacheTilingWithVTCM == CacheTilingWithVTCM::Suppress &&
-      failed(suppressCacheTiling(context, dispatchShape, strategy)))
+  if (failed(suppressCacheTiling(context, dispatchShape, strategy)))
     return failure();
 
   const OpShape *rootShape = findOpShape(dispatchShape, dispatchShape.root);

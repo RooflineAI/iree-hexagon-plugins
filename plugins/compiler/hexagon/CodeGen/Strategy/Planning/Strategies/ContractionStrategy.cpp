@@ -131,8 +131,10 @@ selectHmxStrategy(const PlanningContext &context,
       SmallVector<TileDecision>(shape.dimensions.size());
   // The HMX pack/runtime path accepts only plain matmul. Tile batch to one so
   // the HMX pipeline can rank-reduce batch_matmul before packing.
+  strategy.rootTiling.hmxTile =
+      SmallVector<TileDecision>(shape.dimensions.size());
   for (unsigned batch : dimensions->batch)
-    strategy.rootTiling.cacheTile[batch] =
+    strategy.rootTiling.hmxTile[batch] =
         TileDecision{1, /*hardwareFixed=*/true};
   strategy.rootTiling.computeTile = std::move(compute);
 

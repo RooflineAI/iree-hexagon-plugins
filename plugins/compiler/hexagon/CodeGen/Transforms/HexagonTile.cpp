@@ -50,7 +50,7 @@ struct HexagonTilePass : impl::HexagonTilePassBase<HexagonTilePass> {
 };
 
 void HexagonTilePass::runOnOperation() {
-  if (tilingLevel == IREE::CPU::TilingLevel::InvalidLevel) {
+  if (tilingLevel == IREE::Hexagon::TilingLevel::InvalidLevel) {
     LDBG() << "tilingLevel not set, skip tiling";
     return;
   }
@@ -126,7 +126,7 @@ void HexagonTilePass::runOnOperation() {
 } // namespace
 
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
-createHexagonTilePass(IREE::CPU::TilingLevel tilingLevel, bool skipRootOp) {
+createHexagonTilePass(IREE::Hexagon::TilingLevel tilingLevel, bool skipRootOp) {
   HexagonTilePassOptions options;
   options.tilingLevel = tilingLevel;
   options.skipRootOp = skipRootOp;

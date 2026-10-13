@@ -28,10 +28,10 @@ func.func @matmul_epilogue_dispatch(%lhs: tensor<128x128xf32>, %rhs: tensor<128x
 // narrower shape: TileToVectorSize can still tile the epilogue down to it, so
 // only the divisibility bound applies there.
 
-// CHECK-DAG: #[[FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
-// CHECK-DAG: #[[MATMUL:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 64, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
-// CHECK-DAG: #[[EPILOGUE:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [8, 32]>
+// CHECK-DAG: #[[MATMUL:.+]] = #iree_hexagon.lowering_config<cache_parallel = [64, 64, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
+// CHECK-DAG: #[[EPILOGUE:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @matmul_epilogue_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -75,10 +75,10 @@ func.func @batch_matmul_transposed_rhs_with_producers_dispatch(%lhs: tensor<4x64
 // reconciliation does not bound them. The fill maps onto the root's parallel
 // dimensions and is matched to them.
 
-// CHECK-DAG: #[[ATTN_PRODUCER_CONFIG:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 32]>
-// CHECK-DAG: #[[ATTN_FILL_CONFIG:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 1, 1]>
-// CHECK-DAG: #[[ATTN_ROOT_CONFIG:.+]] = #iree_cpu.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 1, 1, 0], vector_reduction = [0, 0, 0, 32]>
-// CHECK-NOT: #iree_cpu.lowering_config
+// CHECK-DAG: #[[ATTN_PRODUCER_CONFIG:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 32]>
+// CHECK-DAG: #[[ATTN_FILL_CONFIG:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 1, 1]>
+// CHECK-DAG: #[[ATTN_ROOT_CONFIG:.+]] = #iree_hexagon.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 1, 1, 0], vector_reduction = [0, 0, 0, 32]>
+// CHECK-NOT: #iree_hexagon.lowering_config
 // CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
 // CHECK: func.func @batch_matmul_transposed_rhs_with_producers_dispatch(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
@@ -123,10 +123,10 @@ func.func @matmul_with_converted_inputs(%lhs: tensor<128x256xf16>, %rhs: tensor<
   %result = linalg.matmul ins(%lhs_f32, %rhs_f32 : tensor<128x256xf32>, tensor<256x64xf32>) outs(%init : tensor<128x64xf32>) -> tensor<128x64xf32>
   return %result : tensor<128x64xf32>
 }
-// CHECK-DAG: #[[LHS_CONVERT:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 8]>
-// CHECK-DAG: #[[RHS_CONVERT:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [1, 32]>
-// CHECK-DAG: #[[CONVERT_FILL:.+]] = #iree_cpu.lowering_config<vector_common_parallel = [8, 32]>
-// CHECK-DAG: #[[CONVERT_ROOT:.+]] = #iree_cpu.lowering_config<cache_parallel = [64, 64, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
+// CHECK-DAG: #[[LHS_CONVERT:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 8]>
+// CHECK-DAG: #[[RHS_CONVERT:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
+// CHECK-DAG: #[[CONVERT_FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [8, 32]>
+// CHECK-DAG: #[[CONVERT_ROOT:.+]] = #iree_hexagon.lowering_config<cache_parallel = [64, 64, 0], distribution = [0, 0, 0], vector_common_parallel = [8, 32, 0], vector_reduction = [0, 0, 8]>
 // CHECK: func.func @matmul_with_converted_inputs(
 // CHECK: linalg.generic
 // CHECK-SAME: lowering_config = #[[LHS_CONVERT]]

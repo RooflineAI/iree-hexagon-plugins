@@ -9,7 +9,7 @@
 // RUN:   %s -o /dev/null 2>&1 | FileCheck %s
 
 #target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
-#existing = #iree_cpu.lowering_config<vector_common_parallel = [4]>
+#existing = #iree_hexagon.lowering_config<vector_common_parallel = [4]>
 
 func.func @existing_lowering_config(%input: tensor<8xf32>) -> tensor<8xf32> attributes {hal.executable.target = #target} {
   %empty = tensor.empty() : tensor<8xf32>

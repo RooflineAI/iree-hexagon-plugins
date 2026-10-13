@@ -4,7 +4,7 @@
 
 // These tests exercise the HMX producer- and consumer-fusion mappings directly.
 
-#full_tile_config = #iree_cpu.lowering_config<
+#full_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0, 0, 0, 0],
   vector_common_parallel = [1, 1, 0, 0, 0]>
 
@@ -45,7 +45,7 @@ func.func @fuse_complete_physical_tile(
 
 // -----
 
-#partial_tile_config = #iree_cpu.lowering_config<
+#partial_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0, 0, 0, 0],
   vector_common_parallel = [1, 1, 8, 32, 2]>
 
@@ -91,7 +91,7 @@ func.func @reject_partial_physical_tile(
 
 // -----
 
-#logical_tile_config = #iree_cpu.lowering_config<
+#logical_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0],
   vector_common_parallel = [32, 32]>
 
@@ -131,7 +131,7 @@ func.func @fuse_unpack_into_logical_consumer(
 
 // -----
 
-#packed_tile_config = #iree_cpu.lowering_config<
+#packed_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0, 0, 0, 0],
   vector_common_parallel = [1, 1, 0, 0, 0]>
 
@@ -172,7 +172,7 @@ func.func @fuse_unpack_with_packed_producer(
 
 // -----
 
-#partial_packed_tile_config = #iree_cpu.lowering_config<
+#partial_packed_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0, 0, 0, 0],
   vector_common_parallel = [0, 0, 8, 0, 0]>
 
@@ -214,7 +214,7 @@ func.func @reject_partial_unpack_producer_tile(
 
 // -----
 
-#ragged_logical_tile_config = #iree_cpu.lowering_config<
+#ragged_logical_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0], vector_common_parallel = [32, 32]>
 
 // The final logical consumer tile is smaller than 32x32, but it is the exact
@@ -246,7 +246,7 @@ func.func @fuse_clipped_ragged_unpack_tile(
 
 // -----
 
-#partial_logical_tile_config = #iree_cpu.lowering_config<
+#partial_logical_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0], vector_common_parallel = [16, 32]>
 
 // A deliberately partial interior tile does not correspond to a complete HMX
@@ -278,7 +278,7 @@ func.func @reject_partial_logical_unpack_tile(
 
 // -----
 
-#oversized_logical_tile_config = #iree_cpu.lowering_config<
+#oversized_logical_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0], vector_common_parallel = [64, 32]>
 
 // CHECK-LABEL: func.func @reject_oversized_logical_unpack_tile(
@@ -308,7 +308,7 @@ func.func @reject_oversized_logical_unpack_tile(
 
 // -----
 
-#crossing_logical_tile_config = #iree_cpu.lowering_config<
+#crossing_logical_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0], vector_common_parallel = [32, 32]>
 
 // The consumer requests [16,48) from unpack, crossing two physical HMX tiles.
@@ -339,7 +339,7 @@ func.func @reject_crossing_logical_unpack_tile(
 
 // -----
 
-#root_tile_config = #iree_cpu.lowering_config<
+#root_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0], vector_common_parallel = [1, 1]>
 
 // The shipped HMX pipeline anchors on `hmx.tensor_unpack`: the matmul carries
@@ -376,7 +376,7 @@ func.func @fuse_matmul_into_ragged_unpack_root(
 
 // -----
 
-#packed_tile_config = #iree_cpu.lowering_config<
+#packed_tile_config = #iree_hexagon.lowering_config<
   distribution = [0, 0, 0, 0, 0],
   vector_common_parallel = [1, 1, 0, 0, 0]>
 

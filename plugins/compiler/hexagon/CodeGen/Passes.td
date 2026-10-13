@@ -33,7 +33,7 @@ def HexagonConvertMatmulToHmxPass :
                   "mlir::FunctionOpInterface"> {
   let summary = [{
       Convert eligible f16 linalg.matmul operations into tensor-level HMX ops.
-      Runs after VTCM tiling and before LLVMCPU inner tiling. Inputs and output
+      Runs after VTCM tiling and before HMX tile-grid tiling. Inputs and output
       must originate from Hexagon VTCM staging operations. Static, ragged, and
       bounded dynamic dimensions are padded to complete HMX tiles by the pack
       kernels. Results may be f16 or f32.
@@ -143,22 +143,24 @@ def HexagonTileAndFuseProducerConsumerPass
   let summary = "Pass to tile root op and fuse with producer and consumer "
                 "TilingInterface ops.";
   let options =
-      [Option<"tilingLevel", "tiling-level", "IREE::CPU::TilingLevel",
-           /*default=*/"IREE::CPU::TilingLevel::VectorInnerParallelTiles",
+      [Option<"tilingLevel", "tiling-level", "IREE::Hexagon::TilingLevel",
+           /*default=*/"IREE::Hexagon::TilingLevel::VectorInnerParallelTiles",
            "The tiling level used to retrieve the configuration from lowering_config",
            [{llvm::cl::values(
-              clEnumValN(IREE::CPU::TilingLevel::DistributionTiles, "distribution",
+              clEnumValN(IREE::Hexagon::TilingLevel::DistributionTiles, "distribution",
                          "Use `distribution` tile sizes."),
-              clEnumValN(IREE::CPU::TilingLevel::CacheParallelTiles, "cache_parallel",
+              clEnumValN(IREE::Hexagon::TilingLevel::CacheParallelTiles, "cache_parallel",
                          "Use `cache_parallel` tile sizes."),
-              clEnumValN(IREE::CPU::TilingLevel::CacheReductionTiles, "cache_reduction",
+              clEnumValN(IREE::Hexagon::TilingLevel::CacheReductionTiles, "cache_reduction",
                          "Use `cache_reduction` tile sizes."),
-              clEnumValN(IREE::CPU::TilingLevel::VectorCommonParallelTiles, "vector_common_parallel",
+              clEnumValN(IREE::Hexagon::TilingLevel::VectorCommonParallelTiles, "vector_common_parallel",
                          "Use `vector_common_parallel` tile sizes."),
-              clEnumValN(IREE::CPU::TilingLevel::VectorReductionTiles, "vector_reduction",
+              clEnumValN(IREE::Hexagon::TilingLevel::VectorReductionTiles, "vector_reduction",
                          "Use `vector_reduction` tile sizes."),
-              clEnumValN(IREE::CPU::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
-                         "Use `vector_inner_parallel` tile sizes.")
+              clEnumValN(IREE::Hexagon::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
+                         "Use `vector_inner_parallel` tile sizes."),
+              clEnumValN(IREE::Hexagon::TilingLevel::HmxTiles, "hmx",
+                         "Use `hmx` tile sizes.")
 
            )}]>,
        Option<"onlyFuseProducerInputOperands",
@@ -181,22 +183,24 @@ def HexagonTilePass :
     given level is found in the operation's lowering config.
   }];
   let options = [
-    Option<"tilingLevel", "tiling-level", "IREE::CPU::TilingLevel",
-      /*default=*/"IREE::CPU::TilingLevel::InvalidLevel",
+    Option<"tilingLevel", "tiling-level", "IREE::Hexagon::TilingLevel",
+      /*default=*/"IREE::Hexagon::TilingLevel::InvalidLevel",
       "Tiling level used to retrieve the configuration from lowering_config.",
       [{llvm::cl::values(
-        clEnumValN(IREE::CPU::TilingLevel::DistributionTiles, "distribution",
+        clEnumValN(IREE::Hexagon::TilingLevel::DistributionTiles, "distribution",
                    "Use `distribution` tile sizes."),
-        clEnumValN(IREE::CPU::TilingLevel::CacheParallelTiles, "cache_parallel",
+        clEnumValN(IREE::Hexagon::TilingLevel::CacheParallelTiles, "cache_parallel",
                    "Use `cache_parallel` tile sizes."),
-        clEnumValN(IREE::CPU::TilingLevel::CacheReductionTiles, "cache_reduction",
+        clEnumValN(IREE::Hexagon::TilingLevel::CacheReductionTiles, "cache_reduction",
                    "Use `cache_reduction` tile sizes."),
-        clEnumValN(IREE::CPU::TilingLevel::VectorCommonParallelTiles, "vector_common_parallel",
+        clEnumValN(IREE::Hexagon::TilingLevel::VectorCommonParallelTiles, "vector_common_parallel",
                    "Use `vector_common_parallel` tile sizes."),
-        clEnumValN(IREE::CPU::TilingLevel::VectorReductionTiles, "vector_reduction",
+        clEnumValN(IREE::Hexagon::TilingLevel::VectorReductionTiles, "vector_reduction",
                    "Use `vector_reduction` tile sizes."),
-        clEnumValN(IREE::CPU::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
-                   "Use `vector_inner_parallel` tile sizes.")
+        clEnumValN(IREE::Hexagon::TilingLevel::VectorInnerParallelTiles, "vector_inner_parallel",
+                   "Use `vector_inner_parallel` tile sizes."),
+        clEnumValN(IREE::Hexagon::TilingLevel::HmxTiles, "hmx",
+                   "Use `hmx` tile sizes.")
       )}]>,
     Option<"skipRootOp", "skip-root-op", "bool", /*default=*/"false",
       "Do not tile the root op if the option is true.">

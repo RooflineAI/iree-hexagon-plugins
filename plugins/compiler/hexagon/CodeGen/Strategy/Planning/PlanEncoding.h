@@ -11,21 +11,17 @@
 #include "PipelineContract.h"
 
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "mlir/Support/LogicalResult.h"
 
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 
-constexpr llvm::StringLiteral kHexagonVTCMTilingConfigAttrName =
-    "hexagon_vtcm_tiling_config";
-
-/// Prepared attributes for one operation. Root-only attributes can only be
-/// present on the entry whose op equals DispatchShape::root.
+/// Prepared configuration for one operation. Root-only stages, such as the
+/// VTCM stage, can only be present on the entry whose op equals
+/// DispatchShape::root.
 struct EncodedOpPlan {
   Operation *op = nullptr;
-  IREE::CPU::LoweringConfigAttr loweringConfig;
-  IREE::Hexagon::VTCMTilingConfigAttr vtcmConfig;
+  IREE::Hexagon::LoweringConfigAttr loweringConfig;
 };
 
 /// Fully prepared configuration. Constructing this object does not mutate IR.
@@ -35,9 +31,10 @@ struct EncodedDispatchPlan {
   llvm::SmallVector<EncodedOpPlan> operations;
 };
 
-/// Mechanically assigns compute tiles to CPU levels using local iterator type
-/// and root coverage, encodes root-only fields, and prepares all attributes
-/// without applying them. The complete plan must already be verified.
+/// Mechanically assigns compute tiles to Hexagon levels using local iterator
+/// type and root coverage, encodes root-only fields, and prepares all
+/// attributes without applying them. The complete plan must already be
+/// verified.
 FailureOr<EncodedDispatchPlan>
 encodeDispatchPlan(const PlanningContext &context,
                    const DispatchShape &dispatchShape, const DispatchPlan &plan,

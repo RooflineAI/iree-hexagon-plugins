@@ -81,7 +81,7 @@ hal.executable private @executable {
 // CHECK-LABEL: hal.executable.export public @allocs
 // CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 7312>}
 // CHECK-LABEL: hal.executable.export public @hmx
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = true, vtcm_bytes = 0>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = true, vtcm_bytes = 0>}
 // CHECK-LABEL: hal.executable.export public @calls_helper
 // CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 1000>}
 

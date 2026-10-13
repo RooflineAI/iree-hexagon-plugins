@@ -9,6 +9,7 @@
 
 #include "profiler.h"
 #include "runtime_state_fwd_decl.h"
+#include "vtcm_partition.h"
 
 /**
  * @brief The runtime state data structure contains pointers that are required
@@ -21,6 +22,8 @@
  */
 struct hexagon_rt_state_s {
   hexagon_rt_prof_context_t *prof_context;
+  /// VTCM partition of the running dispatch, never NULL inside a dispatch
+  hexagon_rt_vtcm_partition_t *vtcm_partition;
 }; // typedef-ed to hexagon_rt_state_t in runtime_state_fwd_decl.h
 
 #endif // #ifndef HEXAGON_DSP_RT_RUNTIME_STATE_H

@@ -12,6 +12,7 @@
 #include "hexagon/CodeGen/Passes.h"
 #include "hexagon/Common/Common.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
+#include "hexagon/dsp/rt/vtcm_allocation.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -35,14 +36,9 @@ namespace {
 
 using IREE::Hexagon::DispatchResourcesAttr;
 
-/// Smallest block the VTCM pool hands out
-/// (plugins/runtime/hexagon/dsp/rt/vtcm_pool.cpp).
-constexpr int64_t kVTCMPoolMinimumBytes = 128;
-
-/// hexagon-mlir's VTCM allocations round the size to a multiple of 2 KiB for
-/// 2 KiB-aligned buffers and to a multiple of 128 bytes otherwise
-/// (VTCMAllocation in bin/runtime/src/HexagonBuffer.cpp).
-constexpr int64_t kVTCMLargeAlignment = 2048;
+/// The runtime's VTCM allocation sizes (hexagon/dsp/rt/vtcm_allocation.h).
+constexpr int64_t kVTCMPoolMinimumBytes = HEXAGON_DSP_VTCM_MIN_ALLOCATION_BYTES;
+constexpr int64_t kVTCMLargeAlignment = HEXAGON_DSP_VTCM_LARGE_ALIGNMENT;
 
 /// Bytes of a statically shaped memref, or std::nullopt if it is dynamic.
 std::optional<int64_t> getStaticSizeInBytes(MemRefType type,

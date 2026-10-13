@@ -21,6 +21,17 @@ iree_cc_library(
   PUBLIC
 )
 
+iree_cc_library(
+  NAME
+    vtcm_allocation
+  HDRS
+    "vtcm_allocation.h"
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../..>"
+  PUBLIC
+)
+
 if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 iree_cc_library(
   NAME
@@ -40,6 +51,7 @@ iree_cc_library(
     "vtcm_pool.cpp"
   DEPS
     ::executable_library
+    ::vtcm_allocation
     hexagon_mlir::bin::runtime::runtime_lib
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::hexagon_arm_dsp
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::pmu::hexagon_pmu_helpers

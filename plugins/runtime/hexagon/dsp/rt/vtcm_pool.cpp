@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "hexagon/dsp/rt/vtcm_pool.h"
+#include "hexagon/dsp/rt/vtcm_allocation.h"
 
 #include <stdlib.h>
 #include <unordered_map>
@@ -25,9 +26,8 @@ void *hexagon_dsp_vtcm_pool_allocate(size_t nbytes) {
   if (!vtcm_pool) {
     return NULL;
   }
-  // minimum VTCM allocation is 128 bytes
-  if (nbytes < 128) {
-    nbytes = 128;
+  if (nbytes < HEXAGON_DSP_VTCM_MIN_ALLOCATION_BYTES) {
+    nbytes = HEXAGON_DSP_VTCM_MIN_ALLOCATION_BYTES;
   }
   void *ptr = vtcm_pool->Allocate(nbytes);
   if (ptr) {

@@ -111,6 +111,7 @@ hexagon_plugin_library(
     deps = [
         ":TargetConfig",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
+        "//plugins/runtime/hexagon/dsp/rt:vtcm_allocation",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
     ],
 )

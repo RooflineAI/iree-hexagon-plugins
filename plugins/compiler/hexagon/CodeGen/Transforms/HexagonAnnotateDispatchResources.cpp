@@ -1,0 +1,210 @@
+// Copyright 2026 RooflineAI GmbH
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Measures the hardware resources of each dispatch on the final IR before LLVM
+// conversion and records them on its hal.executable.export.
+
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "hexagon/CodeGen/IR/HexagonOps.h"
+#include "hexagon/CodeGen/Passes.h"
+#include "hexagon/Common/Common.h"
+#include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
+#include "iree/compiler/Dialect/HAL/IR/HALOps.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
+#include "mlir/Interfaces/FunctionInterfaces.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Pass/Pass.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/MathExtras.h"
+
+#include <optional>
+
+namespace mlir::iree_compiler::hexagon::codegen {
+
+#define GEN_PASS_DEF_HEXAGONANNOTATEDISPATCHRESOURCESPASS
+#include "hexagon/CodeGen/Passes.h.inc"
+
+namespace {
+
+using IREE::Hexagon::DispatchResourcesAttr;
+
+/// Smallest block the VTCM pool hands out
+/// (plugins/runtime/hexagon/dsp/rt/vtcm_pool.cpp).
+constexpr int64_t kVTCMPoolMinimumBytes = 128;
+
+/// hexagon-mlir's VTCM allocations round the size to a multiple of 2 KiB for
+/// 2 KiB-aligned buffers and to a multiple of 128 bytes otherwise
+/// (VTCMAllocation in bin/runtime/src/HexagonBuffer.cpp).
+constexpr int64_t kVTCMLargeAlignment = 2048;
+
+/// Bytes of a statically shaped memref, or std::nullopt if it is dynamic.
+std::optional<int64_t> getStaticSizeInBytes(MemRefType type,
+                                            const DataLayout &dataLayout) {
+  if (!type.hasStaticShape())
+    return std::nullopt;
+  return type.getNumElements() *
+         static_cast<int64_t>(
+             dataLayout.getTypeSize(type.getElementType()).getFixedValue());
+}
+
+/// VTCM bytes `memref.alloc` takes. It lowers to `malloc`, which the runtime
+/// serves from the VTCM pool (plugins/runtime/hexagon/dsp/rt/malloc_free.c).
+/// MemRefToLLVM pads the request by the alignment, which is the element size
+/// for non-scalar elements when no alignment is given.
+std::optional<int64_t> getAllocVTCMBytes(memref::AllocOp op,
+                                         const DataLayout &dataLayout) {
+  MemRefType type = op.getType();
+  std::optional<int64_t> bytes = getStaticSizeInBytes(type, dataLayout);
+  if (!bytes)
+    return std::nullopt;
+  if (std::optional<uint64_t> alignment = op.getAlignment())
+    *bytes += *alignment;
+  else if (!type.getElementType().isSignlessIntOrIndexOrFloat())
+    *bytes += static_cast<int64_t>(
+        dataLayout.getTypeSize(type.getElementType()).getFixedValue());
+  return std::max(*bytes, kVTCMPoolMinimumBytes);
+}
+
+/// VTCM bytes `hexagonmem.alloc` takes. A VTCM buffer goes through
+/// hexagon-mlir's VTCM allocation; a DDR one lowers to `memref.alloc` without
+/// alignment and therefore also lands in the VTCM pool.
+std::optional<int64_t> getAllocVTCMBytes(hexagonmem::AllocOp op,
+                                         const DataLayout &dataLayout) {
+  auto type = cast<MemRefType>(op.getBuffer().getType());
+  std::optional<int64_t> bytes = getStaticSizeInBytes(type, dataLayout);
+  if (!bytes)
+    return std::nullopt;
+  if (type.getMemorySpaceAsInt() != ::mlir::hexagon::VTCM_ADDRESS_SPACE) {
+    if (!type.getElementType().isSignlessIntOrIndexOrFloat())
+      *bytes += static_cast<int64_t>(
+          dataLayout.getTypeSize(type.getElementType()).getFixedValue());
+    return std::max(*bytes, kVTCMPoolMinimumBytes);
+  }
+  int64_t granularity = op.getAlignment() == kVTCMLargeAlignment
+                            ? kVTCMLargeAlignment
+                            : kVTCMPoolMinimumBytes;
+  return static_cast<int64_t>(llvm::alignTo(*bytes, granularity));
+}
+
+/// Whether `op` allocates on the heap, which the runtime serves from VTCM.
+/// Stack allocations use a different resource.
+bool allocatesHeapMemory(Operation *op) {
+  auto effects = dyn_cast<MemoryEffectOpInterface>(op);
+  if (!effects)
+    return false;
+  SmallVector<MemoryEffects::EffectInstance> instances;
+  effects.getEffects(instances);
+  return llvm::any_of(instances, [](const MemoryEffects::EffectInstance &e) {
+    // AutomaticAllocationScopeResource (the stack) is a subresource of
+    // DefaultResource, so it has to be excluded explicitly.
+    return isa<MemoryEffects::Allocate>(e.getEffect()) &&
+           isa<SideEffects::DefaultResource>(e.getResource()) &&
+           !isa<SideEffects::AutomaticAllocationScopeResource>(e.getResource());
+  });
+}
+
+bool isHmxOp(Operation *op) {
+  return isa<IREE::Hexagon::HmxMatmulOp, IREE::Hexagon::HmxPackOp,
+             IREE::Hexagon::HmxUnpackOp, IREE::Hexagon::HmxAccZeroOp,
+             IREE::Hexagon::HmxAccSetupReadOp, IREE::Hexagon::HmxMmaOp,
+             IREE::Hexagon::HmxAccReadOp>(op);
+}
+
+bool hasVectorValue(Operation *op) {
+  auto isVector = [](Type type) { return isa<VectorType>(type); };
+  return llvm::any_of(op->getOperandTypes(), isVector) ||
+         llvm::any_of(op->getResultTypes(), isVector);
+}
+
+/// The resources one dispatch uses, accumulated over the entry point and the
+/// functions it calls.
+struct DispatchResources {
+  bool hvx = false;
+  bool hmx = false;
+  int64_t vtcmBytes = 0;
+  /// Set when the VTCM use cannot be bounded; the dispatch stays unannotated.
+  bool vtcmUnbounded = false;
+};
+
+/// Accumulates the resources `funcOp` and its callees defined in the module
+/// use into `resources`. Each allocation is counted once, even inside a loop:
+/// a loop-carried allocation is freed before the next iteration allocates, so
+/// the sum bounds the peak.
+void collectResources(FunctionOpInterface funcOp, SymbolTable &symbols,
+                      const DataLayout &dataLayout,
+                      llvm::SmallPtrSetImpl<Operation *> &visited,
+                      DispatchResources &resources) {
+  if (!visited.insert(funcOp).second || funcOp.isExternal())
+    return;
+  funcOp.walk([&](Operation *op) {
+    if (isHmxOp(op))
+      resources.hmx = true;
+    if (hasVectorValue(op))
+      resources.hvx = true;
+
+    if (auto callOp = dyn_cast<func::CallOp>(op)) {
+      if (auto callee = symbols.lookup<FunctionOpInterface>(callOp.getCallee()))
+        collectResources(callee, symbols, dataLayout, visited, resources);
+      return;
+    }
+
+    if (!allocatesHeapMemory(op))
+      return;
+    std::optional<int64_t> bytes =
+        llvm::TypeSwitch<Operation *, std::optional<int64_t>>(op)
+            .Case<memref::AllocOp, hexagonmem::AllocOp>([&](auto allocOp) {
+              return getAllocVTCMBytes(allocOp, dataLayout);
+            })
+            .Default([](Operation *) { return std::nullopt; });
+    if (!bytes) {
+      op->emitWarning("cannot bound the VTCM this allocation takes; the "
+                      "dispatch is left without resource annotation");
+      resources.vtcmUnbounded = true;
+      return;
+    }
+    resources.vtcmBytes += *bytes;
+  });
+}
+
+struct HexagonAnnotateDispatchResourcesPass
+    : impl::HexagonAnnotateDispatchResourcesPassBase<
+          HexagonAnnotateDispatchResourcesPass> {
+  void runOnOperation() override {
+    IREE::HAL::ExecutableVariantOp variantOp = getOperation();
+    ModuleOp innerModule = variantOp.getInnerModule();
+    if (!innerModule)
+      return;
+
+    SymbolTable innerSymbols(innerModule);
+    DataLayout dataLayout(innerModule);
+    for (auto exportOp : variantOp.getExportOps()) {
+      auto funcOp =
+          innerSymbols.lookup<FunctionOpInterface>(exportOp.getSymName());
+      if (!funcOp)
+        continue;
+
+      DispatchResources resources;
+      llvm::SmallPtrSet<Operation *, 4> visited;
+      collectResources(funcOp, innerSymbols, dataLayout, visited, resources);
+      if (resources.vtcmUnbounded)
+        continue;
+
+      // The HMX runtime kernels issue HVX instructions too.
+      bool hvx = resources.hvx || resources.hmx;
+      exportOp->setAttr(DispatchResourcesAttr::getAttrName(),
+                        DispatchResourcesAttr::get(&getContext(), hvx,
+                                                   resources.hmx,
+                                                   resources.vtcmBytes));
+    }
+  }
+};
+
+} // namespace
+} // namespace mlir::iree_compiler::hexagon::codegen

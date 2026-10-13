@@ -24,7 +24,6 @@
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "iree/compiler/Codegen/Dialect/CPU/IR/IREECPUTypes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenInterfaces.h"
-#include "iree/compiler/Codegen/LLVMCPU/Passes.h"
 #include "iree/compiler/Dialect/LinalgExt/Transforms/Passes.h"
 #include "iree/compiler/Dialect/Util/Transforms/Passes.h"
 #include "iree/compiler/Transforms/Passes.h"
@@ -688,7 +687,7 @@ void addHexagonLowerToLLVMPasses(OpPassManager &modulePassManager) {
 
   // We rely on MLIR symbol visibility being correct after this point and
   // need to mirror the LLVM linkage that was assigned during conversion.
-  modulePassManager.addPass(createLLVMCPUSynchronizeSymbolVisibilityPass());
+  modulePassManager.addPass(createHexagonSynchronizeSymbolVisibilityPass());
 
   modulePassManager.addPass(createCanonicalizerPass());
   modulePassManager.addPass(createCSEPass());

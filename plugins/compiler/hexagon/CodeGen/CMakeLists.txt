@@ -226,12 +226,15 @@ iree_cc_library(
     "Pipelines/TranslationPipeline.cpp"
     "Strategy/HexagonSelectLoweringStrategy.cpp"
     "Strategy/KernelDispatch.cpp"
+    "Transforms/HexagonAssignConstantOrdinals.cpp"
     "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonEmitVectorizationRemarks.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
+    "Transforms/HexagonLinkExecutables.cpp"
     "Transforms/HexagonPeel.cpp"
     "Transforms/HexagonSplitReduction.cpp"
+    "Transforms/HexagonSynchronizeSymbolVisibility.cpp"
     "Transforms/HexagonTile.cpp"
     "Transforms/HexagonTileAndFuseProducerConsumer.cpp"
     "Transforms/HexagonTileToVectorSize.cpp"
@@ -293,7 +296,6 @@ iree_cc_library(
     iree::compiler::Codegen::Dialect::VectorExt::IR::IREEVectorExtDialect
     iree::compiler::Codegen::Dialect::VectorExt::Transforms::VectorExtTransforms
     iree::compiler::Codegen::Interfaces::PartitionableLoopsInterface
-    iree::compiler::Codegen::LLVMCPU
     iree::compiler::Codegen::Transforms
     iree::compiler::Codegen::Utils
     iree::compiler::Dialect::Encoding::IR

@@ -101,8 +101,8 @@ def IREEHexagon_DispatchResourcesAttr :
   let mnemonic = "dispatch_resources";
   let summary = "Hardware resources a dispatch needs on the DSP.";
   let description = [{
-    Records the hardware units and the VTCM a dispatch uses, so the DSP can
-    decide which dispatches may run concurrently.
+    Records the hardware units and the VTCM a dispatch uses, so the
+    DSP part of the runtime can decide which dispatches may run concurrently.
     HexagonAnnotateDispatchResourcesPass measures them on the final IR before
     LLVM conversion and sets the attribute on the `hal.executable.export`;
     serialization encodes it into the Hexagon extension of the executable's

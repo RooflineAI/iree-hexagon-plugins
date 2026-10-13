@@ -26,15 +26,20 @@ def HexagonAnnotateDispatchResourcesPass :
     `#iree_hexagon.dispatch_resources`, which serialization encodes for the DSP
     scheduler:
     - `hmx`: the dispatch contains HMX ops.
-    - `hvx`: the dispatch has vector values or uses HMX. LLVM's loop and SLP
-      vectorizers are disabled, so no other HVX code appears later.
+    - `hvx`: the dispatch has vector values. LLVM's loop and SLP vectorizers
+      are disabled, so no other HVX code appears later.
     - `vtcm_bytes`: the sum of every heap allocation at the size the runtime
       allocates for it. Heap memory, `malloc` included, is served from the
       VTCM pool.
     An export whose VTCM use cannot be bounded, e.g. because of a dynamically
-    sized allocation, is left unannotated and the DSP assumes the dispatch
-    needs every resource.
+    sized allocation, declares `vtcm_bytes = INT64_MAX`, so the DSP treats it as
+    needing all of VTCM. A heap allocation still inside a loop (a loop op or
+    a control-flow cycle) is an error: HoistStaticallyBoundAllocations should
+    have moved it out, and counting it once would not bound the peak.
   }];
+  let dependentDialects = [
+    "IREE::Hexagon::IREEHexagonDialect",
+  ];
 }
 
 def HexagonAssignConstantOrdinalsPass :

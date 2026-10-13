@@ -8,6 +8,7 @@
 // conversion and records them on its hal.executable.export.
 
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
+#include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/CodeGen/Passes.h"
 #include "hexagon/Common/Common.h"
@@ -19,6 +20,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
+#include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -68,9 +70,7 @@ std::optional<int64_t> getAllocVTCMBytes(memref::AllocOp op,
   return std::max(*bytes, kVTCMPoolMinimumBytes);
 }
 
-/// VTCM bytes `hexagonmem.alloc` takes. A VTCM buffer goes through
-/// hexagon-mlir's VTCM allocation; a DDR one lowers to `memref.alloc` without
-/// alignment and therefore also lands in the VTCM pool.
+/// VTCM bytes `hexagonmem.alloc` takes.
 std::optional<int64_t> getAllocVTCMBytes(hexagonmem::AllocOp op,
                                          const DataLayout &dataLayout) {
   auto type = cast<MemRefType>(op.getBuffer().getType());
@@ -119,40 +119,79 @@ bool hasVectorValue(Operation *op) {
          llvm::any_of(op->getResultTypes(), isVector);
 }
 
+/// Whether `block` is part of a control-flow cycle within its region.
+bool isInCFGCycle(Block *block) {
+  llvm::SmallPtrSet<Block *, 8> visited;
+  SmallVector<Block *> worklist(block->getSuccessors());
+  while (!worklist.empty()) {
+    Block *current = worklist.pop_back_val();
+    if (current == block)
+      return true;
+    if (visited.insert(current).second)
+      llvm::append_range(worklist, current->getSuccessors());
+  }
+  return false;
+}
+
+/// Whether `op` may execute repeatedly within one call of `funcOp`: it is
+/// nested in a loop op or in a control-flow cycle, the form loops take after
+/// SCF-to-CF conversion.
+bool isInLoop(Operation *op, FunctionOpInterface funcOp) {
+  for (Block *block = op->getBlock(); block;) {
+    if (isInCFGCycle(block))
+      return true;
+    Operation *parent = block->getParentOp();
+    if (!parent || parent == funcOp)
+      return false;
+    if (isa<LoopLikeOpInterface>(parent))
+      return true;
+    block = parent->getBlock();
+  }
+  return false;
+}
+
 /// The resources one dispatch uses, accumulated over the entry point and the
 /// functions it calls.
 struct DispatchResources {
   bool hvx = false;
   bool hmx = false;
   int64_t vtcmBytes = 0;
-  /// Set when the VTCM use cannot be bounded; the dispatch stays unannotated.
+  /// Set when the VTCM use cannot be bounded; the dispatch then declares
+  /// `DispatchResourcesAttr::kUnboundedVTCMBytes`.
   bool vtcmUnbounded = false;
 };
 
 /// Accumulates the resources `funcOp` and its callees defined in the module
-/// use into `resources`. Each allocation is counted once, even inside a loop:
-/// a loop-carried allocation is freed before the next iteration allocates, so
-/// the sum bounds the peak.
-void collectResources(FunctionOpInterface funcOp, SymbolTable &symbols,
-                      const DataLayout &dataLayout,
-                      llvm::SmallPtrSetImpl<Operation *> &visited,
-                      DispatchResources &resources) {
+/// use into `resources`. Each allocation is counted once, so the sum bounds the
+/// peak only if no allocation sits in a loop. HoistStaticallyBoundAllocations
+/// moves them out before this pass, so one that remains in a loop is an error.
+LogicalResult collectResources(FunctionOpInterface funcOp, SymbolTable &symbols,
+                               const DataLayout &dataLayout,
+                               llvm::SmallPtrSetImpl<Operation *> &visited,
+                               DispatchResources &resources) {
   if (!visited.insert(funcOp).second || funcOp.isExternal())
-    return;
-  funcOp.walk([&](Operation *op) {
+    return success();
+  WalkResult walkResult = funcOp.walk([&](Operation *op) {
     if (isHmxOp(op))
       resources.hmx = true;
     if (hasVectorValue(op))
       resources.hvx = true;
 
     if (auto callOp = dyn_cast<func::CallOp>(op)) {
-      if (auto callee = symbols.lookup<FunctionOpInterface>(callOp.getCallee()))
-        collectResources(callee, symbols, dataLayout, visited, resources);
-      return;
+      auto callee = symbols.lookup<FunctionOpInterface>(callOp.getCallee());
+      if (callee && failed(collectResources(callee, symbols, dataLayout,
+                                            visited, resources)))
+        return WalkResult::interrupt();
+      return WalkResult::advance();
     }
 
     if (!allocatesHeapMemory(op))
-      return;
+      return WalkResult::advance();
+    if (isInLoop(op, funcOp)) {
+      op->emitError("VTCM allocation inside a loop; it should have been "
+                    "hoisted out of the loop");
+      return WalkResult::interrupt();
+    }
     std::optional<int64_t> bytes =
         llvm::TypeSwitch<Operation *, std::optional<int64_t>>(op)
             .Case<memref::AllocOp, hexagonmem::AllocOp>([&](auto allocOp) {
@@ -161,12 +200,14 @@ void collectResources(FunctionOpInterface funcOp, SymbolTable &symbols,
             .Default([](Operation *) { return std::nullopt; });
     if (!bytes) {
       op->emitWarning("cannot bound the VTCM this allocation takes; the "
-                      "dispatch is left without resource annotation");
+                      "dispatch declares all of VTCM");
       resources.vtcmUnbounded = true;
-      return;
+      return WalkResult::advance();
     }
     resources.vtcmBytes += *bytes;
+    return WalkResult::advance();
   });
+  return failure(walkResult.wasInterrupted());
 }
 
 struct HexagonAnnotateDispatchResourcesPass
@@ -188,16 +229,20 @@ struct HexagonAnnotateDispatchResourcesPass
 
       DispatchResources resources;
       llvm::SmallPtrSet<Operation *, 4> visited;
-      collectResources(funcOp, innerSymbols, dataLayout, visited, resources);
-      if (resources.vtcmUnbounded)
-        continue;
+      if (failed(collectResources(funcOp, innerSymbols, dataLayout, visited,
+                                  resources)))
+        return signalPassFailure();
 
-      // The HMX runtime kernels issue HVX instructions too.
-      bool hvx = resources.hvx || resources.hmx;
-      exportOp->setAttr(DispatchResourcesAttr::getAttrName(),
-                        DispatchResourcesAttr::get(&getContext(), hvx,
-                                                   resources.hmx,
-                                                   resources.vtcmBytes));
+      int64_t vtcmBytes = resources.vtcmUnbounded
+                              ? DispatchResourcesAttr::kUnboundedVTCMBytes
+                              : resources.vtcmBytes;
+      exportOp->setAttr(
+          DispatchResourcesAttr::getAttrName(),
+          DispatchResourcesAttr::get(
+              &getContext(),
+              resources.hvx ||
+                  resources.hmx, // HMX functions use HVX instructions
+              resources.hmx, vtcmBytes));
     }
   }
 };

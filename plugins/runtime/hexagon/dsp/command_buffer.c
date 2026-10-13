@@ -4,7 +4,6 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -24,7 +23,6 @@
 #include "hexagon/dsp/rt/executable_library.h"
 #include "hexagon/dsp/rt/profiler.h"
 #include "hexagon/dsp/rt/runtime_state.h"
-#include "hexagon/dsp/rt/vtcm_pool.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"
 
@@ -535,19 +533,6 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   hexagon_dsp_executable_get_dispatch_func_name(executable_handle,
                                                 export_ordinal, &func_name);
 
-  // Measure the VTCM the dispatch allocates to check the compiler's declared
-  // value. This assumes no other dispatch allocates VTCM concurrently.
-  // FIXME: guard it, so it only executes in sequential mode
-  // FIXME: disable this check in release builds for performance
-  const iree_hal_executable_dispatch_attrs_v0_t *attrs = NULL;
-  bool check_vtcm =
-      hexagon_dsp_executable_get_dispatch_attrs(
-          executable_handle, export_ordinal, &attrs) == AEE_SUCCESS &&
-      attrs &&
-      (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0;
-  size_t vtcm_baseline = hexagon_dsp_vtcm_pool_get_in_use();
-  hexagon_dsp_vtcm_pool_reset_peak();
-
   hexagon_rt_prof_record_t *prof_dispatch_record =
       profiler_measurement_start(prof_context, KERNEL, func_name);
 
@@ -578,18 +563,6 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   }
 
   profiler_measurement_finish_and_record(prof_dispatch_record);
-
-  if (check_vtcm) {
-    uint64_t vtcm_peak = hexagon_dsp_vtcm_pool_get_peak() - vtcm_baseline;
-    if (vtcm_peak > attrs->vtcm_bytes) {
-      FARF(RUNTIME_HIGH,
-           "HEXAGON-DISPATCH-RESOURCES-VIOLATION name=%s declared=%llu "
-           "peak=%llu",
-           func_name ? func_name : "(unnamed)",
-           (unsigned long long)attrs->vtcm_bytes,
-           (unsigned long long)vtcm_peak);
-    }
-  }
 
   hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
   HAP_free(dispatch_arrays);

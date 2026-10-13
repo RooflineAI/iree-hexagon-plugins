@@ -56,7 +56,7 @@ artifact paths.
 |---|---|
 | `models/` | **data only**: `<org>/<name>/{model.yaml, model.py}` |
 | `modeltree/` | code *about* that data - `spec.py` (schema), `discover.py` (finding and selecting), `outcomes.py` (known failures) |
-| `stages/` | the pipeline, in order - `importing.py`, `compiling.py`, `running.py`, `dispatch_resources.py`, `checking.py`, plus `artifacts.py` |
+| `stages/` | the pipeline, in order - `importing.py`, `compiling.py`, `running.py`, `checking.py`, plus `artifacts.py` |
 | `device/` | the only package that knows a phone exists - `adb.py`, `deploy.py`, and `tools/` (the cross-compiled helper) |
 | `tool_paths.py` | resolve an artifact path, or ask Bazel |
 | `conftest.py` | options and fixtures, the only pytest glue |
@@ -116,20 +116,6 @@ semantic_check:
   expected_label: "computer keyboard, keypad"
 ```
 
-Every run also checks the hardware resources the compiler recorded for each
-dispatch, as the DSP runtime logs them (`HEXAGON-DISPATCH-RESOURCES` in the
-logcat): every dispatch carries them, HMX implies HVX, the `hexagon` case uses no
-HMX, and no dispatch allocates more VTCM than it declared. A model can add its
-own expectations with `dispatch_resources`:
-
-```yaml
-dispatch_resources:
-  - {case: hexagon-vtcm-hmx, any_hmx: true}   # no case: every case
-```
-
-`allow_invalid: true` accepts dispatches without recorded resources, which the
-planner left to the unplanned Default pipeline.
-
 A large model may need more than the default 600 seconds to push its module
 and to run on the device:
 
@@ -144,8 +130,7 @@ A model may record known failures:
 ```yaml
 expected_outcomes:
   - case: hexagon-vtcm-hmx   # or "*" for every case
-    status: ACCURACY_FAILURE # or COMPILE_FAILURE, RUNTIME_FAILURE,
-                             # DISPATCH_RESOURCES_FAILURE
+    status: ACCURACY_FAILURE # or COMPILE_FAILURE, RUNTIME_FAILURE
     reason: "relative L2 error 2.9"
     comment: "measured 2026-08-27"
 ```

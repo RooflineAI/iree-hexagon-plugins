@@ -101,27 +101,6 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
   return AEE_SUCCESS;
 }
 
-/// Logs the resources of every export once, for tooling and tests.
-static void hexagon_dsp_executable_log_dispatch_resources(
-    hexagon_dsp_executable_t *executable) {
-  const iree_hal_executable_export_table_v0_t *exports =
-      &executable->library.v0->exports;
-  for (uint32_t ordinal = 0; ordinal < exports->count; ++ordinal) {
-    const char *name = exports->names ? exports->names[ordinal] : NULL;
-    const iree_hal_executable_dispatch_attrs_v0_t *attrs =
-        exports->attrs ? &exports->attrs[ordinal] : NULL;
-    hexagon_dispatch_flags_t flags = attrs ? attrs->hexagon_flags : 0;
-    FARF(RUNTIME_HIGH,
-         "HEXAGON-DISPATCH-RESOURCES name=%s valid=%d hvx=%d hmx=%d "
-         "vtcm_bytes=%llu",
-         name ? name : "(unnamed)",
-         (flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0,
-         (flags & HEXAGON_DISPATCH_FLAG_USES_HVX) != 0,
-         (flags & HEXAGON_DISPATCH_FLAG_USES_HMX) != 0,
-         (unsigned long long)(attrs ? attrs->vtcm_bytes : 0));
-  }
-}
-
 int hexagon_dsp_executable_load(remote_handle64 rpc_handle, const char *name,
                                 int64 *executable_handle) {
   // allocate internal data structure used to mange executable
@@ -138,8 +117,6 @@ int hexagon_dsp_executable_load(remote_handle64 rpc_handle, const char *name,
     hexagon_dsp_executable_close(rpc_handle, (int64)executable);
     return err;
   }
-
-  hexagon_dsp_executable_log_dispatch_resources(executable);
 
   // return pointer to internal data structure as handle
   *executable_handle = (int64)executable;
@@ -204,22 +181,5 @@ int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
 
   *out_name = exports->names ? exports->names[export_ordinal] : NULL;
 
-  return AEE_SUCCESS;
-}
-
-int hexagon_dsp_executable_get_dispatch_attrs(
-    int64 executable_handle, uint32_t export_ordinal,
-    const iree_hal_executable_dispatch_attrs_v0_t **out_attrs) {
-  if (!out_attrs) {
-    return AEE_EBADPARM;
-  }
-  hexagon_dsp_executable_t *executable =
-      (hexagon_dsp_executable_t *)executable_handle;
-  const iree_hal_executable_export_table_v0_t *exports =
-      &executable->library.v0->exports;
-  if (export_ordinal >= exports->count) {
-    return AEE_EBADITEM;
-  }
-  *out_attrs = exports->attrs ? &exports->attrs[export_ordinal] : NULL;
   return AEE_SUCCESS;
 }

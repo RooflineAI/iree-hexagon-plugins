@@ -3,7 +3,9 @@
 // sizes and strides as i32, and the accumulator value is erased. The inputs
 // first go through the HMX runtime ABI verification, as in the pipeline.
 // The conversion uses the production Hexagon data layout: 32-bit pointers and
-// therefore a 32-bit index.
+// therefore a 32-bit index. Functions that allocate VTCM are dispatch entry
+// points, since VTCM is allocated from the dispatch's partition; they read their
+// dynamic values from push constants.
 // RUN: iree-opt --split-input-file \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-verify-hmx-runtime-abi,iree-hexagon-convert-to-llvm{target-data-layout=e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048},canonicalize,cse)' \
 // RUN:   %s | FileCheck %s
@@ -47,7 +49,10 @@ func.func private @lower_layout_ops(
 // the dynamically selected 32x32 tile, without memref.assume_alignment.
 // CHECK-LABEL: llvm.func @lower_aligned_tiled_unpack(
 // CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
-func.func private @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index) {
+#pipeline_layout = #hal.pipeline.layout<constants = 2, bindings = []>
+func.func @lower_aligned_tiled_unpack() {
+  %row_tile = hal.interface.constant.load layout(#pipeline_layout) ordinal(0) : index
+  %col_tile = hal.interface.constant.load layout(#pipeline_layout) ordinal(1) : index
   %c32 = arith.constant 32 : index
   %row = arith.muli %row_tile, %c32 : index
   %col = arith.muli %col_tile, %c32 : index
@@ -68,11 +73,13 @@ func.func private @lower_aligned_tiled_unpack(%row_tile: index, %col_tile: index
 // Value-bounds analysis proves that the dynamic logical source occupies at
 // most the statically allocated 2x2 physical grid.
 // CHECK-LABEL: llvm.func @lower_bounded_dynamic_pack(
-// CHECK-SAME:    %[[REQUESTED:.+]]: i32)
+// CHECK:         %[[REQUESTED:.+]] = llvm.load %{{.+}} : !llvm.ptr -> i32
 // CHECK:         %[[ROWS:.+]] = llvm.intr.smin(%[[REQUESTED]], %{{.+}}) : (i32, i32) -> i32
 // CHECK-NOT:     llvm.trunc
 // CHECK:         llvm.call @iree_hexagon_hmx_pack_f16(%{{.+}}, %{{.+}}, %{{.+}}, %[[ROWS]], %{{.+}}, %{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
-func.func private @lower_bounded_dynamic_pack(%requested_rows: index) {
+#pipeline_layout = #hal.pipeline.layout<constants = 2, bindings = []>
+func.func @lower_bounded_dynamic_pack() {
+  %requested_rows = hal.interface.constant.load layout(#pipeline_layout) ordinal(0) : index
   %rows = affine.min affine_map<(d0) -> (d0, 64)>(%requested_rows)
   %source_storage = hexagonmem.alloc() : memref<64x64xf16, 1>
   %source = memref.subview %source_storage[0, 0] [%rows, 64] [1, 1]
@@ -91,7 +98,9 @@ func.func private @lower_bounded_dynamic_pack(%requested_rows: index) {
 // provably no larger than the one 32x32 physical tile.
 // CHECK-LABEL: llvm.func @lower_bounded_dynamic_rank3_unpack(
 // CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f32(%{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
-func.func private @lower_bounded_dynamic_rank3_unpack(%requested_cols: index) {
+#pipeline_layout = #hal.pipeline.layout<constants = 2, bindings = []>
+func.func @lower_bounded_dynamic_rank3_unpack() {
+  %requested_cols = hal.interface.constant.load layout(#pipeline_layout) ordinal(0) : index
   %cols = affine.min affine_map<(d0) -> (d0, 32)>(%requested_cols)
   %source = hexagonmem.alloc() <alignment = 2048>
       : memref<16x32x2xf16, 1>

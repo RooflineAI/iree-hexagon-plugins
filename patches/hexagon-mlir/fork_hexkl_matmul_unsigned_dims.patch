@@ -1,0 +1,26 @@
+diff --git a/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h b/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h
+index e9d5fc2..cd39520 100644
+--- a/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h
++++ b/qcom_hexagon_backend/bin/runtime/include/HexKLAPI.h
+@@ -14,7 +14,7 @@
+ #include <stdint.h>
+
+ extern "C" {
+-int hexkl_matmul_f16f16_f32(int64_t n_row, int64_t n_col, int64_t n_inner,
++int hexkl_matmul_f16f16_f32(uint64_t n_row, uint64_t n_col, uint64_t n_inner,
+                             float *restrict outM,
+                             const _Float16 *restrict inAct,
+                             const _Float16 *restrict inW);
+diff --git a/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp b/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp
+index 1c15a06..766a2cb 100644
+--- a/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp
++++ b/qcom_hexagon_backend/bin/runtime/src/HexKLAPI.cpp
+@@ -12,7 +12,7 @@
+ #include "hexkl_micro.h"
+
+ extern "C" {
+-int hexkl_matmul_f16f16_f32(int64_t n_row, int64_t n_col, int64_t n_inner,
++int hexkl_matmul_f16f16_f32(uint64_t n_row, uint64_t n_col, uint64_t n_inner,
+                             float *restrict outM,
+                             const _Float16 *restrict inAct,
+                             const _Float16 *restrict inW) {

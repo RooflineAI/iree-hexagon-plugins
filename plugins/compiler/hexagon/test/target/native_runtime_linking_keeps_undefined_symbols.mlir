@@ -13,24 +13,21 @@
 // LLVM: @hexagon_runtime_alloc_1d
 // LLVM: @hexagon_runtime_dma_wait
 // LLVM: @hexkl_matmul_f16f16_f32
-// LLVM: @hexagon_runtime_malloc
-// LLVM: @hexagon_runtime_free
+// LLVM: @hexagon_runtime_vtcm_alloc
 // LLVM: @hexagon_runtime_memref_copy
 // LLVM: @hexagon_runtime_profiler_zone_begin
 // LLVM: @hexagon_runtime_profiler_zone_end
 // LLVM-NOT: __import_ordinal_hexagon_runtime_alloc_1d
 // LLVM-NOT: __import_ordinal_hexagon_runtime_dma_wait
 // LLVM-NOT: __import_ordinal_hexkl_matmul_f16f16_f32
-// LLVM-NOT: __import_ordinal_hexagon_runtime_malloc
-// LLVM-NOT: __import_ordinal_hexagon_runtime_free
+// LLVM-NOT: __import_ordinal_hexagon_runtime_vtcm_alloc
 // LLVM-NOT: __import_ordinal_hexagon_runtime_memref_copy
 // LLVM-NOT: __import_ordinal_hexagon_runtime_profiler_zone_begin
 // LLVM-NOT: __import_ordinal_hexagon_runtime_profiler_zone_end
 
 // ELF: UND hexagon_runtime_alloc_1d
-// ELF: UND hexagon_runtime_malloc
+// ELF: UND hexagon_runtime_vtcm_alloc
 // ELF: UND hexagon_runtime_memref_copy
-// ELF: UND hexagon_runtime_free
 // ELF: UND hexagon_runtime_dma_wait
 // ELF: UND hexagon_runtime_profiler_zone_begin
 // ELF: UND hexagon_runtime_profiler_zone_end
@@ -45,8 +42,7 @@ hal.executable public @test {
       llvm.func @hexagon_runtime_alloc_1d(i32, i64, i1) -> !llvm.ptr attributes {hal.import.static}
       llvm.func @hexagon_runtime_dma_wait(i32) attributes {hal.import.static}
       llvm.func @hexkl_matmul_f16f16_f32(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32 attributes {hal.import.static}
-      llvm.func @hexagon_runtime_malloc(i32) -> !llvm.ptr attributes {hal.import.static}
-      llvm.func @hexagon_runtime_free(!llvm.ptr) attributes {hal.import.static}
+      llvm.func @hexagon_runtime_vtcm_alloc(!llvm.ptr, i32, i64) -> !llvm.ptr attributes {hal.import.static}
       llvm.func @hexagon_runtime_memref_copy(i32, !llvm.ptr, !llvm.ptr) attributes {hal.import.static}
       llvm.func @hexagon_runtime_profiler_zone_begin(i32, !llvm.ptr) -> !llvm.ptr attributes {hal.import.static}
       llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {hal.import.static}
@@ -58,9 +54,8 @@ hal.executable public @test {
         %false = llvm.mlir.zero : i1
         %null = llvm.mlir.zero : !llvm.ptr
         %buf = llvm.call @hexagon_runtime_alloc_1d(%c0_i32, %c4_i64, %false) : (i32, i64, i1) -> !llvm.ptr
-        %tmp = llvm.call @hexagon_runtime_malloc(%c4_i32) : (i32) -> !llvm.ptr
+        %tmp = llvm.call @hexagon_runtime_vtcm_alloc(%null, %c4_i32, %c4_i64) : (!llvm.ptr, i32, i64) -> !llvm.ptr
         llvm.call @hexagon_runtime_memref_copy(%c4_i32, %null, %null) : (i32, !llvm.ptr, !llvm.ptr) -> ()
-        llvm.call @hexagon_runtime_free(%tmp) : (!llvm.ptr) -> ()
         llvm.call @hexagon_runtime_dma_wait(%c0_i32) : (i32) -> ()
         %record = llvm.call @hexagon_runtime_profiler_zone_begin(%c0_i32, %null) : (i32, !llvm.ptr) -> (!llvm.ptr)
         llvm.call @hexagon_runtime_profiler_zone_end(%record) : (!llvm.ptr) -> ()

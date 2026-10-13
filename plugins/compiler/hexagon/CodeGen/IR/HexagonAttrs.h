@@ -11,9 +11,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Dialect.h"
 
-#include <cstdint>
-#include <limits>
-
 namespace mlir::iree_compiler::IREE::Hexagon {
 
 class IREEHexagonDialect;

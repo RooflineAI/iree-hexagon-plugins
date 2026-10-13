@@ -118,12 +118,6 @@ struct PlanningContext {
 /// tiling pass.
 struct VTCMPlan {
   llvm::SmallVector<TileDecision> tileSizes;
-  /// Peak VTCM bytes the dispatch allocates for this plan: the staged tiles of
-  /// every fused operation at VTCM allocation granularity, plus the pipeline's
-  /// own VTCM copies and scratch. Recorded when the tile is chosen and encoded
-  /// unchanged as the dispatch's declared VTCM requirement; std::nullopt if it
-  /// cannot be bounded.
-  std::optional<int64_t> footprintBytes;
 };
 
 /// Root-only loop/staging decisions.
@@ -165,11 +159,6 @@ struct OpComputeTilePlan {
 struct DispatchPlan {
   DispatchStrategy strategy;
   llvm::SmallVector<OpComputeTilePlan> nonRootComputeTilePlans;
-  /// Without a VTCM plan only: VTCM bytes of the temporaries that bufferization
-  /// allocates with `malloc` for intermediate results at their compute tile
-  /// (the runtime serves `malloc` from VTCM). std::nullopt if they cannot be
-  /// bounded.
-  std::optional<int64_t> heapTemporaryVTCMBytes = 0;
 };
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning

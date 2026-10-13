@@ -114,24 +114,6 @@ def HexagonPeelPass :
   let summary = "Pass to perform peeling on non-distributed loops.";
 }
 
-def HexagonPropagateDispatchResourcesPass :
-    Pass<"iree-hexagon-propagate-dispatch-resources",
-         "IREE::HAL::ExecutableVariantOp"> {
-  let summary = [{
-      Copy the dispatch resources recorded in each entry point's translation
-      info onto its hal.executable.export.
-  }];
-  let description = [{
-    The dispatch planner records the hardware resources of a dispatch as
-    `#iree_hexagon.dispatch_resources` in the translation info configuration.
-    ReconcileTranslationInfo erases translation info and forwards only the
-    fields IREE knows about, so this pass must run before it and copies the
-    attribute unchanged to the export, where serialization reads it. An entry
-    point without the attribute leaves its export unannotated.
-    This is necessary, since the planning pass cannot directly write the attributes to the parent
-  }];
-}
-
 def HexagonSelectLoweringStrategyPass :
     Pass<"iree-hexagon-select-lowering-strategy", "mlir::ModuleOp"> {
   let summary = [{

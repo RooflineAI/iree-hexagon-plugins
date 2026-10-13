@@ -49,31 +49,6 @@ inline constexpr int64_t kHmxAlignment = 2048;
 inline constexpr std::array<int64_t, 3> kHmxTileStrides = {
     kHmxTileColumns * kHmxTileInterleave, kHmxTileInterleave, 1};
 
-/// Bytes of one physical f16 HMX tile [16, 32, 2].
-inline constexpr int64_t kHmxF16TileBytes =
-    kHmxTileRows * kHmxTileColumns * kHmxTileInterleave * 2;
-
-/// Bytes of the VTCM accumulator-read config block that
-/// `HexagonExpandHmxMatmulPass` allocates once per function. hexKL programs the
-/// FP16 accumulator-read bias table from a 256-byte block at config+12288. A
-/// full tile-sized scratch keeps the allocation and future config layouts
-/// naturally aligned to `kHmxAlignment`, which is what
-/// `HexagonVerifyHmxRuntimeABIPass` requires of every buffer reaching the
-/// runtime kernels.
-inline constexpr int64_t kHmxAccReadConfigBytes = 2048;
-
-/// VTCM scratch `HexagonExpandHmxMatmulPass` allocates per function besides
-/// the packed operand grids: the accumulator-read config block plus one f16
-/// accumulator-read tile per distinct accumulator type. The dispatch planner
-/// adds this to the VTCM footprint of an HMX dispatch (on top of the staged
-/// tiles and their re-packed copy), assuming the single accumulator type the
-/// HMX matmul pipeline produces.
-inline constexpr int64_t kHmxScratchVTCMBytes =
-    kHmxAccReadConfigBytes + kHmxF16TileBytes;
-static_assert(kHmxAccReadConfigBytes % kHmxAlignment == 0 &&
-                  kHmxF16TileBytes % kHmxAlignment == 0,
-              "HMX scratch allocations are sized in whole alignment units");
-
 /// Number of whole 32x32 logical tiles needed to cover `elements`.
 constexpr int64_t getHmxTileCount(int64_t elements) {
   return (elements + kHmxLogicalTileSize - 1) / kHmxLogicalTileSize;

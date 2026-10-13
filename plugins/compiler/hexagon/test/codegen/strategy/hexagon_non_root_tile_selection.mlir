@@ -32,11 +32,7 @@ func.func @hmx_matmul_bias_consumer(%lhs: tensor<128x128xf16>, %rhs: tensor<128x
 // CHECK-DAG: #[[FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [32, 32]>
 // CHECK-DAG: #[[EPILOGUE:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32]>
 // CHECK-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0], vtcm = [128, 128, 128]>
-// Declared VTCM: six 128x128xf16 tiles (lhs, rhs, the fill's and the matmul's
-// init, and the fused consumer's bias and result; 6 x 32 KiB), the HMX packed
-// lhs, rhs and accumulator grids (3 x 16 tiles of 2 KiB), and 4 KiB of HMX
-// scratch.
-// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>, {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = true, vtcm_bytes = 299008>}>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 // CHECK: func.func @hmx_matmul_bias_consumer(
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}

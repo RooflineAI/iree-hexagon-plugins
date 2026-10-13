@@ -20,11 +20,7 @@ func.func @hmx_batch_matmul_preserves_batch_tile(%lhs: tensor<4x32x32xf16>, %rhs
 }
 // CHECK-DAG: #[[BATCH_FILL:.+]] = #iree_hexagon.lowering_config<vector_common_parallel = [1, 32, 32]>
 // CHECK-DAG: #[[BATCH_ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0, 0], hmx = [1, 0, 0, 0], vector_common_parallel = [1, 32, 32, 0], vtcm = [{{.*}}]>
-// Declared VTCM: the 4x32x32xf16 lhs, rhs, fill init and matmul init tiles
-// (4 x 8 KiB), the HMX packed lhs, rhs and accumulator grids of one batch
-// (3 x one 2 KiB tile), and the HMX expansion's scratch (2 KiB
-// accumulator-read config + one 2 KiB f16 tile).
-// CHECK-DAG: #[[BATCH_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>, {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = true, vtcm_bytes = 43008>}>
+// CHECK-DAG: #[[BATCH_TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 // CHECK: func.func @hmx_batch_matmul_preserves_batch_tile(
 // CHECK-SAME: translation_info = #[[BATCH_TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[BATCH_FILL]]}

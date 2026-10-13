@@ -130,6 +130,10 @@ def IREEHexagon_DispatchResourcesAttr :
     static constexpr StringLiteral getAttrName() {
       return StringLiteral("iree_hexagon.dispatch_resources");
     }
+
+    /// `vtcm_bytes` of a dispatch whose VTCM use cannot be bounded.
+    static constexpr int64_t kUnboundedVTCMBytes =
+        std::numeric_limits<int64_t>::max();
   }];
 }
 

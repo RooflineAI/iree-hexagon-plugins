@@ -4,15 +4,22 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <assert.h>
 #include <stdlib.h>
 
 #include "AEEStdErr.h"
+#include "HAP_farf.h"
+#include "hexagon/dsp/device.h"
 #include "hexagon/dsp/power_mode.h"
+#include "hexagon/dsp/rt/async_runtime.h"
 #include "hexagon_dsp.h"
+#include "qurt.h"
 
 /// Private data of Hexagon DSP RPC session.
 typedef struct hexagon_dsp_private_s {
   void *power_context;
+  /// max. number of dispatches executing at the same time, >= 1
+  uint32_t max_concurrent_dispatches;
 } hexagon_dsp_private_t;
 
 static inline hexagon_dsp_private_t *
@@ -41,6 +48,9 @@ int hexagon_dsp_open(const char *uri, remote_handle64 *rpc_handle) {
     return rc;
   }
 
+  // sequential until the host sets something else
+  priv->max_concurrent_dispatches = 1;
+
   // return pointer to RPC session data structure as handle
   *rpc_handle = (remote_handle64)priv;
   return AEE_SUCCESS;
@@ -59,4 +69,45 @@ int hexagon_dsp_close(remote_handle64 rpc_handle) {
   // free management data structure
   free(priv);
   return AEE_SUCCESS;
+}
+
+/**
+ * @brief Set the max. number of dispatches executing at the same time.
+ * @param[in] rpc_handle RPC handle, the value returned by hexagon_dsp_open
+ * @param[in] max_concurrent_dispatches limit, 0 to use the number of HVX
+ *            contexts (limited by the number of worker threads)
+ * @return AEE_SUCCESS for success, AEE_EBADPARM if the limit exceeds the
+ *         number of HVX contexts or worker threads
+ */
+int hexagon_dsp_set_max_concurrent_dispatches(remote_handle64 rpc_handle,
+                                              int max_concurrent_dispatches) {
+  hexagon_dsp_private_t *priv = hexagon_dsp_get_priv(rpc_handle);
+
+  // bits 15..8 hold the number of 128 byte HVX contexts
+  int64_t hvx_contexts = (qurt_hvx_get_units() >> 8) & 0xFF;
+  if (max_concurrent_dispatches == 1) {
+    // sequential, does not need any HVX context or worker beyond the master
+    priv->max_concurrent_dispatches = 1;
+    return AEE_SUCCESS;
+  }
+  int64_t num_workers = hexagon_rt_async_num_workers();
+  int64_t limit = hvx_contexts < num_workers ? hvx_contexts : num_workers;
+  assert(limit >= 1);
+  if (max_concurrent_dispatches == 0) {
+    max_concurrent_dispatches = (int)limit;
+  }
+  if (max_concurrent_dispatches < 0 || max_concurrent_dispatches > limit) {
+    FARF(ERROR,
+         "HEXAGON-RUNTIME-ERROR: max concurrent dispatches %d exceeds %lld "
+         "(HVX contexts: %lld, worker threads: %lld)",
+         max_concurrent_dispatches, (long long)limit, (long long)hvx_contexts,
+         (long long)num_workers);
+    return AEE_EBADPARM;
+  }
+  priv->max_concurrent_dispatches = (uint32_t)max_concurrent_dispatches;
+  return AEE_SUCCESS;
+}
+
+uint32_t hexagon_dsp_get_max_concurrent_dispatches(remote_handle64 rpc_handle) {
+  return hexagon_dsp_get_priv(rpc_handle)->max_concurrent_dispatches;
 }

@@ -10,9 +10,6 @@
 
 iree_add_all_subdirs()
 
-iree_package_ns(_PACKAGE_NS)
-add_library(${_PACKAGE_NS}::qurt_lib ALIAS hexagon_sdk::qurt_lib)
-
 if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 iree_cc_library(
   NAME
@@ -23,6 +20,7 @@ iree_cc_library(
     "buffer.c"
     "command_buffer.c"
     "device.c"
+    "device.h"
     "executable.c"
     "executable.h"
     "power_mode.c"
@@ -30,7 +28,6 @@ iree_cc_library(
   COPTS
     "-Wswitch-enum"
   DEPS
-    ::qurt_lib
     hexagon_mlir::bin::runtime::runtime_lib
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::hexagon_arm_dsp
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::pmu::hexagon_pmu_helpers

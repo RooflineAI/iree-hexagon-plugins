@@ -61,7 +61,12 @@ void addHexagonLinalgExtTileAndVectorizePipeline(
 void addHexagonVariantFinalizationPasses(
     mlir::OpPassManager &variantPassManager);
 
-void addHexagonLowerToLLVMPasses(mlir::OpPassManager &modulePassManager);
+/// Lowers the bufferized dispatches to the final memref, vector and HMX ops
+/// that LLVM conversion consumes.
+void addHexagonPreLLVMConversionPasses(mlir::OpPassManager &modulePassManager);
+
+/// Converts the output of `addHexagonPreLLVMConversionPasses` to LLVM.
+void addHexagonConvertToLLVMPasses(mlir::OpPassManager &modulePassManager);
 
 void addHexagonTileAndDistributePasses(
     mlir::OpPassManager &funcPassManager,

@@ -6,6 +6,7 @@
 
 #include "hexagon/Target/HexagonExecutableSerialization.h"
 #include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
 #include "hexagon/Target/LibraryBuilder.h"
@@ -13,7 +14,8 @@
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "iree/compiler/Utils/FlatbufferUtils.h"
 #include "iree/compiler/Utils/StringUtils.h"
-#include "iree/hal/local/executable_library.h"
+// Hexagon-owned copy of the executable library ABI, shared with the DSP.
+#include "hexagon/dsp/rt/executable_library.h"
 // Generated flatcc builder for the Hexagon executable-def flatbuffer (host-
 // readable export names + ELF). See serialize/hexagon_executable_def.fbs.
 #include "hexagon/schemas/hexagon_executable_def_builder.h"
@@ -53,12 +55,38 @@ using HAL::TargetBackend;
 namespace {
 
 // The vendored LibraryBuilder emits the library tables the DSP runtime loads.
-// The runtime checks the version at load time (see dsp/executable.c); this
-// catches an IREE bump that changes the ABI at build time instead.
-static_assert(static_cast<uint32_t>(LibraryBuilder::Version::LATEST) ==
-                  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST,
-              "vendored Target/LibraryBuilder is out of sync with "
-              "iree/hal/local/executable_library.h; re-sync it from upstream");
+// The runtime checks the version at load time (see dsp/executable.c); these
+// catch a drift between the LibraryBuilder and the Hexagon-owned ABI header at
+// build time instead.
+static_assert(
+    static_cast<uint32_t>(LibraryBuilder::Version::LATEST) ==
+        IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST,
+    "vendored Target/LibraryBuilder is out of sync with "
+    "hexagon/dsp/rt/executable_library.h; re-sync both from upstream");
+
+// guard against struct layout changes
+static_assert(sizeof(iree_hal_executable_dispatch_attrs_v0_t) == 64 &&
+                  offsetof(iree_hal_executable_dispatch_attrs_v0_t,
+                           hexagon_flags) == 24 &&
+                  offsetof(iree_hal_executable_dispatch_attrs_v0_t,
+                           vtcm_bytes) == 32,
+              "dispatch attrs layout differs from LibraryBuilder");
+static_assert(
+    static_cast<uint64_t>(
+        LibraryBuilder::HexagonDispatchFlags::RESOURCES_VALID) ==
+            HEXAGON_DISPATCH_FLAG_RESOURCES_VALID &&
+        static_cast<uint64_t>(LibraryBuilder::HexagonDispatchFlags::USES_HVX) ==
+            HEXAGON_DISPATCH_FLAG_USES_HVX &&
+        static_cast<uint64_t>(LibraryBuilder::HexagonDispatchFlags::USES_HMX) ==
+            HEXAGON_DISPATCH_FLAG_USES_HMX,
+    "LibraryBuilder::HexagonDispatchFlags differ from the ABI header");
+static_assert(
+    static_cast<uint64_t>(LibraryBuilder::DispatchFlags::SEQUENTIAL) ==
+            IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_SEQUENTIAL &&
+        static_cast<uint64_t>(
+            LibraryBuilder::DispatchFlags::WORKGROUP_SIZE_DYNAMIC) ==
+            IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_WORKGROUP_SIZE_DYNAMIC,
+    "LibraryBuilder::DispatchFlags differ from the ABI header");
 
 // Temporary files handed to the linker. Each one is deleted when its remover is
 // destroyed at the end of serialization.
@@ -266,6 +294,22 @@ buildExecutableMetadata(llvm::Module &llvmModule,
           mlir::cast<mlir::IntegerAttr>(workgroupSizeValues[1]).getInt());
       dispatchAttrs.workgroupSize[2] = static_cast<uint32_t>(
           mlir::cast<mlir::IntegerAttr>(workgroupSizeValues[2]).getInt());
+    }
+
+    // Hardware resources HexagonAnnotateDispatchResourcesPass measured, for
+    // the DSP scheduler. Without them RESOURCES_VALID stays clear and the DSP
+    // assumes the dispatch needs every resource.
+    if (auto resources =
+            exportOp->getAttrOfType<IREE::Hexagon::DispatchResourcesAttr>(
+                IREE::Hexagon::DispatchResourcesAttr::getAttrName())) {
+      using HexagonFlags = LibraryBuilder::HexagonDispatchFlags;
+      uint64_t flags = static_cast<uint64_t>(HexagonFlags::RESOURCES_VALID);
+      if (resources.getHvx())
+        flags |= static_cast<uint64_t>(HexagonFlags::USES_HVX);
+      if (resources.getHmx())
+        flags |= static_cast<uint64_t>(HexagonFlags::USES_HMX);
+      dispatchAttrs.hexagonFlags = flags;
+      dispatchAttrs.vtcmBytes = static_cast<uint64_t>(resources.getVtcmBytes());
     }
 
     // Value-initialized: `line` is otherwise left uninitialized.

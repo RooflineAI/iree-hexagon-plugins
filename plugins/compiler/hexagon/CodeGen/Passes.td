@@ -13,6 +13,35 @@ include "mlir/Pass/PassBase.td"
 // Hexagon Codegen passes (keep alphabetical)
 //------------------------------------------------------------------------------
 
+def HexagonAnnotateDispatchResourcesPass :
+    Pass<"iree-hexagon-annotate-dispatch-resources",
+         "IREE::HAL::ExecutableVariantOp"> {
+  let summary = [{
+      Records the hardware resources each dispatch uses on its
+      hal.executable.export.
+  }];
+  let description = [{
+    Walks each entry point and the functions it calls on the final IR before
+    LLVM conversion and annotates its export with
+    `#iree_hexagon.dispatch_resources`, which serialization encodes for the DSP
+    scheduler:
+    - `hmx`: the dispatch contains HMX ops.
+    - `hvx`: the dispatch has vector values. LLVM's loop and SLP vectorizers
+      are disabled, so no other HVX code appears later.
+    - `vtcm_bytes`: the sum of every heap allocation at the size the runtime
+      allocates for it. Heap memory, `malloc` included, is served from the
+      VTCM pool.
+    An export whose VTCM use cannot be bounded, e.g. because of a dynamically
+    sized allocation, declares `vtcm_bytes = INT64_MAX`, so the DSP treats it as
+    needing all of VTCM. A heap allocation still inside a loop (a loop op or
+    a control-flow cycle) is an error: HoistStaticallyBoundAllocations should
+    have moved it out, and counting it once would not bound the peak.
+  }];
+  let dependentDialects = [
+    "IREE::Hexagon::IREEHexagonDialect",
+  ];
+}
+
 def HexagonAssignConstantOrdinalsPass :
     Pass<"iree-hexagon-assign-constant-ordinals", "IREE::HAL::ExecutableVariantOp"> {
   let summary = "Assigns executable constant ordinals across Hexagon variants";

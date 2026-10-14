@@ -27,7 +27,20 @@ and the reasons for it, come from upstream.
 | `HexagonVectorTransposeLowering.cpp` | AVX2 patterns and option removed; AVX-512 16x16 shuffle network removed |
 | `HexagonVirtualVectorLowering.cpp` | ARM/RVV/AArch64 policies and ARM i8mm option removed |
 
-The other passes here (HMX, VTCM, DMA, profiler) were written for Hexagon.
+The other passes here (HMX, VTCM, DMA, profiler, dispatch resources) were
+written for Hexagon.
+
+## Dispatch resources
+
+`HexagonAnnotateDispatchResources.cpp` runs on the variant between the
+pre-conversion passes and LLVM conversion (see
+[TranslationPipeline.cpp](../Pipelines/TranslationPipeline.cpp)). There, every
+allocation and HMX op is final and still visible as such. It records HVX/HMX
+use and a VTCM bound on each `hal.executable.export`. The VTCM bound is the
+sum of all heap allocations, each at the size the runtime allocates for it,
+because `malloc` is served from the VTCM pool too. If the pool rounding in
+`plugins/runtime/hexagon/dsp/rt/vtcm_pool.cpp` or hexagon-mlir's
+`VTCMAllocation` changes, the pass has to follow.
 
 ## Unused ukernel handling
 

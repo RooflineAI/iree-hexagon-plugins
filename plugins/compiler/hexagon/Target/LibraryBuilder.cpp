@@ -14,7 +14,8 @@
 
 // =============================================================================
 //
-// NOTE: these structures model 1:1 those in iree/hal/local/executable_library.h
+// NOTE: these structures model 1:1 those in the Hexagon-owned copy of the
+// executable library ABI, hexagon/dsp/rt/executable_library.h
 //
 // This file must always track the latest version. Backwards compatibility with
 // existing runtimes using older versions of the header is maintained by
@@ -30,7 +31,7 @@ static inline int64_t roundUpToAlignment(int64_t value, int64_t alignment) {
 }
 
 //===----------------------------------------------------------------------===//
-// iree/hal/local/executable_library.h structure types
+// hexagon/dsp/rt/executable_library.h structure types
 //===----------------------------------------------------------------------===//
 // The IR snippets below were pulled from clang running with `-S -emit-llvm`
 // on the executable_library.h header: https://godbolt.org/z/6bMv5jfvf
@@ -118,9 +119,13 @@ makeDispatchFunctionType(llvm::LLVMContext &context) {
 //   i32,     // workgroup_size_x
 //   i32,     // workgroup_size_y
 //   i16,     // workgroup_size_z
-//   i16,     // reserved_0
-//   i64[5]   // reserved_1
+//   i16,     // parameter_count
+//   i64,     // hexagon_flags (Hexagon extension)
+//   i64,     // vtcm_bytes (Hexagon extension)
+//   i64[3]   // reserved_1
 // }
+// Must match hexagon/dsp/rt/executable_library.h;
+// HexagonExecutableSerialization checks the offsets at build time.
 static llvm::StructType *makeDispatchAttrsType(llvm::LLVMContext &context) {
   if (auto *existingType = llvm::StructType::getTypeByName(
           context, "iree_hal_executable_dispatch_attrs_v0_t")) {
@@ -141,11 +146,11 @@ static llvm::StructType *makeDispatchAttrsType(llvm::LLVMContext &context) {
                                    i32Type, // workgroup_size_y
                                    i16Type, // workgroup_size_z
                                    i16Type, // parameter_count
+                                   i64Type, // hexagon_flags
+                                   i64Type, // vtcm_bytes
                                    i64Type, // reserved_1[0]
                                    i64Type, // reserved_1[1]
                                    i64Type, // reserved_1[2]
-                                   i64Type, // reserved_1[3]
-                                   i64Type, // reserved_1[4]
                                },
                                "iree_hal_executable_dispatch_attrs_v0_t",
                                /*isPacked=*/false);
@@ -589,15 +594,16 @@ LibraryBuilder::buildLibraryV0ExportTable(std::string libraryName) {
             llvm::ConstantInt::get(i16Type, dispatch.attrs.workgroupSize[2]),
             // parameter_count=
             llvm::ConstantInt::get(i16Type, dispatch.params.size()),
+            // hexagon_flags=
+            llvm::ConstantInt::get(
+                i64Type, static_cast<uint64_t>(dispatch.attrs.hexagonFlags)),
+            // vtcm_bytes=
+            llvm::ConstantInt::get(i64Type, dispatch.attrs.vtcmBytes),
             // reserved_1[0]=
             llvm::ConstantInt::get(i64Type, 0),
             // reserved_1[1]=
             llvm::ConstantInt::get(i64Type, 0),
             // reserved_1[2]=
-            llvm::ConstantInt::get(i64Type, 0),
-            // reserved_1[3]=
-            llvm::ConstantInt::get(i64Type, 0),
-            // reserved_1[4]=
             llvm::ConstantInt::get(i64Type, 0),
         }));
   }

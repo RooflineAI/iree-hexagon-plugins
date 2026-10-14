@@ -32,11 +32,13 @@ cc_library(
 cc_library(
     name = "hexagon_rt_library",
     srcs = [
+        "async_runtime.cpp",
         "memref_copy.c",
         "profiler.c",
         "vtcm_partition.cpp",
     ],
     hdrs = [
+        "async_runtime.h",
         "dispatch_state.h",
         "memref_copy.h",
         "profiler.h",

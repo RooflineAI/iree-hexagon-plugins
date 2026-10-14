@@ -6,18 +6,12 @@
 
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
-load("@rules_cc//cc:cc_import.bzl", "cc_import")
 load("//build_tools/bazel:platform_aliases.bzl", "hexagon_platform_alias")
 
 package(
     default_visibility = ["//visibility:public"],
     features = ["layering_check"],
     licenses = [],
-)
-
-cc_import(
-    name = "qurt_lib",
-    static_library = "@hexagon_sdk//:rtos/qurt/computev68/lib/libqurt.a",
 )
 
 cc_binary(
@@ -27,6 +21,7 @@ cc_binary(
         "buffer.c",
         "command_buffer.c",
         "device.c",
+        "device.h",
         "executable.c",
         "executable.h",
         "power_mode.c",
@@ -49,7 +44,6 @@ cc_binary(
         "//constraints:cpu_hexagon",
     ],
     deps = [
-        ":qurt_lib",
         "//plugins/runtime/hexagon/arm_dsp:hexagon_arm_dsp",
         "//plugins/runtime/hexagon/dsp/pmu:hexagon_pmu_helpers",
         "//plugins/runtime/hexagon/dsp/rt:executable_library",

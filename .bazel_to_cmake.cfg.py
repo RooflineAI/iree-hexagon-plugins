@@ -951,9 +951,6 @@ class CustomTargetConverter(bazel_to_cmake_targets.TargetConverter):
                     "hexagon_sdk::hexagon_toolchain_bit_headers"
                 ],
                 "@hexagon_sdk//:qhl_hvx_headers": ["hexagon_sdk::qhl_hvx_headers"],
-                "@hexagon_sdk//:rtos/qurt/computev68/lib/libqurt.a": [
-                    "hexagon_sdk::qurt_lib"
-                ],
                 # HexKL (fetched/exposed by cmake/HexKL.cmake).
                 "@hexkl//:hexkl_micro_v79": ["hexkl::hexkl_micro_v79"],
             }

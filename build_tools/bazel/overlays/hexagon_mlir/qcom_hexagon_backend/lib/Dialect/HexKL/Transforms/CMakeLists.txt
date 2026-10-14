@@ -21,6 +21,7 @@ iree_cc_library(
     MLIRSupport
     hexagon_mlir::include::hexagon::HexKLTransformsHeadersLib
     hexagon_mlir::lib::Dialect::HexKL::IR::HexKL
+  ALWAYSLINK
   PUBLIC
 )
 

@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/TilingInterface.h"
@@ -633,6 +634,54 @@ FailureOr<TilingResult> TensorHmxUnpackOp::generateResultTileValue(
   SmallVector<OpFoldResult> iterDomainSizes = {builder.getIndexAttr(1),
                                                builder.getIndexAttr(1)};
   return getTiledImplementation(builder, iterDomainOffsets, iterDomainSizes);
+}
+
+// Inner-tile alignment hints describe linalg pack/unpack dimensions. HMX
+// uses fixed physical tiles, so these overloads preserve its existing mapping.
+FailureOr<TilingResult> TensorHmxMatmulOp::getTiledImplementation(
+    OpBuilder &builder, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes, ArrayRef<InnerTileAlignment>) {
+  return getTiledImplementation(builder, offsets, sizes);
+}
+
+FailureOr<TilingResult> TensorHmxMatmulOp::generateResultTileValue(
+    OpBuilder &builder, unsigned resultNumber, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes, ArrayRef<InnerTileAlignment>) {
+  return generateResultTileValue(builder, resultNumber, offsets, sizes);
+}
+
+FailureOr<TilingResult> TensorHmxUnpackOp::getTiledImplementation(
+    OpBuilder &builder, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes, ArrayRef<InnerTileAlignment>) {
+  return getTiledImplementation(builder, offsets, sizes);
+}
+
+FailureOr<TilingResult> TensorHmxUnpackOp::generateResultTileValue(
+    OpBuilder &builder, unsigned resultNumber, ArrayRef<OpFoldResult> offsets,
+    ArrayRef<OpFoldResult> sizes, ArrayRef<InnerTileAlignment>) {
+  return generateResultTileValue(builder, resultNumber, offsets, sizes);
+}
+
+FailureOr<TilingResult>
+TensorHmxUnpackOp::getTiledImplementationFromOperandTiles(
+    OpBuilder &builder, ArrayRef<unsigned> operandNumbers,
+    ArrayRef<SmallVector<OpFoldResult>> allOffsets,
+    ArrayRef<SmallVector<OpFoldResult>> allSizes,
+    ArrayRef<InnerTileAlignment>) {
+  return getTiledImplementationFromOperandTiles(builder, operandNumbers,
+                                                allOffsets, allSizes);
+}
+
+LogicalResult TensorHmxUnpackOp::getIterationDomainTileFromOperandTiles(
+    OpBuilder &builder, ArrayRef<unsigned> operandNumbers,
+    ArrayRef<SmallVector<OpFoldResult>> allOffsets,
+    ArrayRef<SmallVector<OpFoldResult>> allSizes,
+    SmallVectorImpl<OpFoldResult> &iterDomainOffsets,
+    SmallVectorImpl<OpFoldResult> &iterDomainSizes,
+    ArrayRef<InnerTileAlignment>) {
+  return getIterationDomainTileFromOperandTiles(
+      builder, operandNumbers, allOffsets, allSizes, iterDomainOffsets,
+      iterDomainSizes);
 }
 
 } // namespace mlir::iree_compiler::IREE::Hexagon

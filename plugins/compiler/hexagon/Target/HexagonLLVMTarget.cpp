@@ -102,7 +102,6 @@ createHexagonTargetMachine(mlir::DictionaryAttr config) {
   }
 
   llvm::TargetOptions targetOptions;
-  targetOptions.FloatABIType = llvm::FloatABI::Hard;
   // Place every function and global in its own section.
   targetOptions.FunctionSections = true;
   targetOptions.DataSections = true;

@@ -23,7 +23,7 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies binding ordinal 1, a constant 72-byte HAL subspan offset, and a
   // strided memref layout whose element offset is applied after the byte offset.
   // CHECK-LABEL: llvm.func @binding_static_offset(
-  // CHECK-DAG: %[[BYTE_OFFSET:.+]] = llvm.mlir.constant(72 : index) : i32
+  // CHECK-DAG: %[[BYTE_OFFSET:.+]] = llvm.mlir.constant(72 : i32) : i32
   // CHECK: %[[STATE:.+]] = llvm.load %arg1
   // CHECK: %[[BINDINGS:.+]] = llvm.extractvalue %[[STATE]][10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDINGS]][1] : (!llvm.ptr) -> !llvm.ptr, !llvm.ptr
@@ -115,7 +115,7 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies a dynamic subspan offset remains byte-granular for i4 elements;
   // the element index is applied only after the byte pointer is constructed.
   // CHECK-LABEL: llvm.func @binding_sub_byte(
-  // CHECK-DAG: %[[ELEMENT_INDEX:.+]] = llvm.mlir.constant(7 : index) : i32
+  // CHECK-DAG: %[[ELEMENT_INDEX:.+]] = llvm.mlir.constant(7 : i32) : i32
   // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr

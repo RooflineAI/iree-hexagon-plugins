@@ -69,6 +69,7 @@ iree_cc_library(
     hexagon_mlir::lib::Common::HexagonCommon
     hexagon_mlir::lib::Dialect::HexagonMem::IR::HexagonMem
     hexagon_mlir::lib::Transforms::Transforms
+  ALWAYSLINK
   PUBLIC
 )
 

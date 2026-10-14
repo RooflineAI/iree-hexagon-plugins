@@ -27,7 +27,7 @@ func.func @reject_unalignable_block_argument(
     %lhs: memref<1x1x16x32x2xf16, 1>,
     // expected-error @+1 {{HMX operand must be backed by an allocation this pass can align to 2048 bytes}}
     %rhs: memref<1x1x16x32x2xf16, 1>) {
-  %acc = hexagonmem.alloc() {alignment = 2048 : i64} : memref<16x32x2xf16, 1>
+  %acc = hexagonmem.alloc() <alignment = 2048> : memref<16x32x2xf16, 1>
   iree_hexagon.hmx.matmul
       ins(%lhs, %rhs : memref<1x1x16x32x2xf16, 1>, memref<1x1x16x32x2xf16, 1>)
       outs(%acc : memref<16x32x2xf16, 1>)

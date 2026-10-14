@@ -230,10 +230,9 @@ hal.executable private @test_linalg_ext {
         %filled_acc = linalg.fill ins(%zero : f32) outs(%acc : tensor<1x2x5xf32>) -> tensor<1x2x5xf32>
         %filled_max = linalg.fill ins(%neg_inf : f32) outs(%stat : tensor<1x2xf32>) -> tensor<1x2xf32>
         %filled_sum = linalg.fill ins(%zero : f32) outs(%stat : tensor<1x2xf32>) -> tensor<1x2xf32>
-        %result:3 = iree_linalg_ext.online_attention {
-          indexing_maps = [#map_q, #map_k, #map_v, #map_scale, #map_out, #map_stat, #map_stat],
-          lowering_config = #config
-        } ins(%query_t, %key_t, %value_t, %scale : tensor<1x2x4xf16>, tensor<1x3x4xf16>, tensor<1x3x5xf16>, f16)
+        %result:3 = iree_linalg_ext.online_attention <{
+          indexing_maps = [#map_q, #map_k, #map_v, #map_scale, #map_out, #map_stat, #map_stat]
+        }> {lowering_config = #config} ins(%query_t, %key_t, %value_t, %scale : tensor<1x2x4xf16>, tensor<1x3x4xf16>, tensor<1x3x5xf16>, f16)
           outs(%filled_acc, %filled_max, %filled_sum : tensor<1x2x5xf32>, tensor<1x2xf32>, tensor<1x2xf32>) {
         ^bb0(%score: f32):
           iree_linalg_ext.yield %score : f32

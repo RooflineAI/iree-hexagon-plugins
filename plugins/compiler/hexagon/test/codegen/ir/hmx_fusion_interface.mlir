@@ -113,7 +113,7 @@ func.func @fuse_unpack_into_logical_consumer(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x3x16x32x2xf16>)
       outs(%unpack_init : tensor<64x96xf32>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<64x96xf32>
   %consumer = linalg.generic {
       indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>,
@@ -165,7 +165,7 @@ func.func @fuse_unpack_with_packed_producer(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%producer : tensor<2x3x16x32x2xf16>)
       outs(%dest : tensor<64x96xf32>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<64x96xf32>
   return %unpacked : tensor<64x96xf32>
 }
@@ -207,7 +207,7 @@ func.func @reject_partial_unpack_producer_tile(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%producer : tensor<1x1x16x32x2xf16>)
       outs(%dest : tensor<32x32xf32>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<32x32xf32>
   return %unpacked : tensor<32x32xf32>
 }
@@ -230,7 +230,7 @@ func.func @fuse_clipped_ragged_unpack_tile(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x2x16x32x2xf16>)
       outs(%unpack_init : tensor<35x37xf32>)
-      {dim = 0 : i64} -> tensor<35x37xf32>
+      <dim = 0> -> tensor<35x37xf32>
   %consumer = linalg.generic {
       indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>,
                        affine_map<(d0, d1) -> (d0, d1)>],
@@ -262,7 +262,7 @@ func.func @reject_partial_logical_unpack_tile(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x2x16x32x2xf16>)
       outs(%unpack_init : tensor<64x64xf32>)
-      {dim = 0 : i64} -> tensor<64x64xf32>
+      <dim = 0> -> tensor<64x64xf32>
   %consumer = linalg.generic {
       indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>,
                        affine_map<(d0, d1) -> (d0, d1)>],
@@ -292,7 +292,7 @@ func.func @reject_oversized_logical_unpack_tile(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x2x16x32x2xf16>)
       outs(%unpack_init : tensor<64x64xf32>)
-      {dim = 0 : i64} -> tensor<64x64xf32>
+      <dim = 0> -> tensor<64x64xf32>
   %consumer = linalg.generic {
       indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>,
                        affine_map<(d0, d1) -> (d0, d1)>],
@@ -323,7 +323,7 @@ func.func @reject_crossing_logical_unpack_tile(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x2x16x32x2xf16>)
       outs(%unpack_init : tensor<64x64xf32>)
-      {dim = 0 : i64} -> tensor<64x64xf32>
+      <dim = 0> -> tensor<64x64xf32>
   %consumer = linalg.generic {
       indexing_maps = [affine_map<(d0, d1) -> (d0 + 16, d1)>,
                        affine_map<(d0, d1) -> (d0, d1)>],
@@ -369,7 +369,7 @@ func.func @fuse_matmul_into_ragged_unpack_root(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%product : tensor<2x2x16x32x2xf16>)
       outs(%dest : tensor<35x?xf32>)
-      {dim = 0 : i64, lowering_config = #root_tile_config}
+      <dim = 0> {lowering_config = #root_tile_config}
       -> tensor<35x?xf32>
   return %unpacked : tensor<35x?xf32>
 }
@@ -413,7 +413,7 @@ func.func @reject_ragged_unpack_consumer_fusion(
   %unpacked = iree_hexagon.hmx.tensor_unpack
       ins(%producer : tensor<2x2x16x32x2xf16>)
       outs(%dest : tensor<35x37xf32>)
-      {dim = 0 : i64}
+      <dim = 0>
       -> tensor<35x37xf32>
   return %unpacked : tensor<35x37xf32>
 }

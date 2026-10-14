@@ -27,7 +27,7 @@ func.func @tile_unpack_grid(
   %result = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x3x16x32x2xf16>)
       outs(%dest : tensor<64x96xf32>)
-      {dim = 0 : i64, lowering_config = #tile_config}
+      <dim = 0> {lowering_config = #tile_config}
       -> tensor<64x96xf32>
   return %result : tensor<64x96xf32>
 }
@@ -57,7 +57,7 @@ func.func @tile_ragged_unpack_grid(
   %result = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x2x16x32x2xf16>)
       outs(%dest : tensor<35x37xf32>)
-      {dim = 0 : i64, lowering_config = #tile_config}
+      <dim = 0> {lowering_config = #tile_config}
       -> tensor<35x37xf32>
   return %result : tensor<35x37xf32>
 }
@@ -114,7 +114,7 @@ func.func @tile_dynamic_unpack_dest(
   %result = iree_hexagon.hmx.tensor_unpack
       ins(%source : tensor<2x2x16x32x2xf16>)
       outs(%dest : tensor<35x?xf32>)
-      {dim = 0 : i64, lowering_config = #tile_config}
+      <dim = 0> {lowering_config = #tile_config}
       -> tensor<35x?xf32>
   return %result : tensor<35x?xf32>
 }

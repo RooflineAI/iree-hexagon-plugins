@@ -1,0 +1,246 @@
+diff --git a/qcom_hexagon_backend/lib/Transforms/GeneralizePass.cpp b/qcom_hexagon_backend/lib/Transforms/GeneralizePass.cpp
+index 74c8159..f2e9ae3 100644
+--- a/qcom_hexagon_backend/lib/Transforms/GeneralizePass.cpp
++++ b/qcom_hexagon_backend/lib/Transforms/GeneralizePass.cpp
+@@ -45,18 +45,31 @@ using namespace hexagon;
+
+ namespace {
+
++// Match the indexing maps of the retired batch_matmul_transpose_b operation.
++static bool isBatchMatmulTransposeB(linalg::LinalgOp op) {
++  if (!isa<linalg::BatchMatmulOp>(op.getOperation()))
++    return false;
++  AffineExpr b, m, n, k;
++  bindDims(op.getContext(), b, m, n, k);
++  SmallVector<AffineMap> maps = {
++      AffineMap::get(4, 0, {b, m, k}, op.getContext()),
++      AffineMap::get(4, 0, {b, n, k}, op.getContext()),
++      AffineMap::get(4, 0, {b, m, n}, op.getContext())};
++  return op.getIndexingMapsArray() == maps;
++}
++
+ struct LinalgGeneralizePass
+     : public ::impl::LinalgGeneralizeBase<LinalgGeneralizePass> {
+   void runOnOperation() override;
+-  FailureOr<linalg::GenericOp> GeneralizeOp(IRRewriter &rewriter,
+-                                            linalg::LinalgOp linalgOp);
++  FailureOr<linalg::LinalgOp> GeneralizeOp(IRRewriter &rewriter,
++                                           linalg::LinalgOp linalgOp);
+ };
+
+-FailureOr<linalg::GenericOp>
++FailureOr<linalg::LinalgOp>
+ LinalgGeneralizePass::GeneralizeOp(IRRewriter &rewriter,
+                                    linalg::LinalgOp linalgOp) {
+   rewriter.setInsertionPoint(linalgOp);
+-  FailureOr<linalg::GenericOp> generalizedOp =
++  FailureOr<linalg::LinalgOp> generalizedOp =
+       linalg::generalizeNamedOp(rewriter, linalgOp);
+   return generalizedOp;
+ }
+@@ -74,7 +87,7 @@ void LinalgGeneralizePass::runOnOperation() {
+
+   IRRewriter rewriter(&getContext());
+   for (auto linalgOp : matmulOps) {
+-    FailureOr<linalg::GenericOp> generalizedOp =
++    FailureOr<linalg::LinalgOp> generalizedOp =
+         GeneralizeOp(rewriter, linalgOp);
+     if (failed(generalizedOp)) {
+       linalgOp->emitOpError("failed to generalize linalg named op");
+@@ -85,21 +98,16 @@ void LinalgGeneralizePass::runOnOperation() {
+   SmallVector<linalg::LinalgOp> namedOps;
+   // Collect all linalg named ops
+   funcOp.walk([&](linalg::LinalgOp linalgOp) {
+-    if (isa_and_nonnull<
+-            linalg::AbsOp, linalg::AddOp, linalg::BroadcastOp, linalg::CeilOp,
+-            linalg::CopyOp, linalg::DivOp, linalg::DivUnsignedOp,
+-            linalg::ElementwiseOp, linalg::ExpOp, linalg::FloorOp,
+-            linalg::LogOp, linalg::MapOp, linalg::MaxOp, linalg::MulOp,
+-            linalg::NegFOp, linalg::ReduceOp, linalg::MatmulTransposeBOp,
+-            linalg::BatchMatmulTransposeBOp,
+-            // Fix for Flash-Attention : Don't generalize transpose
+-            linalg::TransposeOp, linalg::SubOp>(linalgOp.getOperation())) {
++    if (isa_and_nonnull<linalg::BroadcastOp, linalg::CopyOp,
++                        linalg::ElementwiseOp, linalg::MapOp, linalg::ReduceOp,
++                        linalg::TransposeOp>(linalgOp.getOperation()) ||
++        isBatchMatmulTransposeB(linalgOp)) {
+       namedOps.push_back(linalgOp);
+     }
+   });
+
+   for (auto linalgOp : namedOps) {
+-    FailureOr<linalg::GenericOp> generalizedOp =
++    FailureOr<linalg::LinalgOp> generalizedOp =
+         GeneralizeOp(rewriter, linalgOp);
+     if (failed(generalizedOp)) {
+       linalgOp->emitOpError("failed to generalize linalg named op");
+diff --git a/qcom_hexagon_backend/lib/Transforms/LowerTmTensor.cpp b/qcom_hexagon_backend/lib/Transforms/LowerTmTensor.cpp
+index 418ab56..5d61995 100644
+--- a/qcom_hexagon_backend/lib/Transforms/LowerTmTensor.cpp
++++ b/qcom_hexagon_backend/lib/Transforms/LowerTmTensor.cpp
+@@ -158,7 +158,9 @@ struct LowerAttentionOp : public OpRewritePattern<AttentionOp> {
+     // Apply mask to scaled QK^T
+     Value qkTMasked =
+         rewriter
+-            .create<linalg::AddOp>(loc, ValueRange{qkTScaled, mask}, qkTempty)
++            .create<linalg::ElementwiseOp>(loc, ValueRange{qkTScaled, mask},
++                                           ValueRange{qkTempty},
++                                           linalg::ElementwiseKind::add)
+             .getResult(0);
+     DBG("Masked QK^T: " << qkTMasked);
+
+@@ -195,8 +197,11 @@ struct LowerAttentionOp : public OpRewritePattern<AttentionOp> {
+                   b.create<linalg::YieldOp>(loc, sub);
+                 })
+             .getResult(0);
+-    Value qkTStable =
+-        rewriter.create<linalg::ExpOp>(loc, qkTSub, qkTempty).getResult(0);
++    Value qkTStable = rewriter
++                          .create<linalg::ElementwiseOp>(
++                              loc, ValueRange{qkTSub}, ValueRange{qkTempty},
++                              linalg::ElementwiseKind::exp)
++                          .getResult(0);
+
+     // Step 3: Compute `sum(exp(xi-max))` along the last dimension
+     Value sumInit =
+diff --git a/qcom_hexagon_backend/lib/Transforms/ScheduleMatmulForHVXPass.cpp b/qcom_hexagon_backend/lib/Transforms/ScheduleMatmulForHVXPass.cpp
+index a80f493..5912c1b 100644
+--- a/qcom_hexagon_backend/lib/Transforms/ScheduleMatmulForHVXPass.cpp
++++ b/qcom_hexagon_backend/lib/Transforms/ScheduleMatmulForHVXPass.cpp
+@@ -19,6 +19,7 @@
+ #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+ #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
++#include "mlir/IR/AffineMap.h"
+ #include "mlir/Pass/PassManager.h"
+ #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+ #include "mlir/Transforms/Passes.h"
+@@ -45,6 +46,22 @@ using namespace hexagon;
+
+ namespace {
+
++// Transposed matmul variants are represented by indexing maps on matmul ops.
++static NamedAttribute
++getFoldedTransposeIndexingMaps(OpBuilder &builder, linalg::LinalgOp op,
++                               linalg::TransposeOp transpose,
++                               unsigned operandNumber) {
++  SmallVector<AffineMap> maps = op.getIndexingMapsArray();
++  SmallVector<unsigned> permutation(transpose.getPermutation().begin(),
++                                    transpose.getPermutation().end());
++  AffineMap transposeMap =
++      AffineMap::getPermutationMap(permutation, builder.getContext());
++  maps[operandNumber] =
++      inversePermutation(transposeMap).compose(maps[operandNumber]);
++  return builder.getNamedAttr("indexing_maps",
++                              builder.getAffineMapArrayAttr(maps));
++}
++
+ struct ScheduleMatmulForHVXPass
+     : public ::impl::ScheduleMatmulForHVXBase<ScheduleMatmulForHVXPass> {
+   void runOnOperation() override;
+@@ -56,25 +73,21 @@ FailureOr<linalg::GenericOp>
+ ScheduleMatmulForHVXPass::GeneralizeOp(IRRewriter &rewriter,
+                                        linalg::LinalgOp linalgOp) {
+   rewriter.setInsertionPoint(linalgOp);
+-  FailureOr<linalg::GenericOp> generalizedOp =
++  FailureOr<linalg::LinalgOp> generalizedOp =
+       linalg::generalizeNamedOp(rewriter, linalgOp);
+   if (failed(generalizedOp)) {
+     linalgOp->emitOpError("failed to generalize linalg named op");
+     signalPassFailure();
+     return failure(); // Return a failure result
+   }
+-  return generalizedOp;
++  return cast<linalg::GenericOp>(generalizedOp->getOperation());
+ }
+
+ void ScheduleMatmulForHVXPass::runOnOperation() {
+   auto funcOp = getOperation();
+   IRRewriter rewriter(&getContext());
+
+-  // Optimize below Matmul variants
+-  //   linalg.matmul(a, transpose_b) -> linalg.matmul_transpose_b
+-  //   linalg.matmul(transpose_a, b) -> linalg.matmul_transpose_a
+-  //   linalg.batch_matmul(a, transpose_b) -> linalg.batch_matmul_transpose_b
+-  //   linalg.batch_matmul(transpose_a, b) -> linalg.batch_matmul_transpose_a
++  // Fold operand transposes into matmul and batch_matmul indexing maps.
+   funcOp.walk([&](linalg::LinalgOp linalgOp) {
+     if (isa_and_nonnull<linalg::MatmulOp>(linalgOp.getOperation()) &&
+         !linalgOp->getAttrOfType<StringAttr>("library_call")) {
+@@ -83,22 +96,28 @@ void ScheduleMatmulForHVXPass::runOnOperation() {
+       rewriter.setInsertionPoint(linalgOp);
+       if (secondOperandDef && isa<linalg::TransposeOp>(secondOperandDef)) {
+         // Check if the second operand is a transpose op
+-        // Convert linalg.transpose + linalg.matmul to linalg.matmul_transpose_b
++        // Convert linalg.transpose + linalg.matmul to linalg.matmul with
++        // transposed B indexing
+         auto transposeOp = dyn_cast<linalg::TransposeOp>(secondOperandDef);
+-        auto matmulTransposeBOp = rewriter.create<linalg::MatmulTransposeBOp>(
++        auto matmulTransposeBOp = rewriter.create<linalg::MatmulOp>(
+             linalgOp.getLoc(), linalgOp.getOperation()->getResultTypes(),
+             ValueRange{linalgOp.getDpsInputs()[0], transposeOp.getOperand(0)},
+-            linalgOp.getDpsInits());
++            linalgOp.getDpsInits(),
++            ArrayRef<NamedAttribute>{getFoldedTransposeIndexingMaps(
++                rewriter, linalgOp, transposeOp, 1)});
+         rewriter.replaceOp(linalgOp, matmulTransposeBOp);
+         rewriter.eraseOp(transposeOp);
+       } else if (firstOperandDef && isa<linalg::TransposeOp>(firstOperandDef)) {
+         // Check if the first operand is a transpose op
+-        // Convert linalg.transpose + linalg.matmul to linalg.matmul_transpose_a
++        // Convert linalg.transpose + linalg.matmul to linalg.matmul with
++        // transposed A indexing
+         auto transposeOp = dyn_cast<linalg::TransposeOp>(firstOperandDef);
+-        auto matmulTransposeAOp = rewriter.create<linalg::MatmulTransposeAOp>(
++        auto matmulTransposeAOp = rewriter.create<linalg::MatmulOp>(
+             linalgOp.getLoc(), linalgOp.getOperation()->getResultTypes(),
+             ValueRange{transposeOp.getOperand(0), linalgOp.getDpsInputs()[1]},
+-            linalgOp.getDpsInits());
++            linalgOp.getDpsInits(),
++            ArrayRef<NamedAttribute>{getFoldedTransposeIndexingMaps(
++                rewriter, linalgOp, transposeOp, 0)});
+         rewriter.replaceOp(linalgOp, matmulTransposeAOp);
+         rewriter.eraseOp(transposeOp);
+       }
+@@ -111,27 +130,27 @@ void ScheduleMatmulForHVXPass::runOnOperation() {
+       if (secondOperandDef && isa<linalg::TransposeOp>(secondOperandDef)) {
+         // Check if the second operand is a transpose op
+         // Convert linalg.transpose + linalg.batch_matmul to
+-        // linalg.batch_matmul_transpose_b op
++        // linalg.batch_matmul with transposed B indexing op
+         auto transposeOp = dyn_cast<linalg::TransposeOp>(secondOperandDef);
+-        auto matmulTransposeBOp =
+-            rewriter.create<linalg::BatchMatmulTransposeBOp>(
+-                linalgOp.getLoc(), linalgOp.getOperation()->getResultTypes(),
+-                ValueRange{linalgOp.getDpsInputs()[0],
+-                           transposeOp.getOperand(0)},
+-                linalgOp.getDpsInits());
++        auto matmulTransposeBOp = rewriter.create<linalg::BatchMatmulOp>(
++            linalgOp.getLoc(), linalgOp.getOperation()->getResultTypes(),
++            ValueRange{linalgOp.getDpsInputs()[0], transposeOp.getOperand(0)},
++            linalgOp.getDpsInits(),
++            ArrayRef<NamedAttribute>{getFoldedTransposeIndexingMaps(
++                rewriter, linalgOp, transposeOp, 1)});
+         rewriter.replaceOp(linalgOp, matmulTransposeBOp);
+         rewriter.eraseOp(transposeOp);
+       } else if (firstOperandDef && isa<linalg::TransposeOp>(firstOperandDef)) {
+         // Check if the first operand is a transpose op
+         // Convert linalg.transpose + linalg.batch_matmul to
+-        // linalg.batch_matmul_transpose_a op
++        // linalg.batch_matmul with transposed A indexing op
+         auto transposeOp = dyn_cast<linalg::TransposeOp>(firstOperandDef);
+-        auto matmulTransposeAOp =
+-            rewriter.create<linalg::BatchMatmulTransposeAOp>(
+-                linalgOp.getLoc(), linalgOp.getOperation()->getResultTypes(),
+-                ValueRange{transposeOp.getOperand(0),
+-                           linalgOp.getDpsInputs()[1]},
+-                linalgOp.getDpsInits());
++        auto matmulTransposeAOp = rewriter.create<linalg::BatchMatmulOp>(
++            linalgOp.getLoc(), linalgOp.getOperation()->getResultTypes(),
++            ValueRange{transposeOp.getOperand(0), linalgOp.getDpsInputs()[1]},
++            linalgOp.getDpsInits(),
++            ArrayRef<NamedAttribute>{getFoldedTransposeIndexingMaps(
++                rewriter, linalgOp, transposeOp, 0)});
+         rewriter.replaceOp(linalgOp, matmulTransposeAOp);
+         rewriter.eraseOp(transposeOp);
+       }

@@ -80,8 +80,13 @@ jobs:
       - &prep_build_artifacts
         name: Prepare build artifacts
         run: |
-          chmod +x build-artifacts/iree-* build-artifacts/ld.lld
-          ls -l build-artifacts
+          # The compiler tools travel as one zip (bin/ and lib/, the tools
+          # find libIREECompiler.so through the rpath $ORIGIN/../lib).
+          # Unpacking it restores the executable bits that artifact upload
+          # drops.
+          unzip -q build-artifacts/hexagon_compiler_x86_64_linux.zip \
+            -d build-artifacts/hexagon_compiler_x86_64_linux
+          ls -lR build-artifacts
       - &install_pinned_platform_tools
         name: Install pinned platform-tools
         env:
@@ -191,10 +196,10 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN_CI }}
         run: |
           .venv/bin/pytest integration_tests/ -v -rA \
-          --iree-compile=build-artifacts/iree-compile \
+          --iree-compile=build-artifacts/hexagon_compiler_x86_64_linux/bin/iree-compile \
           --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
           --device-tools-zip=build-artifacts/device_tools_aarch64_android.zip \
-          --lld=build-artifacts/ld.lld
+          --lld=build-artifacts/hexagon_compiler_x86_64_linux/bin/ld.lld
       - &leave_overlay
         name: Leave the overlay
         if: always()
@@ -279,7 +284,6 @@ jobs:
         with:
           name: build-artifacts-bazel
           path: build-artifacts
-      - *prep_build_artifacts
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}

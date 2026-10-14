@@ -27,9 +27,12 @@ Perform the cmake & ninja build:
 build_tools/cmake/all_in_one.sh
 ```
 
-Set the variable for the IREE compiler:
+The compiler tools are packaged in a zip with `bin/` and `lib/` directories.
+Unpack it and set the variable for the IREE compiler:
 ```sh
-IREE_COMPILE="$PWD/build-artifacts-cmake/iree-compile"
+unzip -q -o build-artifacts-cmake/hexagon_compiler_x86_64_linux.zip \
+  -d build-artifacts-cmake/hexagon_compiler_x86_64_linux
+IREE_COMPILE="$PWD/build-artifacts-cmake/hexagon_compiler_x86_64_linux/bin/iree-compile"
 ```
 
 ## 2. Choose an example

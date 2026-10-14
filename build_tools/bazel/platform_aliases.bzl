@@ -95,7 +95,15 @@ def aarch64_android_tracy_platform_alias(*, name, actual, tags = None, target_co
     _aarch64_android_tracy_platform_alias(name = name, actual = actual, tags = tags, target_compatible_with = target_compatible_with)
 
 # buildifier: disable=unused-variable
-_hexagon_platform_alias, _hexagon_platform_alias_internal = with_cfg(_alias).set("platforms", [Label("//platform:hexagon")]).build()
+# LLVM enables LZMA by default, but its XZ dependency cannot target QuRT, so
+# turn it off for the hexagon subtree only (host and Android keep LZMA).
+_hexagon_platform_alias, _hexagon_platform_alias_internal = with_cfg(_alias).set(
+    "platforms",
+    [Label("//platform:hexagon")],
+).set(
+    Label("@llvm-project//third-party:llvm_enable_lzma"),
+    False,
+).build()
 
 def hexagon_platform_alias(*, name, actual, tags = None, testonly = False):
     """

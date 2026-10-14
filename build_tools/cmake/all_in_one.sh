@@ -33,6 +33,7 @@ require_command tar tar
 require_command unzip unzip
 require_command xz xz-utils
 require_command zip zip
+# LLVM in the host build uses liblzma if present (LLVM_ENABLE_LZMA).
 require_file /usr/include/lzma.h liblzma-dev
 
 if (( ${#packages_to_install[@]} > 0 ))

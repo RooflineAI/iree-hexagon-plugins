@@ -15,6 +15,15 @@ require_command() {
   fi
 }
 
+require_file() {
+  local file_path="$1"
+  local package_name="$2"
+  if [[ ! -e "$file_path" ]]
+  then
+    packages_to_install+=("$package_name")
+  fi
+}
+
 require_command cmake cmake
 require_command curl curl
 require_command ninja ninja-build
@@ -24,6 +33,8 @@ require_command tar tar
 require_command unzip unzip
 require_command xz xz-utils
 require_command zip zip
+# LLVM in the host build uses liblzma if present (LLVM_ENABLE_LZMA).
+require_file /usr/include/lzma.h liblzma-dev
 
 if (( ${#packages_to_install[@]} > 0 ))
 then

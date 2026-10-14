@@ -69,6 +69,12 @@ static iree_status_t iree_hal_hexagon_device_options_verify(
                             (unsigned int)options->pmu_event_ids_count,
                             (unsigned int)IREE_HAL_HEXAGON_PMU_COUNTERS);
   }
+  if (options->max_concurrent_dispatches < 0) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "max concurrent dispatches must not be negative "
+                            "(%d)",
+                            (int)options->max_concurrent_dispatches);
+  }
   return iree_ok_status();
 }
 
@@ -438,6 +444,17 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
   if (dsp_open_ret != AEE_SUCCESS) {
     return iree_make_status(IREE_STATUS_UNKNOWN,
                             "opening RPC session with DSP failed");
+  }
+
+  // The DSP validates the limit against its HVX contexts and worker threads.
+  int dsp_set_ret = hexagon_dsp_set_max_concurrent_dispatches(
+      device->rpc_session_handle, device->options.max_concurrent_dispatches);
+  if (dsp_set_ret != AEE_SUCCESS) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "DSP rejected max concurrent dispatches %d (must not exceed the "
+        "number of HVX contexts; 0 selects that number)",
+        (int)device->options.max_concurrent_dispatches);
   }
 
   return iree_ok_status();

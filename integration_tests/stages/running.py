@@ -18,6 +18,27 @@ from integration_tests.device.adb import AdbError
 from integration_tests.device.deploy import Deployment
 
 
+@dataclass(frozen=True)
+class RunCase:
+    """A runtime configuration: extra flags for iree-run-module."""
+
+    name: str
+    flags: tuple[str, ...] = ()
+
+
+RUN_CASES: tuple[RunCase, ...] = (
+    # The runtime default: as many concurrent dispatches as HVX contexts.
+    RunCase(name="parallel"),
+    RunCase(name="sequential", flags=("--hexagon_max_concurrent_dispatches=1",)),
+)
+
+RUN_CASES_BY_NAME = {case.name: case for case in RUN_CASES}
+RUN_CASE_NAMES = tuple(RUN_CASES_BY_NAME)
+
+# Every model runs with the runtime defaults unless its manifest asks for more.
+DEFAULT_RUN_CASE_NAMES = ("parallel",)
+
+
 @dataclass
 class RunModuleResult:
     remote_dir: str

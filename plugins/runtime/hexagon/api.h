@@ -42,6 +42,10 @@ typedef struct iree_hal_hexagon_device_options_t {
   /// Extra profiler record capacity reserved for generated dispatch-internal
   /// markers per recorded dispatch.
   uint32_t profiler_extra_records_per_dispatch;
+  /// Max. number of dispatches the DSP executes at the same time. 0 (default)
+  /// selects the number of HVX contexts, 1 executes sequentially. Must not
+  /// exceed the number of HVX contexts.
+  int32_t max_concurrent_dispatches;
   // note: This sdata structure is copied into the device data in
   // iree_hal_hexagon_device_create()
   // TODO(hexagon): options for initializing a device such as hardware

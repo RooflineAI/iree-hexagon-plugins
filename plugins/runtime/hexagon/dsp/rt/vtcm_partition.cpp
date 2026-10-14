@@ -27,6 +27,16 @@ inline uintptr_t align_down(uintptr_t value, uintptr_t alignment) {
   return value & ~(alignment - 1);
 }
 
+/// Rounds a partition request to the size actually taken from the pool.
+static size_t partition_bytes(VtcmPool *vtcm_pool, size_t nbytes) {
+  if (nbytes == HEXAGON_RT_VTCM_PARTITION_ALL) {
+    // full pool
+    // VtcmAllocatedBytes is the size of the pool (the name is misleading imho)
+    return align_down(vtcm_pool->VtcmAllocatedBytes(), VTCM_FRONT_GRANULE);
+  }
+  return align_up(nbytes, VTCM_FRONT_GRANULE);
+}
+
 void hexagon_rt_acquire_vtcm_partition(
     size_t nbytes, const char *dispatch_name,
     hexagon_rt_vtcm_partition_t *out_partition) {
@@ -38,15 +48,29 @@ void hexagon_rt_acquire_vtcm_partition(
   // VtcmPool allocates sizes that are a multiple of 2 KiB from the front of a
   // free block, which keeps partitions 2 KiB aligned.
   VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
-  if (nbytes == HEXAGON_RT_VTCM_PARTITION_ALL) {
-    // full pool
-    // VtcmAllocatedBytes is the size of the pool (the name is misleading imho)
-    nbytes = align_down(vtcm_pool->VtcmAllocatedBytes(), VTCM_FRONT_GRANULE);
-  } else {
-    nbytes = align_up(nbytes, VTCM_FRONT_GRANULE);
-  }
+  nbytes = partition_bytes(vtcm_pool, nbytes);
   out_partition->base = static_cast<char *>(vtcm_pool->Allocate(nbytes));
   out_partition->size = nbytes;
+}
+
+bool hexagon_rt_try_acquire_vtcm_partition(
+    size_t nbytes, const char *dispatch_name,
+    hexagon_rt_vtcm_partition_t *out_partition) {
+  *out_partition = hexagon_rt_vtcm_partition_t{};
+  out_partition->dispatch_name = dispatch_name;
+  if (nbytes == 0) {
+    return true;
+  }
+  VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
+  nbytes = partition_bytes(vtcm_pool, nbytes);
+  out_partition->size = nbytes;
+  out_partition->base = static_cast<char *>(vtcm_pool->TryAllocate(nbytes));
+  return out_partition->base != NULL;
+}
+
+size_t hexagon_rt_vtcm_pool_size(void) {
+  return partition_bytes(HexagonAPI::Global()->getVtcmPool(),
+                         HEXAGON_RT_VTCM_PARTITION_ALL);
 }
 
 void hexagon_rt_release_vtcm_partition(hexagon_rt_vtcm_partition_t *partition) {

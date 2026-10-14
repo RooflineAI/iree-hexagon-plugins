@@ -17,6 +17,11 @@ IREE_FLAG_LIST(
     "times or as a comma-separated list. Values must be numeric IDs (decimal "
     "or 0x...). Up to 8 entries are used.");
 
+IREE_FLAG(int32_t, hexagon_max_concurrent_dispatches, 0,
+          "Max. number of dispatches the Hexagon DSP executes at the same\n"
+          "time. 0 selects the number of HVX contexts, 1 executes\n"
+          "sequentially. Must not exceed the number of HVX contexts.");
+
 static iree_status_t iree_hal_hexagon_apply_pmu_event_flags(
     iree_hal_hexagon_device_options_t *options) {
   const iree_flag_string_list_t list = FLAG_hexagon_pmu_events_list();
@@ -83,6 +88,8 @@ static iree_status_t iree_hal_hexagon_driver_factory_try_create(
       iree_hal_hexagon_apply_pmu_event_flags(&options.default_device_options);
   if (!iree_status_is_ok(status))
     return status;
+  options.default_device_options.max_concurrent_dispatches =
+      FLAG_hexagon_max_concurrent_dispatches;
 
   status = iree_hal_hexagon_driver_create(driver_name, &options, host_allocator,
                                           out_driver);

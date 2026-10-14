@@ -37,6 +37,7 @@ iree_cc_library(
   NAME
     hexagon_rt_library
   HDRS
+    "async_runtime.h"
     "dispatch_state.h"
     "memref_copy.h"
     "profiler.h"
@@ -44,6 +45,7 @@ iree_cc_library(
     "runtime_state_fwd_decl.h"
     "vtcm_partition.h"
   SRCS
+    "async_runtime.cpp"
     "memref_copy.c"
     "profiler.c"
     "vtcm_partition.cpp"

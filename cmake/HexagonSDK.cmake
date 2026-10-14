@@ -78,8 +78,3 @@ set_target_properties(hexagon_sdk::hexagon_toolchain_bit_headers PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES
     "${HEXAGON_SDK_ROOT}/tools/HEXAGON_Tools/19.0.04/Tools/target/hexagon/include/c++/v1/__bit"
 )
-
-add_library(hexagon_sdk::qurt_lib STATIC IMPORTED)
-set_target_properties(hexagon_sdk::qurt_lib PROPERTIES
-  IMPORTED_LOCATION "${HEXAGON_SDK_ROOT}/rtos/qurt/computev68/lib/libqurt.a"
-)

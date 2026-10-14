@@ -70,7 +70,10 @@ std::optional<int64_t> getAllocVTCMBytes(memref::AllocOp op,
   return std::max(*bytes, kVTCMPoolMinimumBytes);
 }
 
-/// VTCM bytes `hexagonmem.alloc` takes.
+/// VTCM bytes `hexagonmem.alloc` takes. Outside VTCM, HexagonMemToLLVM
+/// rewrites it to a `memref.alloc` - without its alignment -
+/// In VTCM it lowers to `hexagon_runtime_alloc_1d`, which rounds the size
+/// up to the allocation granularity instead of padding it by the alignment.
 std::optional<int64_t> getAllocVTCMBytes(hexagonmem::AllocOp op,
                                          const DataLayout &dataLayout) {
   auto type = cast<MemRefType>(op.getBuffer().getType());

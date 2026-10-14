@@ -92,12 +92,11 @@ def HexagonLowerExecutableTargetPass :
       "Instead of calling the original LLVMCPU pipelines, it now calls the Hexagon ones.";
 }
 
-def HexagonLowerHmxToCallsPass :
-    Pass<"iree-hexagon-lower-hmx-to-calls", "mlir::ModuleOp"> {
+def HexagonVerifyHmxRuntimeABIPass :
+    Pass<"iree-hexagon-verify-hmx-runtime-abi", "mlir::ModuleOp"> {
   let summary = [{
-      Validate the bufferized HMX runtime ABI, lower HMX layout and accumulator
-      primitives to native DSP kernel calls, and remove the opaque accumulator
-      token.
+      Verify that bufferized HMX operations satisfy the native DSP kernel ABI
+      before they are lowered to kernel calls during the conversion to LLVM.
   }];
 }
 

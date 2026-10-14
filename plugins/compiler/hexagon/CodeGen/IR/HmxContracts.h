@@ -39,7 +39,7 @@ inline constexpr int64_t kHmxTileGridRank = 5;
 /// Base-address alignment, in bytes, that every HMX instruction requires of the
 /// VTCM buffers it addresses: packed tile grids, accumulator read-out tiles,
 /// and the accumulator-read config block. `HexagonExpandHmxMatmulPass` creates
-/// the allocations that must satisfy this, and `HexagonLowerHmxToCallsPass`
+/// the allocations that must satisfy this, and `HexagonVerifyHmxRuntimeABIPass`
 /// rejects the ones it cannot prove, so the two must agree on a single value.
 inline constexpr int64_t kHmxAlignment = 2048;
 
@@ -120,8 +120,8 @@ LogicalResult verifyHmxUnpackContract(Operation *op, ShapedType sourceType,
 // Where a VTCM buffer's base address comes from. Two passes reason about this:
 // `HexagonExpandHmxMatmulPass` has to *produce* HMX
 // operands whose base address is `kHmxAlignment`-aligned, and
-// `HexagonLowerHmxToCallsPass` has to *prove* that they are before handing raw
-// pointers to the runtime kernels.
+// `HexagonVerifyHmxRuntimeABIPass` has to *prove* that they are before raw
+// pointers are handed to the runtime kernels.
 //
 // Unlike the shape contracts above, these are not usable from an operation
 // verifier: they inspect the surrounding IR and should not be run at any time.

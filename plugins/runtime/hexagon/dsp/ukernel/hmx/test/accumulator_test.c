@@ -49,9 +49,8 @@ static int run_single_mma(const _Float16 *packed_activation,
                           const _Float16 *expected) {
   memset(output, 0xa5, HMX_TEST_TILE_BYTES + HMX_TEST_CANARY_BYTES);
   iree_hexagon_hmx_acc_clear_f16();
-  iree_hexagon_hmx_mma_f16((uint32_t)(uintptr_t)packed_activation,
-                           (uint32_t)(uintptr_t)packed_weight);
-  iree_hexagon_hmx_acc_read_f16((uint32_t)(uintptr_t)output);
+  iree_hexagon_hmx_mma_f16(packed_activation, packed_weight);
+  iree_hexagon_hmx_acc_read_f16(output);
   return hmx_test_compare_bytes("mma_single", output, expected,
                                 HMX_TEST_TILE_BYTES + HMX_TEST_CANARY_BYTES);
 }
@@ -63,11 +62,9 @@ static int run_accumulating_mma(const _Float16 *packed_activation,
                                 const _Float16 *expected) {
   memset(output, 0xa5, HMX_TEST_TILE_BYTES + HMX_TEST_CANARY_BYTES);
   iree_hexagon_hmx_acc_clear_f16();
-  iree_hexagon_hmx_mma_f16((uint32_t)(uintptr_t)packed_activation,
-                           (uint32_t)(uintptr_t)packed_weight);
-  iree_hexagon_hmx_mma_f16((uint32_t)(uintptr_t)packed_activation,
-                           (uint32_t)(uintptr_t)packed_weight);
-  iree_hexagon_hmx_acc_read_f16((uint32_t)(uintptr_t)output);
+  iree_hexagon_hmx_mma_f16(packed_activation, packed_weight);
+  iree_hexagon_hmx_mma_f16(packed_activation, packed_weight);
+  iree_hexagon_hmx_acc_read_f16(output);
   return hmx_test_compare_bytes("mma_accumulates", output, expected,
                                 HMX_TEST_TILE_BYTES + HMX_TEST_CANARY_BYTES);
 }
@@ -79,10 +76,9 @@ static int run_clear_case(const _Float16 *packed_activation,
                           const _Float16 *expected) {
   memset(output, 0xa5, HMX_TEST_TILE_BYTES + HMX_TEST_CANARY_BYTES);
   iree_hexagon_hmx_acc_clear_f16();
-  iree_hexagon_hmx_mma_f16((uint32_t)(uintptr_t)packed_activation,
-                           (uint32_t)(uintptr_t)packed_weight);
+  iree_hexagon_hmx_mma_f16(packed_activation, packed_weight);
   iree_hexagon_hmx_acc_clear_f16();
-  iree_hexagon_hmx_acc_read_f16((uint32_t)(uintptr_t)output);
+  iree_hexagon_hmx_acc_read_f16(output);
   return hmx_test_compare_bytes("acc_clear_removes_prior_state", output,
                                 expected,
                                 HMX_TEST_TILE_BYTES + HMX_TEST_CANARY_BYTES);
@@ -132,7 +128,7 @@ int main(int argc, char **argv) {
 
     // Bias setup is tested independently from MMA state. Checking all 2048
     // bytes verifies both its contents and the untouched config canary.
-    iree_hexagon_hmx_acc_setup_read_f16((uint32_t)(uintptr_t)config);
+    iree_hexagon_hmx_acc_setup_read_f16(config);
     failures += hmx_test_compare_bytes("acc_setup_read_f16_config", config,
                                        expected_config, 2048u);
 

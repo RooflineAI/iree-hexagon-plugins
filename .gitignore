@@ -5,9 +5,10 @@
 /build-artifacts-cmake/
 /configured.bazelrc
 /compile_commands.json
-/MODULE.bazel.lock
-.vscode
-*__pycache__*
 /examples/**/dump/
+/MODULE.bazel.lock
+/tmp/
 /.pytest_cache
-/.vscode/settings.json
+/.vscodei/
+*__pycache__*
+/tmp/

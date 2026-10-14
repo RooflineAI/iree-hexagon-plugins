@@ -16,9 +16,9 @@ module attributes {hal.executable.target = #hexagon_target} {
   llvm.func @missing_dispatch_state() {
     // expected-error@+1 {{failed to legalize operation 'iree_hexagon.get_runtime_state' that was explicitly marked illegal}}
     %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
-    %record = iree_hexagon.profiler.begin %state {
-      zone_type = #iree_hexagon.profiler_zone<marker>
-    } : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+    %record = iree_hexagon.profiler.begin %state <
+      zone_type = marker
+    > : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
     iree_hexagon.profiler.end %record : !iree_hexagon.profiler_record
     llvm.return
   }
@@ -42,9 +42,9 @@ module attributes {hal.executable.target = #hexagon_target} {
                                            %workgroup_state: !llvm.ptr) {
     %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
     // expected-error@+1 {{failed to legalize operation 'iree_hexagon.profiler.begin' that was explicitly marked illegal}}
-    %record = iree_hexagon.profiler.begin %state {
-      zone_type = #iree_hexagon.profiler_zone<marker>
-    } : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+    %record = iree_hexagon.profiler.begin %state <
+      zone_type = marker
+    > : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
     iree_hexagon.profiler.end %record : !iree_hexagon.profiler_record
     llvm.return
   }

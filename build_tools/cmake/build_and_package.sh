@@ -21,6 +21,9 @@ IREE_SRC="${REPO_ROOT}/third-party/iree"
 LLVM_SRC="${REPO_ROOT}/third-party/llvm-project"
 BUILD_ROOT="${REPO_ROOT}/build"
 mkdir -p "${BUILD_ROOT}"
+# Zip staging directories live in tmp/ in the worktree (git-ignored), not in /tmp.
+STAGING_ROOT="${REPO_ROOT}/tmp"
+mkdir -p "${STAGING_ROOT}"
 OUT_DIR="$(realpath "${1:-${REPO_ROOT}/build-artifacts-cmake}")"
 mkdir -p "${OUT_DIR}"
 
@@ -33,7 +36,9 @@ export HEXAGON_SDK_ROOT="${BUILD_ROOT}/hexagon-sdk"
 if [[ ! -d "${HEXAGON_SDK_ROOT}" ]]; then
   _hexagon_sdk_url="https://github.com/snapdragon-toolchain/hexagon-sdk/releases/download/v6.4.0.2/hexagon-sdk-v6.4.0.2-amd64-lnx.tar.xz"
   _hexagon_sdk_sha256="b4a57a774795cf12da19a777a5d306e970905bf9758a4c4765e5e4593428ae0b"
-  _hexagon_sdk_tmp="$(mktemp -d)"
+  _hexagon_sdk_tmp="${STAGING_ROOT}/hexagon-sdk-download"
+  rm -rf "${_hexagon_sdk_tmp}"
+  mkdir -p "${_hexagon_sdk_tmp}"
   curl -sL "${_hexagon_sdk_url}" -o "${_hexagon_sdk_tmp}/sdk.tar.xz"
   echo "${_hexagon_sdk_sha256}  ${_hexagon_sdk_tmp}/sdk.tar.xz" | sha256sum -c -
   mkdir -p "${_hexagon_sdk_tmp}/extracted"
@@ -50,7 +55,9 @@ if [[ ! -d "${HEXKL_ROOT}" ]]; then
   _hexkl_outer_zip="Hexagon_KL.Core.1.0.0.Linux-Any.zip"
   _hexkl_inner_zip="hexkl-1.0.0-beta1-6.4.0.0.zip"
   _hexkl_inner_zip_sha256="409add79ec895e8eb8062e3fc2bb9d74d548e5288fde729cc5d3376f0437dfd9"
-  _hexkl_tmp="$(mktemp -d)"
+  _hexkl_tmp="${STAGING_ROOT}/hexkl-download"
+  rm -rf "${_hexkl_tmp}"
+  mkdir -p "${_hexkl_tmp}"
   curl -sL "https://softwarecenter.qualcomm.com/api/download/software/tools/Hexagon_KL/Linux/1.0.0/${_hexkl_outer_zip}" \
     -o "${_hexkl_tmp}/outer.zip"
   mkdir -p "${_hexkl_tmp}/extracted"
@@ -64,7 +71,8 @@ if [[ ! -d "${HEXKL_ROOT}" ]]; then
   unzip -q "${_hexkl_inner_zip_path}" -d "${_hexkl_tmp}/extracted"
   if [[ ! -d "${_hexkl_tmp}/extracted/hexkl_addon" \
         && -d "${_hexkl_tmp}/extracted/hexkl-1.0.0-beta1-6.4.0.0/hexkl_addon" ]]; then
-    ln -s "${_hexkl_tmp}/extracted/hexkl-1.0.0-beta1-6.4.0.0/hexkl_addon" \
+    # Relative target, so the link stays valid when the directory is moved.
+    ln -s "hexkl-1.0.0-beta1-6.4.0.0/hexkl_addon" \
       "${_hexkl_tmp}/extracted/hexkl_addon"
   fi
   mv "${_hexkl_tmp}/extracted" "${HEXKL_ROOT}"
@@ -93,7 +101,14 @@ cmake -S "${LLVM_SRC}/llvm" -B "${BUILD_ROOT}/llvm" \
   -DCMAKE_C_COMPILER="$CC" \
   -DCMAKE_CXX_COMPILER="$CXX"
 cmake --build "${BUILD_ROOT}/llvm" --target lld -- -k 0
-cp "${BUILD_ROOT}/llvm/bin/ld.lld" "${OUT_DIR}/"
+
+# --- Host compiler package: bin/ and lib/ staging directory, zipped below. --
+# The tools find libIREECompiler.so through the rpath $ORIGIN/../lib.
+COMPILER_PKG_NAME=hexagon_compiler_x86_64_linux
+COMPILER_PKG_DIR="${STAGING_ROOT}/${COMPILER_PKG_NAME}"
+rm -rf "${COMPILER_PKG_DIR}"
+mkdir -p "${COMPILER_PKG_DIR}/bin" "${COMPILER_PKG_DIR}/lib"
+cp "${BUILD_ROOT}/llvm/bin/ld.lld" "${COMPILER_PKG_DIR}/bin/"
 
 # --- host tree: iree-compile, iree-opt, ... (+ the Hexagon compiler plugin)
 # Explicitly turn on the Hexagon LLVM backend (off by default).
@@ -107,15 +122,29 @@ cmake -S "${IREE_SRC}" -B "${BUILD_ROOT}/host" \
   -DIREE_BUILD_COMPILER=ON \
   -DIREE_BUILD_TESTS=ON \
   -DIREE_ERROR_ON_MISSING_SUBMODULES=OFF \
-  -DIREE_LINK_COMPILER_SHARED_LIBRARY=OFF
+  -DIREE_LINK_COMPILER_SHARED_LIBRARY=ON \
+  '-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath,'"'"'$ORIGIN/../lib'"'"
 cmake --build "${BUILD_ROOT}/host" --target \
   iree-compile iree-opt iree-dump-module iree-dump-parameters iree-encode-parameters \
   iree_hexagon_plugins_plugins_runtime_hexagon_test_{bindings,command_buffer,cmd_{barrier,copy,dispatch,fill}}_serialize_test \
   -- -k 0
 HOST_BIN_DIR="${BUILD_ROOT}/host/tools"
 for TOOL in iree-compile iree-opt iree-dump-module iree-dump-parameters iree-encode-parameters; do
-  cp "${HOST_BIN_DIR}/${TOOL}" "${OUT_DIR}/"
+  cp "${HOST_BIN_DIR}/${TOOL}" "${COMPILER_PKG_DIR}/bin/"
 done
+mapfile -t COMPILER_LIBS < <(find "${BUILD_ROOT}/host" -name libIREECompiler.so)
+if (( ${#COMPILER_LIBS[@]} != 1 )); then
+  echo "expected exactly one libIREECompiler.so, found: ${COMPILER_LIBS[*]:-none}" >&2
+  exit 1
+fi
+cp "${COMPILER_LIBS[0]}" "${COMPILER_PKG_DIR}/lib/"
+# Fail loudly if a tool would not find the library after unpacking.
+for TOOL in "${COMPILER_PKG_DIR}"/bin/iree-compile "${COMPILER_PKG_DIR}"/bin/iree-opt; do
+  readelf -d "${TOOL}" | grep -E 'Library (run)?path' | grep -qF '$ORIGIN/../lib' \
+    || { echo "${TOOL} lacks the \$ORIGIN/../lib rpath" >&2; exit 1; }
+done
+(cd "${COMPILER_PKG_DIR}" && zip -r "${OUT_DIR}/${COMPILER_PKG_NAME}.zip" bin lib)
+rm -rf "${COMPILER_PKG_DIR}"
 
 # --- Hexagon-DSP tree: the DSP-side skeleton .so ---------------------------
 build_tree() {
@@ -198,7 +227,9 @@ LIBCXX_SHARED="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" \
 package_zip() {
   local zip_path="$1"; shift
   local staging
-  staging="$(mktemp -d)"
+  staging="${STAGING_ROOT}/$(basename "${zip_path}" .zip)"
+  rm -rf "${staging}"
+  mkdir -p "${staging}"
   while [[ $# -gt 0 ]]; do
     local dest="$1" src="$2"; shift 2
     mkdir -p "${staging}/$(dirname "${dest}")"

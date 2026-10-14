@@ -48,12 +48,16 @@ sudo mv "/opt/android-ndk-${NDK_VERSION}" "/opt/android-sdk/ndk/${NDK_FOLDER}"
 
 ## Configuring
 
+This is the same configuration that `build_tools/bazel/build_and_package.sh`
+writes. The hermetic clang toolchain (`mlinux`) needs no system compiler, and
+the rpath lets the host tools find `libIREECompiler.so` in a `lib/` directory
+next to their `bin/` directory.
+
 ```sh
-cat - >configured.bazelrc << EOF
-build --action_env CC=/usr/lib/llvm-19/bin/clang
-build --action_env CXX=/usr/lib/llvm-19/bin/clang++
+cat - >configured.bazelrc << 'EOF'
 build --config=generic_clang
-build --incompatible_strict_action_env
+build --config=mlinux
+build --linkopt=-Wl,-rpath,$ORIGIN/../lib
 EOF
 ```
 
@@ -66,6 +70,21 @@ The compiler part is built for the host:
 ```sh
 bazel build @iree//tools:iree-compile
 ```
+
+`iree-compile` is linked dynamically against `libIREECompiler.so`. With the
+configuration above it finds the library through the rpath once it is packaged
+(see below), and within the checkout through Bazel's own runfiles paths.
+
+### Packaging
+
+`build_tools/bazel/build_and_package.sh` builds everything and collects the
+results in `build-artifacts-bazel/`. The host tools (`iree-compile`, `iree-opt`,
+`ld.lld`, ...) and `libIREECompiler.so` are packaged as
+`hexagon_compiler_x86_64_linux.zip`, with the tools in `bin/` and the library
+in `lib/`. The tools locate the library through the rpath `$ORIGIN/../lib`, which
+the script sets, so the unpacked directory can be moved anywhere. The runtime and
+device-tools ZIP files are placed next to it. Staging directories are created in
+the git-ignored `tmp/` directory of the checkout.
 
 ### Runtime
 
@@ -110,6 +129,10 @@ to build the host tools from compilation and the runtime:
 export ANDROID_NDK_HOME="/opt/android-sdk/ndk/${NDK_FOLDER}"
 build_tools/cmake/build_and_package.sh
 ```
+
+The results are placed in `build-artifacts-cmake/`, using the same layout as
+the Bazel packaging above: `hexagon_compiler_x86_64_linux.zip` with `bin/`
+and `lib/`, plus the runtime and device-tools ZIP files.
 
 ### All in a One
 

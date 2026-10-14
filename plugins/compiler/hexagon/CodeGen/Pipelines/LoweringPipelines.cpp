@@ -83,16 +83,6 @@ static llvm::cl::opt<bool> clHexagonEnableReassociateFpReductions(
     llvm::cl::desc("Enables reassociation for FP reductions"),
     llvm::cl::init(true));
 
-static llvm::cl::opt<bool> clHexagonSkipIntermediateRoundings(
-    "iree-hexagon-skip-intermediate-roundings",
-    llvm::cl::desc(
-        "Allow skipping intermediate roundings. For example, in f16 matmul "
-        "kernels on targets with only f32 arithmetic, we have to perform each "
-        "multiply-accumulate in f32, and if this flag is false, then we have "
-        "to round those f32 accumulators to the nearest f16 every time, which "
-        "is slow."),
-    llvm::cl::init(true));
-
 static llvm::cl::opt<bool> clHexagonInstrumentMemoryAccesses{
     "iree-hexagon-instrument-memory-accesses",
     llvm::cl::desc("Instrument memory accesses in dispatches when dispatch "
@@ -498,38 +488,6 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
     HexagonVectorLoweringPassOptions options;
     // This shuffle is nonsensical and does not get used. Copied from LLVMCPU
     options.splitVectorTransfersTo = "shuffle";
-    buildHexagonVectorLoweringPipeline(funcPassManager, options);
-  }
-}
-
-void addHexagonDataTilingPipeline(OpPassManager &funcPassManager,
-                                  const HexagonPipelineOptions &pipelineOpt) {
-  addHexagonTileAndDistributePasses(funcPassManager, pipelineOpt);
-
-  // funcPassManager.addPass(createCPUPrepareUkernelsPass());
-  // funcPassManager.addPass(
-  //     createCPULowerToUKernelsPass(clHexagonSkipIntermediateRoundings));
-
-  funcPassManager.addPass(createHexagonTilePass(
-      IREE::Hexagon::TilingLevel::VectorCommonParallelTiles,
-      /*skipRootOp=*/false));
-
-  {
-    GenericVectorizationPassOptions options;
-    options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
-    options.enableVectorMasking = pipelineOpt.enableVectorMasking;
-    funcPassManager.addPass(createGenericVectorizationPass(options));
-    funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
-    funcPassManager.addPass(createCanonicalizerPass());
-    funcPassManager.addPass(createCSEPass());
-    addLargeVectorCheck(funcPassManager);
-  }
-
-  addHexagonBufferizePasses(funcPassManager);
-
-  {
-    HexagonVectorLoweringPassOptions options;
-    options.splitVectorTransfersTo = "linalg-copy";
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }

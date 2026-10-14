@@ -86,8 +86,9 @@ const OpShape *findOpShape(const DispatchShape &shape, Operation *op);
 /// the dispatch has an analyzable root.
 const OpShape &getRootShape(const DispatchShape &shape);
 
-/// Hardware derived invariants. Right now, these are hardcoded.
-/// Future improvement: read this from the executable target in the IR.
+/// Hardware derived invariants. Only the vector width is currently read from
+/// the executable target; the rest are hardcoded.
+// Possible improvement: read the rest from the executable target as well.
 struct TargetInfo {
   /// Fallback HVX width when the executable target does not provide one.
   int64_t nativeVectorBytes = 128;

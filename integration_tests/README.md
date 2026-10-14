@@ -37,8 +37,8 @@ bazel build @iree//tools:iree-compile \
 pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 ```
 
-Options, all in `conftest.py`: `--model` and `--compile-case` (both
-repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`, and the four
+Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
+(all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`, and the four
 artifact paths.
 
 ## Requirements
@@ -106,6 +106,22 @@ compile_cases: [hexagon, hexagon-vtcm-hmx]
 Use `--compile-case=hexagon-vtcm-hmx` to filter a test invocation to one of a
 model's configured cases.
 
+Each compile case is run on the device once per run case, a runtime
+configuration passed as flags to `iree-run-module`. With no `run_cases`, a model
+runs only `parallel`:
+
+* `parallel`: the runtime default, executing **up to** one dispatch per HVX context
+  at the same time.
+
+* `sequential`: `--hexagon_max_concurrent_dispatches=1`, one dispatch at a time.
+
+```yaml
+run_cases: [parallel, sequential]
+```
+
+`--run-case=sequential` filters a test invocation the same way.
+`expected_outcomes` entries are matched against the compile case only, since they shuld never differ, regardless of sequential or parallel execution
+
 For a classifier on a real photograph, `generator: image` plus a
 `semantic_check`:
 
@@ -150,3 +166,7 @@ Its tests are reported as skipped with that reason, before any fixture runs,
 so the model is not even imported. `--run-skipped` runs them anyway, e.g.
 `--model=Qwen/Qwen3-ASR-0.6B --run-skipped`. Keep its `expected_outcomes`
 current, so that a run with `--run-skipped` still checks the failure.
+
+
+## Note
+Note that if you run a model sequentially and parallel, its compiled twice at the moment, so this is only recommended for smaller models

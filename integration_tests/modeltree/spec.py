@@ -22,8 +22,10 @@ import yaml
 
 from integration_tests.modeltree.outcomes import ExpectedOutcome, Status
 from integration_tests.stages.compiling import (
+    COMPILE_CASE_NAMES,
     DEFAULT_COMPILE_CASE_NAMES,
 )
+from integration_tests.stages.running import DEFAULT_RUN_CASE_NAMES, RUN_CASE_NAMES
 
 # numpy/torch dtype names accepted in `inputs[].dtype`. Closed
 # set: a typo here would otherwise produce a silently different reference.
@@ -108,6 +110,9 @@ class ModelSpec:
     # Which compile cases to run. Most models exercise both custom Hexagon
     # configurations; other configurations are requested explicitly.
     compile_cases: tuple[str, ...] = DEFAULT_COMPILE_CASE_NAMES
+    # Which runtime configurations to run each compile case with. Each one is
+    # a separate test of the same compiled module.
+    run_cases: tuple[str, ...] = DEFAULT_RUN_CASE_NAMES
     semantic_check: SemanticCheck | None = None
     extra_compile_flags: tuple[str, ...] = ()
     # Seconds the module push, and separately iree-run-module on the device,
@@ -123,6 +128,20 @@ class ModelSpec:
             raise SpecError(f"{self.name}: unknown dtype {self.dtype!r}")
         if not self.inputs:
             raise SpecError(f"{self.name}: at least one input is required")
+        unknown = [c for c in self.compile_cases if c not in COMPILE_CASE_NAMES]
+        if unknown:
+            raise SpecError(
+                f"{self.name}: unknown compile cases {unknown}; known: {COMPILE_CASE_NAMES}"
+            )
+        if not self.compile_cases:
+            raise SpecError(f"{self.name}: at least one compile case is required")
+        unknown = [c for c in self.run_cases if c not in RUN_CASE_NAMES]
+        if unknown:
+            raise SpecError(
+                f"{self.name}: unknown run cases {unknown}; known: {RUN_CASE_NAMES}"
+            )
+        if not self.run_cases:
+            raise SpecError(f"{self.name}: at least one run case is required")
         if self.skip is not None and not self.skip.strip():
             raise SpecError(f"{self.name}: 'skip' must say why the model is skipped")
 

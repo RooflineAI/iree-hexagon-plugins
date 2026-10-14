@@ -175,8 +175,10 @@ LogicalResult collectResources(FunctionOpInterface funcOp, SymbolTable &symbols,
   if (!visited.insert(funcOp).second || funcOp.isExternal())
     return success();
   WalkResult walkResult = funcOp.walk([&](Operation *op) {
-    if (isHmxOp(op))
+    if (isHmxOp(op)) {
       resources.hmx = true;
+      resources.hvx = true; // HMX function uses HVX
+    }
     if (hasVectorValue(op))
       resources.hvx = true;
 
@@ -239,13 +241,9 @@ struct HexagonAnnotateDispatchResourcesPass
       int64_t vtcmBytes = resources.vtcmUnbounded
                               ? DispatchResourcesAttr::kUnboundedVTCMBytes
                               : resources.vtcmBytes;
-      exportOp->setAttr(
-          DispatchResourcesAttr::getAttrName(),
-          DispatchResourcesAttr::get(
-              &getContext(),
-              resources.hvx ||
-                  resources.hmx, // HMX functions use HVX instructions
-              resources.hmx, vtcmBytes));
+      exportOp->setAttr(DispatchResourcesAttr::getAttrName(),
+                        DispatchResourcesAttr::get(&getContext(), resources.hvx,
+                                                   resources.hmx, vtcmBytes));
     }
   }
 };

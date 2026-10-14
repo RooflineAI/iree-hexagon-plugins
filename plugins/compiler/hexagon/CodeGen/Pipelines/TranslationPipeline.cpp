@@ -25,6 +25,14 @@ static llvm::cl::opt<bool> clHexagonEnableVTCMTiling(
                    "pipelines using it."),
     llvm::cl::init(true));
 
+static llvm::cl::opt<int64_t> clHexagonVTCMTileBudgetBytes(
+    "iree-hexagon-vtcm-tile-budget-bytes",
+    llvm::cl::desc(
+        "VTCM bytes the planner uses. Not reflects the VTCM size: additional "
+        "VTCM for HMX-packing or double buffering is required"
+        "smaller budgets allow for more asynchronous dispatches"),
+    llvm::cl::init(2 * 1024 * 1024));
+
 static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
     "iree-hexagon-enable-hmx-matmul",
     llvm::cl::desc("Route eligible f16 matmul/contraction dispatches through "
@@ -32,6 +40,8 @@ static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
     llvm::cl::init(false));
 
 bool isHexagonVTCMTilingEnabled() { return clHexagonEnableVTCMTiling; }
+
+int64_t getHexagonVTCMTileBudgetBytes() { return clHexagonVTCMTileBudgetBytes; }
 
 bool isHexagonHmxMatmulEnabled() { return clHexagonEnableHmxMatmul; }
 

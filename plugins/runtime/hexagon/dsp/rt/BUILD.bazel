@@ -32,19 +32,17 @@ cc_library(
 cc_library(
     name = "hexagon_rt_library",
     srcs = [
-        "malloc_free.c",
         "memref_copy.c",
         "profiler.c",
-        "vtcm_pool.cpp",
+        "vtcm_partition.cpp",
     ],
     hdrs = [
         "dispatch_state.h",
-        "malloc_free.h",
         "memref_copy.h",
         "profiler.h",
         "runtime_state.h",
         "runtime_state_fwd_decl.h",
-        "vtcm_pool.h",
+        "vtcm_partition.h",
     ],
     defines = select({
         ":hexagon_playground_profiler_enabled": [

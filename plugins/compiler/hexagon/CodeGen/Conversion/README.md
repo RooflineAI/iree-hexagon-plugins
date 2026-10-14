@@ -61,11 +61,18 @@ The driver maintains these invariants:
 6. Direct external calls must use static/native DSP runtime linking. Generic
    HAL dynamic imports and bitcode imports are diagnosed as unsupported.
 
-The production Hexagon data layout has 32-bit pointers. The current type
-converter intentionally retains a 64-bit index representation because the
-Hexagon-MLIR conversions expect it. ABI tests therefore use the production data
-layout and check both pointer-sensitive structures and the required
-`i16`/`i32` to `i64` index extensions.
+The production Hexagon data layout has 32-bit pointers, and the type converter
+gives `index` the pointer bitwidth, as LLVMCPU does. Without the data layout
+(e.g. in tests that do not set one), `index` falls back to 64 bits. Runtime
+arguments of a fixed width are typed explicitly rather than with the index
+type: the HMX kernels take `i32`, the VTCM allocation takes a `uint64_t`
+alignment (fixed in `patches/hexagon-mlir/index_bitwidth_independent_lowering.patch`),
+and the dispatch instrumentation records stay 64-bit. The exception is MLIR's
+generic `malloc` and `memrefCopy` helpers, whose arguments and memref
+descriptors are `index`-typed by definition: their runtime implementations in
+`plugins/runtime/hexagon/dsp/rt/` use pointer-width types, so the index width is
+part of the compiler/runtime ABI. ABI tests use the production data layout, so
+they observe the 32-bit index directly.
 
 ## Dispatch ABI
 
@@ -128,6 +135,7 @@ debug labels:
 
 - `iree-hal-abi-to-llvm`
 - `hexagon-runtime-to-llvm`
+- `hexagon-hmx-to-llvm`
 - `hexagon-mem-to-llvm`
 - `hexagon-dma-to-llvm`
 - `hexkl-to-llvm`
@@ -154,9 +162,11 @@ The focused tests are organized by runtime-visible contract:
   acceptance of explicitly static calls;
 - `hmx_native_runtime_links.mlir`: every HMX runtime helper is classified as a
   native runtime symbol;
+- `hmx_to_llvm.mlir`: HMX operations lowered to kernel calls, with pointer
+  arguments, `i32` sizes and strides, and the accumulator erased;
 - `lower_profiler_markers.mlir`: profiler helper reuse, string deduplication,
   empty metadata, zone values, and record threading;
-- `hexagon_runtime_to_llvm_invalid.mlir`: malformed runtime-state access and
-  incompatible profiler helper diagnostics; and
+- `hexagon_runtime_to_llvm_invalid.mlir`: malformed runtime-state access,
+  incompatible profiler helper diagnostics, and unexpanded HMX operations; and
 - `single_driver_custom_lowerings.mlir`: composition of standard, HexagonMem,
   DMA, and HexKL lowering in the single conversion transaction.

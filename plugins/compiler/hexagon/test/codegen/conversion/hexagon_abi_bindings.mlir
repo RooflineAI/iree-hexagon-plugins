@@ -23,13 +23,13 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies binding ordinal 1, a constant 72-byte HAL subspan offset, and a
   // strided memref layout whose element offset is applied after the byte offset.
   // CHECK-LABEL: llvm.func @binding_static_offset(
-  // CHECK-DAG: %[[BYTE_OFFSET:.+]] = llvm.mlir.constant(72 : index) : i64
+  // CHECK-DAG: %[[BYTE_OFFSET:.+]] = llvm.mlir.constant(72 : index) : i32
   // CHECK: %[[STATE:.+]] = llvm.load %arg1
   // CHECK: %[[BINDINGS:.+]] = llvm.extractvalue %[[STATE]][10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDINGS]][1] : (!llvm.ptr) -> !llvm.ptr, !llvm.ptr
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
-  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[BYTE_OFFSET]]] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-  // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr {{.*}}[{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[BYTE_OFFSET]]] : (!llvm.ptr, i32) -> !llvm.ptr, i8
+  // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr {{.*}}[{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, f32
   // CHECK: %[[ROW:.+]] = llvm.mul {{.+}}, {{.+}}
   // CHECK: %[[INDEX:.+]] = llvm.add %[[ROW]], {{.+}}
   // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[ELEMENT_BASE]][%[[INDEX]]]
@@ -53,12 +53,11 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK: %[[CONSTANT_STATE:.+]] = llvm.load %arg1
   // CHECK: %[[CONSTANTS:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][9]
   // CHECK: %[[CONSTANT_PTR:.+]] = llvm.getelementptr %[[CONSTANTS]][0]
-  // CHECK: %[[OFFSET32:.+]] = llvm.load %[[CONSTANT_PTR]] : !llvm.ptr -> i32
-  // CHECK: %[[OFFSET:.+]] = llvm.zext %[[OFFSET32]] : i32 to i64
+  // CHECK: %[[OFFSET:.+]] = llvm.load %[[CONSTANT_PTR]] : !llvm.ptr -> i32
   // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
-  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[OFFSET]]] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[OFFSET]]] : (!llvm.ptr, i32) -> !llvm.ptr, i8
   // CHECK: %[[DESCRIPTOR_BASE:.+]] = llvm.extractvalue {{.+}}[1]
   // CHECK: %[[ELEMENT:.+]] = llvm.getelementptr {{.*}} %[[DESCRIPTOR_BASE]][{{.+}}]
   // CHECK: %[[VALUE:.+]] = llvm.load %[[ELEMENT]]
@@ -79,9 +78,9 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
-  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, i8
-  // CHECK: llvm.mul {{.+}}, {{.+}} : i64
-  // CHECK: llvm.mul {{.+}}, {{.+}} : i64
+  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, i8
+  // CHECK: llvm.mul {{.+}}, {{.+}} : i32
+  // CHECK: llvm.mul {{.+}}, {{.+}} : i32
   // CHECK: %[[DESCRIPTOR_BASE:.+]] = llvm.extractvalue {{.+}}[1]
   // CHECK: %[[DESCRIPTOR_OFFSET:.+]] = llvm.extractvalue {{.+}}[2]
   // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr %[[DESCRIPTOR_BASE]][%[[DESCRIPTOR_OFFSET]]]
@@ -116,11 +115,11 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies a dynamic subspan offset remains byte-granular for i4 elements;
   // the element index is applied only after the byte pointer is constructed.
   // CHECK-LABEL: llvm.func @binding_sub_byte(
-  // CHECK-DAG: %[[ELEMENT_INDEX:.+]] = llvm.mlir.constant(7 : index) : i64
+  // CHECK-DAG: %[[ELEMENT_INDEX:.+]] = llvm.mlir.constant(7 : index) : i32
   // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
-  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i64) -> !llvm.ptr, i8
+  // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, i8
   // CHECK: %[[DESCRIPTOR_BASE:.+]] = llvm.extractvalue {{.+}}[1]
   // CHECK: %[[DESCRIPTOR_OFFSET:.+]] = llvm.extractvalue {{.+}}[2]
   // CHECK: %[[ELEMENT_BASE:.+]] = llvm.getelementptr %[[DESCRIPTOR_BASE]][%[[DESCRIPTOR_OFFSET]]]

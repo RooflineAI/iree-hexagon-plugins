@@ -1,0 +1,8 @@
+# Copyright 2026 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Overlay BUILD files for the Tracy host tools (tracy-capture, tracy-csvexport).
+# This file only makes the directory a Bazel package, so MODULE.bazel can refer
+# to the overlays by label (//build_tools/bazel/tracy:BUILD.*.bazel).

@@ -1,0 +1,100 @@
+# Copyright 2026 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Host tools from IREE's vendored Tracy (third-party/iree/third_party/tracy),
+# following its capture/ and csvexport/ CMake builds (cmake/server.cmake,
+# cmake/vendor.cmake). No Tracy release speaks the protocol of this
+# development snapshot, so the tools must be built from the same tree as the
+# Tracy client in the runtime.
+
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+_CXXOPTS = [
+    "-std=c++20",
+    "-w",
+]
+
+cc_library(
+    name = "zstd",
+    srcs = glob([
+        "zstd/common/*.c",
+        "zstd/compress/*.c",
+        "zstd/decompress/*.c",
+        "zstd/dictBuilder/*.c",
+        "zstd/**/*.h",
+    ]),
+    hdrs = [
+        "zstd/zdict.h",
+        "zstd/zstd.h",
+        "zstd/zstd_errors.h",
+    ],
+    copts = ["-w"],
+    local_defines = ["ZSTD_DISABLE_ASM"],
+)
+
+cc_library(
+    name = "getopt",
+    srcs = ["getopt/getopt.c"],
+    hdrs = ["getopt/getopt.h"],
+    copts = ["-w"],
+)
+
+# The statistics are left enabled (no TRACY_NO_STATISTICS): csvexport needs
+# them, and capture works either way.
+cc_library(
+    name = "server",
+    srcs = [
+        "public/common/TracySocket.cpp",
+        "public/common/TracyStackFrames.cpp",
+        "public/common/TracySystem.cpp",
+        "public/common/tracy_lz4.cpp",
+        "public/common/tracy_lz4hc.cpp",
+        "server/TracyMemory.cpp",
+        "server/TracyMmap.cpp",
+        "server/TracyPrint.cpp",
+        "server/TracySysUtil.cpp",
+        "server/TracyTaskDispatch.cpp",
+        "server/TracyTextureCompression.cpp",
+        "server/TracyThreadCompress.cpp",
+        "server/TracyWorker.cpp",
+    ],
+    hdrs = glob([
+        "public/common/*.hpp",
+        "public/common/*.h",
+        "server/*.hpp",
+        "server/*.h",
+    ]),
+    copts = _CXXOPTS,
+    linkopts = ["-lpthread"],
+    # tracy_lz4hc.cpp #includes tracy_lz4.cpp.
+    textual_hdrs = ["public/common/tracy_lz4.cpp"],
+    deps = [
+        ":zstd",
+        "@tracy_capstone//:capstone",
+        "@tracy_ppqsort//:ppqsort",
+    ],
+)
+
+cc_binary(
+    name = "tracy-capture",
+    srcs = ["capture/src/capture.cpp"],
+    copts = _CXXOPTS,
+    deps = [
+        ":getopt",
+        ":server",
+    ],
+)
+
+cc_binary(
+    name = "tracy-csvexport",
+    srcs = ["csvexport/src/csvexport.cpp"],
+    copts = _CXXOPTS,
+    deps = [
+        ":getopt",
+        ":server",
+    ],
+)

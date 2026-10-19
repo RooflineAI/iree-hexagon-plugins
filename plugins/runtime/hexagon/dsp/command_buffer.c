@@ -534,7 +534,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
 
   // The dispatch allocates VTCM only from its own partition, sized by the VTCM
   // the compiler declared for it. Without a declaration it gets all of VTCM.
-  const iree_hal_executable_dispatch_attrs_v0_t *attrs = NULL;
+  const hexagon_executable_dispatch_attrs_t *attrs = NULL;
   size_t vtcm_bytes = HEXAGON_RT_VTCM_PARTITION_ALL;
   if (hexagon_dsp_executable_get_dispatch_attrs(
           executable_handle, export_ordinal, &attrs) == AEE_SUCCESS &&

@@ -85,6 +85,6 @@ int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
  */
 int hexagon_dsp_executable_get_dispatch_attrs(
     int64 executable_handle, uint32_t export_ordinal,
-    const iree_hal_executable_dispatch_attrs_v0_t **out_attrs);
+    const hexagon_executable_dispatch_attrs_t **out_attrs);
 
 #endif // #ifndef HEXAGON_DSP_EXECUTABLE_H

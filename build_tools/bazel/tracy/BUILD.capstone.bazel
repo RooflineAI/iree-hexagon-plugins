@@ -1,0 +1,62 @@
+# Copyright 2026 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# capstone, reduced to the architectures the Tracy server disassembles
+# (x86, ARM, AArch64), mirroring the options IREE's CMake build sets in
+# third-party/iree/build_tools/third_party/tracy/CMakeLists.txt.
+
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "capstone",
+    srcs = [
+        "MCInst.c",
+        "MCInstPrinter.c",
+        "MCInstrDesc.c",
+        "MCRegisterInfo.c",
+        "Mapping.c",
+        "SStream.c",
+        "arch/AArch64/AArch64BaseInfo.c",
+        "arch/AArch64/AArch64Disassembler.c",
+        "arch/AArch64/AArch64DisassemblerExtension.c",
+        "arch/AArch64/AArch64InstPrinter.c",
+        "arch/AArch64/AArch64Mapping.c",
+        "arch/AArch64/AArch64Module.c",
+        "arch/ARM/ARMBaseInfo.c",
+        "arch/ARM/ARMDisassembler.c",
+        "arch/ARM/ARMDisassemblerExtension.c",
+        "arch/ARM/ARMInstPrinter.c",
+        "arch/ARM/ARMMapping.c",
+        "arch/ARM/ARMModule.c",
+        "arch/X86/X86Disassembler.c",
+        "arch/X86/X86DisassemblerDecoder.c",
+        "arch/X86/X86InstPrinterCommon.c",
+        "arch/X86/X86IntelInstPrinter.c",
+        "arch/X86/X86Mapping.c",
+        "arch/X86/X86Module.c",
+        "cs.c",
+        "utils.c",
+    ] + glob([
+        "*.h",
+        "arch/**/*.h",
+    ]),
+    hdrs = glob(["include/**/*.h"]),
+    copts = ["-w"],
+    # Tracy includes <capstone.h> directly.
+    includes = [
+        "include",
+        "include/capstone",
+    ],
+    local_defines = [
+        "CAPSTONE_HAS_AARCH64",
+        "CAPSTONE_HAS_ARM",
+        "CAPSTONE_HAS_X86",
+        "CAPSTONE_USE_SYS_DYN_MEM",
+        "CAPSTONE_X86_ATT_DISABLE",
+    ],
+    textual_hdrs = glob(["arch/**/*.inc"]),
+)

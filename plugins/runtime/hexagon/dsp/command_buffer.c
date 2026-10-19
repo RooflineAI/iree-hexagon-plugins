@@ -450,8 +450,11 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   size_t binding_ptrs_offset =
       HEXAGON_ALIGN_SIZE_FOR_TYPE(constants_offset + constants_size, void *);
   size_t binding_ptrs_size = num_buf_refs * sizeof(void *);
-  size_t mapped_fds_offset =
-      HEXAGON_ALIGN_SIZE_FOR_TYPE(binding_ptrs_offset + binding_ptrs_size, int);
+  size_t binding_lengths_offset = HEXAGON_ALIGN_SIZE_FOR_TYPE(
+      binding_ptrs_offset + binding_ptrs_size, size_t);
+  size_t binding_lengths_size = num_buf_refs * sizeof(size_t);
+  size_t mapped_fds_offset = HEXAGON_ALIGN_SIZE_FOR_TYPE(
+      binding_lengths_offset + binding_lengths_size, int);
   size_t mapped_fds_size = num_buf_refs * sizeof(int);
   uint8_t *dispatch_arrays = NULL;
   err = HAP_malloc(mapped_fds_offset + mapped_fds_size,
@@ -464,6 +467,8 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   }
   uint32_t *constants = (uint32_t *)(dispatch_arrays + constants_offset);
   void **binding_ptrs = (void **)(dispatch_arrays + binding_ptrs_offset);
+  size_t *binding_lengths =
+      (size_t *)(dispatch_arrays + binding_lengths_offset);
   int *mapped_fds = (int *)(dispatch_arrays + mapped_fds_offset);
 
   // Build dispatch state - must be aligned at 16 bytes, because dispatch
@@ -486,6 +491,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
               .workgroup_count_z = cmd_dispatch->workgroup_count_z,
               .constants = constants,
               .binding_ptrs = binding_ptrs,
+              .binding_lengths = binding_lengths,
           },
       .runtime_state = &runtime_state,
   };
@@ -498,7 +504,8 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
     constants[c] = con->value;
   }
 
-  // Resolve buffer references and fill buffer pointers in dispatch state.
+  // Resolve buffer references and fill buffer pointers and lengths in
+  // dispatch state.
   for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
     READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_buf_ref_t,
                     buf_ref)
@@ -511,6 +518,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
       return err;
     }
     binding_ptrs[idx_buf_ref] = (void *)(res_buf.dsp_vaddr + res_buf.offset);
+    binding_lengths[idx_buf_ref] = res_buf.length;
     mapped_fds[idx_buf_ref] = res_buf.fd;
   }
 

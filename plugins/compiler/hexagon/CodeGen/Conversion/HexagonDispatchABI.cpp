@@ -75,6 +75,8 @@ HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
 
   // const uint32_t * constants;
   // void *const * binding_ptrs;
+  // const size_t * binding_lengths;
+  fieldTypes.push_back(opaquePtrType);
   fieldTypes.push_back(opaquePtrType);
   fieldTypes.push_back(opaquePtrType);
 

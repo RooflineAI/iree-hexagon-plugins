@@ -57,6 +57,7 @@ public:
     /*uint16_t*/ workgroup_count_z,
     /*intptr_t*/ constants,
     /*intptr_t*/ binding_ptrs,
+    /*intptr_t*/ binding_lengths,
   };
   friend DispatchStateField operator+(DispatchStateField lhs, int32_t rhs) {
     return static_cast<DispatchStateField>(static_cast<int32_t>(lhs) + rhs);

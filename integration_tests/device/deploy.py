@@ -77,6 +77,14 @@ class Deployment:
         return f"{self.run_dir}/cases/{case_dir_name}"
 
 
+@dataclass(frozen=True)
+class Deployments:
+    """The plain runtime and the Tracy runtime, each in its own run directory."""
+
+    plain: Deployment
+    tracy: Deployment
+
+
 def _unpack(zip_path: Path, remote_dir: str) -> None:
     adb.shell(f"mkdir -p {shlex.quote(remote_dir)}")
     adb.push([zip_path], remote_dir + "/")

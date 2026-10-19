@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Locating the four artifacts these tests drive.
+"""Locating the artifacts these tests drive.
 
 The device suite runs under plain pytest, so the normal path is that each of
 `iree-compile`, the runtime zip, the device-tools zip and `ld.lld` arrives as a
@@ -24,6 +24,11 @@ IREE_COMPILE_TARGET = "@iree//tools:iree-compile"
 RUNTIME_ZIP_TARGET = "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android"
 LLD_TARGET = "@llvm-project//lld:ld.lld"
 DEVICE_TOOLS_TARGET = "//integration_tests/device/tools:device_tools_aarch64_android"
+RUNTIME_ZIP_TRACY_TARGET = (
+    "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy"
+)
+TRACY_CAPTURE_TARGET = "@tracy_tools//:tracy-capture"
+TRACY_CSVEXPORT_TARGET = "@tracy_tools//:tracy-csvexport"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 

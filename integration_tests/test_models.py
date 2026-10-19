@@ -23,7 +23,7 @@ import time
 
 import pytest
 
-from integration_tests.device.deploy import Deployment
+from integration_tests.device.deploy import Deployment, Deployments
 from integration_tests.modeltree.outcomes import Outcome, Status, check_outcome
 from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.stages.artifacts import ImportedModel
@@ -37,7 +37,12 @@ from integration_tests.stages.compiling import (
     CompileCase,
     compile_model,
 )
-from integration_tests.stages.running import RunCase, run_module_on_device
+from integration_tests.stages.profile_checks import Profile, ProfileError, run_check
+from integration_tests.stages.running import (
+    ProfilerTools,
+    RunCase,
+    run_module_on_device,
+)
 
 
 @pytest.fixture(scope="session")
@@ -65,6 +70,7 @@ def _run_pipeline(
     lld: pathlib.Path | None,
     deployment: Deployment,
     work_dir: pathlib.Path,
+    profiler: ProfilerTools | None,
 ) -> Outcome:
     """Compile, run and check, returning where it got to and the evidence."""
     try:
@@ -98,6 +104,7 @@ def _run_pipeline(
         local_output_dir=work_dir / "device_outputs",
         extra_flags=run_case.flags,
         timeout=model_spec.run_timeout,
+        profiler=profiler,
     )
     print(result.log)
     print("timings:")
@@ -123,6 +130,23 @@ def _run_pipeline(
             )
     except AccuracyError as err:
         return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{result.describe()}")
+
+    if profiler is not None:
+        print(f"profile: {result.profile_trace}")
+        if result.profile_error is not None:
+            return Outcome(Status.CAPTURE_PROFILE_FAILURE, result.profile_error)
+        print(f"profile csv: {result.profile_csv}")
+        profile = Profile.from_csv(result.profile_csv)
+        failures = []
+        for check in model_spec.profile_checks_for(compile_case.name, run_case.name):
+            try:
+                run_check(check.check, profile, check.args)
+            except ProfileError as err:
+                failures.append(f"profile check {check.check} {check.args}: {err}")
+            else:
+                print(f"profile check {check.check} {check.args}: passed")
+        if failures:
+            return Outcome(Status.PROFILE_FAILURE, "\n".join(failures))
     return Outcome(Status.PASSED, result.log)
 
 
@@ -133,7 +157,8 @@ def test_model_on_device(
     imported_model: ImportedModel,
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
-    deployment: Deployment,
+    deployments: Deployments,
+    profiler_tools: ProfilerTools,
     tmp_path: pathlib.Path,
 ) -> None:
     outcome = _run_pipeline(
@@ -143,8 +168,9 @@ def test_model_on_device(
         imported_model=imported_model,
         iree_compile=iree_compile,
         lld=lld,
-        deployment=deployment,
+        deployment=deployments.tracy if run_case.profile else deployments.plain,
         work_dir=tmp_path,
+        profiler=profiler_tools if run_case.profile else None,
     )
 
     expected = model_spec.expected_outcome_for(compile_case.name)

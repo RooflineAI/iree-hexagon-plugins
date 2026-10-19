@@ -56,20 +56,20 @@ module attributes {hal.executable.target = #hexagon_target} {
 
     // Verifies workgroup count x/y/z use dispatch-state fields 4/5/6.
     // CHECK: %[[COUNT_X_STATE:.+]] = llvm.load %[[DISPATCH]]
-    // CHECK: %[[COUNT_X_32:.+]] = llvm.extractvalue %[[COUNT_X_STATE]][4]
+    // CHECK: %[[COUNT_X_32:.+]] = llvm.extractvalue %[[COUNT_X_STATE]][3]
     %count_x = hal.interface.workgroup.count[0] : index
     // CHECK: %[[COUNT_Y_STATE:.+]] = llvm.load %[[DISPATCH]]
-    // CHECK: %[[COUNT_Y_32:.+]] = llvm.extractvalue %[[COUNT_Y_STATE]][5]
+    // CHECK: %[[COUNT_Y_32:.+]] = llvm.extractvalue %[[COUNT_Y_STATE]][4]
     %count_y = hal.interface.workgroup.count[1] : index
     // CHECK: %[[COUNT_Z_STATE:.+]] = llvm.load %[[DISPATCH]]
-    // CHECK: %[[COUNT_Z_16:.+]] = llvm.extractvalue %[[COUNT_Z_STATE]][6]
+    // CHECK: %[[COUNT_Z_16:.+]] = llvm.extractvalue %[[COUNT_Z_STATE]][5]
     // CHECK: %[[COUNT_Z:.+]] = llvm.zext %[[COUNT_Z_16]] : i16 to i32
     %count_z = hal.interface.workgroup.count[2] : index
 
     // Verifies push constant ordinal 1 is loaded as i32 from dispatch-state
     // field 9 and extended to the configured 64-bit index representation.
     // CHECK: %[[CONSTANT_STATE:.+]] = llvm.load %[[DISPATCH]]
-    // CHECK: %[[CONSTANT_BASE:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][9]
+    // CHECK: %[[CONSTANT_BASE:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][6]
     // CHECK: %[[CONSTANT_PTR:.+]] = llvm.getelementptr %[[CONSTANT_BASE]][1]
     // CHECK: %[[CONSTANT_32:.+]] = llvm.load %[[CONSTANT_PTR]] : !llvm.ptr -> i32
     %constant = hal.interface.constant.load layout(#pipeline_layout) ordinal(1) : index
@@ -86,7 +86,7 @@ module attributes {hal.executable.target = #hexagon_target} {
 
     // Verifies the Hexagon runtime pointer is the trailing field of the
     // extended dispatch state and is loaded from ABI argument 1.
-    // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"iree_hal_executable_dispatch_state_v0_t", {{.*}}>, ptr)>
+    // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_v0_t", {{.*}}>, ptr)>
     // CHECK: %[[RUNTIME:.+]] = llvm.load %[[RUNTIME_ADDR]] : !llvm.ptr -> !llvm.ptr
     %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
 

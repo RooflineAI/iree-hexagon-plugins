@@ -25,7 +25,7 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK-LABEL: llvm.func @binding_static_offset(
   // CHECK-DAG: %[[BYTE_OFFSET:.+]] = llvm.mlir.constant(72 : i32) : i32
   // CHECK: %[[STATE:.+]] = llvm.load %arg1
-  // CHECK: %[[BINDINGS:.+]] = llvm.extractvalue %[[STATE]][10]
+  // CHECK: %[[BINDINGS:.+]] = llvm.extractvalue %[[STATE]][7]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDINGS]][1] : (!llvm.ptr) -> !llvm.ptr, !llvm.ptr
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[BYTE_OFFSET]]] : (!llvm.ptr, i32) -> !llvm.ptr, i8
@@ -51,10 +51,10 @@ module attributes {hal.executable.target = #hexagon_target} {
   // before the descriptor is used for element addressing.
   // CHECK-LABEL: llvm.func @binding_static_shape_dynamic_offset(
   // CHECK: %[[CONSTANT_STATE:.+]] = llvm.load %arg1
-  // CHECK: %[[CONSTANTS:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][9]
+  // CHECK: %[[CONSTANTS:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][6]
   // CHECK: %[[CONSTANT_PTR:.+]] = llvm.getelementptr %[[CONSTANTS]][0]
   // CHECK: %[[OFFSET:.+]] = llvm.load %[[CONSTANT_PTR]] : !llvm.ptr -> i32
-  // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
+  // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[7]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][%[[OFFSET]]] : (!llvm.ptr, i32) -> !llvm.ptr, i8
@@ -75,7 +75,7 @@ module attributes {hal.executable.target = #hexagon_target} {
   // Verifies dynamic dimensions produce a zero descriptor offset and
   // row-major dynamic strides while retaining the dynamic HAL byte offset.
   // CHECK-LABEL: llvm.func @binding_dynamic_shape(
-  // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
+  // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[7]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, i8
@@ -116,7 +116,7 @@ module attributes {hal.executable.target = #hexagon_target} {
   // the element index is applied only after the byte pointer is constructed.
   // CHECK-LABEL: llvm.func @binding_sub_byte(
   // CHECK-DAG: %[[ELEMENT_INDEX:.+]] = llvm.mlir.constant(7 : i32) : i32
-  // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[10]
+  // CHECK: %[[BINDING_PTRS:.+]] = llvm.extractvalue {{.+}}[7]
   // CHECK: %[[SLOT:.+]] = llvm.getelementptr %[[BINDING_PTRS]][1]
   // CHECK: %[[BASE:.+]] = llvm.load %[[SLOT]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[BYTE_BASE:.+]] = llvm.getelementptr %[[BASE]][{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, i8

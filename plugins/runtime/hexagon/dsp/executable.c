@@ -37,6 +37,7 @@ typedef struct hexagon_dsp_executable_s {
     const iree_hal_executable_library_v0_t *v0;
   } library;
   /// executable environment passed to dispatches
+  /// FIXME: zero-initialized; executable constants are not populated.
   iree_hal_executable_environment_v0_t environment;
 } hexagon_dsp_executable_t;
 
@@ -77,17 +78,14 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
     return AEE_EUNSUPPORTED;
   }
 
-  // check library version and that no sanitizers are compiled into it
+  // check library version
   const iree_hal_executable_library_header_t *header =
       *executable->library.header;
   if (header->version != IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST) {
-
     return AEE_EVERSIONNOTSUPPORT;
   }
-  if (header->sanitizer != IREE_HAL_EXECUTABLE_LIBRARY_SANITIZER_NONE) {
-    return AEE_ECLASSNOTSUPPORT;
-  }
 
+  // FIXME: dynamic HAL imports are not supported.
   if (executable->library.v0->imports.count != 0) {
     FARF(ERROR,
          "HEXAGON-RUNTIME-ERROR: executable '%s' declares %u HAL imports, "

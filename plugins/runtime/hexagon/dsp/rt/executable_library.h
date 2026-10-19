@@ -12,9 +12,6 @@
 // The Hexagon executable library ABI. The compiler (Target/LibraryBuilder and
 // CodeGen/Conversion/HexagonDispatchABI) produces these structures and the DSP
 // runtime (dsp/executable.c, dsp/command_buffer.c) consumes them.
-// Formatted like upstream, not like this repository, so the copy can be diffed
-// against it.
-// clang-format off
 
 #ifndef HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_H
 #define HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_H
@@ -51,7 +48,7 @@ typedef uint32_t hexagon_executable_library_version_t;
 // with an upstream IREE version (0x0000000N).
 #define HEXAGON_EXECUTABLE_LIBRARY_VERSION_1 0x48580001u
 
-#define HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST                             \
+#define HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST                              \
   HEXAGON_EXECUTABLE_LIBRARY_VERSION_1
 
 // A header present at the top of all versions of the library API used by the
@@ -65,13 +62,13 @@ typedef struct hexagon_executable_library_header_t {
 //
 // Returns NULL if |max_version| differs from the version the library was built
 // with. |environment| is not read by the query function.
-typedef const hexagon_executable_library_header_t** (
+typedef const hexagon_executable_library_header_t **(
     *hexagon_executable_library_query_fn_t)(
     hexagon_executable_library_version_t max_version,
-    const hexagon_executable_environment_t* environment);
+    const hexagon_executable_environment_t *environment);
 
 // Function name exported from dynamic libraries (pass to dlsym).
-#define HEXAGON_EXECUTABLE_LIBRARY_EXPORT_NAME \
+#define HEXAGON_EXECUTABLE_LIBRARY_EXPORT_NAME                                 \
   "hexagon_executable_library_query"
 
 //===----------------------------------------------------------------------===//
@@ -85,7 +82,7 @@ typedef struct hexagon_executable_import_table_t {
   // Total number of imports in the table.
   uint32_t count;
   // Import symbol names; a `?` prefix marks an optional import.
-  const char* const* symbols;
+  const char *const *symbols;
 } hexagon_executable_import_table_t;
 
 // Defines the environment in which the executable is being used. The same
@@ -96,7 +93,7 @@ typedef struct hexagon_executable_environment_t {
   // FIXME: not populated. The runtime leaves this NULL and LibraryBuilder
   // always declares 0 executable constants, so a dispatch that loads one
   // dereferences NULL.
-  const uint32_t* constants;
+  const uint32_t *constants;
 } hexagon_executable_environment_t;
 
 // Read-only per-dispatch state passed to each workgroup in a dispatch.
@@ -114,11 +111,11 @@ typedef struct hexagon_executable_dispatch_state_t {
   uint16_t workgroup_count_z;
 
   // 4 byte push constant values.
-  const uint32_t* constants;
+  const uint32_t *constants;
   // Base pointers to each binding buffer.
-  void* const* binding_ptrs;
+  void *const *binding_ptrs;
   // The length of each binding in bytes, 1:1 with |binding_ptrs|.
-  const size_t* binding_lengths;
+  const size_t *binding_lengths;
 } hexagon_executable_dispatch_state_t;
 static_assert(sizeof(hexagon_executable_dispatch_state_t) <= 64,
               "try keeping dispatch state small enough to fit in a cache line");
@@ -160,9 +157,9 @@ static_assert(
 // caught and only that they are not harmful - clamping byte ranges and never
 // returning a failure is sufficient.
 typedef int (*hexagon_executable_dispatch_fn_t)(
-    const hexagon_executable_environment_t* environment,
-    const hexagon_executable_dispatch_state_t* dispatch_state,
-    const hexagon_executable_workgroup_state_t* workgroup_state);
+    const hexagon_executable_environment_t *environment,
+    const hexagon_executable_dispatch_state_t *dispatch_state,
+    const hexagon_executable_workgroup_state_t *workgroup_state);
 
 // Resource flags stored in hexagon_executable_dispatch_attrs_t.
 enum hexagon_dispatch_flag_bits_e {
@@ -194,13 +191,10 @@ static_assert(sizeof(hexagon_executable_dispatch_attrs_t) <= 64,
 // (makeDispatchAttrsType); keep both in sync.
 static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 16,
               "Hexagon dispatch attrs layout changed");
-static_assert(offsetof(hexagon_executable_dispatch_attrs_t,
-                       hexagon_flags) == 0,
+static_assert(offsetof(hexagon_executable_dispatch_attrs_t, hexagon_flags) == 0,
               "Hexagon dispatch attrs layout changed");
-static_assert(offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) ==
-                  8,
+static_assert(offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) == 8,
               "Hexagon dispatch attrs layout changed");
-
 
 // A table of exported functions arranged as a struct-of-arrays for more
 // efficient packing and faster lookup. Each subarray - when not omitted and
@@ -210,11 +204,11 @@ typedef struct hexagon_executable_export_table_t {
   uint32_t count;
 
   // Function pointers for each exported dispatch function.
-  const hexagon_executable_dispatch_fn_t* ptrs;
+  const hexagon_executable_dispatch_fn_t *ptrs;
 
   // Table of attributes 1:1 with ptrs.
-  const hexagon_executable_dispatch_attrs_t* attrs;
-  const char* const* names;
+  const hexagon_executable_dispatch_attrs_t *attrs;
+  const char *const *names;
 } hexagon_executable_export_table_t;
 
 // Top-level structure of an executable library.
@@ -223,7 +217,7 @@ typedef struct hexagon_executable_export_table_t {
 typedef struct hexagon_executable_library_t {
   // Version/metadata header.
   // Will have a version of HEXAGON_EXECUTABLE_LIBRARY_VERSION_*.
-  const hexagon_executable_library_header_t* header;
+  const hexagon_executable_library_header_t *header;
 
   // Table of imported functions available to functions in the executable.
   hexagon_executable_import_table_t imports;
@@ -237,5 +231,4 @@ typedef struct hexagon_executable_library_t {
 #undef HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_DEFINED_STATIC_ASSERT
 #endif
 
-#endif  // HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_H
-// clang-format on
+#endif // HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_H

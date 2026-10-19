@@ -25,7 +25,7 @@ LLVM::LLVMStructType
 HexagonDispatchABI::getEnvironmentType(MLIRContext *context) {
   llvm::sys::ScopedLock lock(sMutex);
   auto structType = LLVM::LLVMStructType::getIdentified(
-      context, "hexagon_executable_environment_v0_t");
+      context, "hexagon_executable_environment_t");
   if (structType.isInitialized()) {
     return structType;
   }
@@ -49,7 +49,7 @@ LLVM::LLVMStructType
 HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
   llvm::sys::ScopedLock lock(sMutex);
   auto structType = LLVM::LLVMStructType::getIdentified(
-      context, "hexagon_executable_dispatch_state_v0_t");
+      context, "hexagon_executable_dispatch_state_t");
   if (structType.isInitialized()) {
     return structType;
   }
@@ -99,7 +99,7 @@ LLVM::LLVMStructType
 HexagonDispatchABI::getWorkgroupStateType(MLIRContext *context) {
   llvm::sys::ScopedLock lock(sMutex);
   auto structType = LLVM::LLVMStructType::getIdentified(
-      context, "hexagon_executable_workgroup_state_v0_t");
+      context, "hexagon_executable_workgroup_state_t");
   if (structType.isInitialized()) {
     return structType;
   }
@@ -129,13 +129,13 @@ HexagonDispatchABI::getWorkgroupStateType(MLIRContext *context) {
 // static
 SmallVector<Type, 5> HexagonDispatchABI::getInputTypes(MLIRContext *context) {
   return SmallVector<Type, 5>{
-      // const iree_hal_executable_environment_v0_t* IREE_RESTRICT
+      // const hexagon_executable_environment_t* IREE_RESTRICT
       //   environment
       LLVM::LLVMPointerType::get(context),
-      // const iree_hal_executable_dispatch_state_v0_t* IREE_RESTRICT
+      // const hexagon_executable_dispatch_state_t* IREE_RESTRICT
       //   dispatch_state
       LLVM::LLVMPointerType::get(context),
-      // const iree_hal_executable_workgroup_state_v0_t* IREE_RESTRICT
+      // const hexagon_executable_workgroup_state_t* IREE_RESTRICT
       //   workgroup_state
       LLVM::LLVMPointerType::get(context),
   };
@@ -375,7 +375,7 @@ Value HexagonDispatchABI::loadExecutableConstant(Operation *forOp,
 
   // Load constant from the executable constants struct.
   // FIXME: the DSP runtime does not populate environment->constants yet; see
-  // iree_hal_executable_environment_v0_t.
+  // hexagon_executable_environment_t.
   auto constantsPtrValue =
       loadFieldValue(forOp, EnvironmentField::constants, builder);
   Value constantPtrValue =

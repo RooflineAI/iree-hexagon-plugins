@@ -26,7 +26,7 @@
 
 namespace mlir::iree_compiler::hexagon::target {
 
-// Defines an `iree_hal_executable_library_v0_t` and builds the runtime metadata
+// Defines an `hexagon_executable_library_t` and builds the runtime metadata
 // structures and query functions.
 //
 // See hexagon/dsp/rt/executable_library.h for more information.
@@ -39,8 +39,8 @@ namespace mlir::iree_compiler::hexagon::target {
 //  // call queryFunc, export it, etc
 class LibraryBuilder {
 public:
-  // iree_hal_executable_library_version_t
-  // Tracks IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST.
+  // hexagon_executable_library_version_t
+  // Tracks HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST.
   enum class Version : uint32_t {
     // 'HX' in the upper half keeps it apart from upstream IREE versions.
     HEXAGON_1 = 0x4858'0001u,
@@ -62,7 +62,7 @@ public:
     USES_HMX = 1ull << 2,
   };
 
-  // iree_hal_executable_dispatch_attrs_v0_t
+  // hexagon_executable_dispatch_attrs_t
   struct DispatchAttrs {
     // Resources the planner recorded for the dispatch.
     // Bitwise OR of HexagonDispatchFlags values.
@@ -78,7 +78,7 @@ public:
   // Defines a new runtime import function.
   // The declared ordinal of the import matches the order they are declared.
   // FIXME: the DSP runtime rejects libraries that declare imports; see
-  // iree_hal_executable_import_table_v0_t.
+  // hexagon_executable_import_table_t.
   void addImport(StringRef name, bool weak) {
     imports.push_back({name.str(), weak});
   }
@@ -89,7 +89,7 @@ public:
     exports.push_back({name.str(), attrs, func});
   }
 
-  // Builds a `iree_hal_executable_library_query_fn_t` with the given
+  // Builds a `hexagon_executable_library_query_fn_t` with the given
   // |queryFuncName| that will return the current library metadata.
   //
   // The returned function will be inserted into the module with internal
@@ -100,7 +100,7 @@ public:
   llvm::Function *build(StringRef queryFuncName);
 
 private:
-  // Builds and returns an iree_hal_executable_library_v0_t global constant.
+  // Builds and returns an hexagon_executable_library_t global constant.
   llvm::Constant *buildLibraryV0(std::string libraryName);
   llvm::Constant *buildLibraryV0ImportTable(std::string libraryName);
   llvm::Constant *buildLibraryV0ExportTable(std::string libraryName);

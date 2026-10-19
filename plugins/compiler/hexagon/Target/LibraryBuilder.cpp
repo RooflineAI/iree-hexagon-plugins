@@ -26,13 +26,13 @@ namespace mlir::iree_compiler::hexagon::target {
 //===----------------------------------------------------------------------===//
 // hexagon/dsp/rt/executable_library.h structure types
 //===----------------------------------------------------------------------===//
-// %struct.iree_hal_executable_import_table_v0_t = type {
+// %struct.hexagon_executable_import_table_t = type {
 //   i32,
 //   i8**
 // }
 static llvm::StructType *makeImportTableType(llvm::LLVMContext &context) {
   if (auto *existingType = llvm::StructType::getTypeByName(
-          context, "iree_hal_executable_import_table_v0_t")) {
+          context, "hexagon_executable_import_table_t")) {
     return existingType;
   }
   auto *i32Type = llvm::IntegerType::getInt32Ty(context);
@@ -41,12 +41,12 @@ static llvm::StructType *makeImportTableType(llvm::LLVMContext &context) {
                                             i32Type,
                                             llvm::PointerType::get(context, 0),
                                         },
-                                        "iree_hal_executable_import_table_v0_t",
+                                        "hexagon_executable_import_table_t",
                                         /*isPacked=*/false);
   return type;
 }
 
-// %struct.iree_hal_executable_dispatch_attrs_v0_t = type {
+// %struct.hexagon_executable_dispatch_attrs_t = type {
 //   i64,     // hexagon_flags
 //   i64,     // vtcm_bytes
 // }
@@ -54,22 +54,21 @@ static llvm::StructType *makeImportTableType(llvm::LLVMContext &context) {
 // HexagonExecutableSerialization checks the offsets at build time.
 static llvm::StructType *makeDispatchAttrsType(llvm::LLVMContext &context) {
   if (auto *existingType = llvm::StructType::getTypeByName(
-          context, "iree_hal_executable_dispatch_attrs_v0_t")) {
+          context, "hexagon_executable_dispatch_attrs_t")) {
     return existingType;
   }
   auto *i64Type = llvm::IntegerType::getInt64Ty(context);
-  auto *type =
-      llvm::StructType::create(context,
-                               {
-                                   i64Type, // hexagon_flags
-                                   i64Type, // vtcm_bytes
-                               },
-                               "iree_hal_executable_dispatch_attrs_v0_t",
-                               /*isPacked=*/false);
+  auto *type = llvm::StructType::create(context,
+                                        {
+                                            i64Type, // hexagon_flags
+                                            i64Type, // vtcm_bytes
+                                        },
+                                        "hexagon_executable_dispatch_attrs_t",
+                                        /*isPacked=*/false);
   return type;
 }
 
-// %struct.iree_hal_executable_export_table_v0_t = type {
+// %struct.hexagon_executable_export_table_t = type {
 //   i32,
 //   ptr,  // ptrs
 //   ptr,  // attrs
@@ -77,7 +76,7 @@ static llvm::StructType *makeDispatchAttrsType(llvm::LLVMContext &context) {
 // }
 static llvm::StructType *makeExportTableType(llvm::LLVMContext &context) {
   if (auto *existingType = llvm::StructType::getTypeByName(
-          context, "iree_hal_executable_export_table_v0_t")) {
+          context, "hexagon_executable_export_table_t")) {
     return existingType;
   }
   auto *i32Type = llvm::IntegerType::getInt32Ty(context);
@@ -89,17 +88,17 @@ static llvm::StructType *makeExportTableType(llvm::LLVMContext &context) {
                                             ptrType, // attrs
                                             ptrType, // names
                                         },
-                                        "iree_hal_executable_export_table_v0_t",
+                                        "hexagon_executable_export_table_t",
                                         /*isPacked=*/false);
   return type;
 }
 
-// %struct.iree_hal_executable_library_header_t = type {
+// %struct.hexagon_executable_library_header_t = type {
 //   i32
 // }
 static llvm::StructType *makeLibraryHeaderType(llvm::LLVMContext &context) {
   if (auto *existingType = llvm::StructType::getTypeByName(
-          context, "iree_hal_executable_library_header_t")) {
+          context, "hexagon_executable_library_header_t")) {
     return existingType;
   }
   auto *i32Type = llvm::IntegerType::getInt32Ty(context);
@@ -107,20 +106,20 @@ static llvm::StructType *makeLibraryHeaderType(llvm::LLVMContext &context) {
                                         {
                                             i32Type, // version
                                         },
-                                        "iree_hal_executable_library_header_t",
+                                        "hexagon_executable_library_header_t",
                                         /*isPacked=*/false);
   return type;
 }
 
-// %struct.iree_hal_executable_library_v0_t = type {
-//   %struct.iree_hal_executable_library_header_t*,
-//   %struct.iree_hal_executable_import_table_v0_t,
-//   %struct.iree_hal_executable_export_table_v0_t,
+// %struct.hexagon_executable_library_t = type {
+//   %struct.hexagon_executable_library_header_t*,
+//   %struct.hexagon_executable_import_table_t,
+//   %struct.hexagon_executable_export_table_t,
 // }
 static llvm::StructType *makeLibraryType(llvm::StructType *libraryHeaderType) {
   auto &context = libraryHeaderType->getContext();
   if (auto *existingType = llvm::StructType::getTypeByName(
-          context, "iree_hal_executable_library_v0_t")) {
+          context, "hexagon_executable_library_t")) {
     return existingType;
   }
   auto *importTableType = makeImportTableType(context);
@@ -131,7 +130,7 @@ static llvm::StructType *makeLibraryType(llvm::StructType *libraryHeaderType) {
                                             importTableType,
                                             exportTableType,
                                         },
-                                        "iree_hal_executable_library_v0_t",
+                                        "hexagon_executable_library_t",
                                         /*isPacked=*/false);
   return type;
 }
@@ -186,8 +185,8 @@ llvm::Function *LibraryBuilder::build(StringRef queryFuncName) {
   auto *i32Type = llvm::IntegerType::getInt32Ty(context);
   auto *ptrType = llvm::PointerType::get(context, 0);
 
-  // %struct.iree_hal_executable_library_header_t**
-  // @iree_hal_library_query(i32, %struct.iree_hal_executable_environment_v0_t*)
+  // %struct.hexagon_executable_library_header_t**
+  // @iree_hal_library_query(i32, %struct.hexagon_executable_environment_t*)
   auto *queryFuncType = llvm::FunctionType::get(ptrType,
                                                 {
                                                     i32Type,
@@ -252,7 +251,7 @@ LibraryBuilder::buildLibraryV0ExportTable(std::string libraryName) {
   auto *i64Type = llvm::IntegerType::getInt64Ty(context);
   auto *ptrType = llvm::PointerType::get(context, 0);
 
-  // iree_hal_executable_export_table_v0_t::ptrs
+  // hexagon_executable_export_table_t::ptrs
   SmallVector<llvm::Constant *> exportPtrValues;
   for (const Dispatch &dispatch : exports) {
     exportPtrValues.push_back(dispatch.func);
@@ -260,7 +259,7 @@ LibraryBuilder::buildLibraryV0ExportTable(std::string libraryName) {
   llvm::Constant *exportPtrs = createArrayConstant(
       libraryName + "_funcs", ptrType, exportPtrValues, module);
 
-  // iree_hal_executable_export_table_v0_t::attrs
+  // hexagon_executable_export_table_t::attrs
   // Always populate the attrs table as it contains required dispatch metadata.
   SmallVector<llvm::Constant *> exportAttrValues;
   for (const Dispatch &dispatch : exports) {
@@ -276,7 +275,7 @@ LibraryBuilder::buildLibraryV0ExportTable(std::string libraryName) {
   llvm::Constant *exportAttrs = createArrayConstant(
       libraryName + "_attrs", dispatchAttrsType, exportAttrValues, module);
 
-  // iree_hal_executable_export_table_v0_t::names
+  // hexagon_executable_export_table_t::names
   llvm::Constant *exportNames = llvm::Constant::getNullValue(ptrType);
   if (!exports.empty()) {
     SmallVector<llvm::Constant *> exportNameValues;

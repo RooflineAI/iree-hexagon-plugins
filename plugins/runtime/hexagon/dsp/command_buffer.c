@@ -424,13 +424,13 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   uint32_t num_buf_refs = cmd_dispatch->num_bindings;
 
   // Obtain dispatch function pointer.
-  iree_hal_executable_dispatch_v0_t dispatch_func = NULL;
+  hexagon_executable_dispatch_fn_t dispatch_func = NULL;
   int err = hexagon_dsp_executable_get_dispatch_func(
       executable_handle, export_ordinal, &dispatch_func);
   if (err != AEE_SUCCESS) {
     return err;
   }
-  const iree_hal_executable_environment_v0_t *environment = NULL;
+  const hexagon_executable_environment_t *environment = NULL;
   err = hexagon_dsp_executable_get_environment(executable_handle, &environment);
   if (err != AEE_SUCCESS) {
     return err;
@@ -489,7 +489,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
           },
       .runtime_state = &runtime_state,
   };
-  const iree_hal_executable_dispatch_state_v0_t *dispatch_state =
+  const hexagon_executable_dispatch_state_t *dispatch_state =
       &extended_dispatch_state.dispatch_state;
 
   // Obtain constants from serialized data
@@ -534,7 +534,7 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
         // build workgroup state - must be aligned at 16 bytes, because dispatch
         // function declarations assumes that alignment
         HEXAGON_ALIGNAS(16)
-        iree_hal_executable_workgroup_state_v0_t workgroup_state = {
+        hexagon_executable_workgroup_state_t workgroup_state = {
             .workgroup_id_x = wg_id_x,
             .workgroup_id_y = wg_id_y,
             .workgroup_id_z = wg_id_z,

@@ -86,7 +86,7 @@ module attributes {hal.executable.target = #hexagon_target} {
 
     // Verifies the Hexagon runtime pointer is the trailing field of the
     // extended dispatch state and is loaded from ABI argument 1.
-    // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_v0_t", {{.*}}>, ptr)>
+    // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_t", {{.*}}>, ptr)>
     // CHECK: %[[RUNTIME:.+]] = llvm.load %[[RUNTIME_ADDR]] : !llvm.ptr -> !llvm.ptr
     %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
 

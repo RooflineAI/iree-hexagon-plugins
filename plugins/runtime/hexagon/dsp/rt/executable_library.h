@@ -19,13 +19,6 @@
 #ifndef HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_H
 #define HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_H
 
-// The types still carry IREE's names, so this header and IREE's cannot share a
-// translation unit. Block IREE's header from being included after this one.
-#ifdef IREE_HAL_LOCAL_EXECUTABLE_LIBRARY_H_
-#error "iree/hal/local/executable_library.h was included before the Hexagon-owned hexagon/dsp/rt/executable_library.h"
-#endif
-#define IREE_HAL_LOCAL_EXECUTABLE_LIBRARY_H_
-
 // NOTE: this file is designed to be a standalone header: it is embedded in the
 // compiler and must not take any dependencies on the runtime HAL code.
 // Changes here will require changes to the compiler and must be versioned as if
@@ -47,69 +40,69 @@
 // Versioning and interface querying
 //===----------------------------------------------------------------------===//
 
-typedef struct iree_hal_executable_environment_v0_t
-    iree_hal_executable_environment_v0_t;
+typedef struct hexagon_executable_environment_t
+    hexagon_executable_environment_t;
 
 // Version code of the library structures. The runtime only loads libraries
-// built with exactly IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST.
-typedef uint32_t iree_hal_executable_library_version_t;
+// built with exactly HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST.
+typedef uint32_t hexagon_executable_library_version_t;
 
 // Hexagon versions carry 'HX' in the upper half so they can not be confused
 // with an upstream IREE version (0x0000000N).
-#define IREE_HAL_EXECUTABLE_LIBRARY_VERSION_HEXAGON_1 0x48580001u
+#define HEXAGON_EXECUTABLE_LIBRARY_VERSION_1 0x48580001u
 
-#define IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST                             \
-  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_HEXAGON_1
+#define HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST                             \
+  HEXAGON_EXECUTABLE_LIBRARY_VERSION_1
 
 // A header present at the top of all versions of the library API used by the
 // runtime to ensure version compatibility.
-typedef struct iree_hal_executable_library_header_t {
+typedef struct hexagon_executable_library_header_t {
   // Version of the API this library was built with.
-  iree_hal_executable_library_version_t version;
-} iree_hal_executable_library_header_t;
+  hexagon_executable_library_version_t version;
+} hexagon_executable_library_header_t;
 
 // Exported function from dynamic libraries for querying library information.
 //
 // Returns NULL if |max_version| differs from the version the library was built
 // with. |environment| is not read by the query function.
-typedef const iree_hal_executable_library_header_t** (
-    *iree_hal_executable_library_query_fn_t)(
-    iree_hal_executable_library_version_t max_version,
-    const iree_hal_executable_environment_v0_t* environment);
+typedef const hexagon_executable_library_header_t** (
+    *hexagon_executable_library_query_fn_t)(
+    hexagon_executable_library_version_t max_version,
+    const hexagon_executable_environment_t* environment);
 
 // Function name exported from dynamic libraries (pass to dlsym).
-#define IREE_HAL_EXECUTABLE_LIBRARY_EXPORT_NAME \
-  "iree_hal_executable_library_query"
+#define HEXAGON_EXECUTABLE_LIBRARY_EXPORT_NAME \
+  "hexagon_executable_library_query"
 
 //===----------------------------------------------------------------------===//
-// IREE_HAL_EXECUTABLE_LIBRARY_VERSION_HEXAGON_*
+// HEXAGON_EXECUTABLE_LIBRARY_VERSION_*
 //===----------------------------------------------------------------------===//
 
 // Declares imports requested by the executable library.
 //
 // FIXME: dynamic HAL imports are not supported.To be removed
-typedef struct iree_hal_executable_import_table_v0_t {
+typedef struct hexagon_executable_import_table_t {
   // Total number of imports in the table.
   uint32_t count;
   // Import symbol names; a `?` prefix marks an optional import.
   const char* const* symbols;
-} iree_hal_executable_import_table_v0_t;
+} hexagon_executable_import_table_t;
 
 // Defines the environment in which the executable is being used. The same
 // environment is passed to all dispatches of an executable.
-typedef struct iree_hal_executable_environment_v0_t {
+typedef struct hexagon_executable_environment_t {
   // Executable-level constants, read by `hal.executable.constant.load`.
   //
   // FIXME: not populated. The runtime leaves this NULL and LibraryBuilder
   // always declares 0 executable constants, so a dispatch that loads one
   // dereferences NULL.
   const uint32_t* constants;
-} iree_hal_executable_environment_v0_t;
+} hexagon_executable_environment_t;
 
 // Read-only per-dispatch state passed to each workgroup in a dispatch.
 // The DSP runtime passes this as the first member of
 // hexagon_dsp_extended_dispatch_state_t (dispatch_state.h).
-typedef struct iree_hal_executable_dispatch_state_v0_t {
+typedef struct hexagon_executable_dispatch_state_t {
   // Workgroup size chosen for the dispatch.
   uint32_t workgroup_size_x;
   uint32_t workgroup_size_y;
@@ -126,12 +119,12 @@ typedef struct iree_hal_executable_dispatch_state_v0_t {
   void* const* binding_ptrs;
   // The length of each binding in bytes, 1:1 with |binding_ptrs|.
   const size_t* binding_lengths;
-} iree_hal_executable_dispatch_state_v0_t;
-static_assert(sizeof(iree_hal_executable_dispatch_state_v0_t) <= 64,
+} hexagon_executable_dispatch_state_t;
+static_assert(sizeof(hexagon_executable_dispatch_state_t) <= 64,
               "try keeping dispatch state small enough to fit in a cache line");
 
 // Read-only per-workgroup state passed to each workgroup in a dispatch.
-typedef struct iree_hal_executable_workgroup_state_v0_t {
+typedef struct hexagon_executable_workgroup_state_t {
   // Workgroup ID of the currently executing workgroup.
   // This is in the range of 0-workgroup_count and each unique workgroup is to
   // perform workgroup_size invocations.
@@ -150,9 +143,9 @@ typedef struct iree_hal_executable_workgroup_state_v0_t {
   // is the global ID but it really only needs to be within the current node
   // (8-bits, or 16-bit for single-node thousand-core future proofing).
   uint32_t processor_id;
-} iree_hal_executable_workgroup_state_v0_t;
+} hexagon_executable_workgroup_state_t;
 static_assert(
-    sizeof(iree_hal_executable_workgroup_state_v0_t) <= 64,
+    sizeof(hexagon_executable_workgroup_state_t) <= 64,
     "try keeping workgroup state small enough to fit in a cache line");
 
 // Function signature of exported executable dispatch functions.
@@ -166,12 +159,12 @@ static_assert(
 // a useful failure though the HAL does not mandate that all overflows are
 // caught and only that they are not harmful - clamping byte ranges and never
 // returning a failure is sufficient.
-typedef int (*iree_hal_executable_dispatch_v0_t)(
-    const iree_hal_executable_environment_v0_t* environment,
-    const iree_hal_executable_dispatch_state_v0_t* dispatch_state,
-    const iree_hal_executable_workgroup_state_v0_t* workgroup_state);
+typedef int (*hexagon_executable_dispatch_fn_t)(
+    const hexagon_executable_environment_t* environment,
+    const hexagon_executable_dispatch_state_t* dispatch_state,
+    const hexagon_executable_workgroup_state_t* workgroup_state);
 
-// Resource flags stored in iree_hal_executable_dispatch_attrs_v0_t.
+// Resource flags stored in hexagon_executable_dispatch_attrs_t.
 enum hexagon_dispatch_flag_bits_e {
   HEXAGON_DISPATCH_FLAG_NONE = 0ull,
   // The compiler recorded the resources below and `vtcm_bytes`. If clear the
@@ -186,7 +179,7 @@ typedef uint64_t hexagon_dispatch_flags_t;
 
 // Attributes of an exported dispatch function: the resources it needs,
 // measured by the compiler's HexagonAnnotateDispatchResourcesPass.
-typedef struct iree_hal_executable_dispatch_attrs_v0_t {
+typedef struct hexagon_executable_dispatch_attrs_t {
   // Bitwise OR of hexagon_dispatch_flag_bits_e.
   hexagon_dispatch_flags_t hexagon_flags;
   // Bytes of VTCM the dispatch allocates at peak, as bounded by the compiler.
@@ -194,17 +187,17 @@ typedef struct iree_hal_executable_dispatch_attrs_v0_t {
   // VTCM. Only meaningful if `hexagon_flags` has
   // HEXAGON_DISPATCH_FLAG_RESOURCES_VALID set.
   uint64_t vtcm_bytes;
-} iree_hal_executable_dispatch_attrs_v0_t;
-static_assert(sizeof(iree_hal_executable_dispatch_attrs_v0_t) <= 64,
+} hexagon_executable_dispatch_attrs_t;
+static_assert(sizeof(hexagon_executable_dispatch_attrs_t) <= 64,
               "try keeping dispatch attrs small enough to fit in a cache line");
 // The compiler's LibraryBuilder emits this layout as an LLVM struct
 // (makeDispatchAttrsType); keep both in sync.
-static_assert(sizeof(iree_hal_executable_dispatch_attrs_v0_t) == 16,
+static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 16,
               "Hexagon dispatch attrs layout changed");
-static_assert(offsetof(iree_hal_executable_dispatch_attrs_v0_t,
+static_assert(offsetof(hexagon_executable_dispatch_attrs_t,
                        hexagon_flags) == 0,
               "Hexagon dispatch attrs layout changed");
-static_assert(offsetof(iree_hal_executable_dispatch_attrs_v0_t, vtcm_bytes) ==
+static_assert(offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) ==
                   8,
               "Hexagon dispatch attrs layout changed");
 
@@ -212,32 +205,32 @@ static_assert(offsetof(iree_hal_executable_dispatch_attrs_v0_t, vtcm_bytes) ==
 // A table of exported functions arranged as a struct-of-arrays for more
 // efficient packing and faster lookup. Each subarray - when not omitted and
 // NULL - is indexed by export ordinal and has up to |count| entries.
-typedef struct iree_hal_executable_export_table_v0_t {
+typedef struct hexagon_executable_export_table_t {
   // Total number of exports in the table.
   uint32_t count;
 
   // Function pointers for each exported dispatch function.
-  const iree_hal_executable_dispatch_v0_t* ptrs;
+  const hexagon_executable_dispatch_fn_t* ptrs;
 
   // Table of attributes 1:1 with ptrs.
-  const iree_hal_executable_dispatch_attrs_v0_t* attrs;
+  const hexagon_executable_dispatch_attrs_t* attrs;
   const char* const* names;
-} iree_hal_executable_export_table_v0_t;
+} hexagon_executable_export_table_t;
 
-// Structure used for v0 library interfaces.
+// Top-level structure of an executable library.
 // The entire structure is designed to be read-only and able to live embedded in
 // the binary .rdata section.
-typedef struct iree_hal_executable_library_v0_t {
+typedef struct hexagon_executable_library_t {
   // Version/metadata header.
-  // Will have a version of IREE_HAL_EXECUTABLE_LIBRARY_VERSION_*.
-  const iree_hal_executable_library_header_t* header;
+  // Will have a version of HEXAGON_EXECUTABLE_LIBRARY_VERSION_*.
+  const hexagon_executable_library_header_t* header;
 
   // Table of imported functions available to functions in the executable.
-  iree_hal_executable_import_table_v0_t imports;
+  hexagon_executable_import_table_t imports;
 
   // Table of exported functions from the executable.
-  iree_hal_executable_export_table_v0_t exports;
-} iree_hal_executable_library_v0_t;
+  hexagon_executable_export_table_t exports;
+} hexagon_executable_library_t;
 
 #ifdef HEXAGON_DSP_RT_EXECUTABLE_LIBRARY_DEFINED_STATIC_ASSERT
 #undef static_assert

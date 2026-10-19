@@ -22,23 +22,23 @@ typedef struct hexagon_dsp_executable_s {
   /// pointer to shared library (as returned by dlopen)
   void *shlib;
   /// query function pointer
-  iree_hal_executable_library_query_fn_t query_func;
+  hexagon_executable_library_query_fn_t query_func;
   /// library information
   /// The approach is taken from
   /// iree/hal/local/loaders/static_library_loader.c. The executable_library
   /// API works with "..._header_t **", but the specific implementation needs
-  /// more information. So the "..._library_v0_t" structure contains a
+  /// more information. So the "..._library_t" structure contains a
   /// "..._header_t*" as the first member. The union is then used to "cast"
-  /// the "..._header_t**" to a "..._library_v0_t*" by assigning the incoming
+  /// the "..._header_t**" to a "..._library_t*" by assigning the incoming
   /// "..._header_t**" to "header" and using "v0" to access the "derived class"
   /// information.
   union {
-    const iree_hal_executable_library_header_t **header;
-    const iree_hal_executable_library_v0_t *v0;
+    const hexagon_executable_library_header_t **header;
+    const hexagon_executable_library_t *v0;
   } library;
   /// executable environment passed to dispatches
   /// FIXME: zero-initialized; executable constants are not populated.
-  iree_hal_executable_environment_v0_t environment;
+  hexagon_executable_environment_t environment;
 } hexagon_dsp_executable_t;
 
 /// set up executable data structure, used inside hexagon_dsp_executable_load()
@@ -64,24 +64,24 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
   }
 
   // get query function
-  executable->query_func = (iree_hal_executable_library_query_fn_t)dlsym(
-      executable->shlib, IREE_HAL_EXECUTABLE_LIBRARY_EXPORT_NAME);
+  executable->query_func = (hexagon_executable_library_query_fn_t)dlsym(
+      executable->shlib, HEXAGON_EXECUTABLE_LIBRARY_EXPORT_NAME);
   if (!executable->query_func) {
     return AEE_ERESOURCENOTFOUND;
   }
 
   // query library version
   executable->library.header =
-      (const iree_hal_executable_library_header_t **)executable->query_func(
-          IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST, &executable->environment);
+      (const hexagon_executable_library_header_t **)executable->query_func(
+          HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST, &executable->environment);
   if (!executable->library.header) {
     return AEE_EUNSUPPORTED;
   }
 
   // check library version
-  const iree_hal_executable_library_header_t *header =
+  const hexagon_executable_library_header_t *header =
       *executable->library.header;
-  if (header->version != IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST) {
+  if (header->version != HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST) {
     return AEE_EVERSIONNOTSUPPORT;
   }
 
@@ -137,10 +137,10 @@ int hexagon_dsp_executable_close(remote_handle64 rpc_handle,
 
 int hexagon_dsp_executable_get_dispatch_func(
     int64 executable_handle, uint32_t export_ordinal,
-    iree_hal_executable_dispatch_v0_t *out_dispatch_func) {
+    hexagon_executable_dispatch_fn_t *out_dispatch_func) {
   hexagon_dsp_executable_t *executable =
       (hexagon_dsp_executable_t *)executable_handle;
-  const iree_hal_executable_export_table_v0_t *exports =
+  const hexagon_executable_export_table_t *exports =
       &executable->library.v0->exports;
 
   if (export_ordinal >= exports->count) {
@@ -153,7 +153,7 @@ int hexagon_dsp_executable_get_dispatch_func(
 
 int hexagon_dsp_executable_get_environment(
     int64 executable_handle,
-    const iree_hal_executable_environment_v0_t **out_environment) {
+    const hexagon_executable_environment_t **out_environment) {
   if (!out_environment) {
     return AEE_EBADPARM;
   }
@@ -168,7 +168,7 @@ int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
                                                   const char **out_name) {
   hexagon_dsp_executable_t *executable =
       (hexagon_dsp_executable_t *)executable_handle;
-  const iree_hal_executable_export_table_v0_t *exports =
+  const hexagon_executable_export_table_t *exports =
       &executable->library.v0->exports;
 
   if (export_ordinal >= exports->count || !out_name) {

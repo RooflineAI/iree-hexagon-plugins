@@ -90,7 +90,7 @@ Hexagon extends the allocation addressed by the second argument:
 
 ```text
 {
-  iree_hal_executable_dispatch_state_v0_t base;
+  hexagon_executable_dispatch_state_t base;
   hexagon_rt_state_t *runtime_state;
 }
 ```
@@ -111,7 +111,7 @@ IREE offers three ways for generated code to call an external function:
 - **Static linking** (`hal.import.static`). The call stays a direct call to an
   undefined symbol, resolved when the shared object is linked or loaded.
 - **Dynamic HAL imports.** The call is rewritten into an indirect call through
-  the import table in `iree_hal_executable_environment_v0_t`, which the runtime
+  the import table in `hexagon_executable_environment_t`, which the runtime
   fills when it loads the executable.
 - **Bitcode imports** (`hal.import.bitcode`). The callee and call sites are
   rewritten to the HAL calling convention, which packs arguments into a struct.

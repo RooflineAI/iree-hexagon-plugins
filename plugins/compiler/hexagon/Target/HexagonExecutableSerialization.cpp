@@ -58,16 +58,16 @@ namespace {
 // checks the version at load time (see dsp/executable.c); these catch a drift
 // between LibraryBuilder and the ABI header at build time instead.
 static_assert(static_cast<uint32_t>(LibraryBuilder::Version::LATEST) ==
-                  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST,
+                  HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST,
               "Target/LibraryBuilder is out of sync with "
               "hexagon/dsp/rt/executable_library.h");
 
 // guard against struct layout changes
-static_assert(sizeof(iree_hal_executable_dispatch_attrs_v0_t) == 16 &&
-                  offsetof(iree_hal_executable_dispatch_attrs_v0_t,
+static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 16 &&
+                  offsetof(hexagon_executable_dispatch_attrs_t,
                            hexagon_flags) == 0 &&
-                  offsetof(iree_hal_executable_dispatch_attrs_v0_t,
-                           vtcm_bytes) == 8,
+                  offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) ==
+                      8,
               "dispatch attrs layout differs from LibraryBuilder");
 static_assert(
     static_cast<uint64_t>(
@@ -83,8 +83,9 @@ static_assert(
 // destroyed at the end of serialization.
 using TemporaryFiles = llvm::SmallVector<std::unique_ptr<llvm::FileRemover>>;
 
+// The DSP runtime looks the query function up by this name.
 static constexpr char kQueryFunctionName[] =
-    "iree_hal_executable_library_query";
+    HEXAGON_EXECUTABLE_LIBRARY_EXPORT_NAME;
 
 // LLVM only knows a function's final frame size, including register spills,
 // after register allocation. Use its `warn-stack-size` diagnostic to enforce a

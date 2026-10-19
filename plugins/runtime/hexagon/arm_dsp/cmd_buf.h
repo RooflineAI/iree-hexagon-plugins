@@ -16,7 +16,7 @@
 /// (see dispatch function in iree_hal_command_buffer_vtable_t in
 /// third-party/iree/runtime/src/iree/hal/command_buffer.h), but
 /// to the kernel code inside an executable library as an array of uint32_t
-/// values (see constants pointer in iree_hal_executable_dispatch_state_v0_t in
+/// values (see constants pointer in hexagon_executable_dispatch_state_t in
 /// hexagon/dsp/rt/executable_library.h).
 /// The conversion includes checks (size multiple of 4, number of constants
 /// not larger than UINT16_MAX) that can fail. It is therefore beneficial to

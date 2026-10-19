@@ -39,15 +39,15 @@ namespace mlir::iree_compiler::hexagon::codegen {
 // versions in the same compiled output.
 class HexagonDispatchABI {
 public:
-  // Matches the field order in iree_hal_executable_environment_v0_t.
+  // Matches the field order in hexagon_executable_environment_t.
   enum class EnvironmentField {
     constants,
   };
 
-  // Returns a Type representing iree_hal_executable_environment_v0_t.
+  // Returns a Type representing hexagon_executable_environment_t.
   static LLVM::LLVMStructType getEnvironmentType(MLIRContext *context);
 
-  // Matches the field order in iree_hal_executable_dispatch_state_v0_t.
+  // Matches the field order in hexagon_executable_dispatch_state_t.
   enum class DispatchStateField {
     /*uint32_t*/ workgroup_size_x,
     /*uint32_t*/ workgroup_size_y,
@@ -62,7 +62,7 @@ public:
     return static_cast<DispatchStateField>(static_cast<int32_t>(lhs) + rhs);
   }
 
-  // Returns a Type representing iree_hal_executable_dispatch_state_v0_t.
+  // Returns a Type representing hexagon_executable_dispatch_state_t.
   static LLVM::LLVMStructType getDispatchStateType(MLIRContext *context);
 
   // Returns the Hexagon extension of the IREE dispatch state. The base state
@@ -81,11 +81,11 @@ public:
     return static_cast<WorkgroupStateField>(static_cast<int32_t>(lhs) + rhs);
   }
 
-  // Returns a Type representing iree_hal_executable_workgroup_state_v0_t.
+  // Returns a Type representing hexagon_executable_workgroup_state_t.
   static LLVM::LLVMStructType getWorkgroupStateType(MLIRContext *context);
 
   // Returns the types of the LLVM function inputs for the ABI.
-  // This matches the signature of `iree_hal_executable_dispatch_v0_t` in
+  // This matches the signature of `hexagon_executable_dispatch_fn_t` in
   // `hexagon/dsp/rt/executable_library.h`.
   static SmallVector<Type, 5> getInputTypes(MLIRContext *context);
 

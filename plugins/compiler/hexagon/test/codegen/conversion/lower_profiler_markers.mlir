@@ -25,7 +25,7 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK-COUNT-1: llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {hal.import.static}
   // CHECK-LABEL: llvm.func @kernel(
   // CHECK-SAME: %{{.+}}: !llvm.ptr, %[[DISPATCH:.+]]: !llvm.ptr, %{{.+}}: !llvm.ptr
-  // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_v0_t", {{.*}}>, ptr)>
+  // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_t", {{.*}}>, ptr)>
   // CHECK: %[[RUNTIME:.+]] = llvm.load %[[RUNTIME_ADDR]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[ZONE_7:.+]] = llvm.mlir.constant(7 : i32) : i32
   // CHECK: %[[SHARED0:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[RUNTIME]], %[[ZONE_7]], {{.+}}) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr

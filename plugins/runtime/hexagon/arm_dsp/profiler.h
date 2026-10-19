@@ -35,7 +35,7 @@ static const hexagon_pmu_counters_ids_t default_ids = {
 
 #define HEXAGON_PROFILER_ZONES                                                 \
   HEXAGON_PROFILER_ZONE(DSP_EXECUTION, "DSP execution")                        \
-  HEXAGON_PROFILER_ZONE(DISPATCH, "Dispatch")                                  \
+  HEXAGON_PROFILER_ZONE(SCHEDULE, "Schedule")                                  \
   HEXAGON_PROFILER_ZONE(KERNEL, "Kernel")                                      \
   HEXAGON_PROFILER_ZONE(BARRIER, "Barrier")                                    \
   HEXAGON_PROFILER_ZONE(COPY, "Copy")                                          \
@@ -94,6 +94,13 @@ typedef struct hexagon_rt_prof_record_s {
   uint8_t record_completed;
   // Needed for the structs above
   uint8_t _pad;
+
+  // DSP thread that started the record. Must stay 4 byte aligned and keep the
+  // record size a multiple of 4 (for the PMU stamps of the following records).
+  uint32_t thread_id;
 } __attribute__((packed)) hexagon_rt_prof_record_t;
+
+_Static_assert(sizeof(hexagon_rt_prof_record_t) % 4 == 0,
+               "profiler records must keep the PMU stamps 4 byte aligned");
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_ARM_DSP_PROFILER_H_

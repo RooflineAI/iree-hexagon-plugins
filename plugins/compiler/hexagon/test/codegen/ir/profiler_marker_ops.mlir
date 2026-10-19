@@ -20,7 +20,7 @@ func.func @profiler_marker_ops() {
 func.func @profiler_zone_types() {
   %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
   %dsp_execution = iree_hexagon.profiler.begin %state <zone_type = dsp_execution> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
-  %dispatch = iree_hexagon.profiler.begin %state <zone_type = dispatch> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+  %schedule = iree_hexagon.profiler.begin %state <zone_type = schedule> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
   %kernel = iree_hexagon.profiler.begin %state <zone_type = kernel> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
   %barrier = iree_hexagon.profiler.begin %state <zone_type = barrier> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
   %copy = iree_hexagon.profiler.begin %state <zone_type = copy> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
@@ -33,7 +33,7 @@ func.func @profiler_zone_types() {
 
 // CHECK-LABEL: func.func @profiler_zone_types()
 // CHECK: zone_type = dsp_execution
-// CHECK: zone_type = dispatch
+// CHECK: zone_type = schedule
 // CHECK: zone_type = kernel
 // CHECK: zone_type = barrier
 // CHECK: zone_type = copy

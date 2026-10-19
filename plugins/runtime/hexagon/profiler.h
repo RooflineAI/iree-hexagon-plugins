@@ -23,6 +23,20 @@ typedef struct iree_tracing_context_t iree_tracing_context_t;
 #define IREE_HAL_HEXAGON_TRACY_MAX_ZONES 0x7FFFu
 // Sentinel for an uninitialized tracy GPU context id.
 #define IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID 0xFFu
+// Max. number of DSP threads that get their own tracy track.
+#define IREE_HAL_HEXAGON_TRACY_MAX_LANES 16u
+
+// Tracy GPU contexts, one per DSP thread, so that zones running in parallel on
+// different DSP threads show up side by side. Cached in the device, because
+// the number of GPU contexts per process is limited. Lanes are numbered in the
+// order their threads are first seen, so lane 0 is the thread walking the
+// command buffer, which records the first zone (DSP_EXECUTION). All zero means
+// no lanes yet.
+typedef struct iree_hal_hexagon_tracy_lanes_t {
+  uint32_t thread_ids[IREE_HAL_HEXAGON_TRACY_MAX_LANES];
+  uint8_t context_ids[IREE_HAL_HEXAGON_TRACY_MAX_LANES];
+  uint32_t count;
+} iree_hal_hexagon_tracy_lanes_t;
 
 iree_status_t iree_hal_hexagon_alloc_and_init_profiler_data(
     iree_hal_command_buffer_t *command_buffer,
@@ -31,6 +45,7 @@ iree_status_t iree_hal_hexagon_alloc_and_init_profiler_data(
 
 iree_status_t iree_hal_hexagon_export_profiler_data(
     iree_allocator_t host_allocator, uint8_t *profiler_data,
-    uint8_t *tracy_context_id, iree_tracing_context_t **tracy_plot_context);
+    iree_hal_hexagon_tracy_lanes_t *tracy_lanes,
+    iree_tracing_context_t **tracy_plot_context);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_PROFILER_H_

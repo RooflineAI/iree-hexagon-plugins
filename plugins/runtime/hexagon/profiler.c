@@ -24,9 +24,10 @@ iree_status_t iree_hal_hexagon_alloc_and_init_profiler_data(
 
 iree_status_t iree_hal_hexagon_export_profiler_data(
     iree_allocator_t host_allocator, uint8_t *profiler_data,
-    uint8_t *tracy_context_id, iree_tracing_context_t **tracy_plot_context) {
+    iree_hal_hexagon_tracy_lanes_t *tracy_lanes,
+    iree_tracing_context_t **tracy_plot_context) {
   (void)profiler_data;
-  (void)tracy_context_id;
+  (void)tracy_lanes;
   (void)tracy_plot_context;
   return iree_make_status(IREE_STATUS_UNAVAILABLE,
                           "profiler is not enabled in this build");
@@ -57,15 +58,21 @@ typedef struct hexagon_rt_prof_record_view_t {
   uint32_t zone_type;
   uint16_t query_begin;
   uint16_t query_end;
+  // tracy GPU context of the DSP thread that recorded the zone
+  uint8_t context_id;
   const char *extra_info;
 } hexagon_rt_prof_record_view_t;
 
-static int iree_hal_hexagon_compare_profiler_records_by_start_and_end(
+static int iree_hal_hexagon_compare_profiler_records_by_lane_start_and_end(
     const void *lhs_ptr, const void *rhs_ptr) {
   const hexagon_rt_prof_record_view_t *lhs =
       (const hexagon_rt_prof_record_view_t *)lhs_ptr;
   const hexagon_rt_prof_record_view_t *rhs =
       (const hexagon_rt_prof_record_view_t *)rhs_ptr;
+  if (lhs->context_id < rhs->context_id)
+    return -1;
+  if (lhs->context_id > rhs->context_id)
+    return 1;
   if (lhs->start_us < rhs->start_us)
     return -1;
   if (lhs->start_us > rhs->start_us)
@@ -84,7 +91,7 @@ static uint32_t iree_hal_hexagon_zone_color_xbgr(uint32_t zone_type) {
   switch (zone_type) {
   case DSP_EXECUTION:
     return 0xa46e5cu;
-  case DISPATCH:
+  case SCHEDULE:
     return 0xb68b7cu;
   case KERNEL:
     return 0x808cb1u;
@@ -104,10 +111,42 @@ static uint32_t iree_hal_hexagon_zone_color_xbgr(uint32_t zone_type) {
   }
 }
 
+// Returns the tracy GPU context of a DSP thread, allocating it on first use.
+// Returns IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID if there are more threads
+// than lanes.
+static uint8_t
+iree_hal_hexagon_tracy_lane(iree_hal_hexagon_tracy_lanes_t *lanes,
+                            uint32_t thread_id, uint64_t cpu_anchor) {
+  // search for previous context
+  for (uint32_t i = 0; i < lanes->count; ++i) {
+    if (lanes->thread_ids[i] == thread_id)
+      return lanes->context_ids[i];
+  }
+  if (lanes->count >= IREE_HAL_HEXAGON_TRACY_MAX_LANES)
+    return IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID;
+  // create new context
+  char name[32];
+  snprintf(name, sizeof(name), "hexagon-dsp thread %u",
+           (unsigned int)lanes->count);
+  // Timestamps passed to it are already rebased to cpu time
+  // (see iree_hal_hexagon_rebase_prof_timestamps)
+  // so it is calibrated with cpu and gpu timestamps both set to the anchor.
+  uint8_t context_id = iree_tracing_gpu_context_allocate(
+      IREE_TRACING_GPU_CONTEXT_TYPE_VULKAN, name, strlen(name),
+      /*is_calibrated=*/true,
+      /*cpu_timestamp=*/cpu_anchor,
+      /*gpu_timestamp=*/cpu_anchor,
+      /*timestamp_period=*/1);
+  lanes->thread_ids[lanes->count] = thread_id;
+  lanes->context_ids[lanes->count] = context_id;
+  ++lanes->count;
+  return context_id;
+}
+
 static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
     iree_allocator_t host_allocator, const hexagon_rt_prof_record_t *records,
-    uint32_t count, hexagon_rt_prof_record_view_t **out_views,
-    uint32_t *out_view_count) {
+    uint32_t count, iree_hal_hexagon_tracy_lanes_t *lanes, uint64_t cpu_anchor,
+    hexagon_rt_prof_record_view_t **out_views, uint32_t *out_view_count) {
   *out_views = NULL;
   *out_view_count = 0;
 
@@ -128,6 +167,7 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
                             "out of host memory for profiler views");
   }
 
+  uint32_t dropped = 0;
   uint32_t view_count = 0;
   for (uint32_t i = 0; i < count && view_count < max_zones; ++i) {
     const hexagon_rt_prof_record_t *record = &records[i];
@@ -137,6 +177,15 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
     const int64_t end_us = (int64_t)record->stop_timer_ticks_timestamp;
     if (end_us <= start_us)
       continue;
+    // count the number of records dropped due to having too many threads
+    // to print a warning below
+    const uint8_t context_id =
+        iree_hal_hexagon_tracy_lane(lanes, record->thread_id, cpu_anchor);
+    if (context_id == IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID) {
+      ++dropped;
+      continue;
+    }
+    views[view_count].context_id = context_id;
     views[view_count].record_index = i;
     views[view_count].start_us = start_us;
     views[view_count].end_us = end_us;
@@ -145,9 +194,17 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
     ++view_count;
   }
 
+  if (dropped > 0) {
+    fprintf(stderr,
+            "WARNING: More than %u DSP threads; dropped %u profiler "
+            "records of the additional threads.\n",
+            (unsigned int)IREE_HAL_HEXAGON_TRACY_MAX_LANES,
+            (unsigned int)dropped);
+  }
+
   if (view_count > 0) {
     qsort(views, view_count, sizeof(*views),
-          iree_hal_hexagon_compare_profiler_records_by_start_and_end);
+          iree_hal_hexagon_compare_profiler_records_by_lane_start_and_end);
 
     for (uint32_t i = 0; i < view_count; ++i) {
       views[i].query_begin = (uint16_t)(2 * i);
@@ -160,10 +217,12 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
   return iree_ok_status();
 }
 
-// Emits tracy zones in the correct order to generate a nested trace
-static iree_status_t iree_hal_hexagon_emit_tracy_zones(
-    iree_allocator_t host_allocator, uint8_t tracy_context_id,
-    hexagon_rt_prof_record_view_t *views, uint32_t view_count) {
+// Emits tracy zones in the correct order to generate a nested trace. Views are
+// sorted by lane (context) first, a lane at a time is nested on the stack.
+static iree_status_t
+iree_hal_hexagon_emit_tracy_zones(iree_allocator_t host_allocator,
+                                  hexagon_rt_prof_record_view_t *views,
+                                  uint32_t view_count) {
   uint32_t *stack;
   iree_allocator_malloc(host_allocator, sizeof(*stack) * view_count,
                         (void **)&stack);
@@ -176,13 +235,13 @@ static iree_status_t iree_hal_hexagon_emit_tracy_zones(
   for (uint32_t i = 0; i < view_count; ++i) {
     hexagon_rt_prof_record_view_t *view = &views[i];
     // End all zones that are still on the stack and ended before the start of
-    // the current zone
+    // the current zone, or belong to the previous lane
     while (stack_size > 0) {
       hexagon_rt_prof_record_view_t *top = &views[stack[stack_size - 1]];
-      if (top->end_us > view->start_us)
+      if (top->context_id == view->context_id && top->end_us > view->start_us)
         break;
-      iree_tracing_gpu_zone_end(tracy_context_id, top->query_end);
-      iree_tracing_gpu_zone_notify(tracy_context_id, top->query_end,
+      iree_tracing_gpu_zone_end(top->context_id, top->query_end);
+      iree_tracing_gpu_zone_notify(top->context_id, top->query_end,
                                    top->end_us);
       --stack_size;
     }
@@ -203,10 +262,10 @@ static iree_status_t iree_hal_hexagon_emit_tracy_zones(
     const uint32_t zone_color =
         iree_hal_hexagon_zone_color_xbgr(view->zone_type);
     iree_tracing_gpu_zone_begin_external_colored(
-        tracy_context_id, view->query_begin, __FILE__, strlen(__FILE__),
+        view->context_id, view->query_begin, __FILE__, strlen(__FILE__),
         __LINE__, __func__, strlen(__func__), zone_name, strlen(zone_name),
         zone_color);
-    iree_tracing_gpu_zone_notify(tracy_context_id, view->query_begin,
+    iree_tracing_gpu_zone_notify(view->context_id, view->query_begin,
                                  view->start_us);
     stack[stack_size++] = i;
   }
@@ -214,8 +273,8 @@ static iree_status_t iree_hal_hexagon_emit_tracy_zones(
   // All zones processed, now end all zones that are still on the stack
   while (stack_size > 0) {
     hexagon_rt_prof_record_view_t *top = &views[stack[stack_size - 1]];
-    iree_tracing_gpu_zone_end(tracy_context_id, top->query_end);
-    iree_tracing_gpu_zone_notify(tracy_context_id, top->query_end, top->end_us);
+    iree_tracing_gpu_zone_end(top->context_id, top->query_end);
+    iree_tracing_gpu_zone_notify(top->context_id, top->query_end, top->end_us);
     --stack_size;
   }
 
@@ -342,7 +401,8 @@ iree_status_t iree_hal_hexagon_alloc_and_init_profiler_data(
 
 iree_status_t iree_hal_hexagon_export_profiler_data(
     iree_allocator_t host_allocator, uint8_t *profiler_data,
-    uint8_t *tracy_context_id, iree_tracing_context_t **tracy_plot_context) {
+    iree_hal_hexagon_tracy_lanes_t *tracy_lanes,
+    iree_tracing_context_t **tracy_plot_context) {
   hexagon_rt_prof_header_t *header = (hexagon_rt_prof_header_t *)profiler_data;
   if (header->dropped_records > 0) {
     fprintf(stderr,
@@ -370,23 +430,11 @@ iree_status_t iree_hal_hexagon_export_profiler_data(
     return rebase_status;
   }
 
-  const char *context_name = "hexagon-dsp";
   // Using iree_tracing_gpu_context_calibrate would be handy, but the
   // calibration must be manually done anyway for the pmu counters, since there
   // is not a better way to display them than passing absolute cpu values.
-  // Therefore, manually calibrating without using that function
-  if (*tracy_context_id == IREE_HAL_HEXAGON_TRACY_CONTEXT_INVALID) {
-    // Setting is calibrated to true means that entries all entries are expected
-    // in cpu time, doing the calibration manually above. The three last
-    // arguments are therefore actually ignored
-    *tracy_context_id = iree_tracing_gpu_context_allocate(
-        IREE_TRACING_GPU_CONTEXT_TYPE_VULKAN, context_name,
-        strlen(context_name),
-        /*is_calibrated=*/true,
-        /*cpu_timestamp=*/header->start_cmd_buffer_exec_cpu_time,
-        /*gpu_timestamp=*/records[0].start_timer_ticks_timestamp,
-        /*timestamp_period=*/1);
-  }
+  // Therefore, manually calibrating without using that function.
+  const uint64_t cpu_anchor = header->start_cmd_buffer_exec_cpu_time;
 
   if (!*tracy_plot_context) {
     const char *plot_context_name = "hexagon-dsp-pmu";
@@ -410,7 +458,10 @@ iree_status_t iree_hal_hexagon_export_profiler_data(
   // visualization of what if going on. Nevertheless, since we are measuring
   // differences, (motivated by overflows in Hexagon's 32 bit registers and for
   // clarity when reading the plots), we remove nesting by only plotting kernel
-  // zones
+  // zones.
+  // FIXME:
+  // PMU counters are not per thread, so the deltas of kernels running in
+  // parallel include each other's work.
   for (uint32_t i = 0; i < count; ++i) {
     const hexagon_rt_prof_record_t *record = &records[i];
     if (!record->record_completed)
@@ -441,14 +492,15 @@ iree_status_t iree_hal_hexagon_export_profiler_data(
     hexagon_rt_prof_record_view_t *views = NULL;
     uint32_t view_count = 0;
     iree_status_t view_status = iree_hal_hexagon_collect_and_sort_prof_views(
-        host_allocator, records, count, &views, &view_count);
+        host_allocator, records, count, tracy_lanes, cpu_anchor, &views,
+        &view_count);
     if (!iree_status_is_ok(view_status)) {
       return view_status;
     }
 
     if (view_count > 0) {
-      iree_status_t emit_status = iree_hal_hexagon_emit_tracy_zones(
-          host_allocator, *tracy_context_id, views, view_count);
+      iree_status_t emit_status =
+          iree_hal_hexagon_emit_tracy_zones(host_allocator, views, view_count);
       iree_allocator_free(host_allocator, views);
       if (!iree_status_is_ok(emit_status)) {
         return emit_status;

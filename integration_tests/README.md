@@ -18,28 +18,38 @@ is what fetches the weights; `model.yaml` never repeats them.
 ## Running them
 
 The device suite runs under **plain pytest**, not `bazel test`. The compiler binary,
-runtime package and the device-tools zip are expected to be built separately and
-passed as an argument to the pytest command.
+both runtime packages (plain and with Tracy), the device-tools zip and the Tracy
+host tools are expected to be built separately and passed as an argument to the
+pytest command.
 
 ```sh
 build_tools/create_test_venv.sh                 # creates ./.venv from requirements.txt
 .venv/bin/pytest integration_tests/ -v -rA \
-    --iree-compile=<path> --runtime-zip=<path> --device-tools-zip=<path> --lld=<path>
+    --iree-compile=<path> --runtime-zip=<path> --runtime-zip-tracy=<path> \
+    --device-tools-zip=<path> --lld=<path> \
+    --tracy-capture=<path> --tracy-csvexport=<path>
 ```
 
-Omit the four paths and they will try to be resolved with `bazel cquery`:
+Omit the paths and they will try to be resolved with `bazel cquery`:
 
 ```sh
 bazel build @iree//tools:iree-compile \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android \
+            //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy \
             //integration_tests/device/tools:device_tools_aarch64_android \
-            @llvm-project//lld:ld.lld
+            @llvm-project//lld:ld.lld \
+            @tracy_tools//:tracy-capture @tracy_tools//:tracy-csvexport
 pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 ```
+
+Both runtimes are deployed once per session, each in its own run directory; the
+profile run cases (see [Profiling](#profiling)) use the Tracy one and the Tracy
+host tools, all others the plain one.
 
 Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 (all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`,
 `--rsync`, and the four artifact paths.
+`--tracy-port` (default 8086), and the seven artifact paths.
 
 ## Requirements
 
@@ -135,6 +145,9 @@ runs only `parallel`:
 
 * `sequential`: `--hexagon_max_concurrent_dispatches=1`, one dispatch at a time.
 
+* `parallel-profile`, `sequential-profile`: the same, run with the Tracy runtime
+  and profiled, see [Profiling](#profiling).
+
 ```yaml
 run_cases: [parallel, sequential]
 ```
@@ -159,6 +172,59 @@ and to run on the device:
 run_timeout: 3600
 ```
 
+## Profiling
+
+A profile run case runs the module with the Tracy runtime and
+`TRACY_NO_EXIT=1`, captures it with `tracy-capture` through `adb forward`, and
+exports the DSP zones with `tracy-csvexport -g`. Both files stay in the test's
+work directory, `device_outputs/profile.tracy` and
+`device_outputs/profile.csv`, and their paths are printed.
+
+The CSV has one row per DSP zone: name, source file, start and duration in ns.
+Kernel zones are named after their dispatch function, e.g.
+`main$async_dispatch_1_conv_32x64x64x32x3x3_f16xf16xf32`; the other zones have
+fixed names ("DSP execution", "Schedule", "Barrier", ...). The export has no
+column for the DSP thread a zone ran on, so checks only see names and times.
+
+`profile_checks` says what a model's profile has to show. Each entry names a
+check from `stages/profile_checks.py`, its `args`, and optionally the profile
+run case and compile case it applies to (default `"*"`, every one):
+
+```yaml
+run_cases: [parallel, sequential, parallel-profile, sequential-profile]
+profile_checks:
+  # the two convs run in parallel
+  - check: overlap
+    run_case: parallel-profile
+    args: {a: dispatch_1_conv, b: dispatch_2_conv}
+  # the max reads both conv results, so it must not overlap either of them
+  - check: no_overlap
+    args: {a: dispatch_3_reduction, b: "dispatch_[12]_conv"}
+```
+
+`a` and `b` are regular expressions searched in the kernel names. A pattern that
+matches no kernel fails the check, so a renamed dispatch cannot pass silently.
+The checks:
+
+| check | args | passes if |
+|---|---|---|
+| `overlap` | `a`, `b` | a kernel matching `a` ran at the same time as another matching `b` |
+| `no_overlap` | `a`, `b` | no kernel matching `a` ran at the same time as one matching `b` |
+| `max_kernel_concurrency` | `max` | never more than `max` kernels ran at once |
+| `min_kernel_concurrency` | `min` | at some point at least `min` kernels ran at once |
+| `kernel_count` | `count` | exactly `count` kernels ran |
+
+A new check is a function in `stages/profile_checks.py` decorated with
+`@profile_check("<name>")`, taking the `Profile` and its args and raising
+`ProfileError`. The args in `model.yaml` are validated against its signature
+when the model tree is loaded.
+
+A check that does not pass is a `PROFILE_FAILURE`; a profile that could not be
+captured or exported is a `CAPTURE_PROFILE_FAILURE`.
+A profile run case with no checks still produces the CSV.
+
+`test_profile_checks.py` tests the checks on hand-written CSVs, without a device.
+
 ## Known failures
 
 A model may record known failures:
@@ -166,7 +232,8 @@ A model may record known failures:
 ```yaml
 expected_outcomes:
   - case: hexagon-vtcm-hmx   # or "*" for every case
-    status: ACCURACY_FAILURE # or COMPILE_FAILURE, RUNTIME_FAILURE
+    status: ACCURACY_FAILURE # or COMPILE_FAILURE, RUNTIME_FAILURE, PROFILE_FAILURE,
+                             #    CAPTURE_PROFILE_FAILURE
     reason: "relative L2 error 2.9"
     comment: "measured 2026-08-27"
 ```

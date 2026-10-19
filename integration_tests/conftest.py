@@ -17,7 +17,7 @@ import pytest
 from integration_tests.device import adb
 from integration_tests.device.deploy import (
     DEFAULT_DEVICE_ROOT,
-    Deployment,
+    Deployments,
     cleanup,
     deploy,
 )
@@ -28,12 +28,20 @@ from integration_tests.stages.compiling import (
     COMPILE_CASES_BY_NAME,
     CompileCase,
 )
-from integration_tests.stages.running import RUN_CASE_NAMES, RUN_CASES_BY_NAME, RunCase
+from integration_tests.stages.running import (
+    RUN_CASE_NAMES,
+    RUN_CASES_BY_NAME,
+    ProfilerTools,
+    RunCase,
+)
 from integration_tests.tool_paths import (
     DEVICE_TOOLS_TARGET,
     IREE_COMPILE_TARGET,
     LLD_TARGET,
     RUNTIME_ZIP_TARGET,
+    RUNTIME_ZIP_TRACY_TARGET,
+    TRACY_CAPTURE_TARGET,
+    TRACY_CSVEXPORT_TARGET,
     resolve_bazel_artifact,
     resolve_host_tool,
 )
@@ -88,6 +96,37 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "path to the host's rsync, which sends modules to the device as "
             "deltas. Taken from PATH when omitted."
         ),
+    )
+    group.addoption(
+        "--runtime-zip-tracy",
+        default=None,
+        help=(
+            f"path to the Hexagon runtime package with Tracy "
+            f"({RUNTIME_ZIP_TRACY_TARGET}), for the profile run cases. Resolved "
+            "with 'bazel cquery' when omitted."
+        ),
+    )
+    group.addoption(
+        "--tracy-capture",
+        default=None,
+        help=(
+            f"path to tracy-capture ({TRACY_CAPTURE_TARGET}), for the profile "
+            "run cases. Resolved with 'bazel cquery' when omitted."
+        ),
+    )
+    group.addoption(
+        "--tracy-csvexport",
+        default=None,
+        help=(
+            f"path to tracy-csvexport ({TRACY_CSVEXPORT_TARGET}), for the "
+            "profile run cases. Resolved with 'bazel cquery' when omitted."
+        ),
+    )
+    group.addoption(
+        "--tracy-port",
+        type=int,
+        default=8086,
+        help="host and device port of the Tracy connection (default: 8086).",
     )
     group.addoption(
         "--device-root",
@@ -228,6 +267,13 @@ def device_tools_zip(pytestconfig: pytest.Config) -> Path:
 
 
 @pytest.fixture(scope="session")
+def runtime_zip_tracy(pytestconfig: pytest.Config) -> Path:
+    return resolve_bazel_artifact(
+        RUNTIME_ZIP_TRACY_TARGET, pytestconfig.getoption("--runtime-zip-tracy")
+    )
+
+
+@pytest.fixture(scope="session")
 def lld(pytestconfig: pytest.Config) -> Path | None:
     """The linker to hand iree-compile, or None to let it search PATH."""
     given = pytestconfig.getoption("--lld")
@@ -255,21 +301,43 @@ def require_device() -> None:
 
 
 @pytest.fixture(scope="session")
-def deployment(
+def deployments(
     require_device: None,
     runtime_zip: Path,
+    runtime_zip_tracy: Path,
     device_tools_zip: Path,
     pytestconfig: pytest.Config,
-) -> Iterator[Deployment]:
-    """Unpack the runtime and the helper once per session, in a fresh directory."""
-    active = deploy(
-        runtime_zip=runtime_zip,
-        tools_zip=device_tools_zip,
-        root=pytestconfig.getoption("--device-root"),
+) -> Iterator[Deployments]:
+    """Unpack both runtimes and the helper once per session, each in a fresh
+    directory. The profile run cases use the Tracy one, the others the plain one.
+    """
+    root = pytestconfig.getoption("--device-root")
+    active = Deployments(
+        plain=deploy(runtime_zip=runtime_zip, tools_zip=device_tools_zip, root=root),
+        tracy=deploy(
+            runtime_zip=runtime_zip_tracy, tools_zip=device_tools_zip, root=root
+        ),
     )
-    print(f"deployed to {active.run_dir} on {adb.describe_device()}")
+    print(
+        f"deployed to {active.plain.run_dir} (plain) and {active.tracy.run_dir} "
+        f"(tracy) on {adb.describe_device()}"
+    )
     yield active
-    if pytestconfig.getoption("--keep-device-dir"):
-        print(f"leaving {active.run_dir} on the device as requested")
-    else:
-        cleanup(active)
+    for deployment in (active.plain, active.tracy):
+        if pytestconfig.getoption("--keep-device-dir"):
+            print(f"leaving {deployment.run_dir} on the device as requested")
+        else:
+            cleanup(deployment)
+
+
+@pytest.fixture(scope="session")
+def profiler_tools(pytestconfig: pytest.Config) -> ProfilerTools:
+    return ProfilerTools(
+        tracy_capture=resolve_bazel_artifact(
+            TRACY_CAPTURE_TARGET, pytestconfig.getoption("--tracy-capture")
+        ),
+        tracy_csvexport=resolve_bazel_artifact(
+            TRACY_CSVEXPORT_TARGET, pytestconfig.getoption("--tracy-csvexport")
+        ),
+        port=pytestconfig.getoption("--tracy-port"),
+    )

@@ -430,8 +430,8 @@ typedef struct hexa_cmd_buf_task_s {
   const hexagon_executable_environment_t *environment;
   /// dispatch name for profiling and diagnostics, may be NULL
   const char *func_name;
-  /// allocation holding the arrays the dispatch state points to (constants,
-  /// binding pointers and lengths) and mapped_fds, freed when finished
+  /// allocation holding the arrays the dispatch state points to (constants and
+  /// binding pointers) and mapped_fds, freed when finished
   uint8_t *dispatch_arrays;
   /// file descriptors mapped for the bindings, unmapped when finished
   int *mapped_fds;
@@ -570,10 +570,8 @@ static int hexa_cmd_buf_prepare_dispatch(
           .workgroup_count_x = cmd_dispatch->workgroup_count_x,
           .workgroup_count_y = cmd_dispatch->workgroup_count_y,
           .workgroup_count_z = cmd_dispatch->workgroup_count_z,
-          .binding_count = num_buf_refs,
           .constants = constants,
           .binding_ptrs = binding_ptrs,
-          .binding_lengths = binding_lengths,
       };
   task->extended_dispatch_state.runtime_state = &task->runtime_state;
   task->dispatch_func = dispatch_func;

@@ -25,7 +25,7 @@ reads both of their results.
 import torch
 
 
-class ParallelConvCat(torch.nn.Module):
+class ParallelConvMax(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.conv_a = torch.nn.Conv2d(32, 32, 3, padding=1)
@@ -38,4 +38,4 @@ class ParallelConvCat(torch.nn.Module):
 
 def get_model() -> torch.nn.Module:
     torch.manual_seed(0)
-    return ParallelConvCat().to(torch.float16)
+    return ParallelConvMax().to(torch.float16)

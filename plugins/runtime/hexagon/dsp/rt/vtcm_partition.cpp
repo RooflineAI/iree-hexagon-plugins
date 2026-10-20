@@ -13,16 +13,22 @@
 #include "HexagonAPI.h"
 #include "VTCMPool.h"
 #include "hexagon/dsp/rt/runtime_state.h"
+#include "hexagon/dsp/rt/vtcm_allocation.h"
 
-// Allocation granularities of hexagon-mlir's VtcmPool, see VtcmPool::Allocate.
-#define VTCM_FRONT_GRANULE ((uintptr_t)0x800)
-#define VTCM_BACK_GRANULE ((uintptr_t)0x80)
+// Allocation granularities of the partition, shared with the compiler that
+// sizes the partition requirement. The front one is also hexagon-mlir's
+// VtcmPool's, see VtcmPool::Allocate.
+#define VTCM_FRONT_LARGE_GRANULE ((uintptr_t)HEXAGON_DSP_VTCM_LARGE_ALIGNMENT)
+#define VTCM_BACK_SMALL_GRANULE                                                \
+  ((uintptr_t)HEXAGON_DSP_VTCM_MIN_ALLOCATION_BYTES)
 
 // alignment helper
+// round up to the nearest multiple of alignment
 inline uintptr_t align_up(uintptr_t value, uintptr_t alignment) {
   return (value + alignment - 1) & ~(alignment - 1);
 }
 
+// round down to the nearest multiple of alignment
 inline uintptr_t align_down(uintptr_t value, uintptr_t alignment) {
   return value & ~(alignment - 1);
 }
@@ -38,12 +44,15 @@ void hexagon_rt_acquire_vtcm_partition(
   // VtcmPool allocates sizes that are a multiple of 2 KiB from the front of a
   // free block, which keeps partitions 2 KiB aligned.
   VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
+  // align, such that the partition aligns, if we hand out 128 blocks from the
+  // back
   if (nbytes == HEXAGON_RT_VTCM_PARTITION_ALL) {
     // full pool
     // VtcmAllocatedBytes is the size of the pool (the name is misleading imho)
-    nbytes = align_down(vtcm_pool->VtcmAllocatedBytes(), VTCM_FRONT_GRANULE);
+    nbytes =
+        align_down(vtcm_pool->VtcmAllocatedBytes(), VTCM_FRONT_LARGE_GRANULE);
   } else {
-    nbytes = align_up(nbytes, VTCM_FRONT_GRANULE);
+    nbytes = align_up(nbytes, VTCM_FRONT_LARGE_GRANULE);
   }
   out_partition->base = static_cast<char *>(vtcm_pool->Allocate(nbytes));
   out_partition->size = nbytes;
@@ -79,29 +88,50 @@ void *hexagon_rt_vtcm_partition_alloc(hexagon_rt_vtcm_partition_t *partition,
     abort();
   }
 
-  size_t available = partition->size - partition->front - partition->back;
+  if (alignment < VTCM_BACK_SMALL_GRANULE) {
+    alignment = VTCM_BACK_SMALL_GRANULE;
+  }
+  if ((alignment & (alignment - 1)) != 0) { // power of 2?
+    FARF(ERROR, "VTCM allocation with unsupported alignment %llu in %s",
+         (unsigned long long)alignment,
+         partition->dispatch_name ? partition->dispatch_name : "(unnamed)");
+    abort();
+  }
+  if (alignment > partition->size) {
+    partition_overflow(partition, nbytes);
+  }
 
-  if (alignment == VTCM_FRONT_GRANULE) {
-    size_t size = align_up(nbytes, VTCM_FRONT_GRANULE);
-    if (size < nbytes || size > available) {
+  // Offset of the lowest byte handed out from the back, relative to base.
+  uintptr_t base = (uintptr_t)partition->base;
+  size_t back_begin = partition->size - partition->back;
+
+  if (alignment >= VTCM_FRONT_LARGE_GRANULE) {
+    // The front stays a multiple of 2 KiB and base is 2 KiB aligned, so only
+    // alignments beyond 2 KiB pad.
+    size_t size = align_up(nbytes, VTCM_FRONT_LARGE_GRANULE);
+    // add padding if necessary
+    size_t begin = align_up(base + partition->front, alignment) // align address
+                   - base; // convert to offset from base again
+    if (size < nbytes || begin > back_begin || size > back_begin - begin) {
       partition_overflow(partition, nbytes);
     }
-    char *ptr = partition->base + partition->front;
-    partition->front += size;
-    return ptr;
+    partition->front = begin + size;
+    return partition->base + begin;
   }
-  if (alignment == VTCM_BACK_GRANULE) {
-    size_t size = align_up(nbytes, VTCM_BACK_GRANULE);
-    if (size < nbytes || size > available) {
-      partition_overflow(partition, nbytes);
-    }
-    partition->back += size;
-    return partition->base + partition->size - partition->back;
+
+  // base is 2 KiB aligned, so aligning the offset aligns the address. The back
+  // stays a multiple of 128 bytes, so only alignments beyond 128 bytes pad.
+  size_t size = align_up(nbytes, VTCM_BACK_SMALL_GRANULE);
+  if (size < nbytes || size > back_begin) {
+    partition_overflow(partition, nbytes);
   }
-  FARF(ERROR, "VTCM allocation with unsupported alignment %llu in %s",
-       (unsigned long long)alignment,
-       partition->dispatch_name ? partition->dispatch_name : "(unnamed)");
-  abort();
+  // align address
+  size_t begin = align_down(back_begin - size, alignment);
+  if (begin < partition->front) {
+    partition_overflow(partition, nbytes);
+  }
+  partition->back = partition->size - begin;
+  return partition->base + begin;
 }
 
 void *hexagon_runtime_vtcm_alloc(const hexagon_rt_state_t *runtime_state,

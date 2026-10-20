@@ -31,9 +31,9 @@ typedef struct hexagon_rt_vtcm_partition_s {
   char *base;
   /// size of the partition in bytes
   size_t size;
-  /// bytes handed out from the front (2 KiB granularity)
+  /// bytes handed out from the front (2 KiB granularity), including padding
   size_t front;
-  /// bytes handed out from the back (128 byte granularity)
+  /// bytes handed out from the back (128 byte granularity), including padding
   size_t back;
   /// name of the owning dispatch, for diagnostics only
   const char *dispatch_name;
@@ -71,13 +71,16 @@ void hexagon_rt_release_vtcm_partition(hexagon_rt_vtcm_partition_t *partition);
 /**
  * @brief Allocate VTCM from a partition.
  *
- * Requests with an alignment of 2 KiB are rounded up to 2 KiB and taken from
+ * Requests aligned to at least 2 KiB are rounded up to 2 KiB and taken from
  * the front, all others are rounded up to 128 bytes and taken from the back.
+ * Each allocation takes at most its rounded size plus its alignment minus the
+ * granularity of its end, i.e. at most align_up(nbytes, 128) + alignment - 128
+ * from the back and align_up(nbytes, 2048) + alignment - 2048 from the front.
  * Aborts if the partition cannot accommodate the new allocation anymore
  * @param[in,out] partition partition to allocate from
  * @param[in] nbytes size of the memory to allocate in bytes
- * @param[in] alignment required alignment in bytes, 128 or 2048; any other
- *                      value aborts
+ * @param[in] alignment required alignment in bytes, a power of two; values
+ *                      below 128 (including 0) are raised to 128
  * @return pointer to allocated memory, NULL if nbytes == 0, aborts if out of
  * mem
  */

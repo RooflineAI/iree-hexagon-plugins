@@ -110,6 +110,11 @@ typedef struct hexagon_executable_dispatch_state_t {
   uint32_t workgroup_count_y;
   uint16_t workgroup_count_z;
 
+  // Total number of binding base pointers in |binding_ptrs| and
+  // |binding_lengths|. The set is packed densely based on which bindings are
+  // used (known at compile-time).
+  uint8_t binding_count;
+
   // 4 byte push constant values.
   const uint32_t *constants;
   // Base pointers to each binding buffer.

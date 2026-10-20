@@ -54,7 +54,7 @@ module attributes {hal.executable.target = #hexagon_target} {
     // CHECK: %[[SIZE_Z:.+]] = llvm.zext %[[SIZE_Z_16]] : i16 to i32
     %size_z = hal.interface.workgroup.size[2] : index
 
-    // Verifies workgroup count x/y/z use dispatch-state fields 4/5/6.
+    // Verifies workgroup count x/y/z use dispatch-state fields 3/4/5.
     // CHECK: %[[COUNT_X_STATE:.+]] = llvm.load %[[DISPATCH]]
     // CHECK: %[[COUNT_X_32:.+]] = llvm.extractvalue %[[COUNT_X_STATE]][3]
     %count_x = hal.interface.workgroup.count[0] : index
@@ -67,9 +67,9 @@ module attributes {hal.executable.target = #hexagon_target} {
     %count_z = hal.interface.workgroup.count[2] : index
 
     // Verifies push constant ordinal 1 is loaded as i32 from dispatch-state
-    // field 9 and extended to the configured 64-bit index representation.
+    // field 7 and extended to the configured 64-bit index representation.
     // CHECK: %[[CONSTANT_STATE:.+]] = llvm.load %[[DISPATCH]]
-    // CHECK: %[[CONSTANT_BASE:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][6]
+    // CHECK: %[[CONSTANT_BASE:.+]] = llvm.extractvalue %[[CONSTANT_STATE]][7]
     // CHECK: %[[CONSTANT_PTR:.+]] = llvm.getelementptr %[[CONSTANT_BASE]][1]
     // CHECK: %[[CONSTANT_32:.+]] = llvm.load %[[CONSTANT_PTR]] : !llvm.ptr -> i32
     %constant = hal.interface.constant.load layout(#pipeline_layout) ordinal(1) : index

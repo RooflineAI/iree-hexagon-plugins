@@ -55,6 +55,7 @@ public:
     /*uint32_t*/ workgroup_count_x,
     /*uint32_t*/ workgroup_count_y,
     /*uint16_t*/ workgroup_count_z,
+    /*uint8_t*/ binding_count,
     /*intptr_t*/ constants,
     /*intptr_t*/ binding_ptrs,
     /*intptr_t*/ binding_lengths,

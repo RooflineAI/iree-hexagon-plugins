@@ -54,6 +54,7 @@ HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
     return structType;
   }
 
+  auto uint8Type = IntegerType::get(context, 8);
   auto uint16Type = IntegerType::get(context, 16);
   auto uint32Type = IntegerType::get(context, 32);
   auto opaquePtrType = LLVM::LLVMPointerType::get(context);
@@ -72,6 +73,9 @@ HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
   fieldTypes.push_back(uint32Type);
   fieldTypes.push_back(uint32Type);
   fieldTypes.push_back(uint16Type);
+
+  // uint8_t binding_count;
+  fieldTypes.push_back(uint8Type);
 
   // const uint32_t * constants;
   // void *const * binding_ptrs;

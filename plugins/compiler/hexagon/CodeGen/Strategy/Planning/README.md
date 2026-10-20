@@ -107,8 +107,8 @@ The pipeline contract determines how VTCM availability is handled:
 - `Required` pipelines diagnose the same conditions instead of falling back.
   HMX uses this contract because its lowering requires VTCM.
 
-`hexagon::determineTileSizes` is responsible for VTCM capacity and layout
-policy, with one restriction: `HexagonVTCMTilingPass` tiles only parallel loops
+`hexagon::determineTileSizes` is responsible for the VTCM layout policy within
+the tile budget set by `--iree-hexagon-vtcm-tile-budget-bytes` (default 2 MiB, from hexagon-MLIR), with one restriction: `HexagonVTCMTilingPass` tiles only parallel loops
 and stages every reduction dimension whole, so a plan is only valid if it keeps
 the reductions at their full extent. The planner first keeps the unrestricted
 search's result if it already does, then reruns the search over the parallel

@@ -99,8 +99,10 @@ struct TargetInfo {
 
 /// User-controlled planning behavior.
 struct PlanningOptions {
-  bool enableVTCM = true;
-  bool enableHmxMatmul = false;
+  bool enableVTCM;
+  /// VTCM bytes the root VTCM tile search may use.
+  int64_t vtcmTileBudgetBytes;
+  bool enableHmxMatmul;
 };
 
 class DecisionTrace;

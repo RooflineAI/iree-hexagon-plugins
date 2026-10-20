@@ -68,6 +68,7 @@ iree_lit_test_suite(
             "codegen/strategy/hexagon_vtcm_planning_hmx.mlir",
             "codegen/strategy/hexagon_vtcm_planning_oversized_reduction.mlir",
             "codegen/strategy/hexagon_vtcm_planning_required.mlir",
+            "codegen/strategy/hexagon_vtcm_planning_tile_budget.mlir",
             "codegen/transforms/annotate_dispatch_resources.mlir",
             "codegen/transforms/apply_vtcm_tiling.mlir",
             "codegen/transforms/assign_constant_ordinals.mlir",

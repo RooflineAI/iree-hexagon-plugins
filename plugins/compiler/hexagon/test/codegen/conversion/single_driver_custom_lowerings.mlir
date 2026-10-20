@@ -33,22 +33,21 @@ module {
     return
   }
 
-  // memref.alloc keeps MemRefToLLVM's padding and manual alignment, which
-  // HexagonAnnotateDispatchResources accounts for when sizing the partition,
-  // while hexagonmem.alloc gets the alignment from the partition directly.
-  // DDR hexagonmem allocations take the memref.alloc path.
+  // The partition aligns every allocation itself: neither memref.alloc nor
+  // hexagonmem.alloc pad the request or align the pointer by hand. DDR
+  // hexagonmem allocations take the memref.alloc path and drop the alignment.
   func.func @aligned_allocs() {
     %c0 = arith.constant 0 : index
     %cst = arith.constant 0.0 : f32
-    %padded = "memref.alloc"() <{alignment = 2048 : i64, operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<4xf32>
+    %aligned = "memref.alloc"() <{alignment = 2048 : i64, operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<4xf32>
     %vtcm = hexagonmem.alloc() <alignment = 2048> : memref<4xf32, 1>
     %ddr = hexagonmem.alloc() <alignment = 2048> : memref<4xf32>
-    memref.store %cst, %padded[%c0] : memref<4xf32>
+    memref.store %cst, %aligned[%c0] : memref<4xf32>
     memref.store %cst, %vtcm[%c0] : memref<4xf32, 1>
     memref.store %cst, %ddr[%c0] : memref<4xf32>
     hexagonmem.dealloc %ddr : memref<4xf32>
     hexagonmem.dealloc %vtcm : memref<4xf32, 1>
-    memref.dealloc %padded : memref<4xf32>
+    memref.dealloc %aligned : memref<4xf32>
     return
   }
 
@@ -72,10 +71,12 @@ module {
 // CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[DISPATCH:[A-Za-z0-9_]+]]: !llvm.ptr
 // CHECK:         %[[STATE_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1]
 // CHECK:         %[[STATE:.+]] = llvm.load %[[STATE_ADDR]] : !llvm.ptr -> !llvm.ptr
+// CHECK:         llvm.ptrtoint
+// CHECK-NEXT:    %[[NO_ALIGN:.+]] = llvm.mlir.constant(0 : i64) : i64
+// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %{{.+}}, %[[NO_ALIGN]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
+// CHECK-NOT:     llvm.getelementptr inbounds %[[DISPATCH]][0, 1]
 // CHECK:         %[[ALIGN_128:.+]] = llvm.mlir.constant(128 : i64) : i64
 // CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %{{.+}}, %[[ALIGN_128]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
-// CHECK-NOT:     llvm.getelementptr inbounds %[[DISPATCH]][0, 1]
-// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %{{.+}}, %{{.+}}) : (!llvm.ptr, i64, i64) -> !llvm.ptr
 // CHECK:         llvm.call @hexagon_runtime_dma_start
 // CHECK:         llvm.call @hexagon_runtime_dma_wait
 // CHECK-NOT:     llvm.call
@@ -86,19 +87,17 @@ module {
 // CHECK:         %[[STATE_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1]
 // CHECK:         %[[STATE:.+]] = llvm.load %[[STATE_ADDR]] : !llvm.ptr -> !llvm.ptr
 // CHECK:         %[[BYTES:.+]] = llvm.ptrtoint
-// CHECK:         %[[PAD:.+]] = llvm.mlir.constant(2048 : i64) : i64
-// CHECK:         %[[PADDED_BYTES:.+]] = llvm.add %[[BYTES]], %[[PAD]] : i64
-// CHECK:         %[[ALIGN_128:.+]] = llvm.mlir.constant(128 : i64) : i64
-// CHECK:         %[[PADDED:.+]] = llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %[[PADDED_BYTES]], %[[ALIGN_128]])
-// CHECK:         %[[PADDED_INT:.+]] = llvm.ptrtoint %[[PADDED]] : !llvm.ptr to i64
-// CHECK:         llvm.urem %{{.+}}, %[[PAD]] : i64
-// CHECK:         %[[ALIGNED:.+]] = llvm.inttoptr
-// CHECK:         %[[DESC:.+]] = llvm.insertvalue %[[PADDED]], %{{.+}}[0]
-// CHECK:         llvm.insertvalue %[[ALIGNED]], %[[DESC]][1]
+// CHECK-NOT:     llvm.add
 // CHECK:         %[[ALIGN_2K:.+]] = llvm.mlir.constant(2048 : i64) : i64
-// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %{{.+}}, %[[ALIGN_2K]])
-// CHECK:         %[[ALIGN_128_DDR:.+]] = llvm.mlir.constant(128 : i64) : i64
-// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %{{.+}}, %[[ALIGN_128_DDR]])
+// CHECK:         %[[ALIGNED:.+]] = llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %[[BYTES]], %[[ALIGN_2K]])
+// CHECK-NOT:     llvm.urem
+// CHECK:         %[[DESC:.+]] = llvm.insertvalue %[[ALIGNED]], %{{.+}}[0]
+// CHECK:         llvm.insertvalue %[[ALIGNED]], %[[DESC]][1]
+// CHECK:         %[[ALIGN_2K_VTCM:.+]] = llvm.mlir.constant(2048 : i64) : i64
+// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %{{.+}}, %[[ALIGN_2K_VTCM]])
+// CHECK:         llvm.ptrtoint
+// CHECK-NEXT:    %[[NO_ALIGN_DDR:.+]] = llvm.mlir.constant(0 : i64) : i64
+// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[STATE]], %{{.+}}, %[[NO_ALIGN_DDR]])
 // CHECK-NOT:     llvm.call
 // CHECK:         llvm.return
 

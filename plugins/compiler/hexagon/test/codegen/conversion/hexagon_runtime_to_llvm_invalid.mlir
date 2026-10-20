@@ -88,16 +88,6 @@ func.func private @reject_vtcm_alloc_outside_dispatch() {
 
 // -----
 
-// The dispatch's VTCM partition hands out 128 byte and 2 KiB aligned VTCM only.
-func.func @reject_unsupported_vtcm_alignment() {
-  // expected-error @+1 {{requests VTCM aligned to 256 bytes; only up to 128 and 2048 are supported}}
-  %buf = hexagonmem.alloc() <alignment = 256> : memref<4xf32, 1>
-  hexagonmem.dealloc %buf : memref<4xf32, 1>
-  return
-}
-
-// -----
-
 // The VTCM scratch of a HexKL matmul is allocated at the dispatch entry, so its
 // dims must be known there.
 #pipeline_layout = #hal.pipeline.layout<constants = 1, bindings = []>

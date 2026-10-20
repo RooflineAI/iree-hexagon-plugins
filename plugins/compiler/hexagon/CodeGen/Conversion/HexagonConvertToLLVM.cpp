@@ -74,6 +74,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/MathExtras.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
@@ -309,12 +310,8 @@ populateHexagonRuntimeToLLVMConversionPatterns(HexagonDispatchABI &abi,
 // VTCM partition allocations.
 //===----------------------------------------------------------------------===//
 
-// The only alignments the runtime's VTCM partition supports. Allocations
-// without an explicit alignment get the minimum.
-constexpr uint64_t kVtcmMinAlignment = 128;
-constexpr uint64_t kVtcmMaxAlignment = 2048;
 // HexKL's matmul places its VTCM tiles at HEXKL_HMX_ACTIVATION_ALIGNMENT.
-constexpr uint64_t kHexKLScratchAlignment = kVtcmMaxAlignment;
+constexpr uint64_t kHexKLScratchAlignment = 2048;
 
 /// Whether |funcOp| has the signature of a dispatch entry point as produced by
 /// the HAL ABI lowering: i32 (environment*, dispatch_state*, workgroup_state*).
@@ -388,7 +385,8 @@ getVtcmAllocFn(OpBuilder &builder, ModuleOp moduleOp, Type sizeType) {
 }
 
 /// Allocates |size| bytes aligned to |alignment| from the VTCM partition that
-/// the runtime |state| holds.
+/// the runtime |state| holds. The runtime pads and aligns the allocation
+/// itself
 static Value createVtcmAlloc(OpBuilder &builder, Location loc,
                              LLVM::LLVMFuncOp vtcmAllocFn, Value state,
                              Value size, uint64_t alignment) {
@@ -463,9 +461,7 @@ struct VtcmPartitionPattern : public ConvertOpToLLVMPattern<SourceOp> {
 
 /// Lowers `memref.alloc` like MemRefToLLVM's `malloc` lowering, but takes the
 /// buffer from the dispatch's VTCM partition. Heap allocations are VTCM
-/// allocations on Hexagon. The request is padded by the alignment and aligned
-/// by hand the same way, which HexagonAnnotateDispatchResources accounts for
-/// when it sizes the partition.
+/// allocations on Hexagon.
 struct ConvertAllocOpToVtcmPartition
     : public VtcmPartitionPattern<memref::AllocOp> {
   using VtcmPartitionPattern::VtcmPartitionPattern;
@@ -492,43 +488,23 @@ struct ConvertAllocOpToVtcmPartition
 
     // As in MemRefToLLVM: the requested alignment or, for non-scalar elements,
     // the element size.
-    Value alignment;
+    uint64_t alignment = 0;
     if (std::optional<uint64_t> requested = allocOp.getAlignment()) {
-      alignment =
-          createIndexAttrConstant(rewriter, loc, getIndexType(), *requested);
+      alignment = *requested;
     } else if (!memRefType.getElementType().isSignlessIntOrIndexOrFloat()) {
-      alignment = getSizeInBytes(loc, memRefType.getElementType(), rewriter);
+      alignment = llvm::PowerOf2Ceil(DataLayout::closest(allocOp).getTypeSize(
+          memRefType.getElementType()));
     }
-    if (alignment)
-      sizeBytes = LLVM::AddOp::create(rewriter, loc, sizeBytes, alignment);
 
     Value state = abi.getRuntimeStateAtEntry(allocOp, rewriter);
-    Value allocatedPtr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state,
-                                         sizeBytes, kVtcmMinAlignment);
+    Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
+                                alignment);
     Type elementPtrType = getElementPtrType(memRefType);
-    if (allocatedPtr.getType() != elementPtrType) {
-      allocatedPtr = LLVM::AddrSpaceCastOp::create(
-          rewriter, loc, elementPtrType, allocatedPtr);
-    }
-    Value alignedPtr = allocatedPtr;
-    // FiXME: VTCM Partition hands out blocks aligned to 128 or 2048,
-    //  so this could be necessary, if one asks for alignments larker than 2048,
-    //  but i dont think someone does that
-    if (alignment) {
-      // aligned = bumped - bumped % alignment, bumped = ptr + alignment - 1
-      Value allocatedInt =
-          LLVM::PtrToIntOp::create(rewriter, loc, getIndexType(), allocatedPtr);
-      Value one = createIndexAttrConstant(rewriter, loc, getIndexType(), 1);
-      Value bump = LLVM::SubOp::create(rewriter, loc, alignment, one);
-      Value bumped = LLVM::AddOp::create(rewriter, loc, allocatedInt, bump);
-      Value mod = LLVM::URemOp::create(rewriter, loc, bumped, alignment);
-      Value alignedInt = LLVM::SubOp::create(rewriter, loc, bumped, mod);
-      alignedPtr =
-          LLVM::IntToPtrOp::create(rewriter, loc, elementPtrType, alignedInt);
-    }
+    if (ptr.getType() != elementPtrType)
+      ptr = LLVM::AddrSpaceCastOp::create(rewriter, loc, elementPtrType, ptr);
 
-    Value descriptor = createMemRefDescriptor(
-        loc, memRefType, allocatedPtr, alignedPtr, sizes, strides, rewriter);
+    Value descriptor = createMemRefDescriptor(loc, memRefType, ptr, ptr, sizes,
+                                              strides, rewriter);
     rewriter.replaceOp(allocOp, descriptor);
     return success();
   }
@@ -552,15 +528,6 @@ struct ConvertHexagonMemAllocOpToVtcmPartition
       return rewriter.notifyMatchFailure(allocOp, "not a VTCM allocation");
     if (failed(verifyInDispatch(allocOp)))
       return failure();
-    // The partition hands out 128 byte and 2 KiB aligned VTCM only.
-    uint64_t alignment = std::max(allocOp.getAlignment(), kVtcmMinAlignment);
-    if (alignment != kVtcmMinAlignment && alignment != kVtcmMaxAlignment) {
-      return emitFailure(allocOp.emitOpError()
-                         << "requests VTCM aligned to "
-                         << allocOp.getAlignment() << " bytes; only up to "
-                         << kVtcmMinAlignment << " and " << kVtcmMaxAlignment
-                         << " are supported");
-    }
     FailureOr<LLVM::LLVMFuncOp> vtcmAllocFn =
         declareVtcmAllocFn(allocOp, rewriter);
     if (failed(vtcmAllocFn))
@@ -575,7 +542,7 @@ struct ConvertHexagonMemAllocOpToVtcmPartition
                              sizes, strides, sizeBytes, /*sizeInBytes=*/true);
     Value state = abi.getRuntimeStateAtEntry(allocOp, rewriter);
     Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
-                                alignment);
+                                allocOp.getAlignment());
     Value descriptor = createMemRefDescriptor(loc, memRefType, ptr, ptr, sizes,
                                               strides, rewriter);
     rewriter.replaceOp(allocOp, descriptor);

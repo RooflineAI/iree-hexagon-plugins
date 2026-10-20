@@ -189,6 +189,17 @@ jobs:
         if: env.PHONE_ACCESS == 'true'
         run: |
           build_tools/create_test_venv.sh
+      - &install_rsync
+        name: Install rsync
+        if: env.PHONE_ACCESS == 'true'
+        run: |
+          # The tests send modules to the phone as rsync deltas. The phone's
+          # end ships in the device-tools zip; this is the host's end.
+          if ! command -v rsync >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y rsync
+          fi
+          rsync --version | head -n1
       - &integration_tests
         name: Integration tests
         if: env.PHONE_ACCESS == 'true'
@@ -266,6 +277,7 @@ jobs:
       - *check_phone_reachable
       - *install_uv
       - *setup_test_env
+      - *install_rsync
       - *integration_tests
       - *leave_overlay
   release:

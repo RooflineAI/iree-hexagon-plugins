@@ -274,6 +274,33 @@ hexkl_repository = use_repo_rule(
 hexkl_repository(name = "hexkl")
 
 ###############################################################################
+# rsync sources, cross-compiled for the phone by
+# //integration_tests/device/tools/rsync. The integration tests transfer
+# modules with it, so that a rebuilt module only sends the bytes that changed.
+###############################################################################
+
+http_archive = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_archive",
+)
+
+http_archive(
+    name = "rsync",
+    build_file_content = """filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["COPYING", "configure"])
+""",
+    # Keep in lockstep with integration_tests/device/tools/rsync/CMakeLists.txt.
+    sha256 = "c55f9c9dc10fb8bec397b399a0fdded53cc9a2d8e30891bb0d63724d25c37bef",
+    strip_prefix = "rsync-3.5.1",
+    urls = ["https://download.samba.org/pub/rsync/src/rsync-3.5.1.tar.gz"],
+)
+
+###############################################################################
 # Toolchain registrations for the hexagon runtime plugin.
 ###############################################################################
 

@@ -1,0 +1,93 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# rsync for the phone, built from the upstream release with its own configure
+# and make. The integration tests run it on the phone as the receiving end of a
+# delta transfer over `adb shell`, see integration_tests/device/adb.py.
+#
+# A genrule rather than rules_foreign_cc's configure_make: configure_make hands
+# rsync's configure the C flags of the active cc toolchain, which here include
+# IREE's -Werror warning set and IREE-only defines. Those break configure's
+# feature probes. rsync is foreign code and gets the plain NDK compiler, exactly
+# as in the CMake build (CMakeLists.txt, hand-written, as bazel_to_cmake does
+# not convert this).
+
+load(
+    "@android_ndk_detect//:defs.bzl",
+    "ANDROID_NDK_TOOLCHAIN_DIR",
+    "ANDROID_NDK_VERSION",
+)
+
+package(
+    default_visibility = ["//visibility:public"],
+    licenses = [],
+)
+
+# The same compiler driver as //toolchain:aarch64_android_toolchain.
+_CC = ANDROID_NDK_TOOLCHAIN_DIR + "/bin/aarch64-linux-android" + ANDROID_NDK_VERSION + "-clang"
+
+# Keep in lockstep with RSYNC_CONFIGURE_OPTIONS in CMakeLists.txt.
+_CONFIGURE_OPTIONS = [
+    "--host=aarch64-linux-android",
+    # The bundled zlib and popt, so the binary needs nothing but libc.
+    "--with-included-zlib",
+    "--with-included-popt",
+    # Optional features that need libraries the NDK does not have, and that a
+    # plain file transfer does not use.
+    "--disable-md2man",
+    "--disable-openssl",
+    "--disable-xxhash",
+    "--disable-zstd",
+    "--disable-lz4",
+    "--disable-idn",
+    "--disable-iconv",
+    "--disable-locale",
+    "--disable-acl-support",
+    "--disable-xattr-support",
+]
+
+genrule(
+    name = "rsync",
+    srcs = [
+        "@rsync//:all_srcs",
+        "@rsync//:configure",
+    ],
+    outs = ["bin/rsync"],
+    cmd = """
+set -euo pipefail
+src="$$PWD/$$(dirname $(execpath @rsync//:configure))"
+out="$$PWD/$@"
+build="$$(mktemp -d)"
+trap 'rm -rf "$$build"' EXIT
+cd "$$build"
+if ! CC={cc} "$$src/configure" {options} >configure.log 2>&1; then
+    cat configure.log config.log >&2
+    exit 1
+fi
+if ! make -j8 rsync >make.log 2>&1; then
+    cat make.log >&2
+    exit 1
+fi
+cp rsync "$$out"
+""".format(
+        cc = _CC,
+        options = " ".join(_CONFIGURE_OPTIONS),
+    ),
+    tags = ["manual"],
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+# rsync is GPLv3, so its license travels with the binary in the device tools
+# zip.
+genrule(
+    name = "license",
+    srcs = ["@rsync//:COPYING"],
+    outs = ["licenses/rsync/COPYING"],
+    cmd = "cp $< $@",
+)

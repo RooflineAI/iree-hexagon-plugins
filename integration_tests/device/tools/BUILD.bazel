@@ -23,13 +23,25 @@ cc_binary(
 
 pkg_files(
     name = "device_tool_files",
-    srcs = [":limit_lifetime"],
+    srcs = [
+        ":limit_lifetime",
+        "//integration_tests/device/tools/rsync",
+    ],
     prefix = "bin",
+)
+
+pkg_files(
+    name = "device_tool_license_files",
+    srcs = ["//integration_tests/device/tools/rsync:license"],
+    prefix = "licenses/rsync",
 )
 
 pkg_zip(
     name = "device_tools",
-    srcs = [":device_tool_files"],
+    srcs = [
+        ":device_tool_files",
+        ":device_tool_license_files",
+    ],
     package_dir = ".",
 )
 

@@ -109,6 +109,11 @@ public:
   // Loads the Hexagon runtime-state pointer from the extended dispatch state.
   Value loadRuntimeState(Operation *forOp, OpBuilder &builder);
 
+  // Returns the runtime-state pointer loaded at the entry of the function
+  // enclosing |forOp|. It is loaded there on first use, and later uses in the
+  // same function reuse that load.
+  Value getRuntimeStateAtEntry(Operation *forOp, OpBuilder &builder);
+
   // Loads the workgroup_id[dim] value (XYZ) and casts it to |resultType|.
   Value loadWorkgroupID(Operation *forOp, int32_t dim, Type resultType,
                         OpBuilder &builder);

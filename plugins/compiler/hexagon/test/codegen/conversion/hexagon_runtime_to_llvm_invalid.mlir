@@ -69,9 +69,20 @@ func.func private @reject_unexpanded_hmx_matmul(
 // VTCM comes from the dispatch's partition, which is only reachable through the
 // dispatch state, so an allocation outside a dispatch entry point is rejected.
 func.func private @reject_alloc_outside_dispatch() {
-  // expected-error @+1 {{calls 'malloc' outside a dispatch function}}
+  // expected-error @+1 {{'memref.alloc' op outside a dispatch function is not supported}}
   %buf = memref.alloc() : memref<4xf32>
+  // expected-error @+1 {{'memref.dealloc' op outside a dispatch function is not supported}}
   memref.dealloc %buf : memref<4xf32>
+  return
+}
+
+// -----
+
+func.func private @reject_vtcm_alloc_outside_dispatch() {
+  // expected-error @+1 {{'hexagonmem.alloc' op outside a dispatch function is not supported}}
+  %buf = hexagonmem.alloc() <alignment = 2048> : memref<4xf32, 1>
+  // expected-error @+1 {{'hexagonmem.dealloc' op outside a dispatch function is not supported}}
+  hexagonmem.dealloc %buf : memref<4xf32, 1>
   return
 }
 
@@ -98,5 +109,31 @@ func.func @reject_dynamic_hexkl_matmul() {
   // expected-error @+1 {{with dynamic dims is not supported; its VTCM scratch is allocated at the dispatch entry}}
   hexkl.matmul ins(%lhs, %rhs : memref<?x4xf16>, memref<4x3xf16>)
                outs(%out : memref<?x3xf32>)
+  return
+}
+
+// -----
+
+// A conflicting declaration of the partition's allocation function must fail
+// the pass instead of falling back to `malloc`, whose frees are dropped.
+// expected-error @+1 {{redefinition of function 'hexagon_runtime_vtcm_alloc' of different type}}
+llvm.func @hexagon_runtime_vtcm_alloc(i32) -> i32
+
+func.func @reject_conflicting_vtcm_alloc_declaration() {
+  // expected-error @+1 {{can not declare 'hexagon_runtime_vtcm_alloc' to allocate from the dispatch's VTCM partition}}
+  %buf = memref.alloc() : memref<4xf32>
+  memref.dealloc %buf : memref<4xf32>
+  return
+}
+
+// -----
+
+// expected-error @+1 {{redefinition of function 'hexagon_runtime_vtcm_alloc' of different type}}
+llvm.func @hexagon_runtime_vtcm_alloc(i32) -> i32
+
+func.func @reject_conflicting_vtcm_alloc_declaration_hexagonmem() {
+  // expected-error @+1 {{can not declare 'hexagon_runtime_vtcm_alloc' to allocate from the dispatch's VTCM partition}}
+  %buf = hexagonmem.alloc() <alignment = 2048> : memref<4xf32, 1>
+  hexagonmem.dealloc %buf : memref<4xf32, 1>
   return
 }

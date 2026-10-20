@@ -27,6 +27,10 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK-SAME: %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}) -> i32
   // CHECK-SAME: attributes {llvm.emit_c_interface}
   func.func @entry() attributes {llvm.emit_c_interface} {
+    // Verifies the Hexagon runtime pointer is the trailing field of the
+    // extended dispatch state, loaded from ABI argument 1 once at the entry.
+    // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_t", {{.*}}>, ptr)>
+    // CHECK: %[[RUNTIME:.+]] = llvm.load %[[RUNTIME_ADDR]] : !llvm.ptr -> !llvm.ptr
     // Verifies workgroup ID x/y/z field selection from the workgroup-state
     // argument. With the 32-bit index, i32 fields are used as-is and only the
     // i16 field is extended.
@@ -84,10 +88,6 @@ module attributes {hal.executable.target = #hexagon_target} {
     // CHECK: %[[EXEC_CONSTANT:.+]] = llvm.load %[[EXEC_CONSTANT_PTR]] : !llvm.ptr -> i32
     %executable_constant = hal.executable.constant.load "foo" : i32
 
-    // Verifies the Hexagon runtime pointer is the trailing field of the
-    // extended dispatch state and is loaded from ABI argument 1.
-    // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_t", {{.*}}>, ptr)>
-    // CHECK: %[[RUNTIME:.+]] = llvm.load %[[RUNTIME_ADDR]] : !llvm.ptr -> !llvm.ptr
     %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
 
     func.call @consume(%id_x, %id_y, %id_z, %size_x, %size_y, %size_z,

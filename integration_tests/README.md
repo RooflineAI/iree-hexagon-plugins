@@ -198,6 +198,20 @@ A new check is a function in `stages/profile_checks.py` decorated with
 `ProfileError`. The args in `model.yaml` are validated against its signature
 when the model tree is loaded.
 
+### Profiling a model by hand
+
+To look at a trace in the Tracy UI instead of checking it, `profile_on_device.sh`
+builds the tools, imports and compiles one model from the tree, and runs it on
+the device under the Tracy runtime with `TRACY_NO_EXIT=1`:
+
+```shell
+integration_tests/profile_on_device.sh integration_tests/models/micro/parallel-conv-max-1x32x64x64-f16 [serial]
+```
+
+`serial` adds `--hexagon_max_concurrent_dispatches=1`; without it dispatches
+run in parallel. The run waits until a profiler connects on port 8086: attach
+the Tracy UI (0.11.2), or run `tracy-capture -o <file>.tracy` in another shell.
+
 A check that does not pass is a `PROFILE_FAILURE`; a profile that could not be
 captured or exported is a `CAPTURE_PROFILE_FAILURE`.
 A profile run case with no checks still produces the CSV.

@@ -9,6 +9,6 @@
 /MODULE.bazel.lock
 /tmp/
 /.pytest_cache
-/.vscodei/
+/.vscode/
 *__pycache__*
 /tmp/

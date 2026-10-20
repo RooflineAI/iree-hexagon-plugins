@@ -57,6 +57,7 @@ iree_cc_library(
     MLIRAffineToStandard
     MLIRAffineUtils
     MLIRAnalysis
+    MLIRArithAttrToLLVMConversion
     MLIRArithDialect
     MLIRArithUtils
     MLIRBufferizationDialect

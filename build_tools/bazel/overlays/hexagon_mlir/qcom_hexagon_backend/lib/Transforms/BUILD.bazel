@@ -63,6 +63,7 @@ hexagon_mlir_overlay_library(
         "@llvm-project//mlir:AffineToStandard",
         "@llvm-project//mlir:AffineUtils",
         "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:ArithAttrToLLVMConversion",
         "@llvm-project//mlir:ArithDialect",
         "@llvm-project//mlir:ArithUtils",
         "@llvm-project//mlir:BufferizationDialect",

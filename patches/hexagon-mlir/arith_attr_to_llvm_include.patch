@@ -1,0 +1,13 @@
+diff --git a/qcom_hexagon_backend/lib/Transforms/AddFastMathPass.cpp b/qcom_hexagon_backend/lib/Transforms/AddFastMathPass.cpp
+index 396c8fd..861d470 100644
+--- a/qcom_hexagon_backend/lib/Transforms/AddFastMathPass.cpp
++++ b/qcom_hexagon_backend/lib/Transforms/AddFastMathPass.cpp
+@@ -18,7 +18,7 @@
+ #include "mlir/Dialect/Linalg/Passes.h"
+ #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+ 
+-#include "mlir/Conversion/ArithCommon/AttrToLLVMConverter.h"
++#include "mlir/Conversion/ArithAttrToLLVM/AttrToLLVMConverter.h"
+ #include "mlir/IR/BuiltinAttributes.h"
+ #include "mlir/Pass/PassManager.h"
+ #include "mlir/Transforms/GreedyPatternRewriteDriver.h"

@@ -22,36 +22,10 @@ llvm::sys::Mutex HexagonDispatchABI::sMutex;
 
 // static
 LLVM::LLVMStructType
-HexagonDispatchABI::getProcessorType(MLIRContext *context) {
-  llvm::sys::ScopedLock lock(sMutex);
-  auto structType =
-      LLVM::LLVMStructType::getIdentified(context, "iree_hal_processor_v0_t");
-  if (structType.isInitialized()) {
-    return structType;
-  }
-
-  auto uint64Type = IntegerType::get(context, 64);
-  SmallVector<Type> fieldTypes;
-
-  // uint64_t data[IREE_HAL_PROCESSOR_DATA_CAPACITY_V0];
-  fieldTypes.push_back(
-      LLVM::LLVMArrayType::get(uint64Type, ProcessorDataCapacity));
-
-  LogicalResult bodySet = structType.setBody(fieldTypes, /*isPacked=*/false);
-  assert(succeeded(bodySet) &&
-         "could not set the body of an identified struct");
-  (void)bodySet;
-
-  return structType;
-}
-
-// static
-LLVM::LLVMStructType
-HexagonDispatchABI::getEnvironmentType(MLIRContext *context,
-                                       LLVM::LLVMStructType processorType) {
+HexagonDispatchABI::getEnvironmentType(MLIRContext *context) {
   llvm::sys::ScopedLock lock(sMutex);
   auto structType = LLVM::LLVMStructType::getIdentified(
-      context, "iree_hal_executable_environment_v0_t");
+      context, "hexagon_executable_environment_t");
   if (structType.isInitialized()) {
     return structType;
   }
@@ -61,16 +35,6 @@ HexagonDispatchABI::getEnvironmentType(MLIRContext *context,
 
   // const uint32_t* constants;
   fieldTypes.push_back(opaquePtrType);
-
-  // iree_hal_executable_import_thunk_v0_t import_thunk;
-  // const iree_hal_executable_import_v0_t* import_funcs;
-  // const void** import_contexts;
-  fieldTypes.push_back(LLVM::LLVMPointerType::get(context));
-  fieldTypes.push_back(LLVM::LLVMPointerType::get(context));
-  fieldTypes.push_back(LLVM::LLVMPointerType::get(context));
-
-  // iree_hal_processor_v0_t processor;
-  fieldTypes.push_back(processorType);
 
   LogicalResult bodySet = structType.setBody(fieldTypes, /*isPacked=*/false);
   assert(succeeded(bodySet) &&
@@ -85,7 +49,7 @@ LLVM::LLVMStructType
 HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
   llvm::sys::ScopedLock lock(sMutex);
   auto structType = LLVM::LLVMStructType::getIdentified(
-      context, "iree_hal_executable_dispatch_state_v0_t");
+      context, "hexagon_executable_dispatch_state_t");
   if (structType.isInitialized()) {
     return structType;
   }
@@ -103,18 +67,12 @@ HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
   fieldTypes.push_back(uint32Type);
   fieldTypes.push_back(uint16Type);
 
-  // uint16_t constant_count;
-  fieldTypes.push_back(uint16Type);
-
   // uint32_t workgroup_count_x;
   // uint32_t workgroup_count_y;
   // uint16_t workgroup_count_z;
   fieldTypes.push_back(uint32Type);
   fieldTypes.push_back(uint32Type);
   fieldTypes.push_back(uint16Type);
-
-  // uint8_t max_concurrency;
-  fieldTypes.push_back(uint8Type);
 
   // uint8_t binding_count;
   fieldTypes.push_back(uint8Type);
@@ -147,14 +105,13 @@ LLVM::LLVMStructType
 HexagonDispatchABI::getWorkgroupStateType(MLIRContext *context) {
   llvm::sys::ScopedLock lock(sMutex);
   auto structType = LLVM::LLVMStructType::getIdentified(
-      context, "iree_hal_executable_workgroup_state_v0_t");
+      context, "hexagon_executable_workgroup_state_t");
   if (structType.isInitialized()) {
     return structType;
   }
 
   auto uint16Type = IntegerType::get(context, 16);
   auto uint32Type = IntegerType::get(context, 32);
-  auto opaquePtrType = LLVM::LLVMPointerType::get(context);
   SmallVector<Type> fieldTypes;
 
   // uint32_t workgroup_id_x;
@@ -164,15 +121,7 @@ HexagonDispatchABI::getWorkgroupStateType(MLIRContext *context) {
   fieldTypes.push_back(uint32Type);
   fieldTypes.push_back(uint16Type);
 
-  // uint16_t reserved;
-  fieldTypes.push_back(uint16Type);
-
   // uint32_t processor_id;
-  fieldTypes.push_back(uint32Type);
-
-  // void* local_memory;
-  // uint32_t local_memory_size;
-  fieldTypes.push_back(opaquePtrType);
   fieldTypes.push_back(uint32Type);
 
   LogicalResult bodySet = structType.setBody(fieldTypes, /*isPacked=*/false);
@@ -186,13 +135,13 @@ HexagonDispatchABI::getWorkgroupStateType(MLIRContext *context) {
 // static
 SmallVector<Type, 5> HexagonDispatchABI::getInputTypes(MLIRContext *context) {
   return SmallVector<Type, 5>{
-      // const iree_hal_executable_environment_v0_t* IREE_RESTRICT
+      // const hexagon_executable_environment_t* IREE_RESTRICT
       //   environment
       LLVM::LLVMPointerType::get(context),
-      // const iree_hal_executable_dispatch_state_v0_t* IREE_RESTRICT
+      // const hexagon_executable_dispatch_state_t* IREE_RESTRICT
       //   dispatch_state
       LLVM::LLVMPointerType::get(context),
-      // const iree_hal_executable_workgroup_state_v0_t* IREE_RESTRICT
+      // const hexagon_executable_workgroup_state_t* IREE_RESTRICT
       //   workgroup_state
       LLVM::LLVMPointerType::get(context),
   };
@@ -431,6 +380,8 @@ Value HexagonDispatchABI::loadExecutableConstant(Operation *forOp,
       LLVM::LoadOp::create(builder, loc, globalOp.getType(), globalPtr);
 
   // Load constant from the executable constants struct.
+  // FIXME: the DSP runtime does not populate environment->constants yet; see
+  // hexagon_executable_environment_t.
   auto constantsPtrValue =
       loadFieldValue(forOp, EnvironmentField::constants, builder);
   Value constantPtrValue =

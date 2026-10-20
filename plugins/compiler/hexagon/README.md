@@ -77,7 +77,8 @@ The decomposition covers the following files:
 - `HexagonExecutableSerialization.*`
   - final executable packaging, including the LLVM optimization pipeline.
 - `LibraryBuilder.*`
-  - vendored copy of LLVMCPU's `LibraryBuilder` (executable library metadata).
+  - emits the executable library metadata (derived from LLVMCPU's
+    `LibraryBuilder`).
 
 The `Target` layer depends on `CodeGen`, not the other way around.
 

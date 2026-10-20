@@ -102,6 +102,7 @@ iree_cc_library(
     iree::compiler::Dialect::HAL::IR
     iree::compiler::Dialect::Util::IR
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
+    iree_hexagon_plugins::plugins::runtime::hexagon::dsp::rt::vtcm_allocation
   ALWAYSLINK
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../..>"
@@ -202,6 +203,7 @@ iree_cc_library(
     "Pipelines/TranslationPipeline.cpp"
     "Strategy/HexagonSelectLoweringStrategy.cpp"
     "Strategy/KernelDispatch.cpp"
+    "Transforms/HexagonAnnotateDispatchResources.cpp"
     "Transforms/HexagonAssignConstantOrdinals.cpp"
     "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"

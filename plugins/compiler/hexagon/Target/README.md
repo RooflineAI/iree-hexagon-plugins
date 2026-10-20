@@ -26,7 +26,7 @@ HexagonSession                  plugin "hexagon": dialects, passes, options
      ├─ build{Configuration,Translation,Linking}PassPipeline  → CodeGen/Pipelines
      └─ serializeExecutable → serializeHexagonExecutable
           1. translate the LLVM dialect module to llvm::Module
-          2. LibraryBuilder: emit iree_hal_executable_library_query
+          2. LibraryBuilder: emit hexagon_executable_library_query
           3. createHexagonTargetMachine(config)
           4. runLLVMOptimizationPasses (O2)
           5. emit object file (+ per-frame stack-size check)
@@ -48,19 +48,19 @@ the **interface between this folder and `CodeGen/`**.
 | `HexagonTargetBackend.*` | `HAL::TargetBackend`: builds the executable target attribute, declares the dependent dialects, and forwards to the CodeGen pipelines and to serialization. |
 | `HexagonLLVMTarget.*` | `HexagonTarget` (triple, DSP version, DSP features, data layout, vector width, stack limit) and its config-dict writer; `createHexagonTargetMachine`; `initializeHexagonTarget`. The DSP version and features are stored under the generic `cpu` / `cpu_features` keys, which `createHexagonTargetMachine` reads back. The vector width follows the HVX length feature (64 or 128 bytes). |
 | `HexagonExecutableSerialization.*` | `serializeHexagonExecutable` and its helpers: metadata, the LLVM optimization pipeline, object emission, temporary files, linking, the flatbuffer, and the `--iree-hexagon-fail-on-stack-frames-larger-than` check. |
-| `LibraryBuilder.*` | Vendored copy of LLVMCPU's `LibraryBuilder`. It emits the `iree_hal_executable_library_v0_t` tables and the query function. |
+| `LibraryBuilder.*` | Emits the `hexagon_executable_library_t` tables and the query function. Derived from LLVMCPU's `LibraryBuilder`; see [Executable library ABI](#executable-library-abi). |
 | `Linking/HexagonLinker.*` | `linkHexagonSharedObject`: finds the linker and runs it with the Hexagon flags. |
 
 ## Serialization details
 
 - **Library metadata.**
   - `buildExecutableMetadata` declares every `hal.executable.export` in the
-    `LibraryBuilder` and builds `iree_hal_executable_library_query`. The query
+    `LibraryBuilder` and builds `hexagon_executable_library_query`. The query
     function is the only symbol the DSP runtime looks up
     (`plugins/runtime/hexagon/dsp/executable.c`). It has external linkage and
     default visibility.
-  - Reflection attributes are always included.
-  - Sanitizers are not supported.
+  - Each export records its name and its dispatch attributes (the resources
+    HexagonAnnotateDispatchResourcesPass measured).
   - The export order is also written into the flatbuffer's `entry_points`, so
     that index equals the dispatch ordinal on both host and DSP.
 - **Target machine.**
@@ -115,27 +115,31 @@ printed on failure and under `--debug-only=iree-hexagon-linker`.
   (`codegen::kNativeRuntimeLinkVariantAttrName`) keep undefined symbols. The
   DSP loader binds them against `libhexagon_dsp_skel.so`.
 
-## Possible upstream refactor
+## Executable library ABI
 
-**Move `LibraryBuilder` to a common location.** For example
-`compiler/src/iree/compiler/Dialect/HAL/Utils/`, next to `LLVMLinkerUtils`, with
-its own build target depending only on LLVM Core, Support and TargetParser, and
-MLIR Support. Its compiler-side counterpart, `Codegen/LLVMCPU/DispatchABI`, is
-likewise copied into `CodeGen/Conversion/HexagonDispatchABI.*`, and should be
-considered at the same time.
+The executable library ABI is Hexagon-owned. It started as a copy of IREE's
+LLVMCPU "local" ABI and has been reduced to what Hexagon uses; it is no longer
+kept in sync with upstream. Three places define it:
 
-The copy is kept as close to upstream as possible, so it can be diffed and
-eventually deleted. Only these things differ:
+- `plugins/runtime/hexagon/dsp/rt/executable_library.h`, the C definition,
+  included by the DSP runtime and by `HexagonExecutableSerialization.cpp`;
+- `LibraryBuilder.*`, which emits the library tables (header, import table,
+  export table with dispatch attributes) and the query function;
+- `CodeGen/Conversion/HexagonDispatchABI.*`, which defines the environment,
+  dispatch-state and workgroup-state structs that dispatch functions read.
 
-- the namespace, `hexagon::target`, which avoids ODR clashes with the LLVMCPU
-  copy linked into the same `iree-compile`;
-- the header guard;
-- the stale includes (`LLVMTargetOptions.h`, `UtilTypes.h`), replaced by
-  `mlir/Support/LLVM.h`.
+The dispatch attributes carry only the resources
+HexagonAnnotateDispatchResourcesPass measured: `hexagon_flags` and
+`vtcm_bytes`.
 
-The header of `LibraryBuilder.h` records the IREE revision and ABI version it
-was copied at. `HexagonExecutableSerialization.cpp` has a `static_assert`
-comparing `LibraryBuilder::Version::LATEST` with the runtime's
-`IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST`. An IREE bump that changes the
-executable library ABI therefore breaks the build instead of failing on the
-DSP. When that happens, re-sync the copy from upstream and update the header.
+Any change to these structures is an ABI break: change all three together and
+bump `HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST` and
+`LibraryBuilder::Version::LATEST`, so the runtime rejects libraries built with
+the old layout. Hexagon versions carry `HX` in the upper half
+(`0x4858'xxxx`) to stay distinct from upstream IREE versions.
+`HexagonExecutableSerialization.cpp` has `static_assert`s comparing the two
+versions, and the dispatch-attribute flags and field offsets with the LLVM
+struct `makeDispatchAttrsType` emits.
+
+All types, macros and the exported query function use a `hexagon_executable_*`
+prefix, as do the LLVM struct types the compiler emits.

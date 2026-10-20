@@ -8,6 +8,7 @@
 
 #include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 
+#include "hexagon/CodeGen/Passes.h"
 #include "hexagon/CodeGen/Pipelines/LoweringPipelines.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "mlir/Pass/PassManager.h"
@@ -41,8 +42,10 @@ void buildHexagonTranslationPassPipeline(
 
   addHexagonVariantFinalizationPasses(variantPassManager);
 
-  OpPassManager &modulePassManager = variantPassManager.nest<ModuleOp>();
-  addHexagonLowerToLLVMPasses(modulePassManager);
+  addHexagonPreLLVMConversionPasses(variantPassManager.nest<ModuleOp>());
+  // Every allocation and HMX op is final here and still visible as such.
+  variantPassManager.addPass(createHexagonAnnotateDispatchResourcesPass());
+  addHexagonConvertToLLVMPasses(variantPassManager.nest<ModuleOp>());
 
   // Fold each iree_codegen.dispatch_config op back into its HAL export's
   // workgroup-count region and erase it, mirroring IREE's existing backends.

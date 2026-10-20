@@ -92,4 +92,49 @@ def IREEHexagon_PipelineAttr : AttrDef<IREEHexagon_Dialect, "Pipeline", [
   let assemblyFormat = "`<` $value `>`";
 }
 
+//===----------------------------------------------------------------------===//
+// Dispatch resources.
+//===----------------------------------------------------------------------===//
+
+def IREEHexagon_DispatchResourcesAttr :
+    AttrDef<IREEHexagon_Dialect, "DispatchResources"> {
+  let mnemonic = "dispatch_resources";
+  let summary = "Hardware resources a dispatch needs on the DSP.";
+  let description = [{
+    Records the hardware units and the VTCM a dispatch uses, so the
+    DSP part of the runtime can decide which dispatches may run concurrently.
+    HexagonAnnotateDispatchResourcesPass measures them on the final IR before
+    LLVM conversion and sets the attribute on the `hal.executable.export`;
+    serialization encodes it into the Hexagon extension of the executable's
+    dispatch attributes.
+
+    `vtcm_bytes` bounds the peak VTCM the dispatch allocates, 0 if it does not
+    use VTCM, and `kUnboundedVTCMBytes` (INT64_MAX) if it cannot be bounded,
+    so the dispatch must be treated as needing all of VTCM.
+
+      #iree_hexagon.dispatch_resources<hvx = true, hmx = false,
+                                       vtcm_bytes = 1048576>
+  }];
+  let parameters = (ins
+    "bool":$hvx,
+    "bool":$hmx,
+    "int64_t":$vtcm_bytes
+  );
+  let assemblyFormat = [{
+    `<` `hvx` `=` $hvx `,` `hmx` `=` $hmx `,` `vtcm_bytes` `=` $vtcm_bytes `>`
+  }];
+  let genVerifyDecl = 1;
+  let extraClassDeclaration = [{
+    /// Name under which the attribute is stored on the
+    /// `hal.executable.export`.
+    static constexpr StringLiteral getAttrName() {
+      return StringLiteral("iree_hexagon.dispatch_resources");
+    }
+
+    /// `vtcm_bytes` of a dispatch whose VTCM use cannot be bounded.
+    static constexpr int64_t kUnboundedVTCMBytes =
+        std::numeric_limits<int64_t>::max();
+  }];
+}
+
 #endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS

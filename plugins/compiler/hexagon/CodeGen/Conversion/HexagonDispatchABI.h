@@ -23,12 +23,11 @@ namespace mlir::iree_compiler::hexagon::codegen {
 // Derived from:
 //   iree/compiler/Codegen/LLVMCPU/DispatchABI.{h,cpp}
 // IREE revision: a45adeaa6115e446c898e6eb21fb6edc0e65ddc4
-// Last synchronized: 2026-09-25
 //
-// Hexagon owns this copy of the local executable ABI. The base environment,
-// dispatch-state, and workgroup-state layouts remain synchronized with IREE.
-// Hexagon extends the dispatch-state allocation with a trailing runtime-state
-// pointer; access to that extension is kept in this class.
+// Hexagon owns this ABI; the environment, dispatch-state and workgroup-state
+// layouts match hexagon/dsp/rt/executable_library.h
+// Hexagon extends the dispatch-state allocation with a trailing
+// runtime-state pointer; access to that extension is kept in this class.
 
 //------------------------------------------------------------------------------
 // HexagonDispatchABI
@@ -40,31 +39,22 @@ namespace mlir::iree_compiler::hexagon::codegen {
 // versions in the same compiled output.
 class HexagonDispatchABI {
 public:
-  // Matches IREE_HAL_PROCESSOR_DATA_CAPACITY_V0.
-  static constexpr int ProcessorDataCapacity = 8;
-
-  // Returns a Type representing iree_hal_processor_v0_t.
-  static LLVM::LLVMStructType getProcessorType(MLIRContext *context);
-
-  // Matches the field order in iree_hal_executable_environment_v0_t.
+  // Matches the field order in hexagon_executable_environment_t.
   enum class EnvironmentField {
     constants,
   };
 
-  // Returns a Type representing iree_hal_executable_environment_v0_t.
-  static LLVM::LLVMStructType
-  getEnvironmentType(MLIRContext *context, LLVM::LLVMStructType processorType);
+  // Returns a Type representing hexagon_executable_environment_t.
+  static LLVM::LLVMStructType getEnvironmentType(MLIRContext *context);
 
-  // Matches the field order in iree_hal_executable_dispatch_state_v0_t.
+  // Matches the field order in hexagon_executable_dispatch_state_t.
   enum class DispatchStateField {
     /*uint32_t*/ workgroup_size_x,
     /*uint32_t*/ workgroup_size_y,
     /*uint16_t*/ workgroup_size_z,
-    /*uint16_t*/ constant_count,
     /*uint32_t*/ workgroup_count_x,
     /*uint32_t*/ workgroup_count_y,
     /*uint16_t*/ workgroup_count_z,
-    /*uint8_t*/ max_concurrency,
     /*uint8_t*/ binding_count,
     /*intptr_t*/ constants,
     /*intptr_t*/ binding_ptrs,
@@ -74,7 +64,7 @@ public:
     return static_cast<DispatchStateField>(static_cast<int32_t>(lhs) + rhs);
   }
 
-  // Returns a Type representing iree_hal_executable_dispatch_state_v0_t.
+  // Returns a Type representing hexagon_executable_dispatch_state_t.
   static LLVM::LLVMStructType getDispatchStateType(MLIRContext *context);
 
   // Returns the Hexagon extension of the IREE dispatch state. The base state
@@ -87,21 +77,18 @@ public:
     /*uint32_t*/ workgroup_id_x = 0,
     /*uint32_t*/ workgroup_id_y,
     /*uint16_t*/ workgroup_id_z,
-    /*uint16_t*/ reserved,
     /*uint32_t*/ processor_id,
-    /*intptr_t*/ local_memory,
-    /*uint32_t*/ local_memory_size,
   };
   friend WorkgroupStateField operator+(WorkgroupStateField lhs, int32_t rhs) {
     return static_cast<WorkgroupStateField>(static_cast<int32_t>(lhs) + rhs);
   }
 
-  // Returns a Type representing iree_hal_executable_workgroup_state_v0_t.
+  // Returns a Type representing hexagon_executable_workgroup_state_t.
   static LLVM::LLVMStructType getWorkgroupStateType(MLIRContext *context);
 
   // Returns the types of the LLVM function inputs for the ABI.
-  // This matches the signature of `iree_hal_executable_dispatch_v0_t` in
-  // `iree/hal/local/executable_library.h`.
+  // This matches the signature of `hexagon_executable_dispatch_fn_t` in
+  // `hexagon/dsp/rt/executable_library.h`.
   static SmallVector<Type, 5> getInputTypes(MLIRContext *context);
 
   // Builds a DISubprogram for |llvmFuncOp| function in |moduleOp|.
@@ -115,7 +102,7 @@ public:
 
   explicit HexagonDispatchABI(LLVMTypeConverter *typeConverter)
       : context(&typeConverter->getContext()), typeConverter(typeConverter),
-        environmentType(getEnvironmentType(context, getProcessorType(context))),
+        environmentType(getEnvironmentType(context)),
         dispatchStateType(getDispatchStateType(context)),
         workgroupStateType(getWorkgroupStateType(context)) {}
 

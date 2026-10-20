@@ -6,6 +6,7 @@
 
 #include "hexagon/Target/HexagonExecutableSerialization.h"
 #include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
+#include "hexagon/CodeGen/IR/HexagonAttrs.h"
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
 #include "hexagon/Target/LibraryBuilder.h"
@@ -13,7 +14,8 @@
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "iree/compiler/Utils/FlatbufferUtils.h"
 #include "iree/compiler/Utils/StringUtils.h"
-#include "iree/hal/local/executable_library.h"
+// Hexagon-owned copy of the executable library ABI, shared with the DSP.
+#include "hexagon/dsp/rt/executable_library.h"
 // Generated flatcc builder for the Hexagon executable-def flatbuffer (host-
 // readable export names + ELF). See serialize/hexagon_executable_def.fbs.
 #include "hexagon/schemas/hexagon_executable_def_builder.h"
@@ -52,20 +54,38 @@ using HAL::dumpDataToPath;
 using HAL::TargetBackend;
 namespace {
 
-// The vendored LibraryBuilder emits the library tables the DSP runtime loads.
-// The runtime checks the version at load time (see dsp/executable.c); this
-// catches an IREE bump that changes the ABI at build time instead.
+// LibraryBuilder emits the library tables the DSP runtime loads. The runtime
+// checks the version at load time (see dsp/executable.c); these catch a drift
+// between LibraryBuilder and the ABI header at build time instead.
 static_assert(static_cast<uint32_t>(LibraryBuilder::Version::LATEST) ==
-                  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST,
-              "vendored Target/LibraryBuilder is out of sync with "
-              "iree/hal/local/executable_library.h; re-sync it from upstream");
+                  HEXAGON_EXECUTABLE_LIBRARY_VERSION_LATEST,
+              "Target/LibraryBuilder is out of sync with "
+              "hexagon/dsp/rt/executable_library.h");
+
+// guard against struct layout changes
+static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 16 &&
+                  offsetof(hexagon_executable_dispatch_attrs_t,
+                           hexagon_flags) == 0 &&
+                  offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) ==
+                      8,
+              "dispatch attrs layout differs from LibraryBuilder");
+static_assert(
+    static_cast<uint64_t>(
+        LibraryBuilder::HexagonDispatchFlags::RESOURCES_VALID) ==
+            HEXAGON_DISPATCH_FLAG_RESOURCES_VALID &&
+        static_cast<uint64_t>(LibraryBuilder::HexagonDispatchFlags::USES_HVX) ==
+            HEXAGON_DISPATCH_FLAG_USES_HVX &&
+        static_cast<uint64_t>(LibraryBuilder::HexagonDispatchFlags::USES_HMX) ==
+            HEXAGON_DISPATCH_FLAG_USES_HMX,
+    "LibraryBuilder::HexagonDispatchFlags differ from the ABI header");
 
 // Temporary files handed to the linker. Each one is deleted when its remover is
 // destroyed at the end of serialization.
 using TemporaryFiles = llvm::SmallVector<std::unique_ptr<llvm::FileRemover>>;
 
+// The DSP runtime looks the query function up by this name.
 static constexpr char kQueryFunctionName[] =
-    "iree_hal_executable_library_query";
+    HEXAGON_EXECUTABLE_LIBRARY_EXPORT_NAME;
 
 // LLVM only knows a function's final frame size, including register spills,
 // after register allocation. Use its `warn-stack-size` diagnostic to enforce a
@@ -198,15 +218,12 @@ static void
 buildExecutableMetadata(llvm::Module &llvmModule,
                         HAL::ExecutableVariantOp &variantOp,
                         llvm::SmallVectorImpl<std::string> &entryPointNames) {
-  // LLVMCPU also supports sanitizers and dropping the reflection attributes.
-  // Hexagon supports neither, so the defaults (no sanitizer) are kept.
-  LibraryBuilder libraryBuilder(&llvmModule,
-                                LibraryBuilder::Mode::INCLUDE_REFLECTION_ATTRS,
-                                LibraryBuilder::Version::LATEST);
+  LibraryBuilder libraryBuilder(&llvmModule, LibraryBuilder::Version::LATEST);
 
   // Declare dynamically imported functions if present. Hexagon currently
   // expects runtime/helper symbols to be resolved via native DSP linking, so
   // imports here are unexpected.
+  // FIXME: reject them here instead of when the DSP runtime loads the library.
   auto importsAttrName =
       mlir::StringAttr::get(variantOp.getContext(), "hal.executable.imports");
   if (auto importsAttr =
@@ -243,37 +260,23 @@ buildExecutableMetadata(llvm::Module &llvmModule,
 
     LibraryBuilder::DispatchAttrs dispatchAttrs = {};
 
-    // Entry points may optionally specify that they require workgroup local
-    // memory. We fetch that value here and plumb it through so the runtime
-    // knows how much memory to reserve and pass in.
-    dispatchAttrs.localMemorySize = exportOp.getWorkgroupLocalMemory()
-                                        .value_or(llvm::APInt(64, 0))
-                                        .getSExtValue();
-
-    // Specify the constant and binding information used to validate
-    // dispatches.
-    if (auto layoutAttr = exportOp.getLayout()) {
-      dispatchAttrs.constantCount = layoutAttr.getConstants();
-      dispatchAttrs.bindingCount = layoutAttr.getBindings().size();
+    // Hardware resources HexagonAnnotateDispatchResourcesPass measured, for
+    // the DSP scheduler. Without them RESOURCES_VALID stays clear and the DSP
+    // assumes the dispatch needs every resource.
+    if (auto resources =
+            exportOp->getAttrOfType<IREE::Hexagon::DispatchResourcesAttr>(
+                IREE::Hexagon::DispatchResourcesAttr::getAttrName())) {
+      using HexagonFlags = LibraryBuilder::HexagonDispatchFlags;
+      uint64_t flags = static_cast<uint64_t>(HexagonFlags::RESOURCES_VALID);
+      if (resources.getHvx())
+        flags |= static_cast<uint64_t>(HexagonFlags::USES_HVX);
+      if (resources.getHmx())
+        flags |= static_cast<uint64_t>(HexagonFlags::USES_HMX);
+      dispatchAttrs.hexagonFlags = flags;
+      dispatchAttrs.vtcmBytes = static_cast<uint64_t>(resources.getVtcmBytes());
     }
 
-    // Extract workgroup size if specified at compile time.
-    if (auto workgroupSizeAttr = exportOp.getWorkgroupSize()) {
-      auto workgroupSizeValues = workgroupSizeAttr->getValue();
-      dispatchAttrs.workgroupSize[0] = static_cast<uint32_t>(
-          mlir::cast<mlir::IntegerAttr>(workgroupSizeValues[0]).getInt());
-      dispatchAttrs.workgroupSize[1] = static_cast<uint32_t>(
-          mlir::cast<mlir::IntegerAttr>(workgroupSizeValues[1]).getInt());
-      dispatchAttrs.workgroupSize[2] = static_cast<uint32_t>(
-          mlir::cast<mlir::IntegerAttr>(workgroupSizeValues[2]).getInt());
-    }
-
-    // Value-initialized: `line` is otherwise left uninitialized.
-    LibraryBuilder::SourceLocation sourceLocation{};
-    SmallVector<LibraryBuilder::SourceLocation> stageLocations;
-    libraryBuilder.addExport(exportOp.getName(), std::move(sourceLocation),
-                             std::move(stageLocations), /*tag=*/"",
-                             dispatchAttrs, llvmFunc);
+    libraryBuilder.addExport(exportOp.getName(), dispatchAttrs, llvmFunc);
 
     // Collect the export name in the SAME order it is added to the library so
     // the host-readable flatbuffer's entry_points[i] lines up with the DSP's

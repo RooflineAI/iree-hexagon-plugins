@@ -47,7 +47,7 @@ int hexagon_dsp_executable_close(remote_handle64 rpc_handle,
  */
 int hexagon_dsp_executable_get_dispatch_func(
     int64 executable_handle, uint32_t export_ordinal,
-    iree_hal_executable_dispatch_v0_t *out_dispatch_func);
+    hexagon_executable_dispatch_fn_t *out_dispatch_func);
 
 /**
  * @brief get initialized executable environment
@@ -57,7 +57,7 @@ int hexagon_dsp_executable_get_dispatch_func(
  */
 int hexagon_dsp_executable_get_environment(
     int64 executable_handle,
-    const iree_hal_executable_environment_v0_t **out_environment);
+    const hexagon_executable_environment_t **out_environment);
 
 /**
  * @brief Get the dispatch function.

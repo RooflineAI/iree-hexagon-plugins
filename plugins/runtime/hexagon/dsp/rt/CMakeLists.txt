@@ -10,13 +10,34 @@
 
 iree_add_all_subdirs()
 
+iree_cc_library(
+  NAME
+    executable_library
+  HDRS
+    "executable_library.h"
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    vtcm_allocation
+  HDRS
+    "vtcm_allocation.h"
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../../..>"
+  PUBLIC
+)
+
 if(IREE_HEXAGON_MLIR_DSP_BUILD AND IREE_HEXAGON_MLIR_DSP_BUILD)
 iree_cc_library(
   NAME
     hexagon_rt_library
   HDRS
     "dispatch_state.h"
-    "executable_library.h"
     "malloc_free.h"
     "memref_copy.h"
     "profiler.h"
@@ -29,8 +50,9 @@ iree_cc_library(
     "profiler.c"
     "vtcm_pool.cpp"
   DEPS
+    ::executable_library
+    ::vtcm_allocation
     hexagon_mlir::bin::runtime::runtime_lib
-    iree::hal::local::executable_library
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::hexagon_arm_dsp
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::pmu::hexagon_pmu_helpers
   ALWAYSLINK

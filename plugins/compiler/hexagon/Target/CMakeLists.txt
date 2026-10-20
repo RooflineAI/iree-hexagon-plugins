@@ -114,9 +114,10 @@ iree_cc_library(
     iree::compiler::Dialect::HAL::IR
     iree::compiler::Dialect::HAL::Target
     iree::compiler::Utils
-    iree::hal::local::executable_library
+    iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::codegen
     iree_hexagon_plugins::plugins::compiler::hexagon::Target::Linking::HexagonLinker
+    iree_hexagon_plugins::plugins::runtime::hexagon::dsp::rt::executable_library
     iree_hexagon_plugins::plugins::runtime::hexagon::schemas::hexagon_executable_def_c_fbs
   ALWAYSLINK
   INCLUDES

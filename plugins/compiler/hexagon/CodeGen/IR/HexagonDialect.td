@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef HEXAGON_CODEGEN_IR_HEXAGONDIALECT
-#define HEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#ifndef IREE_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#define IREE_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
 
 include "mlir/IR/AttrTypeBase.td"
 
@@ -32,4 +32,4 @@ def IREEHexagon_Dialect : Dialect {
   let useDefaultTypePrinterParser = 1;
 }
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONDIALECT
+#endif // IREE_HEXAGON_CODEGEN_IR_HEXAGONDIALECT

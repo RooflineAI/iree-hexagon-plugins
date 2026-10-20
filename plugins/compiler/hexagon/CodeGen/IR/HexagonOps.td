@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef HEXAGON_CODEGEN_IR_HEXAGONOPS
-#define HEXAGON_CODEGEN_IR_HEXAGONOPS
+#ifndef IREE_HEXAGON_CODEGEN_IR_HEXAGONOPS
+#define IREE_HEXAGON_CODEGEN_IR_HEXAGONOPS
 
 include "hexagon/CodeGen/IR/HexagonAttrs.td"
 include "hexagon/CodeGen/IR/HexagonDialect.td"
@@ -464,4 +464,4 @@ def IREEHexagon_HmxAccReadOp :
   let hasVerifier = 1;
 }
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONOPS
+#endif // IREE_HEXAGON_CODEGEN_IR_HEXAGONOPS

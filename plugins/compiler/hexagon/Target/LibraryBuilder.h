@@ -13,8 +13,8 @@
 // HexagonExecutableSerialization.cpp fail the build when the version or the
 // dispatch attrs layout diverge from the header. See Target/README.md.
 
-#ifndef ROOF_HEXAGON_TARGET_LIBRARYBUILDER_H_
-#define ROOF_HEXAGON_TARGET_LIBRARYBUILDER_H_
+#ifndef IREE_HEXAGON_TARGET_LIBRARYBUILDER_H_
+#define IREE_HEXAGON_TARGET_LIBRARYBUILDER_H_
 
 #include <string>
 #include <vector>
@@ -124,4 +124,4 @@ private:
 
 } // namespace mlir::iree_compiler::hexagon::target
 
-#endif // ROOF_HEXAGON_TARGET_LIBRARYBUILDER_H_
+#endif // IREE_HEXAGON_TARGET_LIBRARYBUILDER_H_

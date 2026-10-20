@@ -6,8 +6,8 @@
 
 // This header declares the configuration-stage Hexagon pipeline builder.
 
-#ifndef ROOF_HEXAGON_CODEGEN_CONFIGURATIONPIPELINE_H_
-#define ROOF_HEXAGON_CODEGEN_CONFIGURATIONPIPELINE_H_
+#ifndef IREE_HEXAGON_CODEGEN_CONFIGURATIONPIPELINE_H_
+#define IREE_HEXAGON_CODEGEN_CONFIGURATIONPIPELINE_H_
 
 #include "mlir/Pass/PassManager.h"
 
@@ -17,4 +17,4 @@ void buildHexagonConfigurationPassPipeline(mlir::OpPassManager &passManager);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_CONFIGURATIONPIPELINE_H_
+#endif // IREE_HEXAGON_CODEGEN_CONFIGURATIONPIPELINE_H_

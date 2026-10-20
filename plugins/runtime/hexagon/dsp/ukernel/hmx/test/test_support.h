@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_TEST_TEST_SUPPORT_H_
-#define ROOF_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_TEST_TEST_SUPPORT_H_
+#ifndef IREE_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_TEST_TEST_SUPPORT_H_
+#define IREE_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_TEST_TEST_SUPPORT_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -105,4 +105,4 @@ void hmx_test_matmul_reference(_Float16 *dest, const _Float16 *lhs,
                                const _Float16 *rhs,
                                uint32_t accumulation_count);
 
-#endif // ROOF_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_TEST_TEST_SUPPORT_H_
+#endif // IREE_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_TEST_TEST_SUPPORT_H_

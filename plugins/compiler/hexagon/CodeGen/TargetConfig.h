@@ -7,8 +7,8 @@
 // Derived from Codegen/LLVMCPU/Utils.cpp at IREE revision
 // a45adeaa6115e446c898e6eb21fb6edc0e65ddc4.
 
-#ifndef ROOF_HEXAGON_CODEGEN_TARGET_CONFIG_H_
-#define ROOF_HEXAGON_CODEGEN_TARGET_CONFIG_H_
+#ifndef IREE_HEXAGON_CODEGEN_TARGET_CONFIG_H_
+#define IREE_HEXAGON_CODEGEN_TARGET_CONFIG_H_
 
 #include <optional>
 
@@ -43,4 +43,4 @@ getConfigMaxStackAllocationSize(DictionaryAttr targetConfig) {
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_TARGET_CONFIG_H_
+#endif // IREE_HEXAGON_CODEGEN_TARGET_CONFIG_H_

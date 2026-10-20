@@ -6,8 +6,8 @@
 
 // This header declares the Hexagon executable linking pipeline builder.
 
-#ifndef ROOF_HEXAGON_CODEGEN_LINKINGPIPELINE_H_
-#define ROOF_HEXAGON_CODEGEN_LINKINGPIPELINE_H_
+#ifndef IREE_HEXAGON_CODEGEN_LINKINGPIPELINE_H_
+#define IREE_HEXAGON_CODEGEN_LINKINGPIPELINE_H_
 
 #include "mlir/Pass/PassManager.h"
 
@@ -22,4 +22,4 @@ void buildHexagonLinkingPassPipeline(
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 
-#endif // ROOF_HEXAGON_CODEGEN_LINKINGPIPELINE_H_
+#endif // IREE_HEXAGON_CODEGEN_LINKINGPIPELINE_H_

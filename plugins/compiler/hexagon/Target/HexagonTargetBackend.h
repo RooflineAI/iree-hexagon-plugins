@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_
-#define ROOF_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_
+#ifndef IREE_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_
+#define IREE_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_
 
 #include "hexagon/Target/HexagonOptions.h"
 
@@ -20,4 +20,4 @@ createHexagonTargetBackend(const HexagonOptions &options);
 
 } // namespace mlir::iree_compiler::hexagon::target
 
-#endif // ROOF_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_
+#endif // IREE_HEXAGON_HAL_HEXAGONTARGETBACKEND_H_

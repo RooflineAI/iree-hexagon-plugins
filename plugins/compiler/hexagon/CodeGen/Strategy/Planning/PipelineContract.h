@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_
-#define ROOF_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_
+#ifndef IREE_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_
+#define IREE_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_
 
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "mlir/IR/Operation.h"
@@ -89,4 +89,4 @@ bool canRefineComputeTileDownstream(const PipelineContract &contract,
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 
-#endif // ROOF_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_
+#endif // IREE_HEXAGON_CODEGEN_PLANNING_PIPELINECONTRACT_H_

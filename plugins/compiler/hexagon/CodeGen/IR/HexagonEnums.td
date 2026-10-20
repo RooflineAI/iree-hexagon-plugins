@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef HEXAGON_CODEGEN_IR_HEXAGONENUMS
-#define HEXAGON_CODEGEN_IR_HEXAGONENUMS
+#ifndef IREE_HEXAGON_CODEGEN_IR_HEXAGONENUMS
+#define IREE_HEXAGON_CODEGEN_IR_HEXAGONENUMS
 
 include "hexagon/CodeGen/IR/HexagonDialect.td"
 include "mlir/IR/EnumAttr.td"
@@ -86,4 +86,4 @@ def IREEHexagon_ProfilerZone :
       IREEHexagon_ProfilerZoneUnknown
     ]>;
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONENUMS
+#endif // IREE_HEXAGON_CODEGEN_IR_HEXAGONENUMS

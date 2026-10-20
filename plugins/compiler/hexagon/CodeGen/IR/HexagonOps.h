@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_CODEGEN_IR_HEXAGONOPS_H
-#define ROOF_HEXAGON_CODEGEN_IR_HEXAGONOPS_H
+#ifndef IREE_HEXAGON_CODEGEN_IR_HEXAGONOPS_H
+#define IREE_HEXAGON_CODEGEN_IR_HEXAGONOPS_H
 
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
@@ -31,4 +31,4 @@ class IREEHexagonDialect;
 #define GET_OP_CLASSES
 #include "hexagon/CodeGen/IR/HexagonOps.h.inc"
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONOPS_H
+#endif // IREE_HEXAGON_CODEGEN_IR_HEXAGONOPS_H

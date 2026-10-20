@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_HAL_LINKING_HEXAGONLINKER_H_
-#define ROOF_HEXAGON_HAL_LINKING_HEXAGONLINKER_H_
+#ifndef IREE_HEXAGON_HAL_LINKING_HEXAGONLINKER_H_
+#define IREE_HEXAGON_HAL_LINKING_HEXAGONLINKER_H_
 
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -30,4 +30,4 @@ LogicalResult linkHexagonSharedObject(StringRef linkerPath,
 
 } // namespace mlir::iree_compiler::hexagon::target::linking
 
-#endif // ROOF_HEXAGON_HAL_LINKING_HEXAGONLINKER_H_
+#endif // IREE_HEXAGON_HAL_LINKING_HEXAGONLINKER_H_

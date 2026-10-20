@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef ROOF_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_API_H_
-#define ROOF_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_API_H_
+#ifndef IREE_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_API_H_
+#define IREE_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_API_H_
 
 #include <stdint.h>
 
@@ -69,4 +69,4 @@ void iree_hexagon_hmx_acc_read_f16(_Float16 *output);
 } // extern "C"
 #endif
 
-#endif // ROOF_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_API_H_
+#endif // IREE_HEXAGON_RUNTIME_DSP_UKERNEL_HMX_API_H_

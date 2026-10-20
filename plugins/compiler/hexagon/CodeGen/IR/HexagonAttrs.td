@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef HEXAGON_CODEGEN_IR_HEXAGONATTRS
-#define HEXAGON_CODEGEN_IR_HEXAGONATTRS
+#ifndef IREE_HEXAGON_CODEGEN_IR_HEXAGONATTRS
+#define IREE_HEXAGON_CODEGEN_IR_HEXAGONATTRS
 
 include "hexagon/CodeGen/IR/HexagonDialect.td"
 include "hexagon/CodeGen/IR/HexagonEnums.td"
@@ -137,4 +137,4 @@ def IREEHexagon_DispatchResourcesAttr :
   }];
 }
 
-#endif // ROOF_HEXAGON_CODEGEN_IR_HEXAGONATTRS
+#endif // IREE_HEXAGON_CODEGEN_IR_HEXAGONATTRS

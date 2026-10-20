@@ -23,11 +23,16 @@ class AdbError(RuntimeError):
 def _run(
     args: list[str], timeout: float = 600.0, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
-    argv = ["adb", *args]
+    return _exec(["adb", *args], timeout=timeout, check=check)
+
+
+def _exec(
+    argv: list[str], timeout: float, check: bool
+) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as err:
-        raise AdbError("adb is not on PATH") from err
+        raise AdbError(f"{argv[0]} is not on PATH") from err
     if check and result.returncode != 0:
         raise AdbError(
             f"{shlex.join(argv)} failed with exit code {result.returncode}\n"
@@ -61,6 +66,54 @@ def shell_exit_code(script: str, timeout: float = 600.0) -> tuple[int, str]:
 
 def push(local_paths: list[Path], remote_dir: str, timeout: float = 600.0) -> None:
     _run(["push", *[str(p) for p in local_paths], remote_dir], timeout=timeout)
+
+
+# The "remote shell" rsync uses to start its other end on the device, in place
+# of ssh.
+#
+# For a destination `device:/path`, rsync runs the remote shell like ssh, with
+# the host name first and then the command to run there:
+#
+#     <rsh> device <device_rsync> --server <options> . /path
+#
+# and then speaks its protocol over that process's stdin and stdout. `adb shell`
+# can carry that stream, but takes no host name. So the remote shell is a small
+# `sh -c` script: `adb-rsh` becomes $0, `device` becomes $1, and `shift` drops
+# it, leaving `adb shell -T <device_rsync> --server ...`. The `device` in
+# `device:/path` is a placeholder that only tells rsync the destination is
+# remote.
+_RSYNC_RSH = "sh -c 'shift; exec adb shell -T \"$@\"' adb-rsh"
+
+
+def sync(
+    host_rsync: Path,
+    device_rsync: str,
+    local_path: Path,
+    remote_path: str,
+    timeout: float = 600.0,
+) -> None:
+    """Make `remote_path` a copy of `local_path`. rsync sends only what changed.
+
+    `device_rsync` is the command that runs rsync on the device, which may
+    carry a wrapper in front of the binary.
+    """
+    _exec(
+        [
+            str(host_rsync),
+            f"--rsh={_RSYNC_RSH}",
+            f"--rsync-path={device_rsync}",
+            # Compare by content, never skip by size and mtime: a module
+            # rebuilt to the same size within the same second must still be
+            # sent.
+            "--ignore-times",
+            "--compress",
+            "--mkpath",
+            str(local_path),
+            f"device:{remote_path}",
+        ],
+        timeout=timeout,
+        check=True,
+    )
 
 
 def pull(remote_paths: list[str], local_dir: Path) -> None:

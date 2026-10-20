@@ -63,6 +63,7 @@ def _run_pipeline(
     imported_model: ImportedModel,
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
+    host_rsync: pathlib.Path,
     deployment: Deployment,
     work_dir: pathlib.Path,
 ) -> Outcome:
@@ -97,6 +98,7 @@ def _run_pipeline(
         output_names=imported_model.output_names,
         local_output_dir=work_dir / "device_outputs",
         extra_flags=run_case.flags,
+        host_rsync=host_rsync,
         timeout=model_spec.run_timeout,
     )
     print(result.log)
@@ -133,6 +135,7 @@ def test_model_on_device(
     imported_model: ImportedModel,
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
+    host_rsync: pathlib.Path,
     deployment: Deployment,
     tmp_path: pathlib.Path,
 ) -> None:
@@ -143,6 +146,7 @@ def test_model_on_device(
         imported_model=imported_model,
         iree_compile=iree_compile,
         lld=lld,
+        host_rsync=host_rsync,
         deployment=deployment,
         work_dir=tmp_path,
     )

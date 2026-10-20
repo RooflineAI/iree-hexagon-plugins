@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shlex
 import time
 from dataclasses import dataclass, field
@@ -82,6 +83,41 @@ def _filter_logcat_lines(logcat: str) -> str:
     return "\n".join(lines)
 
 
+class ModuleMismatchError(RuntimeError):
+    """The module the device would run is not the module that was built."""
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _check_module_copy(module_vmfb: Path, remote_module: str) -> None:
+    """Fail unless the device's copy of the module is byte-identical to the build.
+
+    rsync verifies its own transfer, so a mismatch here means the kept module
+    changed between the sync and the copy: another execution of the integration
+    tests, using the same device root, sent its own build of the same case. The
+    device root has no lock, so this is the point where that sharing would
+    otherwise go unnoticed and the test would run someone else's module.
+    """
+    expected = _sha256(module_vmfb)
+    actual = adb.shell(f"sha256sum {remote_module}").split()[0]
+    if actual != expected:
+        raise ModuleMismatchError(
+            f"{remote_module} on the device does not match the module built at "
+            f"{module_vmfb}:\n"
+            f"  device: sha256 {actual}\n"
+            f"  host:   sha256 {expected}\n"
+            "Another execution of the integration tests is probably using the "
+            "same device root concurrently. The device root has no lock - give "
+            "each execution its own --device-root, or run them one at a time."
+        )
+
+
 def run_module_on_device(
     deployment: Deployment,
     case_dir_name: str,
@@ -90,10 +126,16 @@ def run_module_on_device(
     input_files: list[Path],
     output_names: list[str],
     local_output_dir: Path,
+    host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
+
+    The module goes over with `host_rsync`, as a delta against the one this
+    case sent last time; see `integration_tests/device/deploy.py`. The case
+    directory then gets its own copy of it. Raises `ModuleMismatchError` unless
+    that copy's checksum matches the `module_vmfb` built on the host.
 
     `timeout` bounds both the module push and the run.
 
@@ -107,11 +149,28 @@ def run_module_on_device(
     push_total_start = time.time()
     remote_dir = deployment.case_dir(case_dir_name)
     adb.shell(f"rm -rf {remote_dir}; mkdir -p {remote_dir}")
-    # A large model's module takes a while to push, so it gets the same budget
-    # as the run.
+    # rsync against the module this case sent last time, so a rebuilt module
+    # only sends what changed. The first transfer of a case sends it all, which
+    # for a large model takes a while, so it gets the same budget as the run.
+    # limit_lifetime ends the device side if the transfer times out.
     push_module_start = time.time()
-    adb.push([module_vmfb], f"{remote_dir}/module.vmfb", timeout=timeout)
+    kept_module = deployment.kept_module(case_dir_name)
+    adb.sync(
+        host_rsync=host_rsync,
+        device_rsync=f"{deployment.limit_lifetime} {deployment.rsync}",
+        local_path=module_vmfb,
+        remote_path=kept_module,
+        timeout=timeout,
+    )
+    # A copy rather than a link, so the case directory keeps the module it ran
+    # after a later run of this case has replaced kept_module. It is cheap on
+    # the device (~0.3 s for 270 MB).
+    remote_module = f"{remote_dir}/module.vmfb"
+    adb.shell(f"cp {kept_module} {remote_module}")
     timings["push_module"] = time.time() - push_module_start
+    verify_module_start = time.time()
+    _check_module_copy(module_vmfb, remote_module)
+    timings["verify_module"] = time.time() - verify_module_start
     if input_files:
         adb.push(input_files, remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start

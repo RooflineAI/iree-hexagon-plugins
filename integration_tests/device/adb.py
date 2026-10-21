@@ -106,7 +106,18 @@ def sync(
             # rebuilt to the same size within the same second must still be
             # sent.
             "--ignore-times",
+            # zstd at its fastest level. rsync's default, zlib, compresses
+            # weights at ~10-20 MB/s, which caps a large transfer far below
+            # the link speed; zstd -1 runs at hundreds of MB/s and still
+            # shrinks a module by about a quarter. Named explicitly so that an
+            # rsync without zstd fails here, rather than quietly falling back.
             "--compress",
+            "--compress-choice=zstd",
+            "--compress-level=1",
+            # xxh128 rather than the md5 fallback for the block checksums, as
+            # md5 makes the device take tens of seconds for a multi-GB module.
+            # Named explicitly for the same reason as zstd.
+            "--checksum-choice=xxh128",
             "--mkpath",
             str(local_path),
             f"device:{remote_path}",

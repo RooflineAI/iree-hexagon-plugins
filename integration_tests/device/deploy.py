@@ -23,14 +23,15 @@ Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
 
     runs/<run-id>/bin,lib/   the runtime and the helpers for this run
     runs/<run-id>/cases/     one directory per (model, compile case)
-    modules/<case>/module.vmfb   the last module sent for each (model, compile
-                             case), kept across runs
+    modules/<case>/module.vmfb   the last large module sent for each (model,
+                             compile case), kept across runs
 
 A run's directory is removed at the end of the run. `modules/` is not: each
 module there is the basis that rsync diffs the next build of the same case
 against, so a rebuilt module only sends the bytes that changed. It holds one
-module per (model, compile case) that ever ran, and can be deleted at any time,
-at the cost of one full transfer per case.
+module per (model, compile case) that ever ran with a module large enough to be
+kept (`_KEEP_MODULE_MIN_BYTES` in `stages/running.py`), and can be deleted at
+any time, at the cost of one full transfer per case.
 
 There is no lock: this suite is meant for one runner executing serially.
 """

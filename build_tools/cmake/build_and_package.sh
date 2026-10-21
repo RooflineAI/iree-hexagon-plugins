@@ -255,7 +255,9 @@ RSYNC_DIR="$(find "${BUILD_ROOT}/android" -path '*/integration_tests/device/tool
 package_zip "${OUT_DIR}/device_tools_aarch64_android.zip" \
   "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)" \
   "bin/rsync" "${RSYNC_DIR}/build/rsync" \
-  "licenses/rsync/COPYING" "${RSYNC_DIR}/src/COPYING"
+  "licenses/rsync/COPYING" "${RSYNC_DIR}/src/rsync/COPYING" \
+  "licenses/xxhash/LICENSE" "${RSYNC_DIR}/src/xxhash/LICENSE" \
+  "licenses/zstd/LICENSE" "${RSYNC_DIR}/src/zstd/LICENSE"
 
 # --- Licenses and git revision ----------------------------------------------
 cp "${IREE_SRC}/LICENSE" "${OUT_DIR}/LICENSE.txt"

@@ -49,7 +49,8 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 * With no usable phone the device tests **fail**.
 * Network, on first run: models come from the HuggingFace hub. Set `HF_HOME` to
   a persistent directory so weights are fetched once.
-* `rsync` on the host, on PATH or given with `--rsync`. Modules go to the
+* `rsync` 3.2 or newer on the host, with zstd and xxHash support (as in
+  Ubuntu's package), on PATH or given with `--rsync`. Large modules go to the
   phone as rsync deltas; the phone's end ships in the device-tools zip.
 
 ## Layout
@@ -75,14 +76,19 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
     modules/<case>/module.vmfb   kept across runs
 ```
 
-Modules are sent with rsync, as a delta against the module the same (model,
-compile case) sent last time, which `modules/` keeps. A recompile usually
-leaves the weights - nearly all of a module - byte-identical, so it sends little
-more than the changed code. Each case's `module.vmfb` is a copy of its entry in
+Modules of 64 MiB and more are kept in `modules/` and sent with rsync, as a
+delta against the module the same (model, compile case) sent last time. A
+recompile usually leaves the weights - nearly all of a module - byte-identical,
+so it sends little more than the changed code. The first transfer of a case,
+with nothing in `modules/` yet, uses adb push, which is faster for sending a
+whole file. Each case's `module.vmfb` is then a copy of its entry in
 `modules/`, and the test fails unless that copy's sha256 matches the module
 built on the host - the sign that another execution sharing the device root
 replaced it. Deleting `modules/` is always safe; the next run of each case then
 sends the whole module once.
+
+Smaller modules go straight into the case directory with adb push: for them a
+delta saves less than rsync's own round trips to the phone cost.
 
 **There is no device lock.** This suite assumes one runner executing serially.
 

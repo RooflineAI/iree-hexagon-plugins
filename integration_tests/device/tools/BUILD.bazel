@@ -30,10 +30,19 @@ pkg_files(
     prefix = "bin",
 )
 
+_LICENSES = [
+    "licenses/rsync/COPYING",
+    "licenses/xxhash/LICENSE",
+    "licenses/zstd/LICENSE",
+]
+
 pkg_files(
     name = "device_tool_license_files",
-    srcs = ["//integration_tests/device/tools/rsync:license"],
-    prefix = "licenses/rsync",
+    srcs = ["//integration_tests/device/tools/rsync:licenses"],
+    renames = {
+        "//integration_tests/device/tools/rsync:" + path: path
+        for path in _LICENSES
+    },
 )
 
 pkg_zip(

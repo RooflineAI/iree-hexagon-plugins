@@ -18,16 +18,14 @@ is what fetches the weights; `model.yaml` never repeats them.
 ## Running them
 
 The device suite runs under **plain pytest**, not `bazel test`. The compiler binary,
-both runtime packages (plain and with Tracy), the device-tools zip and the Tracy
-host tools are expected to be built separately and passed as an argument to the
-pytest command.
+both runtime packages (plain and with Tracy) and the device-tools zip are
+expected to be built separately and passed as an argument to the pytest command.
 
 ```sh
 build_tools/create_test_venv.sh                 # creates ./.venv from requirements.txt
 .venv/bin/pytest integration_tests/ -v -rA \
     --iree-compile=<path> --runtime-zip=<path> --runtime-zip-tracy=<path> \
-    --device-tools-zip=<path> --lld=<path> \
-    --tracy-capture=<path> --tracy-csvexport=<path>
+    --device-tools-zip=<path> --lld=<path>
 ```
 
 Omit the paths and they will try to be resolved with `bazel cquery`:
@@ -37,18 +35,17 @@ bazel build @iree//tools:iree-compile \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy \
             //integration_tests/device/tools:device_tools_aarch64_android \
-            @llvm-project//lld:ld.lld \
-            @tracy_tools//:tracy-capture @tracy_tools//:tracy-csvexport
+            @llvm-project//lld:ld.lld
 pytest integration_tests/ -v -rA --model=microsoft/resnet-50
 ```
 
 Both runtimes are deployed once per session, each in its own run directory; the
-profile run cases (see [Profiling](#profiling)) use the Tracy one and the Tracy
-host tools, all others the plain one.
+profile run cases (see [Profiling](#profiling)) use the Tracy one, all others
+the plain one.
 
 Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 (all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`,
-`--tracy-port` (default 8086), and the seven artifact paths.
+`--tracy-port` (default 8086), and the five artifact paths.
 
 ## Requirements
 
@@ -154,10 +151,14 @@ run_timeout: 3600
 ## Profiling
 
 A profile run case runs the module with the Tracy runtime and
-`TRACY_NO_EXIT=1`, captures it with `tracy-capture` through `adb forward`, and
-exports the DSP zones with `tracy-csvexport -g`. Both files stay in the test's
-work directory, `device_outputs/profile.tracy` and
-`device_outputs/profile.csv`, and their paths are printed.
+`TRACY_NO_EXIT=1`, captures it with `tracy-capture` and exports the DSP zones
+with `tracy-csvexport -g`, both on the device, from the Tracy runtime package.
+Only the CSV is pulled, to `device_outputs/profile.csv` in the test's work
+directory, and its path is printed. Both run on the device because the Tracy
+port is not reachable from the host when adb talks to a remote adb server, as
+in CI, and because the trace is thousands of times the size of the CSV.
+The trace is not kept: to look at a profile that fails a check, profile the
+model by hand, see [below](#profiling-a-model-by-hand).
 
 The CSV has one row per DSP zone: name, source file, start and duration in ns.
 Kernel zones are named after their dispatch function, e.g.

@@ -8,9 +8,7 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import shlex
-import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,21 +45,6 @@ RUN_CASE_NAMES = tuple(RUN_CASES_BY_NAME)
 DEFAULT_RUN_CASE_NAMES = ("parallel",)
 
 
-@dataclass(frozen=True)
-class ProfilerTools:
-    """The host side of a Tracy profile: capture and CSV export."""
-
-    tracy_capture: Path
-    tracy_csvexport: Path
-    port: int = 8086
-
-
-# tracy-capture's exit code when the connection drops before the handshake.
-# Through `adb forward` the local connect always succeeds, so this is what happens
-# if tracy tries to connect before the device process listens looks like.
-_CAPTURE_HANDSHAKE_DROPPED = 3
-
-
 @dataclass
 class RunModuleResult:
     remote_dir: str
@@ -71,7 +54,6 @@ class RunModuleResult:
     output_files: list[Path] = field(default_factory=list)
     timings: dict[str, float] = field(default_factory=dict)
     # Only set for a profiled run.
-    profile_trace: Path | None = None
     profile_csv: Path | None = None
     # Why the profile could not be captured or exported, if it could not.
     profile_error: str | None = None
@@ -120,14 +102,15 @@ def run_module_on_device(
     local_output_dir: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
-    profiler: ProfilerTools | None = None,
+    tracy_port: int | None = None,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
 
     `timeout` bounds both the module push and the run.
 
-    With `profiler`, the deployment must hold the Tracy runtime. The run is then
-    captured into `local_output_dir/profile.tracy`and exported to `local_output_dir/profile.csv`.
+    With `tracy_port`, the deployment must hold the Tracy runtime.
+    The port is then used on device to connect `tracy-capture` to `iree-module-run`.
+    It is not used on the host.
 
     The command runs under `limit_lifetime`, so that when `timeout` fires and
     Python SIGKILLs the adb client, the on-device process group is killed too.
@@ -161,27 +144,18 @@ def run_module_on_device(
 
     # DSP_LIBRARY_PATH is where the DSP side looks for the skel and for the
     # FARF mask file; see examples/running.md.
-    env = ""
-    if profiler is not None:
-        # TRACY_NO_EXIT keeps the process alive until the capture has all data.
-        env = f"TRACY_NO_EXIT=1 TRACY_PORT={profiler.port} "
     script = (
-        f"cd {remote_dir} && "
-        f"export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
-        + env
-        + shlex.join(argv)
+        f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
     )
+    if tracy_port is None:
+        script += shlex.join(argv)
+    else:
+        script += _capture_script(deployment, argv, tracy_port)
 
     local_output_dir.mkdir(parents=True, exist_ok=True)
     adb.logcat_clear()
     run_start = time.time()
-    if profiler is None:
-        exit_code, log = adb.shell_exit_code(script, timeout=timeout)
-        profile_error = None
-    else:
-        exit_code, log, profile_error = _run_with_capture(
-            script, profiler, local_output_dir / "profile.tracy", timeout
-        )
+    exit_code, log = adb.shell_exit_code(script, timeout=timeout)
     timings["run"] = time.time() - run_start
     logcat = adb.logcat_dump()
     pulled: list[Path] = []
@@ -199,14 +173,13 @@ def run_module_on_device(
         pulled.append(local_output)
     timings["pull"] = time.time() - pull_start
 
-    profile_trace = profile_csv = None
-    if profiler is not None:
-        profile_trace = local_output_dir / "profile.tracy"
+    profile_csv = profile_error = None
+    if tracy_port is not None:
+        pull_profile_start = time.time()
+        profile_error = _pull_profile(remote_dir, local_output_dir)
+        timings["pull_profile"] = time.time() - pull_profile_start
         if profile_error is None:
-            export_start = time.time()
-            profile_csv = local_output_dir / "profile.csv"
-            profile_error = _export_csv(profiler, profile_trace, profile_csv)
-            timings["csvexport"] = time.time() - export_start
+            profile_csv = local_output_dir / _PROFILE_CSV
     return RunModuleResult(
         remote_dir=remote_dir,
         exit_code=exit_code,
@@ -214,81 +187,89 @@ def run_module_on_device(
         logcat=_filter_logcat_lines(logcat),
         output_files=pulled,
         timings=timings,
-        profile_trace=profile_trace,
         profile_csv=profile_csv,
         profile_error=profile_error,
     )
 
 
-def _run_with_capture(
-    script: str,
-    profiler: ProfilerTools,
-    trace: Path,
-    timeout: float,
-) -> tuple[int, str, str | None]:
-    """Run `script` on the device while tracy-capture records it into `trace`.
+# Files the on-device capture and export leave in the case directory.
+_PROFILE_TRACE = "profile.tracy"
+_PROFILE_CSV = "profile.csv"
+_CAPTURE_LOG = "capture.log"
+_CSVEXPORT_LOG = "csvexport.log"
+# "<tracy-capture exit code> <tracy-csvexport exit code>", the latter "-" when
+# it did not run.
+_PROFILE_EXIT_CODES = "profile.exit_codes"
 
-    Returns the run's exit code and log, and why the capture failed, if it did.
+
+def _capture_script(deployment: Deployment, argv: list[str], port: int) -> str:
+    """The shell script running `argv` while tracy-capture records it, and
+    tracy-csvexport exporting the recording.
+
+    tracy-capture starts first and keeps retrying to connect until
+    iree-run-module listens. TRACY_NO_EXIT keeps iree-run-module alive until the
+    capture has all data, so after a successful run the capture finishes on its
+    own. A failed run may never have listened, so then the capture is stopped.
+    Everything runs under `limit_lifetime`, so a timeout kills it all.
+    The script exits with the exit code of the run.
+
+    The export keeps the GPU zones only (`-g`): the DSP zones are Tracy GPU
+    zones, one GPU context per DSP thread. The export has no column for the
+    context, so the threads are merged.
     """
     capture_argv = [
-        str(profiler.tracy_capture),
+        deployment.limit_lifetime,
+        deployment.tracy_capture,
         "-o",
-        str(trace),
+        _PROFILE_TRACE,
         "-f",
         "-p",
-        str(profiler.port),
+        str(port),
     ]
-    deadline = time.time() + timeout
-    capture_log = ""
-    capture_error: str | None = None
-    adb.forward(profiler.port, profiler.port)
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            run = pool.submit(adb.shell_exit_code, script, timeout)
-            # Retry until the device process listens. Thanks to TRACY_NO_EXIT
-            # it cannot exit before a capture got its data, unless it fails.
-            while True:
-                try:
-                    capture = subprocess.run(
-                        capture_argv,
-                        capture_output=True,
-                        text=True,
-                        timeout=max(deadline - time.time(), 1.0),
-                    )
-                except subprocess.TimeoutExpired:
-                    capture_error = f"tracy-capture timed out after {timeout:.0f}s"
-                    break
-                capture_log = capture.stdout + capture.stderr
-                if capture.returncode != _CAPTURE_HANDSHAKE_DROPPED:
-                    break
-                if run.done():
-                    break
-                time.sleep(0.2)
-            exit_code, log = run.result()
-    finally:
-        adb.forward_remove(profiler.port)
-
-    if capture_error is None:
-        if capture.returncode != 0:
-            capture_error = f"tracy-capture exited {capture.returncode}:\n{capture_log}"
-        # tracy-capture exits 0 even when saving the trace failed.
-        elif not trace.exists() or trace.stat().st_size == 0:
-            capture_error = f"tracy-capture wrote no trace to {trace}:\n{capture_log}"
-    return exit_code, log, capture_error
-
-
-def _export_csv(profiler: ProfilerTools, trace: Path, csv: Path) -> str | None:
-    """Export the GPU zones of `trace` to `csv`, returning why it failed, if it did.
-
-    The DSP zones are Tracy GPU zones, one GPU context per DSP thread. The
-    export has no column for the context, so the threads are merged.
-    """
-    export = subprocess.run(
-        [str(profiler.tracy_csvexport), "-g", str(trace)],
-        capture_output=True,
-        text=True,
+    csvexport_argv = [
+        deployment.limit_lifetime,
+        deployment.tracy_csvexport,
+        "-g",
+        _PROFILE_TRACE,
+    ]
+    # The braces keep the `&` from sending the commands before it, which the
+    # caller chains with `&&`, to the background too.
+    return (
+        f"{{ {shlex.join(capture_argv)} > {_CAPTURE_LOG} 2>&1 & capture_pid=$!; "
+        f"TRACY_NO_EXIT=1 TRACY_PORT={port} {shlex.join(argv)}; run_exit_code=$?; "
+        "if [ $run_exit_code -ne 0 ]; then kill $capture_pid; fi; "
+        "wait $capture_pid; capture_exit_code=$?; csvexport_exit_code=-; "
+        "if [ $capture_exit_code -eq 0 ]; then "
+        f"{shlex.join(csvexport_argv)} > {_PROFILE_CSV} 2> {_CSVEXPORT_LOG}; "
+        "csvexport_exit_code=$?; fi; "
+        f"echo $capture_exit_code $csvexport_exit_code > {_PROFILE_EXIT_CODES}; "
+        "exit $run_exit_code; }"
     )
-    if export.returncode != 0:
-        return f"tracy-csvexport exited {export.returncode}:\n{export.stderr}"
-    csv.write_text(export.stdout)
+
+
+def _pull_profile(remote_dir: str, local_output_dir: Path) -> str | None:
+    """Pull the CSV the on-device export wrote, returning why there is none, if
+    there is none.
+    """
+    status, exit_codes = adb.shell_exit_code(f"cat {remote_dir}/{_PROFILE_EXIT_CODES}")
+    if status != 0:
+        return f"the profiling left no exit codes:\n{exit_codes}"
+    capture_exit_code, csvexport_exit_code = exit_codes.split()
+    if capture_exit_code != "0":
+        # tracy-capture redraws its progress line with carriage returns.
+        log = _device_log(remote_dir, _CAPTURE_LOG).replace("\r", "\n")
+        return f"tracy-capture exited {capture_exit_code}:\n{log}"
+    if csvexport_exit_code != "0":
+        log = _device_log(remote_dir, _CSVEXPORT_LOG)
+        return f"tracy-csvexport exited {csvexport_exit_code}:\n{log}"
+    try:
+        adb.pull([f"{remote_dir}/{_PROFILE_CSV}"], local_output_dir)
+    except AdbError as err:
+        return f"could not pull the CSV tracy-csvexport wrote:\n{err}"
     return None
+
+
+def _device_log(remote_dir: str, name: str) -> str:
+    """A log left in `remote_dir`, for an error message."""
+    _, log = adb.shell_exit_code(f"cat {remote_dir}/{name}")
+    return log

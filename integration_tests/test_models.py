@@ -39,7 +39,6 @@ from integration_tests.stages.compiling import (
 )
 from integration_tests.stages.profile_checks import Profile, ProfileError, run_check
 from integration_tests.stages.running import (
-    ProfilerTools,
     RunCase,
     run_module_on_device,
 )
@@ -70,7 +69,7 @@ def _run_pipeline(
     lld: pathlib.Path | None,
     deployment: Deployment,
     work_dir: pathlib.Path,
-    profiler: ProfilerTools | None,
+    tracy_port: int | None,
 ) -> Outcome:
     """Compile, run and check, returning where it got to and the evidence."""
     try:
@@ -104,7 +103,7 @@ def _run_pipeline(
         local_output_dir=work_dir / "device_outputs",
         extra_flags=run_case.flags,
         timeout=model_spec.run_timeout,
-        profiler=profiler,
+        tracy_port=tracy_port,
     )
     print(result.log)
     print("timings:")
@@ -131,8 +130,7 @@ def _run_pipeline(
     except AccuracyError as err:
         return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{result.describe()}")
 
-    if profiler is not None:
-        print(f"profile: {result.profile_trace}")
+    if tracy_port is not None:
         if result.profile_error is not None:
             return Outcome(Status.CAPTURE_PROFILE_FAILURE, result.profile_error)
         print(f"profile csv: {result.profile_csv}")
@@ -146,6 +144,12 @@ def _run_pipeline(
             else:
                 print(f"profile check {check.check} {check.args}: passed")
         if failures:
+            # The trace stays on the device, so point at how to get one.
+            failures.append(
+                "the trace is not kept; to look at one, run "
+                f"integration_tests/profile_on_device.sh {model_spec.directory} "
+                "[serial]"
+            )
             return Outcome(Status.PROFILE_FAILURE, "\n".join(failures))
     return Outcome(Status.PASSED, result.log)
 
@@ -158,7 +162,7 @@ def test_model_on_device(
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
     deployments: Deployments,
-    profiler_tools: ProfilerTools,
+    tracy_port: int,
     tmp_path: pathlib.Path,
 ) -> None:
     outcome = _run_pipeline(
@@ -170,7 +174,7 @@ def test_model_on_device(
         lld=lld,
         deployment=deployments.tracy if run_case.profile else deployments.plain,
         work_dir=tmp_path,
-        profiler=profiler_tools if run_case.profile else None,
+        tracy_port=tracy_port if run_case.profile else None,
     )
 
     expected = model_spec.expected_outcome_for(compile_case.name)

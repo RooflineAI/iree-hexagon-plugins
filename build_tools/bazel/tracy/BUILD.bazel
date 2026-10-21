@@ -3,6 +3,17 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-# Overlay BUILD files for the Tracy host tools (tracy-capture, tracy-csvexport).
-# This file only makes the directory a Bazel package, so MODULE.bazel can refer
-# to the overlays by label (//build_tools/bazel/tracy:BUILD.*.bazel).
+# Overlay BUILD files for the Tracy tools (tracy-capture, tracy-csvexport), so
+# MODULE.bazel can refer to them by label (//build_tools/bazel/tracy:BUILD.*.bazel),
+# and what the overlays need from this repository.
+
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# Linked into the Tracy server tools on Android, see the source.
+cc_library(
+    name = "no_heap_pointer_tagging",
+    srcs = ["no_heap_pointer_tagging.c"],
+    target_compatible_with = ["@platforms//os:android"],
+    visibility = ["//visibility:public"],
+    alwayslink = True,
+)

@@ -25,6 +25,7 @@ const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
     set.insert(mlir::hexagonmem::getAllocFnName());
     set.insert(mlir::hexagonmem::getDeallocFnName());
     set.insert(mlir::hexagonmem::getCopyFnName());
+    set.insert(kVtcmAllocFnName);
     set.insert("hexagon_runtime_profiler_zone_begin");
     set.insert("hexagon_runtime_profiler_zone_end");
     set.insert("iree_hexagon_hmx_pack_f16");
@@ -44,6 +45,8 @@ const llvm::StringSet<> &getHexKLSymbolNames() {
   static const llvm::StringSet<> names = [] {
     llvm::StringSet<> set;
     set.insert(mlir::hexkl::getMatmulMicroFnName());
+    set.insert(kHexKLMatmulScratchBytesFnName);
+    set.insert(kHexKLMatmulWithScratchFnName);
     set.insert(mlir::hexkl::getHmxConfigSizeFnName());
     set.insert(mlir::hexkl::getHmxSetupAccReadF16FnName());
     set.insert(mlir::hexkl::getHmxAccClearF16FnName());
@@ -64,8 +67,6 @@ namespace {
 const llvm::StringMap<llvm::StringLiteral> &getNativeRuntimeHelperNameMap() {
   static const llvm::StringMap<llvm::StringLiteral> names = [] {
     llvm::StringMap<llvm::StringLiteral> map;
-    map.insert({"malloc", "hexagon_runtime_malloc"});
-    map.insert({"free", "hexagon_runtime_free"});
     map.insert({"memrefCopy", "hexagon_runtime_memref_copy"});
     return map;
   }();

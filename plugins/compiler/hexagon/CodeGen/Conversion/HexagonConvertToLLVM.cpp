@@ -15,7 +15,9 @@
 
 #include "hexagon/Common/Common.h"
 #include "hexagon/Conversion/DMAToLLVM/DMAToLLVM.h"
+#include "hexagon/Conversion/HexKLToLLVM/HexKLExternalFnNames.h"
 #include "hexagon/Conversion/HexKLToLLVM/HexKLToLLVM.h"
+#include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemExternalFnNames.h"
 #include "hexagon/Conversion/HexagonMemToLLVM/HexagonMemToLLVM.h"
 #include "hexagon/Dialect/HexKL/IR/HexKLDialect.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
@@ -45,6 +47,7 @@
 #include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Conversion/VectorToSCF/VectorToSCF.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -64,12 +67,14 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/MathExtras.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
@@ -202,7 +207,8 @@ struct ConvertGetRuntimeStateOp
           getStateOp,
           "expected an enclosing function with a dispatch state argument");
     }
-    rewriter.replaceOp(getStateOp, abi.loadRuntimeState(getStateOp, rewriter));
+    rewriter.replaceOp(getStateOp,
+                       abi.getRuntimeStateAtEntry(getStateOp, rewriter));
     return success();
   }
 
@@ -298,6 +304,390 @@ populateHexagonRuntimeToLLVMConversionPatterns(HexagonDispatchABI &abi,
                                                   abi, typeConverter);
   patterns.addWithLabel<ConvertProfilerBeginOp, ConvertProfilerEndOp>(
       {"hexagon-runtime-to-llvm"}, typeConverter);
+}
+
+//===----------------------------------------------------------------------===//
+// VTCM partition allocations.
+//===----------------------------------------------------------------------===//
+
+// HexKL's matmul places its VTCM tiles at HEXKL_HMX_ACTIVATION_ALIGNMENT.
+constexpr uint64_t kHexKLScratchAlignment = 2048;
+
+/// Whether |funcOp| has the signature of a dispatch entry point as produced by
+/// the HAL ABI lowering: i32 (environment*, dispatch_state*, workgroup_state*).
+/// Only entry points receive the dispatch state
+static bool hasDispatchEntryPointSignature(LLVM::LLVMFuncOp funcOp) {
+  LLVM::LLVMFunctionType type = funcOp.getFunctionType();
+  return type.getNumParams() == 3 && type.getReturnType().isInteger(32) &&
+         llvm::all_of(type.getParams(), [](Type type) {
+           return isa<LLVM::LLVMPointerType>(type);
+         });
+}
+
+static Value castToIntType(OpBuilder &builder, Location loc, Value value,
+                           IntegerType type) {
+  auto valueType = cast<IntegerType>(value.getType());
+  if (valueType == type)
+    return value;
+  if (valueType.getWidth() < type.getWidth())
+    return LLVM::ZExtOp::create(builder, loc, type, value);
+  return LLVM::TruncOp::create(builder, loc, type, value);
+}
+
+/// Returns the constant |value| holds, looking through memref descriptor
+/// insertvalue/extractvalue chains, which are not folded yet after conversion.
+static std::optional<int64_t> getConstantIntValue(Value value) {
+  while (auto extractOp = value.getDefiningOp<LLVM::ExtractValueOp>()) {
+    LLVM::ExtractValueOp::FoldAdaptor adaptor({Attribute()}, extractOp);
+    auto folded = dyn_cast_if_present<Value>(extractOp.fold(adaptor));
+    if (!folded || folded == value)
+      break;
+    value = folded;
+  }
+  APInt constant;
+  if (!matchPattern(value, m_ConstantInt(&constant)))
+    return std::nullopt;
+  return constant.getSExtValue();
+}
+
+/// Declares size_t hexkl_matmul_f16f16_f32_scratch_bytes(uint64_t n_row,
+/// uint64_t n_col, uint64_t n_inner). size_t is 32 bits on Hexagon.
+static FailureOr<LLVM::LLVMFuncOp>
+getHexKLMatmulScratchBytesFn(OpBuilder &builder, ModuleOp moduleOp) {
+  Type i32Type = builder.getI32Type();
+  Type i64Type = builder.getI64Type();
+  return LLVM::lookupOrCreateFn(builder, moduleOp,
+                                kHexKLMatmulScratchBytesFnName,
+                                {i64Type, i64Type, i64Type}, i32Type);
+}
+
+/// Declares int hexkl_matmul_f16f16_f32_with_scratch(uint64_t n_row,
+/// uint64_t n_col, uint64_t n_inner, float *outM, const _Float16 *inAct,
+/// const _Float16 *inW, void *vtcm_scratch).
+static FailureOr<LLVM::LLVMFuncOp>
+getHexKLMatmulWithScratchFn(OpBuilder &builder, ModuleOp moduleOp) {
+  Type i32Type = builder.getI32Type();
+  Type i64Type = builder.getI64Type();
+  Type ptrType = LLVM::LLVMPointerType::get(builder.getContext());
+  return LLVM::lookupOrCreateFn(
+      builder, moduleOp, kHexKLMatmulWithScratchFnName,
+      {i64Type, i64Type, i64Type, ptrType, ptrType, ptrType, ptrType}, i32Type);
+}
+
+/// Declares void *hexagon_runtime_vtcm_alloc(const hexagon_rt_state_t *,
+/// size_t nbytes, uint64_t alignment).
+static FailureOr<LLVM::LLVMFuncOp>
+getVtcmAllocFn(OpBuilder &builder, ModuleOp moduleOp, Type sizeType) {
+  Type ptrType = LLVM::LLVMPointerType::get(builder.getContext());
+  return LLVM::lookupOrCreateFn(builder, moduleOp, kVtcmAllocFnName,
+                                {ptrType, sizeType, builder.getI64Type()},
+                                ptrType);
+}
+
+/// Allocates |size| bytes aligned to |alignment| from the VTCM partition that
+/// the runtime |state| holds. The runtime pads and aligns the allocation
+/// itself
+static Value createVtcmAlloc(OpBuilder &builder, Location loc,
+                             LLVM::LLVMFuncOp vtcmAllocFn, Value state,
+                             Value size, uint64_t alignment) {
+  auto sizeType =
+      cast<IntegerType>(vtcmAllocFn.getFunctionType().getParamType(1));
+  Value alignmentValue = LLVM::ConstantOp::create(
+      builder, loc, builder.getI64Type(), builder.getI64IntegerAttr(alignment));
+  return LLVM::CallOp::create(
+             builder, loc, vtcmAllocFn,
+             ValueRange{state, castToIntType(builder, loc, size, sizeType),
+                        alignmentValue})
+      .getResult();
+}
+
+// The patterns below replace the upstream MemRefToLLVM and hexagon-mlir
+// HexagonMemToLLVM lowerings of the same ops, which emit `malloc`, `free` and
+// the hexagonmem runtime calls instead. Those stay registered at the default
+// benefit of 1, so a higher benefit is all it takes to win over them.
+constexpr unsigned kVtcmPartitionBenefit = 2;
+
+/// Base of the patterns that route a dispatch's VTCM allocations to the
+/// dispatch's VTCM partition, which the runtime passes via the runtime state.
+/// The partition is released as a whole after the dispatch, so deallocations
+/// are dropped.
+///
+/// A failed match falls back to the lower-benefit lowerings, which would
+/// silently legalize the op. Errors are therefore emitted here and recorded in
+/// |hadError| so that the pass fails.
+template <typename SourceOp>
+struct VtcmPartitionPattern : public ConvertOpToLLVMPattern<SourceOp> {
+  VtcmPartitionPattern(HexagonDispatchABI &abi,
+                       const LLVMTypeConverter &typeConverter, bool &hadError)
+      : ConvertOpToLLVMPattern<SourceOp>(typeConverter, kVtcmPartitionBenefit),
+        abi(abi), hadError(hadError) {}
+
+  /// Emits |diag| as the reason the op can not be lowered.
+  LogicalResult emitFailure(InFlightDiagnostic &&diag) const {
+    hadError = true;
+    return diag;
+  }
+
+  /// Only dispatch entry points receive the dispatch state, which holds the
+  /// partition.
+  LogicalResult verifyInDispatch(SourceOp op) const {
+    auto funcOp = op->template getParentOfType<LLVM::LLVMFuncOp>();
+    if (funcOp && hasDispatchEntryPointSignature(funcOp))
+      return success();
+    return emitFailure(op.emitOpError()
+                       << "outside a dispatch function is not supported; VTCM "
+                          "is allocated from the dispatch's partition, which "
+                          "requires the dispatch state");
+  }
+
+  /// Declares the partition's allocation function. A conflicting declaration
+  /// is an error, not a failed match, so it can't fall back to `malloc`.
+  FailureOr<LLVM::LLVMFuncOp> declareVtcmAllocFn(SourceOp op,
+                                                 OpBuilder &builder) const {
+    FailureOr<LLVM::LLVMFuncOp> vtcmAllocFn =
+        getVtcmAllocFn(builder, op->template getParentOfType<ModuleOp>(),
+                       this->getIndexType());
+    if (failed(vtcmAllocFn)) {
+      (void)emitFailure(op.emitOpError()
+                        << "can not declare '" << kVtcmAllocFnName
+                        << "' to allocate from the dispatch's VTCM partition");
+    }
+    return vtcmAllocFn;
+  }
+
+  HexagonDispatchABI &abi;
+  bool &hadError;
+};
+
+/// Lowers `memref.alloc` like MemRefToLLVM's `malloc` lowering, but takes the
+/// buffer from the dispatch's VTCM partition. Heap allocations are VTCM
+/// allocations on Hexagon.
+struct ConvertAllocOpToVtcmPartition
+    : public VtcmPartitionPattern<memref::AllocOp> {
+  using VtcmPartitionPattern::VtcmPartitionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::AllocOp allocOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MemRefType memRefType = allocOp.getType();
+    if (!isConvertibleAndHasIdentityMaps(memRefType))
+      return rewriter.notifyMatchFailure(allocOp, "incompatible memref type");
+    if (failed(verifyInDispatch(allocOp)))
+      return failure();
+    FailureOr<LLVM::LLVMFuncOp> vtcmAllocFn =
+        declareVtcmAllocFn(allocOp, rewriter);
+    if (failed(vtcmAllocFn))
+      return failure();
+
+    Location loc = allocOp.getLoc();
+    SmallVector<Value, 4> sizes;
+    SmallVector<Value, 4> strides;
+    Value sizeBytes;
+    getMemRefDescriptorSizes(loc, memRefType, adaptor.getOperands(), rewriter,
+                             sizes, strides, sizeBytes, /*sizeInBytes=*/true);
+
+    // As in MemRefToLLVM: the requested alignment or, for non-scalar elements,
+    // the element size.
+    uint64_t alignment = 0;
+    if (std::optional<uint64_t> requested = allocOp.getAlignment()) {
+      alignment = *requested;
+    } else if (!memRefType.getElementType().isSignlessIntOrIndexOrFloat()) {
+      alignment = llvm::PowerOf2Ceil(DataLayout::closest(allocOp).getTypeSize(
+          memRefType.getElementType()));
+    }
+
+    Value state = abi.getRuntimeStateAtEntry(allocOp, rewriter);
+    Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
+                                alignment);
+    Type elementPtrType = getElementPtrType(memRefType);
+    if (ptr.getType() != elementPtrType)
+      ptr = LLVM::AddrSpaceCastOp::create(rewriter, loc, elementPtrType, ptr);
+
+    Value descriptor = createMemRefDescriptor(loc, memRefType, ptr, ptr, sizes,
+                                              strides, rewriter);
+    rewriter.replaceOp(allocOp, descriptor);
+    return success();
+  }
+};
+
+/// Lowers VTCM `hexagonmem.alloc` like HexagonMemToLLVM, but takes the buffer
+/// from the dispatch's VTCM partition instead of calling
+/// `hexagon_runtime_alloc_1d`. DDR allocations are left to HexagonMemToLLVM,
+/// which turns them into a `memref.alloc` which is handled by the pattern
+/// above.
+struct ConvertHexagonMemAllocOpToVtcmPartition
+    : public VtcmPartitionPattern<hexagonmem::AllocOp> {
+  using VtcmPartitionPattern::VtcmPartitionPattern;
+
+  LogicalResult
+  matchAndRewrite(hexagonmem::AllocOp allocOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto origMemRefType = dyn_cast<MemRefType>(allocOp.getBuffer().getType());
+    if (!origMemRefType ||
+        !::mlir::hexagon::isInVTCMAddressSpace(origMemRefType))
+      return rewriter.notifyMatchFailure(allocOp, "not a VTCM allocation");
+    if (failed(verifyInDispatch(allocOp)))
+      return failure();
+    FailureOr<LLVM::LLVMFuncOp> vtcmAllocFn =
+        declareVtcmAllocFn(allocOp, rewriter);
+    if (failed(vtcmAllocFn))
+      return failure();
+
+    Location loc = allocOp.getLoc();
+    MemRefType memRefType = affine::normalizeMemRefType(origMemRefType);
+    SmallVector<Value, 4> sizes;
+    SmallVector<Value, 4> strides;
+    Value sizeBytes;
+    getMemRefDescriptorSizes(loc, memRefType, adaptor.getOperands(), rewriter,
+                             sizes, strides, sizeBytes, /*sizeInBytes=*/true);
+    Value state = abi.getRuntimeStateAtEntry(allocOp, rewriter);
+    Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
+                                allocOp.getAlignment());
+    Value descriptor = createMemRefDescriptor(loc, memRefType, ptr, ptr, sizes,
+                                              strides, rewriter);
+    rewriter.replaceOp(allocOp, descriptor);
+    return success();
+  }
+};
+
+/// Drops `memref.dealloc`: its buffer comes from the dispatch's VTCM partition.
+struct ConvertDeallocOpToVtcmPartition
+    : public VtcmPartitionPattern<memref::DeallocOp> {
+  using VtcmPartitionPattern::VtcmPartitionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::DeallocOp deallocOp, OpAdaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (failed(verifyInDispatch(deallocOp)))
+      return failure();
+    rewriter.eraseOp(deallocOp);
+    return success();
+  }
+};
+
+/// Drops VTCM `hexagonmem.dealloc`: its buffer comes from the dispatch's VTCM
+/// partition. DDR deallocations are left to HexagonMemToLLVM, which turns them
+/// into a `memref.dealloc`.
+struct ConvertHexagonMemDeallocOpToVtcmPartition
+    : public VtcmPartitionPattern<hexagonmem::DeallocOp> {
+  using VtcmPartitionPattern::VtcmPartitionPattern;
+
+  LogicalResult
+  matchAndRewrite(hexagonmem::DeallocOp deallocOp, OpAdaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto memRefType = dyn_cast<MemRefType>(deallocOp.getBuffer().getType());
+    if (!memRefType || !::mlir::hexagon::isInVTCMAddressSpace(memRefType))
+      return rewriter.notifyMatchFailure(deallocOp, "not a VTCM deallocation");
+    if (failed(verifyInDispatch(deallocOp)))
+      return failure();
+    rewriter.eraseOp(deallocOp);
+    return success();
+  }
+};
+
+static void populateVtcmPartitionToLLVMConversionPatterns(
+    HexagonDispatchABI &abi, LLVMTypeConverter &typeConverter,
+    RewritePatternSet &patterns, bool &hadError) {
+  patterns.addWithLabel<ConvertAllocOpToVtcmPartition,
+                        ConvertHexagonMemAllocOpToVtcmPartition,
+                        ConvertDeallocOpToVtcmPartition,
+                        ConvertHexagonMemDeallocOpToVtcmPartition>(
+      {"vtcm-partition-to-llvm"}, abi, typeConverter, hadError);
+}
+
+/// Gives HexKL's matmul its VTCM scratch from the dispatch's partition: the
+/// call to the matmul that allocates its own scratch is replaced by one to the
+/// variant taking the scratch as an argument.
+static LogicalResult
+useHexKLMatmulWithScratch(ModuleOp moduleOp, HexagonDispatchABI &abi,
+                          LLVMTypeConverter &typeConverter) {
+  const std::string matmulFnName = hexkl::getMatmulMicroFnName();
+  SmallVector<LLVM::CallOp> calls;
+  moduleOp.walk([&](LLVM::CallOp callOp) {
+    if (callOp.getCallee() == matmulFnName)
+      calls.push_back(callOp);
+  });
+  if (calls.empty())
+    return success();
+
+  MLIRContext *ctx = moduleOp.getContext();
+  auto i64Type = IntegerType::get(ctx, 64);
+  OpBuilder builder(ctx);
+  FailureOr<LLVM::LLVMFuncOp> vtcmAllocFn =
+      getVtcmAllocFn(builder, moduleOp, typeConverter.getIndexType());
+  FailureOr<LLVM::LLVMFuncOp> scratchBytesFn =
+      getHexKLMatmulScratchBytesFn(builder, moduleOp);
+  FailureOr<LLVM::LLVMFuncOp> matmulWithScratchFn =
+      getHexKLMatmulWithScratchFn(builder, moduleOp);
+  if (failed(vtcmAllocFn) || failed(scratchBytesFn) ||
+      failed(matmulWithScratchFn))
+    return failure();
+
+  for (LLVM::CallOp callOp : calls) {
+    auto funcOp = callOp->getParentOfType<LLVM::LLVMFuncOp>();
+    if (!funcOp || !hasDispatchEntryPointSignature(funcOp)) {
+      return callOp.emitOpError()
+             << "calls '" << matmulFnName
+             << "' outside a dispatch function; VTCM is allocated from the "
+                "dispatch's partition, which requires the dispatch state";
+    }
+    // hexkl matmul(n_row, n_col, n_inner, out, lhs, rhs)
+    ValueRange operands = callOp.getArgOperands();
+    if (operands.size() != 6) {
+      return callOp.emitOpError() << "expected 6 operands for '" << matmulFnName
+                                  << "', got " << operands.size();
+    }
+    // The scratch is allocated at the dispatch entry, where only constant dims
+    // are known.
+    SmallVector<int64_t> dims;
+    for (Value dim : operands.take_front(3)) {
+      std::optional<int64_t> value = getConstantIntValue(dim);
+      if (!value) {
+        return callOp.emitOpError()
+               << "with dynamic dims is not supported; its VTCM scratch is "
+                  "allocated at the dispatch entry";
+      }
+      dims.push_back(*value);
+    }
+    Location loc = callOp.getLoc();
+    Value scratch;
+    {
+      OpBuilder::InsertionGuard guard(builder);
+      Value state = abi.getRuntimeStateAtEntry(callOp, builder);
+      builder.setInsertionPointAfterValue(state);
+      SmallVector<Value> dimValues;
+      for (int64_t dim : dims) {
+        dimValues.push_back(LLVM::ConstantOp::create(
+            builder, loc, i64Type, builder.getI64IntegerAttr(dim)));
+      }
+      Value scratchBytes =
+          LLVM::CallOp::create(builder, loc, *scratchBytesFn, dimValues)
+              .getResult();
+      scratch = createVtcmAlloc(builder, loc, *vtcmAllocFn, state, scratchBytes,
+                                kHexKLScratchAlignment);
+    }
+    // The runtime takes the dims as uint64_t, independently of the index
+    // bitwidth the HexKL lowering used.
+    builder.setInsertionPoint(callOp);
+    SmallVector<Value> args;
+    for (Value dim : operands.take_front(3))
+      args.push_back(castToIntType(builder, loc, dim, i64Type));
+    llvm::append_range(args, operands.drop_front(3));
+    args.push_back(scratch);
+    auto newCall =
+        LLVM::CallOp::create(builder, loc, *matmulWithScratchFn, args);
+    if (callOp.getNumResults())
+      callOp.getResult().replaceAllUsesWith(newCall.getResult());
+    callOp.erase();
+  }
+
+  // Drop the now unused declaration.
+  auto matmulFn = moduleOp.lookupSymbol<LLVM::LLVMFuncOp>(matmulFnName);
+  if (matmulFn && matmulFn.isExternal() &&
+      SymbolTable::symbolKnownUseEmpty(matmulFn, moduleOp)) {
+    matmulFn.erase();
+  }
+  return success();
 }
 
 } // namespace
@@ -429,6 +819,12 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   populateHexagonInstrumentationToLLVMConversionPatterns(abi, typeConverter,
                                                          patterns);
   populateHexagonRuntimeToLLVMConversionPatterns(abi, typeConverter, patterns);
+  bool vtcmPartitionError =
+      false; // signal failure of the patterns that re-write the allocation
+  // used, such that no other lower priority re-write is thred, but the pass
+  // fails instead
+  populateVtcmPartitionToLLVMConversionPatterns(abi, typeConverter, patterns,
+                                                vtcmPartitionError);
   populateHexagonHmxToLLVMConversionPatterns(typeConverter, patterns);
 
   // Target-specific lowerings participate in the same conversion transaction
@@ -448,7 +844,8 @@ void HexagonConvertToLLVMPass::runOnOperation() {
                            IREE::Hexagon::IREEHexagonDialect>();
   target.addIllegalOp<memref::DmaStartOp, memref::DmaWaitOp>();
 
-  if (failed(applyPartialConversion(moduleOp, target, std::move(patterns)))) {
+  if (failed(applyPartialConversion(moduleOp, target, std::move(patterns))) ||
+      vtcmPartitionError) {
     signalPassFailure();
     return;
   }
@@ -467,7 +864,11 @@ void HexagonConvertToLLVMPass::runOnOperation() {
     return signalPassFailure();
   }
 
-  // Helper externs such as free/memrefCopy are introduced during memref
+  if (failed(useHexKLMatmulWithScratch(moduleOp, abi, typeConverter))) {
+    return signalPassFailure();
+  }
+
+  // Helper externs such as memrefCopy are introduced during memref
   // finalization. Canonicalize and mark them for static/native DSP linking.
   for (auto funcOp : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
     if (failed(renameAndTagNativeRuntimeLinkedFunc(moduleOp, funcOp))) {

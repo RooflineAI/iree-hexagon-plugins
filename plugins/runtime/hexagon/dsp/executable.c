@@ -181,3 +181,20 @@ int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
 
   return AEE_SUCCESS;
 }
+
+int hexagon_dsp_executable_get_dispatch_attrs(
+    int64 executable_handle, uint32_t export_ordinal,
+    const hexagon_executable_dispatch_attrs_t **out_attrs) {
+  if (!out_attrs) {
+    return AEE_EBADPARM;
+  }
+  hexagon_dsp_executable_t *executable =
+      (hexagon_dsp_executable_t *)executable_handle;
+  const hexagon_executable_export_table_t *exports =
+      &executable->library.v0->exports;
+  if (export_ordinal >= exports->count) {
+    return AEE_EBADITEM;
+  }
+  *out_attrs = exports->attrs ? &exports->attrs[export_ordinal] : NULL;
+  return AEE_SUCCESS;
+}

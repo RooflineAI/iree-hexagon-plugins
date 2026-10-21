@@ -38,17 +38,15 @@ iree_cc_library(
     hexagon_rt_library
   HDRS
     "dispatch_state.h"
-    "malloc_free.h"
     "memref_copy.h"
     "profiler.h"
     "runtime_state.h"
     "runtime_state_fwd_decl.h"
-    "vtcm_pool.h"
+    "vtcm_partition.h"
   SRCS
-    "malloc_free.c"
     "memref_copy.c"
     "profiler.c"
-    "vtcm_pool.cpp"
+    "vtcm_partition.cpp"
   DEPS
     ::executable_library
     ::vtcm_allocation
@@ -79,7 +77,7 @@ iree_package_name(_PACKAGE_NAME)
 # iree_cc_library()'s ALWAYSLINK branch has the same -fvisibility=hidden bug
 # as its SHARED branch: it only re-adds -fvisibility=default when the
 # *global* BUILD_SHARED_LIBS is ON, which this project never sets. This
-# library defines hexagon_runtime_malloc/free etc., which get statically
+# library defines hexagon_runtime_vtcm_alloc etc., which get statically
 # linked into the hexagon_dsp_skel SHARED library; without this, they stay
 # hidden in the final .so and the DSP loader fails to resolve them when
 # dlopen'ing a compiled kernel that imports them via PLT.

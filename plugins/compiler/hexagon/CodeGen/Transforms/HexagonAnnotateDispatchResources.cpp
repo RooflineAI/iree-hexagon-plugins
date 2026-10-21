@@ -38,7 +38,8 @@ namespace {
 
 using IREE::Hexagon::DispatchResourcesAttr;
 
-/// The runtime's VTCM allocation sizes (hexagon/dsp/rt/vtcm_allocation.h).
+/// The VTCM partition's allocation granularities
+/// (hexagon/dsp/rt/vtcm_allocation.h).
 constexpr int64_t kVTCMPoolMinimumBytes = HEXAGON_DSP_VTCM_MIN_ALLOCATION_BYTES;
 constexpr int64_t kVTCMLargeAlignment = HEXAGON_DSP_VTCM_LARGE_ALIGNMENT;
 
@@ -52,44 +53,57 @@ std::optional<int64_t> getStaticSizeInBytes(MemRefType type,
              dataLayout.getTypeSize(type.getElementType()).getFixedValue());
 }
 
-/// VTCM bytes `memref.alloc` takes. It lowers to `malloc`, which the runtime
-/// serves from the VTCM pool (plugins/runtime/hexagon/dsp/rt/malloc_free.c).
-/// MemRefToLLVM pads the request by the alignment, which is the element size
-/// for non-scalar elements when no alignment is given.
+/// VTCM bytes the dispatch's VTCM partition takes for an allocation of `bytes`
+/// aligned to `alignment` (hexagon_rt_vtcm_partition_alloc): the size rounded
+/// up to the granularity of its end of the partition, plus the padding that
+/// the alignment may need on top of that granularity.
+int64_t getPartitionAllocBytes(int64_t bytes, uint64_t alignment) {
+  int64_t effectiveAlignment =
+      std::max<int64_t>(llvm::PowerOf2Ceil(alignment), kVTCMPoolMinimumBytes);
+  int64_t granularity = effectiveAlignment >= kVTCMLargeAlignment
+                            ? kVTCMLargeAlignment
+                            : kVTCMPoolMinimumBytes;
+  return static_cast<int64_t>(llvm::alignTo(bytes, granularity)) +
+         effectiveAlignment - granularity;
+}
+
+/// Alignment the LLVM conversion requests for a `memref.alloc` of `type`
+/// without an explicit alignment: as in MemRefToLLVM, the element size for
+/// non-scalar elements.
+uint64_t getDefaultAllocAlignment(MemRefType type,
+                                  const DataLayout &dataLayout) {
+  if (type.getElementType().isSignlessIntOrIndexOrFloat())
+    return 0;
+  return dataLayout.getTypeSize(type.getElementType()).getFixedValue();
+}
+
+/// VTCM bytes `memref.alloc` takes. It lowers to an allocation from the
+/// dispatch's VTCM partition.
 std::optional<int64_t> getAllocVTCMBytes(memref::AllocOp op,
                                          const DataLayout &dataLayout) {
   MemRefType type = op.getType();
   std::optional<int64_t> bytes = getStaticSizeInBytes(type, dataLayout);
   if (!bytes)
     return std::nullopt;
-  if (std::optional<uint64_t> alignment = op.getAlignment())
-    *bytes += *alignment;
-  else if (!type.getElementType().isSignlessIntOrIndexOrFloat())
-    *bytes += static_cast<int64_t>(
-        dataLayout.getTypeSize(type.getElementType()).getFixedValue());
-  return std::max(*bytes, kVTCMPoolMinimumBytes);
+  uint64_t alignment =
+      op.getAlignment().value_or(getDefaultAllocAlignment(type, dataLayout));
+  return getPartitionAllocBytes(*bytes, alignment);
 }
 
-/// VTCM bytes `hexagonmem.alloc` takes. Outside VTCM, HexagonMemToLLVM
-/// rewrites it to a `memref.alloc` - without its alignment -
-/// In VTCM it lowers to `hexagon_runtime_alloc_1d`, which rounds the size
-/// up to the allocation granularity instead of padding it by the alignment.
+/// VTCM bytes `hexagonmem.alloc` takes. In VTCM it lowers to an allocation
+/// from the dispatch's VTCM partition. Outside VTCM, HexagonMemToLLVM rewrites
+/// it to a `memref.alloc` without its alignment.
 std::optional<int64_t> getAllocVTCMBytes(hexagonmem::AllocOp op,
                                          const DataLayout &dataLayout) {
   auto type = cast<MemRefType>(op.getBuffer().getType());
   std::optional<int64_t> bytes = getStaticSizeInBytes(type, dataLayout);
   if (!bytes)
     return std::nullopt;
-  if (type.getMemorySpaceAsInt() != ::mlir::hexagon::VTCM_ADDRESS_SPACE) {
-    if (!type.getElementType().isSignlessIntOrIndexOrFloat())
-      *bytes += static_cast<int64_t>(
-          dataLayout.getTypeSize(type.getElementType()).getFixedValue());
-    return std::max(*bytes, kVTCMPoolMinimumBytes);
-  }
-  int64_t granularity = op.getAlignment() == kVTCMLargeAlignment
-                            ? kVTCMLargeAlignment
-                            : kVTCMPoolMinimumBytes;
-  return static_cast<int64_t>(llvm::alignTo(*bytes, granularity));
+  uint64_t alignment =
+      type.getMemorySpaceAsInt() == ::mlir::hexagon::VTCM_ADDRESS_SPACE
+          ? op.getAlignment()
+          : getDefaultAllocAlignment(type, dataLayout);
+  return getPartitionAllocBytes(*bytes, alignment);
 }
 
 /// Whether `op` allocates on the heap, which the runtime serves from VTCM.

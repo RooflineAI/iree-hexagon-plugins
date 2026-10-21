@@ -234,6 +234,7 @@ iree_cc_library(
     LLVMSupport
     MLIRAffineDialect
     MLIRAffineToStandard
+    MLIRAffineUtils
     MLIRAnalysis
     MLIRArithDialect
     MLIRBufferizationDialect

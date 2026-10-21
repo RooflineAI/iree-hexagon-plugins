@@ -23,6 +23,7 @@
 #include "hexagon/dsp/rt/executable_library.h"
 #include "hexagon/dsp/rt/profiler.h"
 #include "hexagon/dsp/rt/runtime_state.h"
+#include "hexagon/dsp/rt/vtcm_partition.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"
 
@@ -476,8 +477,10 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // Hexagon uses a custom extended dispatch state that carries a pointer to the
   // runtime state, which some dispatches access via the dispatch state
   // argument.
+  hexagon_rt_vtcm_partition_t vtcm_partition = {};
   const hexagon_rt_state_t runtime_state = {
       .prof_context = prof_context,
+      .vtcm_partition = &vtcm_partition,
   };
   HEXAGON_ALIGNAS(16)
   const hexagon_dsp_extended_dispatch_state_t extended_dispatch_state = {
@@ -529,6 +532,19 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   hexagon_dsp_executable_get_dispatch_func_name(executable_handle,
                                                 export_ordinal, &func_name);
 
+  // The dispatch allocates VTCM only from its own partition, sized by the VTCM
+  // the compiler declared for it. Without a declaration it gets all of VTCM.
+  const hexagon_executable_dispatch_attrs_t *attrs = NULL;
+  size_t vtcm_bytes = HEXAGON_RT_VTCM_PARTITION_ALL;
+  if (hexagon_dsp_executable_get_dispatch_attrs(
+          executable_handle, export_ordinal, &attrs) == AEE_SUCCESS &&
+      attrs &&
+      (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0 &&
+      attrs->vtcm_bytes != (uint64_t)INT64_MAX) {
+    vtcm_bytes = (size_t)attrs->vtcm_bytes;
+  }
+  hexagon_rt_acquire_vtcm_partition(vtcm_bytes, func_name, &vtcm_partition);
+
   hexagon_rt_prof_record_t *prof_dispatch_record =
       profiler_measurement_start(prof_context, KERNEL, func_name);
 
@@ -557,6 +573,8 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   }
 
   profiler_measurement_finish_and_record(prof_dispatch_record);
+
+  hexagon_rt_release_vtcm_partition(&vtcm_partition);
 
   hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
   HAP_free(dispatch_arrays);

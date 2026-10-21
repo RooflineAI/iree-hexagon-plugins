@@ -21,6 +21,16 @@ namespace mlir::iree_compiler::hexagon::codegen {
 inline constexpr llvm::StringLiteral kNativeRuntimeLinkVariantAttrName =
     "hexagon.native_runtime_linking";
 
+// Allocates VTCM from the dispatch's partition:
+//   void *(const hexagon_rt_state_t *, size_t nbytes, uint64_t alignment)
+inline constexpr llvm::StringLiteral kVtcmAllocFnName =
+    "hexagon_runtime_vtcm_alloc";
+// HexKL matmul variants that take their VTCM scratch from the caller.
+inline constexpr llvm::StringLiteral kHexKLMatmulScratchBytesFnName =
+    "hexkl_matmul_f16f16_f32_scratch_bytes";
+inline constexpr llvm::StringLiteral kHexKLMatmulWithScratchFnName =
+    "hexkl_matmul_f16f16_f32_with_scratch";
+
 const llvm::StringSet<> &getHexagonRuntimeSymbolNames();
 const llvm::StringSet<> &getHexKLSymbolNames();
 const llvm::StringSet<> &getNativeRuntimeHelperAliasNames();

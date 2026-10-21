@@ -219,6 +219,17 @@ build_android_tree() {
 build_android_tree "${BUILD_ROOT}/android" 0
 build_android_tree "${BUILD_ROOT}/android-tracy" 1
 
+# --- Android tracy-capture and tracy-csvexport, for the Tracy runtime package
+# (see build_tools/cmake/tracy_tools/CMakeLists.txt) --------------------------
+TRACY_TOOLS_BUILD_DIR="${BUILD_ROOT}/android-tracy-tools"
+cmake -S "${REPO_ROOT}/build_tools/cmake/tracy_tools" -B "${TRACY_TOOLS_BUILD_DIR}" \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a \
+  -DANDROID_PLATFORM=android-28
+cmake --build "${TRACY_TOOLS_BUILD_DIR}" --target tracy-capture tracy-csvexport -- -k 0
+
 # --- Package the same zip layout as plugins/runtime/hexagon/BUILD.bazel's
 # pkg_files/pkg_zip and integration_tests/device/tools/BUILD.bazel's --------
 LIBCXX_SHARED="$(find "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt" \
@@ -249,7 +260,9 @@ package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android_tracy.zip" \
   "bin/iree-run-module" "${BUILD_ROOT}/android-tracy/tools/iree-run-module" \
   "bin/iree-benchmark-module" "${BUILD_ROOT}/android-tracy/tools/iree-benchmark-module" \
   "lib/libc++_shared.so" "${LIBCXX_SHARED}" \
-  "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO_TRACY}"
+  "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO_TRACY}" \
+  "bin/tracy-capture" "${TRACY_TOOLS_BUILD_DIR}/tracy-capture" \
+  "bin/tracy-csvexport" "${TRACY_TOOLS_BUILD_DIR}/tracy-csvexport"
 
 package_zip "${OUT_DIR}/device_tools_aarch64_android.zip" \
   "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)"

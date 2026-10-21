@@ -38,7 +38,8 @@ static size_t partition_bytes(VtcmPool *vtcm_pool, size_t nbytes) {
   if (nbytes == HEXAGON_RT_VTCM_PARTITION_ALL) {
     // full pool
     // VtcmAllocatedBytes is the size of the pool (the name is misleading imho)
-    return align_down(vtcm_pool->VtcmAllocatedBytes(), VTCM_FRONT_LARGE_GRANULE);
+    return align_down(vtcm_pool->VtcmAllocatedBytes(),
+                      VTCM_FRONT_LARGE_GRANULE);
   }
   return align_up(nbytes, VTCM_FRONT_LARGE_GRANULE);
 }

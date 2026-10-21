@@ -41,6 +41,7 @@ iree_cc_library(
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/lib/Transforms/MatmulToHexKLPass.cpp"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/lib/Transforms/MemoryOffsetsPass.cpp"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/lib/Transforms/OptionsParsing.cpp"
+    "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/lib/Transforms/PackUnpackUtils.cpp"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/lib/Transforms/PuntBufferPass.cpp"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/lib/Transforms/RVO.cpp"
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/lib/Transforms/ReduceContractionRankPass.cpp"

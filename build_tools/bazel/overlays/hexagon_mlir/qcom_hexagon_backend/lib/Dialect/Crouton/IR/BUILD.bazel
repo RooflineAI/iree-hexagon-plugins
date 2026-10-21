@@ -1,0 +1,29 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@iree_hexagon_plugins//build_tools/bazel:defs.bzl", "hexagon_mlir_overlay_library")
+
+package(default_visibility = ["//visibility:public"])
+
+hexagon_mlir_overlay_library(
+    name = "Crouton",
+    srcs = [
+        "CroutonDialect.cpp",
+        "CroutonTypes.cpp",
+    ],
+    hdr_deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:BufferizationInterfaces",
+        "@llvm-project//mlir:DestinationStyleOpInterface",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LinalgDialect",
+        "@llvm-project//mlir:Support",
+    ],
+    deps = [
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:CroutonHeadersLib",
+        "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:CroutonTableGen",
+    ],
+)

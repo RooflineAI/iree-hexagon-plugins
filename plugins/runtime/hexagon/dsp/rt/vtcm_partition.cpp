@@ -57,6 +57,10 @@ void hexagon_rt_acquire_vtcm_partition(
   VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
   nbytes = partition_bytes(vtcm_pool, nbytes);
   out_partition->base = static_cast<char *>(vtcm_pool->Allocate(nbytes));
+  if (!out_partition->base) {
+    // VtcmPool::Allocate has already reported the failure.
+    abort();
+  }
   out_partition->size = nbytes;
 }
 
@@ -71,7 +75,15 @@ bool hexagon_rt_try_acquire_vtcm_partition(
   VtcmPool *vtcm_pool = HexagonAPI::Global()->getVtcmPool();
   nbytes = partition_bytes(vtcm_pool, nbytes);
   out_partition->size = nbytes;
-  out_partition->base = static_cast<char *>(vtcm_pool->TryAllocate(nbytes));
+  // Allocate reports every failure, but not fitting yet is expected here. A
+  // partition is a multiple of the 2 KiB large-allocation alignment, which
+  // VtcmPool takes best-fit from any free block, so it fits exactly if the
+  // largest free block is large enough. Only the master thread allocates and
+  // frees partitions, so nothing changes the pool in between.
+  if (vtcm_pool->getLargestFreeBlock() < nbytes) {
+    return false;
+  }
+  out_partition->base = static_cast<char *>(vtcm_pool->Allocate(nbytes));
   return out_partition->base != NULL;
 }
 

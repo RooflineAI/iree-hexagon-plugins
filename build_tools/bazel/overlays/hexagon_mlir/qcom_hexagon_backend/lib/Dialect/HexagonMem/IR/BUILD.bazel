@@ -32,5 +32,6 @@ hexagon_mlir_overlay_library(
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemHeadersLib",
         "@hexagon-mlir//qcom_hexagon_backend/include/hexagon:HexagonMemTableGen",
         "@hexagon-mlir//qcom_hexagon_backend/lib/Common:HexagonCommon",
+        "@hexagon-mlir//qcom_hexagon_backend/lib/Dialect/Crouton/IR:Crouton",
     ],
 )

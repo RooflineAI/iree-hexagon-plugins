@@ -114,7 +114,7 @@ std::optional<SmallVector<int64_t>>
 determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
   const int64_t budgetBytes = context.options.vtcmTileBudgetBytes;
   std::optional<SmallVector<int64_t>> tiles =
-      ::mlir::hexagon::determineTileSizes(op, /*tilingDims=*/{}, budgetBytes);
+      ::mlir::hexagon::determineTileSizes(op, budgetBytes);
   if (tiles && keepsReductionsWhole(op, *tiles))
     return tiles;
 
@@ -127,7 +127,7 @@ determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
                        "reduction dimensions whole; "
                        "retrying over parallel dimensions only");
   return ::mlir::hexagon::determineTileSizes(
-      op, llvm::to_vector_of<int64_t>(parallelDims), budgetBytes);
+      op, budgetBytes, llvm::to_vector_of<int64_t>(parallelDims));
 }
 
 } // namespace

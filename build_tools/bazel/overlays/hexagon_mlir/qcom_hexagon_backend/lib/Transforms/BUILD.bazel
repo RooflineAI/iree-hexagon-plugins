@@ -42,6 +42,7 @@ hexagon_mlir_overlay_library(
         "SmallExponentToMultiplyPass.cpp",
         "LinalgUtils.cpp",
         "MemoryOffsetsPass.cpp",
+        "PackUnpackUtils.cpp",
         # Skipped: HexagonLWPInstrumentation.cpp (LLVM dialect GlobalOp builder API drift).
         # Skipped: LowerTPtr.cpp / LowerTTX.cpp / LowerTmTensor.cpp (explicitly excluded).
         "ReduceContractionRankPass.cpp",

@@ -78,6 +78,32 @@ iree_cc_library(
   PUBLIC
 )
 
+file(GLOB _GLOB_DIALECT/CROUTON/IR/X_H LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS Dialect/Crouton/IR/*.h)
+add_custom_command(OUTPUT CroutonHeaders.stamp
+    COMMAND ${CMAKE_COMMAND} -E touch CroutonHeaders.stamp
+  DEPENDS
+    "${_GLOB_DIALECT/CROUTON/IR/X_H}"
+)
+
+add_custom_target(CroutonHeaders
+    DEPENDS CroutonHeaders.stamp
+)
+
+iree_cc_library(
+  NAME
+    CroutonHeadersLib
+  HDRS
+    ":CroutonHeaders"
+  DEPS
+    ::CroutonTableGen
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/.>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/.>"
+  PUBLIC
+)
+
 file(GLOB _GLOB_DIALECT/HEXAGONMEM/IR/X_H LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS Dialect/HexagonMem/IR/*.h)
 add_custom_command(OUTPUT HexagonMemHeaders.stamp
     COMMAND ${CMAKE_COMMAND} -E touch HexagonMemHeaders.stamp
@@ -95,6 +121,7 @@ iree_cc_library(
   HDRS
     ":HexagonMemHeaders"
   DEPS
+    ::CroutonHeadersLib
     ::HexagonMemTableGen
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
@@ -170,20 +197,58 @@ iree_tablegen_library(
 
 iree_tablegen_library(
   NAME
-    HexagonMemTableGen
+    CroutonTableGen
+  TD_FILE
+    "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/include/hexagon/Dialect/Crouton/IR/CroutonTypes.td"
+  OUTS
+    -gen-dialect-defs -dialect=crouton Dialect/Crouton/IR/CroutonDialect.cpp.inc
+    -gen-dialect-decls -dialect=crouton Dialect/Crouton/IR/CroutonDialect.h.inc
+    -gen-typedef-defs Dialect/Crouton/IR/CroutonTypes.cpp.inc
+    -gen-typedef-decls Dialect/Crouton/IR/CroutonTypes.h.inc
+)
+
+iree_tablegen_library(
+  NAME
+    HexagonMemDialectIncGen
+  TD_FILE
+    "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.td"
+  OUTS
+    -gen-dialect-defs -dialect=hexagonmem Dialect/HexagonMem/IR/HexagonMemDialect.cpp.inc
+    -gen-dialect-decls -dialect=hexagonmem Dialect/HexagonMem/IR/HexagonMemDialect.h.inc
+)
+
+iree_tablegen_library(
+  NAME
+    HexagonMemOpsIncGen
   TD_FILE
     "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemOps.td"
   OUTS
-    -gen-attrdef-defs Dialect/HexagonMem/IR/HexagonMemAttrs.cpp.inc
-    -gen-attrdef-decls Dialect/HexagonMem/IR/HexagonMemAttrs.h.inc
-    -gen-dialect-defs -dialect=hexagonmem Dialect/HexagonMem/IR/HexagonMemDialect.cpp.inc
-    -gen-dialect-decls -dialect=hexagonmem Dialect/HexagonMem/IR/HexagonMemDialect.h.inc
-    -gen-enum-defs Dialect/HexagonMem/IR/HexagonMemEnums.cpp.inc
-    -gen-enum-decls Dialect/HexagonMem/IR/HexagonMemEnums.h.inc
     -gen-op-defs Dialect/HexagonMem/IR/HexagonMemOps.cpp.inc
     -gen-op-decls Dialect/HexagonMem/IR/HexagonMemOps.h.inc
+)
+
+iree_tablegen_library(
+  NAME
+    HexagonMemTypesIncGen
+  TD_FILE
+    "../../../../../../../third-party/hexagon-mlir/qcom_hexagon_backend/include/hexagon/Dialect/HexagonMem/IR/HexagonMemTypes.td"
+  OUTS
+    -gen-attrdef-defs Dialect/HexagonMem/IR/HexagonMemAttrs.cpp.inc
+    -gen-attrdef-decls Dialect/HexagonMem/IR/HexagonMemAttrs.h.inc
+    -gen-enum-defs Dialect/HexagonMem/IR/HexagonMemEnums.cpp.inc
+    -gen-enum-decls Dialect/HexagonMem/IR/HexagonMemEnums.h.inc
     -gen-typedef-defs Dialect/HexagonMem/IR/HexagonMemTypes.cpp.inc
     -gen-typedef-decls Dialect/HexagonMem/IR/HexagonMemTypes.h.inc
+)
+
+iree_cc_library(
+  NAME
+    HexagonMemTableGen
+  DEPS
+    ::HexagonMemDialectIncGen
+    ::HexagonMemOpsIncGen
+    ::HexagonMemTypesIncGen
+  PUBLIC
 )
 
 iree_tablegen_library(

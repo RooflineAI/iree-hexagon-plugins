@@ -456,9 +456,6 @@ typedef struct hexa_cmd_buf_sched_s {
   hexa_cmd_buf_task_t *tasks;
   /// number of tasks in flight (submitted to workers and not finished yet)
   uint32_t num_in_flight;
-  /// index of a task slot that is not in flight, max_concurrent if all task
-  /// slots are in flight
-  uint32_t next_free;
   /// notified by a worker each time it completes a dispatch
   hexa_cmd_buf_done_t done_notify;
   /// Bookkeeping about VTCM usage:
@@ -687,7 +684,6 @@ static void hexa_cmd_buf_finish_dispatch(hexa_cmd_buf_sched_t *sched,
   hexa_cmd_buf_unmap(task->mapped_fds, task->num_buf_refs);
   HAP_free(task->dispatch_arrays);
   task->in_flight = false;
-  sched->next_free = task_idx < sched->next_free ? task_idx : sched->next_free;
 }
 
 /// Worker thread entry point: execute the dispatch and notify the master.
@@ -764,8 +760,14 @@ static int hexa_cmd_buf_exec_dispatch(
   while (sched->num_in_flight >= sched->max_concurrent) {
     hexa_cmd_buf_sched_wait_one(sched);
   }
-  // next_free may change while waiting for VTCM below
-  uint32_t task_idx = sched->next_free;
+  // Pick the first task slot that is not in flight. There is one, since fewer
+  // than max_concurrent tasks are in flight. Pick it only once: waiting for
+  // VTCM below may free other slots, but this one is already being prepared.
+  uint32_t task_idx = 0;
+  while (sched->tasks[task_idx].in_flight) {
+    ++task_idx;
+  }
+  assert(task_idx < sched->max_concurrent);
   hexa_cmd_buf_task_t *task = &sched->tasks[task_idx];
   size_t vtcm_bytes = 0;
   bool uses_hmx = true;
@@ -826,14 +828,6 @@ static int hexa_cmd_buf_exec_dispatch(
   task->in_flight = true;
   ++sched->num_in_flight;
   hexagon_rt_async_execute(hexa_cmd_buf_task_worker, task);
-  // Advance next_free to the next task that is not in flight. If there is
-  // none, all execution slots are taken: it ends at max_concurrent and
-  // wait_one sets it.
-  while (sched->next_free < sched->max_concurrent &&
-         sched->tasks[sched->next_free].in_flight) {
-    ++sched->next_free;
-  }
-
   return AEE_SUCCESS;
 }
 
@@ -1051,7 +1045,6 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
       .max_concurrent = max_concurrent,
       .tasks = NULL,
       .num_in_flight = 0,
-      .next_free = 0,
       // Also binds the VTCM pool and the HMX lock to this thread before any
       // worker exists.
       .vtcm_pool_size = hexagon_rt_vtcm_pool_size(),

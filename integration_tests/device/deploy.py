@@ -13,6 +13,9 @@ Two packages are unpacked into one directory per run:
 
         bin/iree-run-module          ARM host side, Hexagon HAL driver linked in
         bin/iree-benchmark-module    same, for benchmarking
+        bin/tracy-capture            only in the Tracy runtime, records the
+                                     trace on the device
+        bin/tracy-csvexport          only in the Tracy runtime, exports it
         lib/hexagon/libhexagon_dsp_skel.so   the DSP side
         lib/libc++_shared.so         NDK C++ runtime
 
@@ -76,6 +79,16 @@ class Deployment:
         return f"{self.run_dir}/bin/iree-run-module"
 
     @property
+    def tracy_capture(self) -> str:
+        """Only present in a deployment of the Tracy runtime."""
+        return f"{self.run_dir}/bin/tracy-capture"
+
+    @property
+    def tracy_csvexport(self) -> str:
+        """Only present in a deployment of the Tracy runtime."""
+        return f"{self.run_dir}/bin/tracy-csvexport"
+
+    @property
     def limit_lifetime(self) -> str:
         return f"{self.run_dir}/bin/limit_lifetime"
 
@@ -129,8 +142,10 @@ def deploy(
         shlex.quote(f"bin/{binary}")
         for binary in (*_ENTRY_BINARIES, "limit_lifetime", "rsync")
     )
+    # Which binaries there are depends on the runtime: only the Tracy one has
+    # tracy-capture and tracy-csvexport.
     adb.shell(
-        f"cd {shlex.quote(deployment.run_dir)} && chmod +x {chmods} && {farf_writes}"
+        f"cd {shlex.quote(deployment.run_dir)} && chmod +x bin/* && {farf_writes}"
     )
     return deployment
 

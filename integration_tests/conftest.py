@@ -31,7 +31,6 @@ from integration_tests.stages.compiling import (
 from integration_tests.stages.running import (
     RUN_CASE_NAMES,
     RUN_CASES_BY_NAME,
-    ProfilerTools,
     RunCase,
 )
 from integration_tests.tool_paths import (
@@ -40,8 +39,6 @@ from integration_tests.tool_paths import (
     LLD_TARGET,
     RUNTIME_ZIP_TARGET,
     RUNTIME_ZIP_TRACY_TARGET,
-    TRACY_CAPTURE_TARGET,
-    TRACY_CSVEXPORT_TARGET,
     resolve_bazel_artifact,
     resolve_host_tool,
 )
@@ -107,26 +104,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ),
     )
     group.addoption(
-        "--tracy-capture",
-        default=None,
-        help=(
-            f"path to tracy-capture ({TRACY_CAPTURE_TARGET}), for the profile "
-            "run cases. Resolved with 'bazel cquery' when omitted."
-        ),
-    )
-    group.addoption(
-        "--tracy-csvexport",
-        default=None,
-        help=(
-            f"path to tracy-csvexport ({TRACY_CSVEXPORT_TARGET}), for the "
-            "profile run cases. Resolved with 'bazel cquery' when omitted."
-        ),
-    )
-    group.addoption(
         "--tracy-port",
         type=int,
         default=8086,
-        help="host and device port of the Tracy connection (default: 8086).",
+        help="device port of the Tracy connection (default: 8086).",
     )
     group.addoption(
         "--device-root",
@@ -331,13 +312,5 @@ def deployments(
 
 
 @pytest.fixture(scope="session")
-def profiler_tools(pytestconfig: pytest.Config) -> ProfilerTools:
-    return ProfilerTools(
-        tracy_capture=resolve_bazel_artifact(
-            TRACY_CAPTURE_TARGET, pytestconfig.getoption("--tracy-capture")
-        ),
-        tracy_csvexport=resolve_bazel_artifact(
-            TRACY_CSVEXPORT_TARGET, pytestconfig.getoption("--tracy-csvexport")
-        ),
-        port=pytestconfig.getoption("--tracy-port"),
-    )
+def tracy_port(pytestconfig: pytest.Config) -> int:
+    return pytestconfig.getoption("--tracy-port")

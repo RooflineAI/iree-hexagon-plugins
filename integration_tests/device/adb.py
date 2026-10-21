@@ -131,15 +131,6 @@ def pull(remote_paths: list[str], local_dir: Path) -> None:
     _run(["pull", *remote_paths, str(local_dir)])
 
 
-def forward(local_port: int, remote_port: int) -> None:
-    """Tunnel host localhost:`local_port` to the device's `remote_port`."""
-    _run(["forward", f"tcp:{local_port}", f"tcp:{remote_port}"])
-
-
-def forward_remove(local_port: int) -> None:
-    _run(["forward", "--remove", f"tcp:{local_port}"], check=False)
-
-
 def logcat_clear() -> None:
     _run(["logcat", "-c"])
 

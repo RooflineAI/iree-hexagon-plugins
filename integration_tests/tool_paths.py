@@ -30,8 +30,6 @@ DEVICE_TOOLS_TARGET = "//integration_tests/device/tools:device_tools_aarch64_and
 RUNTIME_ZIP_TRACY_TARGET = (
     "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy"
 )
-TRACY_CAPTURE_TARGET = "@tracy_tools//:tracy-capture"
-TRACY_CSVEXPORT_TARGET = "@tracy_tools//:tracy-csvexport"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 

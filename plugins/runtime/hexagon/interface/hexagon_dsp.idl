@@ -12,4 +12,5 @@ interface hexagon_dsp : remote_handle64 {
    long command_buffer_execute_profiler(in long long command_buffer_handle, in sequence<uint8> binding_table, rout sequence<uint8> performance_log);
    long buffer_rpcmem_mmap(in long fd, rout long long vaddr);
    long buffer_rpcmem_munmap(in long fd);
+   long set_max_concurrent_dispatches(in long max_concurrent_dispatches);
 };

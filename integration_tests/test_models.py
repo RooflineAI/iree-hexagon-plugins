@@ -37,7 +37,7 @@ from integration_tests.stages.compiling import (
     CompileCase,
     compile_model,
 )
-from integration_tests.stages.running import run_module_on_device
+from integration_tests.stages.running import RunCase, run_module_on_device
 
 
 @pytest.fixture(scope="session")
@@ -59,6 +59,7 @@ def imported_model(
 def _run_pipeline(
     model_spec: ModelSpec,
     compile_case: CompileCase,
+    run_case: RunCase,
     imported_model: ImportedModel,
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
@@ -84,7 +85,9 @@ def _run_pipeline(
         f"compiled {compile_case.name} in {compile_time:.2f}s -> {vmfb} ({vmfb.stat().st_size} bytes)"
     )
 
-    case_dir = f"{model_spec.name.replace('/', '_')}_{compile_case.name}"
+    case_dir = (
+        f"{model_spec.name.replace('/', '_')}_{compile_case.name}_{run_case.name}"
+    )
     result = run_module_on_device(
         deployment=deployment,
         case_dir_name=case_dir,
@@ -93,6 +96,7 @@ def _run_pipeline(
         input_files=imported_model.input_files,
         output_names=imported_model.output_names,
         local_output_dir=work_dir / "device_outputs",
+        extra_flags=run_case.flags,
         timeout=model_spec.run_timeout,
     )
     print(result.log)
@@ -125,6 +129,7 @@ def _run_pipeline(
 def test_model_on_device(
     model_spec: ModelSpec,
     compile_case: CompileCase,
+    run_case: RunCase,
     imported_model: ImportedModel,
     iree_compile: pathlib.Path,
     lld: pathlib.Path | None,
@@ -134,6 +139,7 @@ def test_model_on_device(
     outcome = _run_pipeline(
         model_spec=model_spec,
         compile_case=compile_case,
+        run_case=run_case,
         imported_model=imported_model,
         iree_compile=iree_compile,
         lld=lld,
@@ -145,7 +151,7 @@ def test_model_on_device(
     if expected is None:
         if not outcome.passed:
             pytest.fail(
-                f"{model_spec.name} [{compile_case.name}] failed as "
+                f"{model_spec.name} [{compile_case.name}/{run_case.name}] failed as "
                 f"{outcome.status}:\n{outcome.log}",
                 pytrace=False,
             )
@@ -154,7 +160,7 @@ def test_model_on_device(
     mismatch = check_outcome(expected, outcome)
     if mismatch is not None:
         pytest.fail(
-            f"{model_spec.name} [{compile_case.name}]: {mismatch.kind.title()}\n"
+            f"{model_spec.name} [{compile_case.name}/{run_case.name}]: {mismatch.kind.title()}\n"
             f"{mismatch.message}",
             pytrace=False,
         )

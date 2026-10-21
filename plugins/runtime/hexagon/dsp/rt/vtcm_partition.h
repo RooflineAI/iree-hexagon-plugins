@@ -9,6 +9,7 @@
 
 #include "hexagon/dsp/rt/runtime_state_fwd_decl.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -58,6 +59,30 @@ typedef struct hexagon_rt_vtcm_partition_s {
 void hexagon_rt_acquire_vtcm_partition(
     size_t nbytes, const char *dispatch_name,
     hexagon_rt_vtcm_partition_t *out_partition);
+
+/**
+ * @brief Like hexagon_rt_acquire_vtcm_partition, but fails instead of aborting
+ *        if the pool has no contiguous free block of the requested size.
+ *
+ * Must only be called by the thread that owns the global pool.
+ * @param[in] nbytes see hexagon_rt_acquire_vtcm_partition
+ * @param[in] dispatch_name see hexagon_rt_acquire_vtcm_partition
+ * @param[out] out_partition partition to initialize; on failure base is NULL
+ *                           and size holds the (rounded) size that did not fit
+ * @return true if the partition was acquired
+ */
+bool hexagon_rt_try_acquire_vtcm_partition(
+    size_t nbytes, const char *dispatch_name,
+    hexagon_rt_vtcm_partition_t *out_partition);
+
+/**
+ * @brief Size of the global VTCM pool in bytes, i.e. the size of a
+ *        HEXAGON_RT_VTCM_PARTITION_ALL partition.
+ *
+ * Must only be called by the thread that owns the global pool. The first call
+ * makes the calling thread the owner of the pool (and of the HMX lock).
+ */
+size_t hexagon_rt_vtcm_pool_size(void);
 
 /**
  * @brief Return a partition to the global VTCM pool.

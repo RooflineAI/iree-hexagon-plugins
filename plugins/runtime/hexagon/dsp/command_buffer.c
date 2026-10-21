@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <assert.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,9 +18,11 @@
 #include "hexagon/arm_dsp/cmd_buf.h"
 #include "hexagon/arm_dsp/profiler.h"
 #include "hexagon/dsp/align.h"
+#include "hexagon/dsp/device.h"
 #include "hexagon/dsp/executable.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/power_mode.h"
+#include "hexagon/dsp/rt/async_runtime.h"
 #include "hexagon/dsp/rt/dispatch_state.h"
 #include "hexagon/dsp/rt/executable_library.h"
 #include "hexagon/dsp/rt/profiler.h"
@@ -401,28 +405,106 @@ static void hexa_cmd_buf_unmap(const int *mapped_fds, uint32_t mapped_fds_cnt) {
   }
 }
 
+/// Completion notification from workers to the master.
+typedef struct hexa_cmd_buf_done_s {
+  qurt_mutex_t mutex;
+  qurt_cond_t cond;
+  /// dispatches completed by workers and not yet finished by the master
+  uint32_t num_completed;
+} hexa_cmd_buf_done_t;
+
 /**
- * @brief Execute dispatch command buffer entry.
- * @param[in,out] cmd_buf_data pointer to pointer to serialized barrier command
+ * A dispatch, prepared by the master thread (the one walking the command
+ * buffer) and executed either by the master or by a worker thread.
+ */
+typedef struct hexa_cmd_buf_task_s {
+  /// dispatch state passed to the dispatch function - must be aligned at 16
+  /// bytes, because dispatch function declarations assume that alignment
+  HEXAGON_ALIGNAS(16)
+  hexagon_dsp_extended_dispatch_state_t extended_dispatch_state;
+  /// runtime state the extended dispatch state points to
+  hexagon_rt_state_t runtime_state;
+  /// VTCM partition the runtime state points to, acquired by the master
+  hexagon_rt_vtcm_partition_t vtcm_partition;
+  hexagon_executable_dispatch_fn_t dispatch_func;
+  const hexagon_executable_environment_t *environment;
+  /// dispatch name for profiling and diagnostics, may be NULL
+  const char *func_name;
+  /// allocation holding the arrays the dispatch state points to (constants,
+  /// binding pointers and lengths) and mapped_fds, freed when finished
+  uint8_t *dispatch_arrays;
+  /// file descriptors mapped for the bindings, unmapped when finished
+  int *mapped_fds;
+  uint32_t num_buf_refs;
+  /// completion notification of the master
+  hexa_cmd_buf_done_t *done_notify;
+  /// set by the worker once the dispatch has been executed, guarded by
+  /// done_notify->mutex
+  bool done;
+  /// submitted to a worker and not finished yet, master only
+  bool in_flight;
+} hexa_cmd_buf_task_t;
+
+/**
+ * Scheduler state of one command buffer execution, only visible to the master,
+ * except that done_notify is exposed to the workers for notification
+ */
+typedef struct hexa_cmd_buf_sched_s {
+  /// max. number of dispatches executing at the same time (workers + master)
+  uint32_t max_concurrent;
+  /// task slots, one per execution slot (max_concurrent)
+  hexa_cmd_buf_task_t *tasks;
+  /// number of tasks in flight (submitted to workers and not finished yet)
+  uint32_t num_in_flight;
+  /// notified by a worker each time it completes a dispatch
+  hexa_cmd_buf_done_t done_notify;
+  /// Bookkeeping about VTCM usage:
+  /// size of the global VTCM pool
+  size_t vtcm_pool_size;
+  /// sum of the sizes of all partitions currently acquired
+  size_t vtcm_in_use;
+} hexa_cmd_buf_sched_t;
+
+/**
+ * @brief Prepare a dispatch command buffer entry for execution: resolve and
+ *        map buffers and build the dispatch state in a free task slot. Does
+ *        not acquire VTCM.
+ * @param[out] task free task slot to prepare, to be finished by
+ *                  hexa_cmd_buf_finish_dispatch on success
+ * @param[in,out] cmd_buf_data pointer to pointer to serialized dispatch command
  *                data, updated by amount of processed data
  * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
  *                data, updated by amount of processed data
  * @param[in] bind_tab binding_table
  * @param[in] bind_tab_num_ent number of entries in binding table
- * @param[in] prof_context profiler context, NULL when tracing is
- * disabled
+ * @param[in] prof_context profiler context, NULL when tracing is disabled
+ * @param[out] out_vtcm_bytes VTCM the dispatch declared,
+ *                            HEXAGON_RT_VTCM_PARTITION_ALL if unknown
+ * @param[out] out_uses_hmx whether the dispatch (possibly) uses HMX
  * @retval AEE_SUCCESS for success
  */
-static int
-hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
-                           const hexagon_rt_arm_dsp_binding_t *bind_tab,
-                           uint32_t bind_tab_num_ent,
-                           hexagon_rt_prof_context_t *prof_context) {
-  READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
+static int hexa_cmd_buf_prepare_dispatch(
+    hexa_cmd_buf_task_t *task, const uint8_t **cmd_buf_data, int *cmd_buf_size,
+    const hexagon_rt_arm_dsp_binding_t *bind_tab, uint32_t bind_tab_num_ent,
+    hexagon_rt_prof_context_t *prof_context, size_t *out_vtcm_bytes,
+    bool *out_uses_hmx) {
+  PEEK_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
                   hexagon_rt_arm_dsp_cmd_dispatch_t, cmd_dispatch)
   int64_t executable_handle = cmd_dispatch->executable_handle;
   uint32_t export_ordinal = cmd_dispatch->export_ordinal;
   uint32_t num_buf_refs = cmd_dispatch->num_bindings;
+
+  // Check the whole entry is present, so reading it below cannot fail after
+  // the arrays have been allocated.
+  size_t entry_size =
+      sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t) +
+      cmd_dispatch->constant_count * sizeof(hexagon_rt_arm_dsp_con_t) +
+      num_buf_refs * sizeof(hexagon_rt_arm_dsp_buf_ref_t);
+  if ((size_t)*cmd_buf_size < entry_size) {
+    return AEE_EINCOMPLETEITEM;
+  }
+  *cmd_buf_data += sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t);
+  *cmd_buf_size -= sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t);
 
   // Obtain dispatch function pointer.
   hexagon_executable_dispatch_fn_t dispatch_func = NULL;
@@ -442,8 +524,6 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
   // These pointers need to point to actual arrays, which are allocated here.
   // To reduce the number of HAL_malloc calls, the arrays are allocated in the
   // same buffer and the start addresses are computed based on their size.
-  // The data is written to the arrays below the definition of the dispatch
-  // data structure.
   // Storage for the RPCmem file descriptors to unmap at the end is also
   // allocated in the same memory block.
   size_t constants_offset = 0;
@@ -472,35 +552,32 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
       (size_t *)(dispatch_arrays + binding_lengths_offset);
   int *mapped_fds = (int *)(dispatch_arrays + mapped_fds_offset);
 
-  // Build dispatch state - must be aligned at 16 bytes, because dispatch
-  // function declarations assumes that alignment
+  // Build dispatch state.
   // Hexagon uses a custom extended dispatch state that carries a pointer to the
   // runtime state, which some dispatches access via the dispatch state
   // argument.
-  hexagon_rt_vtcm_partition_t vtcm_partition = {};
-  const hexagon_rt_state_t runtime_state = {
-      .prof_context = prof_context,
-      .vtcm_partition = &vtcm_partition,
-  };
-  HEXAGON_ALIGNAS(16)
-  const hexagon_dsp_extended_dispatch_state_t extended_dispatch_state = {
-      .dispatch_state =
-          {
-              .workgroup_size_x = cmd_dispatch->workgroup_size_x,
-              .workgroup_size_y = cmd_dispatch->workgroup_size_y,
-              .workgroup_size_z = cmd_dispatch->workgroup_size_z,
-              .workgroup_count_x = cmd_dispatch->workgroup_count_x,
-              .workgroup_count_y = cmd_dispatch->workgroup_count_y,
-              .workgroup_count_z = cmd_dispatch->workgroup_count_z,
-              .binding_count = num_buf_refs,
-              .constants = constants,
-              .binding_ptrs = binding_ptrs,
-              .binding_lengths = binding_lengths,
-          },
-      .runtime_state = &runtime_state,
-  };
-  const hexagon_executable_dispatch_state_t *dispatch_state =
-      &extended_dispatch_state.dispatch_state;
+  task->vtcm_partition = (hexagon_rt_vtcm_partition_t){};
+  task->runtime_state.prof_context = prof_context;
+  task->runtime_state.vtcm_partition = &task->vtcm_partition;
+  task->extended_dispatch_state.dispatch_state =
+      (hexagon_executable_dispatch_state_t){
+          .workgroup_size_x = cmd_dispatch->workgroup_size_x,
+          .workgroup_size_y = cmd_dispatch->workgroup_size_y,
+          .workgroup_size_z = cmd_dispatch->workgroup_size_z,
+          .workgroup_count_x = cmd_dispatch->workgroup_count_x,
+          .workgroup_count_y = cmd_dispatch->workgroup_count_y,
+          .workgroup_count_z = cmd_dispatch->workgroup_count_z,
+          .constants = constants,
+          .binding_ptrs = binding_ptrs,
+          .binding_lengths = binding_lengths,
+      };
+  task->extended_dispatch_state.runtime_state = &task->runtime_state;
+  task->dispatch_func = dispatch_func;
+  task->environment = environment;
+  task->func_name = NULL;
+  task->dispatch_arrays = dispatch_arrays;
+  task->mapped_fds = mapped_fds;
+  task->num_buf_refs = 0;
 
   // Obtain constants from serialized data
   for (uint16_t c = 0; c < cmd_dispatch->constant_count; ++c) {
@@ -524,29 +601,46 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
     binding_ptrs[idx_buf_ref] = (void *)(res_buf.dsp_vaddr + res_buf.offset);
     binding_lengths[idx_buf_ref] = res_buf.length;
     mapped_fds[idx_buf_ref] = res_buf.fd;
+    ++task->num_buf_refs;
   }
 
   // Note that this function is also called when profiler is disabled, but it
   // is not very expensive. We do not care if it fails either.
-  const char *func_name = NULL;
-  hexagon_dsp_executable_get_dispatch_func_name(executable_handle,
-                                                export_ordinal, &func_name);
+  hexagon_dsp_executable_get_dispatch_func_name(
+      executable_handle, export_ordinal, &task->func_name);
 
   // The dispatch allocates VTCM only from its own partition, sized by the VTCM
   // the compiler declared for it. Without a declaration it gets all of VTCM.
+  // Without valid resource information, the dispatch might use HMX.
   const hexagon_executable_dispatch_attrs_t *attrs = NULL;
-  size_t vtcm_bytes = HEXAGON_RT_VTCM_PARTITION_ALL;
+  *out_vtcm_bytes = HEXAGON_RT_VTCM_PARTITION_ALL;
+  *out_uses_hmx = true;
   if (hexagon_dsp_executable_get_dispatch_attrs(
           executable_handle, export_ordinal, &attrs) == AEE_SUCCESS &&
       attrs &&
-      (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0 &&
-      attrs->vtcm_bytes != (uint64_t)INT64_MAX) {
-    vtcm_bytes = (size_t)attrs->vtcm_bytes;
+      (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0) {
+    *out_uses_hmx =
+        (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_USES_HMX) != 0;
+    if (attrs->vtcm_bytes != (uint64_t)INT64_MAX) {
+      *out_vtcm_bytes = (size_t)attrs->vtcm_bytes;
+    }
   }
-  hexagon_rt_acquire_vtcm_partition(vtcm_bytes, func_name, &vtcm_partition);
 
-  hexagon_rt_prof_record_t *prof_dispatch_record =
-      profiler_measurement_start(prof_context, KERNEL, func_name);
+  return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute all workgroups of a prepared dispatch.
+ * @param[in] task prepared task with acquired VTCM partition
+ *
+ * Runs on the master or on a worker thread.
+ */
+static void hexa_cmd_buf_run_dispatch(hexa_cmd_buf_task_t *task) {
+  const hexagon_executable_dispatch_state_t *dispatch_state =
+      &task->extended_dispatch_state.dispatch_state;
+
+  hexagon_rt_prof_record_t *prof_dispatch_record = profiler_measurement_start(
+      task->runtime_state.prof_context, KERNEL, task->func_name);
 
   // for now, run all workgroups sequentially
   for (uint16_t wg_id_z = 0; wg_id_z < dispatch_state->workgroup_count_z;
@@ -567,35 +661,193 @@ hexa_cmd_buf_exec_dispatch(const uint8_t **cmd_buf_data, int *cmd_buf_size,
         };
 
         // call dispatch function
-        dispatch_func(environment, dispatch_state, &workgroup_state);
+        task->dispatch_func(task->environment, dispatch_state,
+                            &workgroup_state);
       }
     }
   }
 
   profiler_measurement_finish_and_record(prof_dispatch_record);
+}
 
-  hexagon_rt_release_vtcm_partition(&vtcm_partition);
+/**
+ * @brief Release the resources of an executed dispatch and return its task
+ *        slot. Master only, as it returns the VTCM partition to the pool.
+ * @param[in,out] sched scheduler state
+ * @param[in] task_idx index of the executed task, free again afterwards
+ */
+static void hexa_cmd_buf_finish_dispatch(hexa_cmd_buf_sched_t *sched,
+                                         uint32_t task_idx) {
+  hexa_cmd_buf_task_t *task = &sched->tasks[task_idx];
+  sched->vtcm_in_use -= task->vtcm_partition.size;
+  hexagon_rt_release_vtcm_partition(&task->vtcm_partition);
+  hexa_cmd_buf_unmap(task->mapped_fds, task->num_buf_refs);
+  HAP_free(task->dispatch_arrays);
+  task->in_flight = false;
+}
 
-  hexa_cmd_buf_unmap(mapped_fds, num_buf_refs);
-  HAP_free(dispatch_arrays);
+/// Worker thread entry point: execute the dispatch and notify the master.
+static void hexa_cmd_buf_task_worker(void *arg) {
+  hexa_cmd_buf_task_t *task = (hexa_cmd_buf_task_t *)arg;
+  hexa_cmd_buf_run_dispatch(task);
+  // notify master of completion and mark this task completed
+  hexa_cmd_buf_done_t *done_notify = task->done_notify;
+  qurt_mutex_lock(&done_notify->mutex);
+  task->done = true;
+  ++done_notify->num_completed;
+  qurt_cond_signal(&done_notify->cond);
+  qurt_mutex_unlock(&done_notify->mutex);
+}
 
+/**
+ * @brief Wait until a dispatch running on a worker has completed and finish
+ *        it. Must only be called with dispatches in flight.
+ * @param[in,out] sched scheduler state
+ *
+ * A worker sets done and counts the completion under the same lock, so each
+ * counted completion matches a task that is done and not finished yet.
+ */
+static void hexa_cmd_buf_sched_wait_one(hexa_cmd_buf_sched_t *sched) {
+  assert(sched->num_in_flight > 0);
+  hexa_cmd_buf_done_t *done_notify = &sched->done_notify;
+  uint32_t task_idx = sched->max_concurrent;
+  qurt_mutex_lock(&done_notify->mutex);
+  while (done_notify->num_completed == 0) {
+    qurt_cond_wait(&done_notify->cond, &done_notify->mutex);
+  }
+  --done_notify->num_completed;
+  // search which task completed
+  for (uint32_t idx = 0; idx < sched->max_concurrent; ++idx) {
+    if (sched->tasks[idx].in_flight && sched->tasks[idx].done) {
+      task_idx = idx;
+      break;
+    }
+  }
+  qurt_mutex_unlock(&done_notify->mutex);
+  --sched->num_in_flight;
+  hexa_cmd_buf_finish_dispatch(sched, task_idx);
+}
+
+/// Wait until all dispatches running on workers have completed.
+static void hexa_cmd_buf_sched_drain(hexa_cmd_buf_sched_t *sched) {
+  while (sched->num_in_flight > 0) {
+    hexa_cmd_buf_sched_wait_one(sched);
+  }
+}
+
+/**
+ * @brief Execute dispatch command buffer entry: prepare it, wait for a free
+ *        execution slot and enough VTCM, then run it on the master (HMX or
+ *        sequential execution) or submit it to a worker.
+ * @param[in,out] sched scheduler state
+ * @param[in,out] cmd_buf_data pointer to pointer to serialized dispatch command
+ *                data, updated by amount of processed data
+ * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
+ *                data, updated by amount of processed data
+ * @param[in] bind_tab binding_table
+ * @param[in] bind_tab_num_ent number of entries in binding table
+ * @param[in] prof_context profiler context, NULL when tracing is
+ * disabled
+ * @retval AEE_SUCCESS for success
+ */
+static int hexa_cmd_buf_exec_dispatch(
+    hexa_cmd_buf_sched_t *sched, const uint8_t **cmd_buf_data,
+    int *cmd_buf_size, const hexagon_rt_arm_dsp_binding_t *bind_tab,
+    uint32_t bind_tab_num_ent, hexagon_rt_prof_context_t *prof_context) {
+  // Wait for a free execution slot, which comes with a free task slot.
+  // in single threaded execution, this is a no-op,
+  // since the master slot is free if it executes this code here
+  while (sched->num_in_flight >= sched->max_concurrent) {
+    hexa_cmd_buf_sched_wait_one(sched);
+  }
+  // Pick the first task slot that is not in flight. There is one, since fewer
+  // than max_concurrent tasks are in flight. Pick it only once: waiting for
+  // VTCM below may free other slots, but this one is already being prepared.
+  uint32_t task_idx = 0;
+  while (sched->tasks[task_idx].in_flight) {
+    ++task_idx;
+  }
+  assert(task_idx < sched->max_concurrent);
+  hexa_cmd_buf_task_t *task = &sched->tasks[task_idx];
+  size_t vtcm_bytes = 0;
+  bool uses_hmx = true;
+  int err = hexa_cmd_buf_prepare_dispatch(task, cmd_buf_data, cmd_buf_size,
+                                          bind_tab, bind_tab_num_ent,
+                                          prof_context, &vtcm_bytes, &uses_hmx);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+  const char *name = task->func_name ? task->func_name : "(unnamed)";
+
+  // A dispatch that does not even fit into the empty pool can never run.
+  if (vtcm_bytes != HEXAGON_RT_VTCM_PARTITION_ALL &&
+      vtcm_bytes > sched->vtcm_pool_size) {
+    FARF(ERROR,
+         "HEXAGON-DISPATCH-RESOURCES-VIOLATION name=%s declared=%llu "
+         "vtcm_pool=%llu",
+         name, (unsigned long long)vtcm_bytes,
+         (unsigned long long)sched->vtcm_pool_size);
+    abort();
+  }
+
+  // Wait until the partition can be carved out of the pool.
+  while (!hexagon_rt_try_acquire_vtcm_partition(vtcm_bytes, task->func_name,
+                                                &task->vtcm_partition)) {
+    size_t vtcm_free = sched->vtcm_pool_size - sched->vtcm_in_use;
+    if (vtcm_free >= task->vtcm_partition.size) {
+      FARF(RUNTIME_HIGH,
+           "HEXAGON-RUNTIME-WARNING: VTCM fragmented, no contiguous %llu "
+           "bytes for %s although %llu bytes are free",
+           (unsigned long long)task->vtcm_partition.size, name,
+           (unsigned long long)vtcm_free);
+    }
+    if (sched->num_in_flight == 0) {
+      // Nothing of this command buffer holds VTCM anymore, but it still does
+      // not fit: someone else holds VTCM.
+      FARF(ERROR,
+           "HEXAGON-RUNTIME-ERROR: no contiguous %llu bytes of VTCM for %s "
+           "although no dispatch is in flight",
+           (unsigned long long)task->vtcm_partition.size, name);
+      abort();
+    }
+    // wait for another task to free up some VTCM
+    hexa_cmd_buf_sched_wait_one(sched);
+  }
+  sched->vtcm_in_use += task->vtcm_partition.size;
+
+  // The master holds the HMX lock, so HMX dispatches run here. Workers that
+  // are already running keep going in the meantime.
+  if (uses_hmx || sched->max_concurrent == 1) {
+    hexa_cmd_buf_run_dispatch(task);
+    hexa_cmd_buf_finish_dispatch(sched, task_idx);
+    return AEE_SUCCESS;
+  }
+
+  // give the dispatch to a worker to execute
+  task->done = false;
+  task->in_flight = true;
+  ++sched->num_in_flight;
+  hexagon_rt_async_execute(hexa_cmd_buf_task_worker, task);
   return AEE_SUCCESS;
 }
 
 /**
- * @brief Execute barrier command buffer entry.
+ * @brief Execute barrier command buffer entry: wait until all dispatches in
+ *        flight have completed.
+ * @param[in,out] sched scheduler state
  * @param[in,out] cmd_buf_data pointer to pointer to serialized barrier command
  *                data, updated by amount of processed data
  * @param[in,out] cmd_buf_size pointer to size of serialized command buffer
  *                data, updated by amount of processed data
  * @retval AEE_SUCCESS for success
  */
-static int hexa_cmd_buf_exec_barrier(const uint8_t **cmd_buf_data,
+static int hexa_cmd_buf_exec_barrier(hexa_cmd_buf_sched_t *sched,
+                                     const uint8_t **cmd_buf_data,
                                      int *cmd_buf_size) {
   READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
                   hexagon_rt_arm_dsp_cmd_barrier_t, cmd_barrier)
-  // nothing do do here for now
   (void)cmd_barrier;
+  hexa_cmd_buf_sched_drain(sched);
   return AEE_SUCCESS;
 }
 
@@ -677,15 +929,19 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
 }
 
 /**
- * @brief Execute the commands of a command buffer (without cache maintenance).
+ * @brief Walk the command buffer and execute or schedule its commands.
+ * @param[in,out] sched scheduler state
  * @param[in] cmd_buf_data pointer to serialized command buffer data
  * @param[in] cmd_buf_size size of serialized command buffer data
  * @param[in] bind_tab binding_table
  * @param[in] bind_tab_num_ent number of entries in binding table
  * @param[in] prof_context profiler context if tracing enabled, NULL otherwise
  * @retval AEE_SUCCESS for success
+ *
+ * Dispatches may still be in flight when this function returns.
  */
-static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
+static int hexa_cmd_buf_walk_cmds(hexa_cmd_buf_sched_t *sched,
+                                  const uint8_t *cmd_buf_data, int cmd_buf_size,
                                   const hexagon_rt_arm_dsp_binding_t *bind_tab,
                                   uint32_t bind_tab_num_ent,
                                   hexagon_rt_prof_context_t *prof_context) {
@@ -698,11 +954,13 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
     switch ((hexagon_rt_arm_dsp_cmd_type_enum_t)cmd_base->cmd_type) {
 
     case HEXAGON_RT_ARM_DSP_CMD_DISPATCH: {
+      // measures preparation, waiting for resources and submission; the
+      // execution itself is measured by the KERNEL zone
       hexagon_rt_prof_record_t *prof_record =
           profiler_measurement_start(prof_context, DISPATCH, NULL);
       int err =
-          hexa_cmd_buf_exec_dispatch(&cmd_buf_data, &cmd_buf_size, bind_tab,
-                                     bind_tab_num_ent, prof_context);
+          hexa_cmd_buf_exec_dispatch(sched, &cmd_buf_data, &cmd_buf_size,
+                                     bind_tab, bind_tab_num_ent, prof_context);
       profiler_measurement_finish_and_record(prof_record);
       if (err != AEE_SUCCESS) {
         return err;
@@ -713,7 +971,7 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
     case HEXAGON_RT_ARM_DSP_CMD_BARRIER: {
       hexagon_rt_prof_record_t *prof_record =
           profiler_measurement_start(prof_context, BARRIER, NULL);
-      int err = hexa_cmd_buf_exec_barrier(&cmd_buf_data, &cmd_buf_size);
+      int err = hexa_cmd_buf_exec_barrier(sched, &cmd_buf_data, &cmd_buf_size);
       profiler_measurement_finish_and_record(prof_record);
       if (err != AEE_SUCCESS) {
         return err;
@@ -721,6 +979,8 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
       break;
     }
 
+    // Copies and fills use no VTCM and are independent of the dispatches in
+    // flight (commands between barriers are), so the master runs them inline.
     case HEXAGON_RT_ARM_DSP_CMD_COPY: {
       hexagon_rt_prof_record_t *prof_record =
           profiler_measurement_start(prof_context, COPY, NULL);
@@ -754,6 +1014,80 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
   }
 
   return AEE_SUCCESS;
+}
+
+/**
+ * @brief Execute the commands of a command buffer (without cache maintenance).
+ * @param[in] cmd_buf_data pointer to serialized command buffer data
+ * @param[in] cmd_buf_size size of serialized command buffer data
+ * @param[in] bind_tab binding_table
+ * @param[in] bind_tab_num_ent number of entries in binding table
+ * @param[in] max_concurrent max. number of dispatches executing at the same
+ *                           time, 1 for sequential execution on this thread
+ * @param[in] prof_context profiler context if tracing enabled, NULL otherwise
+ * @retval AEE_SUCCESS for success
+ *
+ * The calling thread (the master) walks the command buffer. Dispatches that
+ * do not use HMX are submitted to the AsyncRuntime worker threads as soon as
+ * an execution slot and their VTCM partition are available; HMX dispatches
+ * run on the master, which holds the HMX lock.
+ * All dispatches have completed when this function returns, also on error.
+ */
+static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
+                                  const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                                  uint32_t bind_tab_num_ent,
+                                  uint32_t max_concurrent,
+                                  hexagon_rt_prof_context_t *prof_context) {
+  if (max_concurrent < 1) {
+    max_concurrent = 1;
+  }
+  hexa_cmd_buf_sched_t sched = {
+      .max_concurrent = max_concurrent,
+      .tasks = NULL,
+      .num_in_flight = 0,
+      // Also binds the VTCM pool and the HMX lock to this thread before any
+      // worker exists.
+      .vtcm_pool_size = hexagon_rt_vtcm_pool_size(),
+      .vtcm_in_use = 0,
+  };
+
+  // Allocate the task slots, one per dispatch that can execute at the same
+  // time. HAP_malloc does not guarantee the alignment of the tasks,
+  // over-allocate.
+  const size_t task_align = HEXAGON_BIG_ALIGNOF(hexa_cmd_buf_task_t);
+  uint8_t *tasks_allocation = NULL;
+  int err =
+      HAP_malloc(max_concurrent * sizeof(hexa_cmd_buf_task_t) + task_align,
+                 (void **)&tasks_allocation);
+  if (err != AEE_SUCCESS) {
+    return err;
+  }
+  if (!tasks_allocation) {
+    return AEE_ENOMEMORY;
+  }
+  // need to give it the aligned ptr, since the allocated ptr may not be
+  // correctly aligned
+  sched.tasks = (hexa_cmd_buf_task_t *)HEXAGON_ALIGN_SIZE_FOR_TYPE(
+      (uintptr_t)tasks_allocation, hexa_cmd_buf_task_t);
+  for (uint32_t idx = 0; idx < max_concurrent; ++idx) {
+    memset(&sched.tasks[idx], 0, sizeof(sched.tasks[idx]));
+    sched.tasks[idx].done_notify = &sched.done_notify;
+  }
+
+  qurt_mutex_init(&sched.done_notify.mutex);
+  qurt_cond_init(&sched.done_notify.cond);
+  sched.done_notify.num_completed = 0;
+
+  err = hexa_cmd_buf_walk_cmds(&sched, cmd_buf_data, cmd_buf_size, bind_tab,
+                               bind_tab_num_ent, prof_context);
+
+  // wait fial all outstanding tasks to complete
+  hexa_cmd_buf_sched_drain(&sched);
+
+  qurt_cond_destroy(&sched.done_notify.cond);
+  qurt_mutex_destroy(&sched.done_notify.mutex);
+  HAP_free(tasks_allocation);
+  return err;
 }
 
 /**
@@ -799,9 +1133,11 @@ hexa_cmd_buf_exec_buf(const hexagon_dsp_command_buffer_t *command_buffer,
     return err;
   }
 
-  err = hexa_cmd_buf_exec_cmds(command_buffer->cmd_buf_data,
-                               command_buffer->cmd_buf_size, bind_tab,
-                               bind_tab_num_ent, prof_context);
+  err = hexa_cmd_buf_exec_cmds(
+      command_buffer->cmd_buf_data, command_buffer->cmd_buf_size, bind_tab,
+      bind_tab_num_ent,
+      hexagon_dsp_get_max_concurrent_dispatches(command_buffer->rpc_handle),
+      prof_context);
 
   // flush cache of all buffers used by the command buffer, also on error to
   // publish whatever has been written so far

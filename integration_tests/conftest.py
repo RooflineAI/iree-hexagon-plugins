@@ -28,6 +28,7 @@ from integration_tests.stages.compiling import (
     COMPILE_CASES_BY_NAME,
     CompileCase,
 )
+from integration_tests.stages.running import RUN_CASE_NAMES, RUN_CASES_BY_NAME, RunCase
 from integration_tests.tool_paths import (
     DEVICE_TOOLS_TARGET,
     IREE_COMPILE_TARGET,
@@ -117,6 +118,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "cases (repeatable)."
         ),
     )
+    group.addoption(
+        "--run-case",
+        action="append",
+        default=[],
+        choices=RUN_CASE_NAMES,
+        metavar="NAME",
+        help=(
+            "run only this run case from each selected model's configured "
+            "cases (repeatable)."
+        ),
+    )
 
 
 def _selected_specs(config: pytest.Config) -> list[ModelSpec]:
@@ -141,21 +153,39 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         return
     specs = _selected_specs(metafunc.config)
     if "compile_case" in metafunc.fixturenames:
-        requested = set(metafunc.config.getoption("--compile-case"))
-        pairs: list[tuple[ModelSpec, CompileCase]] = []
+        requested_compile = set(metafunc.config.getoption("--compile-case"))
+        requested_run = set(metafunc.config.getoption("--run-case"))
+        triples: list[tuple[ModelSpec, CompileCase, RunCase]] = []
         for spec in specs:
-            for case_name in spec.compile_cases:
-                if not requested or case_name in requested:
-                    pairs.append((spec, COMPILE_CASES_BY_NAME[case_name]))
-        if not pairs:
+            for compile_name in spec.compile_cases:
+                if requested_compile and compile_name not in requested_compile:
+                    continue
+                for run_name in spec.run_cases:
+                    if not requested_run or run_name in requested_run:
+                        triples.append(
+                            (
+                                spec,
+                                COMPILE_CASES_BY_NAME[compile_name],
+                                RUN_CASES_BY_NAME[run_name],
+                            )
+                        )
+        if not triples:
             raise pytest.UsageError(
-                "no model/compile-case combinations match --model and --compile-case"
+                "no model/compile-case/run-case combinations match --model, "
+                "--compile-case and --run-case"
             )
         metafunc.parametrize(
-            ("model_spec", "compile_case"),
+            ("model_spec", "compile_case", "run_case"),
             [
-                _param(metafunc.config, spec, spec, case, id=f"{spec.name}-{case.name}")
-                for spec, case in pairs
+                _param(
+                    metafunc.config,
+                    spec,
+                    spec,
+                    case,
+                    run,
+                    id=f"{spec.name}-{case.name}-{run.name}",
+                )
+                for spec, case, run in triples
             ],
             scope="session",
         )

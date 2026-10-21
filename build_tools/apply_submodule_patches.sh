@@ -25,7 +25,6 @@ patches_dir="${repo_root}/patches"
 # One entry per patched submodule: "<patches subdir name>:<submodule path>".
 submodules=(
     "iree:third-party/iree"
-    "hexagon-mlir:third-party/hexagon-mlir"
 )
 
 for entry in "${submodules[@]}"; do

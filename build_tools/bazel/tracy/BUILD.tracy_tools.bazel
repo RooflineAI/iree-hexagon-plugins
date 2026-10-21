@@ -16,7 +16,14 @@ package(default_visibility = ["//visibility:public"])
 _CXXOPTS = [
     "-std=c++20",
     "-w",
-]
+] + select({
+    # ppqsort uses std::jthread, which the NDK's libc++ only provides as an
+    # experimental feature. tracy-capture and tracy-csvexport are built for
+    # Android to capture and export on the device itself (see
+    # integration_tests/stages/running.py).
+    "@platforms//os:android": ["-fexperimental-library"],
+    "//conditions:default": [],
+})
 
 cc_library(
     name = "zstd",
@@ -69,14 +76,21 @@ cc_library(
         "server/*.h",
     ]),
     copts = _CXXOPTS,
-    linkopts = ["-lpthread"],
+    # Bionic has pthreads in libc and no libpthread.
+    linkopts = select({
+        "@platforms//os:android": [],
+        "//conditions:default": ["-lpthread"],
+    }),
     # tracy_lz4hc.cpp #includes tracy_lz4.cpp.
     textual_hdrs = ["public/common/tracy_lz4.cpp"],
     deps = [
         ":zstd",
         "@tracy_capstone//:capstone",
         "@tracy_ppqsort//:ppqsort",
-    ],
+    ] + select({
+        "@platforms//os:android": ["@@//build_tools/bazel/tracy:no_heap_pointer_tagging"],
+        "//conditions:default": [],
+    }),
 )
 
 cc_binary(

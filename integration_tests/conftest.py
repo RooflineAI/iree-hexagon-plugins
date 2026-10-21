@@ -153,19 +153,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         return
     specs = _selected_specs(metafunc.config)
     if "compile_case" in metafunc.fixturenames:
-        requested = set(metafunc.config.getoption("--compile-case"))
+        requested_compile = set(metafunc.config.getoption("--compile-case"))
         requested_run = set(metafunc.config.getoption("--run-case"))
         triples: list[tuple[ModelSpec, CompileCase, RunCase]] = []
         for spec in specs:
-            for case_name in spec.compile_cases:
-                if requested and case_name not in requested:
+            for compile_name in spec.compile_cases:
+                if requested_compile and compile_name not in requested_compile:
                     continue
                 for run_name in spec.run_cases:
                     if not requested_run or run_name in requested_run:
                         triples.append(
                             (
                                 spec,
-                                COMPILE_CASES_BY_NAME[case_name],
+                                COMPILE_CASES_BY_NAME[compile_name],
                                 RUN_CASES_BY_NAME[run_name],
                             )
                         )

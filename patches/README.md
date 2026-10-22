@@ -5,11 +5,14 @@ Submodule patches are applied to working trees by
 filename order within each folder. Keep changes here rather than committing
 inside `third-party/`.
 
-- [hexagon-mlir](hexagon-mlir/README.md): LLVM compatibility, conversion APIs
-  reused by the plugin, and runtime/compiler fixes.
 - [IREE](iree/README.md): embedded Bazel builds, Hexagon integration and
   APIs needed by the plugin.
 - [LLVM](llvm-project/README.md): no active source patches after the upgrade.
+
+hexagon-mlir is not patched here. Its changes (LLVM compatibility, conversion
+APIs reused by the plugin, and runtime/compiler fixes) are carried as commits on
+a branch of the [iree-org/hexagon-mlir](https://github.com/iree-org/hexagon-mlir)
+fork; see [hexagon-mlir fork](#hexagon-mlir-fork) below.
 
 Patches directly in this folder are applied by Bazel module overrides in
 [`MODULE.bazel`](../MODULE.bazel), rather than the submodule patch helper.

@@ -7,13 +7,16 @@ of the main IREE repo `https://github.com/iree-org/iree/`.
 
 ## Submodules
 
-The `third-party/iree` and `third-party/hexagon-mlir` submodules each need a
-handful of patches applied to their working tree for the Bazel build to work
-(see `patches/iree/` and `patches/hexagon-mlir/` respectively - one `.patch`
-file per topic/issue). The `iree` patches address current limitations of
-upstream IREE being used as a submodule (those need to be fixed upstream); the
-`hexagon-mlir` patches mostly bring its sources up to date with the LLVM/MLIR
-version this repo builds against.
+The `third-party/iree` submodule needs a handful of patches applied to its
+working tree for the Bazel build to work (see `patches/iree/` - one `.patch`
+file per topic/issue). They address current limitations of upstream IREE being
+used as a submodule (those need to be fixed upstream).
+
+`third-party/hexagon-mlir` is pinned to the commit tagged
+`iree-hexagon-integrate-YYYYMMDD` of
+[iree-org/hexagon-mlir](https://github.com/iree-org/hexagon-mlir). Ir mirrors upstream
+[qualcomm/hexagon-mlir](https://github.com/qualcomm/hexagon-mlir) and add the changes this repo needs on top of it. The fork's `main` is not used, similar to
+the scheme IREE uses for its LLVM fork
 
 After cloning, initialize the required submodules and apply the patches used by
 the Bazel build with:

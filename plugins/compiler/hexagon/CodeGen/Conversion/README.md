@@ -66,7 +66,8 @@ gives `index` the pointer bitwidth, as LLVMCPU does. Without the data layout
 (e.g. in tests that do not set one), `index` falls back to 64 bits. Runtime
 arguments of a fixed width are typed explicitly rather than with the index
 type: the HMX kernels take `i32`, the VTCM allocation takes a `uint64_t`
-alignment (fixed in `patches/hexagon-mlir/index_bitwidth_independent_lowering.patch`),
+alignment (fixed by the "Make lowering independent of index bitwidth" commit
+on the hexagon-mlir fork branch),
 and the dispatch instrumentation records stay 64-bit. The exception is MLIR's
 generic `malloc` and `memrefCopy` helpers, whose arguments and memref
 descriptors are `index`-typed by definition: their runtime implementations in

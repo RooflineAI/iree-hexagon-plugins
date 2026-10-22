@@ -59,6 +59,7 @@ class Deployment:
 
     root: str
     run_id: str
+    has_tracy: bool = False
 
     @property
     def run_dir(self) -> str:
@@ -71,11 +72,15 @@ class Deployment:
     @property
     def tracy_capture(self) -> str:
         """Only present in a deployment of the Tracy runtime."""
+        if not self.has_tracy:
+            raise ValueError(f"{self.run_dir} is not a deployment of the Tracy runtime")
         return f"{self.run_dir}/bin/tracy-capture"
 
     @property
     def tracy_csvexport(self) -> str:
         """Only present in a deployment of the Tracy runtime."""
+        if not self.has_tracy:
+            raise ValueError(f"{self.run_dir} is not a deployment of the Tracy runtime")
         return f"{self.run_dir}/bin/tracy-csvexport"
 
     @property
@@ -111,9 +116,15 @@ def deploy(
     tools_zip: Path,
     root: str = DEFAULT_DEVICE_ROOT,
     run_id: str | None = None,
+    has_tracy: bool = False,
 ) -> Deployment:
-    """Unpack the runtime and the helpers into a fresh directory for this run."""
-    deployment = Deployment(root=root, run_id=run_id or new_run_id())
+    """Unpack the runtime and the helpers into a fresh directory for this run.
+
+    `has_tracy` says whether `runtime_zip` is the Tracy runtime.
+    """
+    deployment = Deployment(
+        root=root, run_id=run_id or new_run_id(), has_tracy=has_tracy
+    )
     _unpack(runtime_zip, deployment.run_dir)
     _unpack(tools_zip, deployment.run_dir)
     farf_writes = " && ".join(

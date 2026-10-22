@@ -282,7 +282,10 @@ def deployments(
     active = Deployments(
         plain=deploy(runtime_zip=runtime_zip, tools_zip=device_tools_zip, root=root),
         tracy=deploy(
-            runtime_zip=runtime_zip_tracy, tools_zip=device_tools_zip, root=root
+            runtime_zip=runtime_zip_tracy,
+            tools_zip=device_tools_zip,
+            root=root,
+            has_tracy=True,
         ),
     )
     print(

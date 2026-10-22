@@ -48,6 +48,14 @@ jobs:
           name: build-artifacts-cmake
           path: build-artifacts-cmake
           retention-days: 1
+      # Not in build-artifacts-*, which the release publishes: the device tools
+      # (limit_lifetime, rsync) are test helpers.
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-cmake
+          path: test-artifacts-cmake
+          retention-days: 1
   test-cmake:
     needs:
       - build-cmake
@@ -77,6 +85,11 @@ jobs:
         with:
           name: build-artifacts-cmake
           path: build-artifacts
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: test-artifacts-cmake
+          path: test-artifacts
       - &prep_build_artifacts
         name: Prepare build artifacts
         run: |
@@ -209,7 +222,7 @@ jobs:
           .venv/bin/pytest integration_tests/ -v -rA \
           --iree-compile=build-artifacts/hexagon_compiler_x86_64_linux/bin/iree-compile \
           --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
-          --device-tools-zip=build-artifacts/device_tools_aarch64_android.zip \
+          --device-tools-zip=test-artifacts/device_tools_aarch64_android.zip \
           --lld=build-artifacts/hexagon_compiler_x86_64_linux/bin/ld.lld
       - &leave_overlay
         name: Leave the overlay
@@ -249,6 +262,12 @@ jobs:
           name: build-artifacts-bazel
           path: build-artifacts-bazel
           retention-days: 1
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-bazel
+          path: test-artifacts-bazel
+          retention-days: 1
   test-bazel:
     needs:
       - build-bazel
@@ -269,6 +288,11 @@ jobs:
         with:
           name: build-artifacts-bazel
           path: build-artifacts
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: test-artifacts-bazel
+          path: test-artifacts
       - *prep_build_artifacts
       - *install_pinned_platform_tools
       - *verify_android

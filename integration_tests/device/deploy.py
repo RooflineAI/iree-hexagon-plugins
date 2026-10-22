@@ -17,7 +17,8 @@ Two packages are unpacked into one directory per run:
         lib/libc++_shared.so         NDK C++ runtime
 
   * `//integration_tests/device/tools:device_tools_aarch64_android`,
-    which adds `bin/limit_lifetime` and `bin/rsync`.
+    which adds `bin/limit_lifetime` and `bin/rsync`. A separate CI artifact, so
+    that they stay out of the release.
 
 Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
 

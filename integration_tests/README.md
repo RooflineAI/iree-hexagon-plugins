@@ -51,7 +51,8 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
   a persistent directory so weights are fetched once.
 * `rsync` 3.2 or newer on the host, with zstd and xxHash support (as in
   Ubuntu's package), on PATH or given with `--rsync`. Large modules go to the
-  phone as rsync deltas; the phone's end ships in the device-tools zip.
+  phone as rsync deltas; the phone's end ships in the device-tools zip, which is a
+  separate CI artifact and not part of the release.
 
 ## Layout
 

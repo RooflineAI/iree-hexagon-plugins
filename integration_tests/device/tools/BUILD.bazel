@@ -45,6 +45,8 @@ pkg_files(
     },
 )
 
+# Test helpers, not part of the release: build_tools/bazel/build_and_package.sh
+# collects this zip apart from the release packages.
 pkg_zip(
     name = "device_tools",
     srcs = [

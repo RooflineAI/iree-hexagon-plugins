@@ -298,7 +298,7 @@ exports_files(["COPYING", "configure"])
 """,
     sha256 = "c55f9c9dc10fb8bec397b399a0fdded53cc9a2d8e30891bb0d63724d25c37bef",
     strip_prefix = "rsync-3.5.1",
-    urls = ["https://download.samba.org/pub/rsync/src/rsync-3.5.1.tar.gz"],
+    urls = ["https://github.com/RsyncProject/rsync/releases/download/v3.5.1/rsync-3.5.1.tar.gz"],
 )
 
 # Not the zstd bazel_dep above: rsync's build compiles zstd itself, with the

@@ -16,7 +16,7 @@ include(ExternalProject)
 
 # Keep the versions in lockstep with the rsync, rsync_zstd and rsync_xxhash
 # http_archives in MODULE.bazel.
-set(_RSYNC_URL "https://download.samba.org/pub/rsync/src/rsync-3.5.1.tar.gz")
+set(_RSYNC_URL "https://github.com/RsyncProject/rsync/releases/download/v3.5.1/rsync-3.5.1.tar.gz")
 set(_RSYNC_SHA256 c55f9c9dc10fb8bec397b399a0fdded53cc9a2d8e30891bb0d63724d25c37bef)
 set(_ZSTD_URL "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz")
 set(_ZSTD_SHA256 eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3)

@@ -99,7 +99,7 @@ def max_concurrency(zones: list[Zone]) -> int:
     # At equal times the end sorts first, so touching zones do not overlap.
     events = sorted(
         # +1 when a new dispatch begins, -1 when it ends
-        # -1 is srted before +1, so a zone ending and a new one starting at the same time only count as 1 live zone
+        # -1 is sorted before +1, so a zone ending and a new one starting at the same time only count as 1 live zone
         [(z.start_ns, 1) for z in zones] + [(z.end_ns, -1) for z in zones]
     )
     running = peak = 0

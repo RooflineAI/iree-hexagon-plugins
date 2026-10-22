@@ -55,8 +55,8 @@ def IREEHexagon_LoweringPipeline :
 // so the two lists must be kept in sync.
 def IREEHexagon_ProfilerZoneDspExecution :
     I32EnumAttrCase<"DspExecution", 0, "dsp_execution">;
-def IREEHexagon_ProfilerZoneDispatch :
-    I32EnumAttrCase<"Dispatch", 1, "dispatch">;
+def IREEHexagon_ProfilerZoneSchedule :
+    I32EnumAttrCase<"Schedule", 1, "schedule">;
 def IREEHexagon_ProfilerZoneKernel :
     I32EnumAttrCase<"Kernel", 2, "kernel">;
 def IREEHexagon_ProfilerZoneBarrier :
@@ -76,7 +76,7 @@ def IREEHexagon_ProfilerZone :
     IREEHexagon_I32EnumAttr<"ProfilerZone",
                             "Type of a Hexagon DSP profiler zone", [
       IREEHexagon_ProfilerZoneDspExecution,
-      IREEHexagon_ProfilerZoneDispatch,
+      IREEHexagon_ProfilerZoneSchedule,
       IREEHexagon_ProfilerZoneKernel,
       IREEHexagon_ProfilerZoneBarrier,
       IREEHexagon_ProfilerZoneCopy,

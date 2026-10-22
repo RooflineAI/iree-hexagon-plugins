@@ -754,6 +754,12 @@ static int hexa_cmd_buf_exec_dispatch(
     hexa_cmd_buf_sched_t *sched, const uint8_t **cmd_buf_data,
     int *cmd_buf_size, const hexagon_rt_arm_dsp_binding_t *bind_tab,
     uint32_t bind_tab_num_ent, hexagon_rt_prof_context_t *prof_context) {
+  // measures preparation and waiting for resources, until the dispatch runs on
+  // the master or is submitted to a worker; the execution itself is measured
+  // by the KERNEL zone
+  hexagon_rt_prof_record_t *prof_record =
+      profiler_measurement_start(prof_context, SCHEDULE, NULL);
+
   // Wait for a free execution slot, which comes with a free task slot.
   // in single threaded execution, this is a no-op,
   // since the master slot is free if it executes this code here
@@ -775,6 +781,7 @@ static int hexa_cmd_buf_exec_dispatch(
                                           bind_tab, bind_tab_num_ent,
                                           prof_context, &vtcm_bytes, &uses_hmx);
   if (err != AEE_SUCCESS) {
+    profiler_measurement_finish_and_record(prof_record);
     return err;
   }
   const char *name = task->func_name ? task->func_name : "(unnamed)";
@@ -818,6 +825,7 @@ static int hexa_cmd_buf_exec_dispatch(
   // The master holds the HMX lock, so HMX dispatches run here. Workers that
   // are already running keep going in the meantime.
   if (uses_hmx || sched->max_concurrent == 1) {
+    profiler_measurement_finish_and_record(prof_record);
     hexa_cmd_buf_run_dispatch(task);
     hexa_cmd_buf_finish_dispatch(sched, task_idx);
     return AEE_SUCCESS;
@@ -828,6 +836,7 @@ static int hexa_cmd_buf_exec_dispatch(
   task->in_flight = true;
   ++sched->num_in_flight;
   hexagon_rt_async_execute(hexa_cmd_buf_task_worker, task);
+  profiler_measurement_finish_and_record(prof_record);
   return AEE_SUCCESS;
 }
 
@@ -954,14 +963,10 @@ static int hexa_cmd_buf_walk_cmds(hexa_cmd_buf_sched_t *sched,
     switch ((hexagon_rt_arm_dsp_cmd_type_enum_t)cmd_base->cmd_type) {
 
     case HEXAGON_RT_ARM_DSP_CMD_DISPATCH: {
-      // measures preparation, waiting for resources and submission; the
-      // execution itself is measured by the KERNEL zone
-      hexagon_rt_prof_record_t *prof_record =
-          profiler_measurement_start(prof_context, DISPATCH, NULL);
+      // profiled by a SCHEDULE zone inside
       int err =
           hexa_cmd_buf_exec_dispatch(sched, &cmd_buf_data, &cmd_buf_size,
                                      bind_tab, bind_tab_num_ent, prof_context);
-      profiler_measurement_finish_and_record(prof_record);
       if (err != AEE_SUCCESS) {
         return err;
       }

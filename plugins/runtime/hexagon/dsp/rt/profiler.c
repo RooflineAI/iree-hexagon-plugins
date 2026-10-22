@@ -57,6 +57,7 @@ void hexagon_runtime_profiler_zone_end(hexagon_rt_prof_record_t *record) {
 #include "HAP_farf.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/pmu/hexagon_timer.h"
+#include "qurt_thread.h"
 
 void profiler_context_init(hexagon_rt_prof_header_t *header,
                            hexagon_rt_prof_record_t *records,
@@ -148,6 +149,7 @@ profiler_measurement_start(hexagon_rt_prof_context_t *prof_context,
   }
 
   record->zone_type = zone_type;
+  record->thread_id = (uint32_t)qurt_thread_get_id();
   record->start_timer_ticks_timestamp = read_timer();
   hexagon_pmu_read(&record->start_pmu_registers_stamp);
   // The null terminators are not needed since everything is initialized to 0

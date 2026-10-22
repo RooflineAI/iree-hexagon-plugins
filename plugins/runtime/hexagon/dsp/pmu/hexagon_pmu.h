@@ -10,13 +10,14 @@
 #include "HAP_farf.h"
 #include "hexagon/arm_dsp/profiler.h"
 #include "qurt_consts.h"
-#include "qurt_error.h"
 #include "qurt_pmu.h"
 #include <stdint.h>
 
+// Not qurt_pmu_get_pmucnt(): it gives me an error on load on the device
 static inline void hexagon_pmu_read(hexagon_pmu_counters_t *counters) {
-  if (qurt_pmu_get_pmucnt(counters->cts) != QURT_EOK) {
-    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-ERROR: qurt_pmu_get_pmucnt failed");
+  for (int i = 0; i < 4; ++i) {
+    counters->cts[i] = qurt_pmu_get(QURT_PMUCNT0 + i);
+    counters->cts[i + 4] = qurt_pmu_get(QURT_PMUCNT4 + i);
   }
 }
 

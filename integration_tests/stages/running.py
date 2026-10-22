@@ -234,17 +234,24 @@ def _capture_script(deployment: Deployment, argv: list[str], port: int) -> str:
     ]
     # The braces keep the `&` from sending the commands before it, which the
     # caller chains with `&&`, to the background too.
-    return (
-        f"{{ {shlex.join(capture_argv)} > {_CAPTURE_LOG} 2>&1 & capture_pid=$!; "
-        f"TRACY_NO_EXIT=1 TRACY_PORT={port} {shlex.join(argv)}; run_exit_code=$?; "
-        "if [ $run_exit_code -ne 0 ]; then kill $capture_pid; fi; "
-        "wait $capture_pid; capture_exit_code=$?; csvexport_exit_code=-; "
-        "if [ $capture_exit_code -eq 0 ]; then "
-        f"{shlex.join(csvexport_argv)} > {_PROFILE_CSV} 2> {_CSVEXPORT_LOG}; "
-        "csvexport_exit_code=$?; fi; "
-        f"echo $capture_exit_code $csvexport_exit_code > {_PROFILE_EXIT_CODES}; "
-        "exit $run_exit_code; }"
-    )
+    return f"""{{
+    {shlex.join(capture_argv)} > {_CAPTURE_LOG} 2>&1 &
+    capture_pid=$!
+    TRACY_NO_EXIT=1 TRACY_PORT={port} {shlex.join(argv)}
+    run_exit_code=$?
+    if [ $run_exit_code -ne 0 ]; then
+      kill $capture_pid
+    fi
+    wait $capture_pid
+    capture_exit_code=$?
+    csvexport_exit_code=-
+    if [ $capture_exit_code -eq 0 ]; then
+      {shlex.join(csvexport_argv)} > {_PROFILE_CSV} 2> {_CSVEXPORT_LOG}
+      csvexport_exit_code=$?
+    fi
+    echo $capture_exit_code $csvexport_exit_code > {_PROFILE_EXIT_CODES}
+    exit $run_exit_code
+    }}"""
 
 
 def _pull_profile(remote_dir: str, local_output_dir: Path) -> str | None:

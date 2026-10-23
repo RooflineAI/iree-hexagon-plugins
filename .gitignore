@@ -3,8 +3,8 @@
 /build-artifacts/
 /build-artifacts-bazel/
 /build-artifacts-cmake/
-/test-artifacts-bazel/
-/test-artifacts-cmake/
+/test-tools-bazel/
+/test-tools-cmake/
 /configured.bazelrc
 /compile_commands.json
 /examples/**/dump/

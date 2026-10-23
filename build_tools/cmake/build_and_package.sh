@@ -28,7 +28,7 @@ OUT_DIR="$(realpath "${1:-${REPO_ROOT}/build-artifacts-cmake}")"
 mkdir -p "${OUT_DIR}"
 # Test helpers (limit_lifetime, rsync) that are not part of the packages in
 # OUT_DIR, uploaded as a separate CI artifact.
-TEST_OUT_DIR="$(realpath "${2:-${REPO_ROOT}/test-artifacts-cmake}")"
+TEST_OUT_DIR="$(realpath "${2:-${REPO_ROOT}/test-tools-cmake}")"
 
 export PATH="/usr/lib/llvm-19/bin:$PATH"
 

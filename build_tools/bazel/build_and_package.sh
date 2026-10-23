@@ -57,8 +57,8 @@ bazel build --verbose_failures "${TARGETS[@]}"
 query_files() {
   bazel cquery --output=files "config($1, target)"
 }
-rm -rf build-artifacts-bazel test-artifacts-bazel
-mkdir -p build-artifacts-bazel test-artifacts-bazel
+rm -rf build-artifacts-bazel test-tools-bazel
+mkdir -p build-artifacts-bazel test-tools-bazel
 COMPILER_PKG_DIR="$PWD/tmp/${COMPILER_PKG_NAME}"
 rm -rf "${COMPILER_PKG_DIR}"
 mkdir -p "${COMPILER_PKG_DIR}/bin" "${COMPILER_PKG_DIR}/lib"
@@ -91,7 +91,7 @@ done
 for TARGET in "${TEST_ZIP_TARGETS[@]}"
 do
   mapfile -t target_files < <(query_files "$TARGET")
-  cp "${target_files[@]}" test-artifacts-bazel
+  cp "${target_files[@]}" test-tools-bazel
 done
 cp third-party/iree/LICENSE build-artifacts-bazel/LICENSE.txt
 hexkl_license="$(bazel info execution_root)/$(
@@ -99,8 +99,8 @@ hexkl_license="$(bazel info execution_root)/$(
 )"
 cp "$hexkl_license" build-artifacts-bazel/HEXKL_LICENSE.txt
 git rev-list -1 HEAD >build-artifacts-bazel/git-hash.txt
-chmod -R u+w build-artifacts-bazel test-artifacts-bazel
-chmod a-x build-artifacts-bazel/*.zip test-artifacts-bazel/*.zip
+chmod -R u+w build-artifacts-bazel test-tools-bazel
+chmod a-x build-artifacts-bazel/*.zip test-tools-bazel/*.zip
 
 # --- Unit Tests - not including integration tests, which need a device
 bazel test //...

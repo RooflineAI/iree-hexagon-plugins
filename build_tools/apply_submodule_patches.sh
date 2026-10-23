@@ -25,6 +25,7 @@ patches_dir="${repo_root}/patches"
 # One entry per patched submodule: "<patches subdir name>:<submodule path>".
 submodules=(
     "iree:third-party/iree"
+    "llvm-project:third-party/llvm-project"
     "torch-mlir:third-party/torch-mlir"
 )
 

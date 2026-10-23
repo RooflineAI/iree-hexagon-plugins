@@ -312,10 +312,14 @@ jobs:
           adb shell 'netstat -ltn 2>/dev/null || ss -ltn' | grep -E ':80(8[6-9]|9[0-9]|10[0-5]) ' || echo "nothing listening on 8086-8105"
           echo "::endgroup::"
 
-          tracy_dir=$(adb shell "ls -d $DEVICE_ROOT/runs/*/bin/tracy-capture" | tr -d '\r' | head -1)
+          tracy_dir=$(adb shell "ls -d $DEBUG_LOGS_DIR/runs/*/bin/tracy-capture" | tr -d '\r' | head -1)
           tracy_dir=${tracy_dir%/bin/tracy-capture}
           case_dir=$(adb shell "ls -d $tracy_dir/cases/*" | tr -d '\r' | head -1)
           echo "tracy deployment: $tracy_dir, case: $case_dir"
+          if [ -z "$tracy_dir" ] || [ -z "$case_dir" ]; then
+            echo "::error::no Tracy deployment or case directory under $DEBUG_LOGS_DIR"
+            exit 1
+          fi
 
           echo "::group::case directory"
           adb shell "ls -la $case_dir"
@@ -345,7 +349,7 @@ jobs:
           echo "::endgroup::"
 
           adb pull "$case_dir" profile-debug/rerun
-          adb shell rm -rf "$DEVICE_ROOT"
+          adb shell rm -rf "$DEBUG_LOGS_DIR"
           exit 0
       - name: Upload profile debug info
         if: always() && env.PHONE_ACCESS == 'true'

@@ -182,6 +182,9 @@ def run_module_on_device(
     """
     timings: dict[str, float] = {}
 
+    # debug memory issues on the phone and abort if errors occur
+    debug_malloc_options = "LIBC_DEBUG_MALLOC_OPTIONS='verify_pointers front_guard rear_guard free_track=4096 abort_on_error'"
+
     push_total_start = time.time()
     remote_dir = deployment.case_dir(case_dir_name)
     remote_module = f"{remote_dir}/module.vmfb"
@@ -239,9 +242,7 @@ def run_module_on_device(
 
     # DSP_LIBRARY_PATH is where the DSP side looks for the skel and for the
     # FARF mask file; see examples/running.md.
-    script = (
-        f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
-    )
+    script = f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && export {debug_malloc_options} &&"
     if tracy_port is None:
         script += shlex.join(argv)
     else:

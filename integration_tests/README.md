@@ -63,6 +63,7 @@ build_tools/create_test_venv.sh [venv-dir] --compiler-wheel <wheel-path>
 | | |
 |---|---|
 | `models/` | **data only**: `<org>/<name>/{model.yaml, model.py}` |
+| `model_components/` | shared wrappers for deterministic component models |
 | `modeltree/` | code *about* that data - `spec.py` (schema), `discover.py` (finding and selecting), `outcomes.py` (known failures) |
 | `stages/` | the pipeline, in order - `importing.py`, `compiling.py`, `running.py`, `checking.py`, plus `artifacts.py` |
 | `device/` | the only package that knows a phone exists - `adb.py`, `deploy.py`, and `tools/` (the cross-compiled helper) |
@@ -145,6 +146,40 @@ and to run on the device:
 
 ```yaml
 run_timeout: 3600
+```
+
+## Gemma-4 component regressions
+
+`micro/hvx-predicate-select` isolates the LLVM predicate bug exposed by Gemma-4's
+dynamic attention masks. It selects f32 tensors with runtime all-true and mixed
+32-lane byte predicates and requires exact output equality. Without
+`patches/llvm-project/0003-hexagon_trunc_predicate_lane_replication.patch`, the
+plain Hexagon sequential case produces incorrect values; with the patch, both
+compile cases pass in both execution modes.
+
+The `micro/gemma4/` cases use deterministic synthetic weights and the installed
+Transformers Gemma-4 implementation. They retain E2B's hidden size, attention
+head dimensions, regular/double-width MLPs, and 35 per-layer-input slots. The
+vocabulary is reduced to 1024 entries and the sliding window to 64 tokens so
+128-token tests exercise window boundaries without a full-model download.
+
+| Component | Coverage |
+| --- | --- |
+| `embeddings` | Scaled token lookup, per-layer lookup, projection and normalization |
+| `attention-sliding`, `attention-full` | Q/K/V projections, RMSNorm, RoPE, runtime padding/causal masks, SDPA, output projection, exported K/V |
+| `mlps` | Both regular and double-width gated GELU MLPs |
+| `decoder`, `decoder-full` | Complete layers with attention, MLP, residuals and per-layer-input gating |
+| `decoder-shared-kv`, `decoder-shared-full` | Complete layers consuming external K/V, for both attention types |
+| `head` | Final RMSNorm, vocabulary projection and logit soft cap |
+
+Each component runs with HMX in parallel and sequential dispatch modes, checked
+against eager PyTorch. Padding inputs include masked positions. These checks
+cover fixed-input component accuracy and within-layer composition. They do not
+validate pretrained weights, a chain of all 35 layers, cached generation,
+multimodal inputs, or full-model memory mapping.
+
+```sh
+.venv/bin/pytest integration_tests/ -v -rA -k 'gemma4 or hvx-predicate-select'
 ```
 
 ## Known failures

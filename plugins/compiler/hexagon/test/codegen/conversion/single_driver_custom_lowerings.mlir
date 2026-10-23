@@ -15,7 +15,7 @@
 // RUN:     --implicit-check-not=memref.dma_ \
 // RUN:     --implicit-check-not=malloc \
 // RUN:     --implicit-check-not=free \
-// RUN:     --implicit-check-not=hexagon_runtime_alloc_1d \
+// RUN:     --implicit-check-not=hexagon_runtime_alloc_1d_dsp \
 // RUN:     --implicit-check-not='@hexkl_matmul_f16f16_f32('
 
 module {

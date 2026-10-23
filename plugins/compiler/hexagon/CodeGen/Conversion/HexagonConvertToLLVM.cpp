@@ -512,9 +512,9 @@ struct ConvertAllocOpToVtcmPartition
 
 /// Lowers VTCM `hexagonmem.alloc` like HexagonMemToLLVM, but takes the buffer
 /// from the dispatch's VTCM partition instead of calling
-/// `hexagon_runtime_alloc_1d`. DDR allocations are left to HexagonMemToLLVM,
-/// which turns them into a `memref.alloc` which is handled by the pattern
-/// above.
+/// `hexagon_runtime_alloc_1d_dsp`. DDR allocations are left to
+/// HexagonMemToLLVM, which turns them into a `memref.alloc` which is handled by
+/// the pattern above.
 struct ConvertHexagonMemAllocOpToVtcmPartition
     : public VtcmPartitionPattern<hexagonmem::AllocOp> {
   using VtcmPartitionPattern::VtcmPartitionPattern;

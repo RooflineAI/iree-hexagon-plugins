@@ -4,6 +4,7 @@
 [submodule "third-party/hexagon-mlir"]
 	path = third-party/hexagon-mlir
 	url = https://github.com/iree-org/hexagon-mlir.git
+	branch = sm-iree-integrates/hexagon-mlir-20261022
 [submodule "third-party/torch-mlir"]
 	path = third-party/torch-mlir
 	url = https://github.com/iree-org/torch-mlir.git

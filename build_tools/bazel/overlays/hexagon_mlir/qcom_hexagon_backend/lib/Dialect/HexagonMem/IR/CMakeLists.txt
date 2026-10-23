@@ -31,6 +31,7 @@ iree_cc_library(
     hexagon_mlir::include::hexagon::HexagonMemHeadersLib
     hexagon_mlir::include::hexagon::HexagonMemTableGen
     hexagon_mlir::lib::Common::HexagonCommon
+    hexagon_mlir::lib::Dialect::Crouton::IR::Crouton
   ALWAYSLINK
   PUBLIC
 )

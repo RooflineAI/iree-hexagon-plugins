@@ -22,8 +22,10 @@ const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
     set.insert(mlir::hexagon::getDMAStartFnName());
     set.insert(mlir::hexagon::getDMA2DStartFnName());
     set.insert(mlir::hexagon::getDMAWaitFnName());
-    set.insert(mlir::hexagonmem::getAllocFnName());
-    set.insert(mlir::hexagonmem::getDeallocFnName());
+    for (bool isCroutonType : {false, true}) {
+      set.insert(mlir::hexagonmem::getAllocFnName(isCroutonType));
+      set.insert(mlir::hexagonmem::getDeallocFnName(isCroutonType));
+    }
     set.insert(mlir::hexagonmem::getCopyFnName());
     set.insert(kVtcmAllocFnName);
     set.insert("hexagon_runtime_profiler_zone_begin");

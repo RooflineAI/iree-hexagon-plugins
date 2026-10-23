@@ -33,6 +33,7 @@ iree_cc_library(
     hexagon_mlir::include::hexagon::ConversionHeadersLib
     hexagon_mlir::include::hexagon::HexagonMemHeadersLib
     hexagon_mlir::lib::Common::HexagonCommon
+    hexagon_mlir::lib::Dialect::Crouton::IR::Crouton
     hexagon_mlir::lib::Dialect::HexagonMem::IR::HexagonMem
   ALWAYSLINK
   PUBLIC

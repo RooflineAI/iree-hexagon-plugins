@@ -20,6 +20,8 @@ typedef struct hexagon_dsp_private_s {
   void *power_context;
   /// max. number of dispatches executing at the same time, >= 1
   uint32_t max_concurrent_dispatches;
+  /// number of HVX units reserved by qurt_hvx_reserve, >= 1
+  int hvx_reserved_units;
 } hexagon_dsp_private_t;
 
 static inline hexagon_dsp_private_t *
@@ -51,6 +53,15 @@ int hexagon_dsp_open(const char *uri, remote_handle64 *rpc_handle) {
   // sequential until the host sets something else
   priv->max_concurrent_dispatches = 1;
 
+  // reserve the HVX units for this process
+  int reserved = qurt_hvx_reserve(QURT_HVX_RESERVE_ALL);
+  if (reserved <= 0) {
+    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-WARNING: qurt_hvx_reserve failed (%d)",
+         reserved);
+    return AEE_EBADPARM;
+  }
+  priv->hvx_reserved_units = reserved;
+
   // return pointer to RPC session data structure as handle
   *rpc_handle = (remote_handle64)priv;
   return AEE_SUCCESS;
@@ -66,6 +77,12 @@ int hexagon_dsp_close(remote_handle64 rpc_handle) {
 
   hexagon_dsp_power_state_cleanup(priv->power_context);
 
+  int err = qurt_hvx_cancel_reserve();
+  if (err != 0) {
+    FARF(ERROR, "HEXAGON-RUNTIME-ERROR: qurt_hvx_cancel_reserve failed (%d)",
+         err);
+  }
+
   // free management data structure
   free(priv);
   return AEE_SUCCESS;
@@ -77,7 +94,7 @@ int hexagon_dsp_close(remote_handle64 rpc_handle) {
  * @param[in] max_concurrent_dispatches limit, 0 to use the number of HVX
  *            contexts (limited by the number of worker threads)
  * @return AEE_SUCCESS for success, AEE_EBADPARM if the limit exceeds the
- *         number of HVX contexts or worker threads
+ *         number of HVX contexts, reserved HVX units or worker threads
  */
 int hexagon_dsp_set_max_concurrent_dispatches(remote_handle64 rpc_handle,
                                               int max_concurrent_dispatches) {
@@ -93,15 +110,18 @@ int hexagon_dsp_set_max_concurrent_dispatches(remote_handle64 rpc_handle,
   int64_t num_workers = hexagon_rt_async_num_workers();
   int64_t limit = hvx_contexts < num_workers ? hvx_contexts : num_workers;
   assert(limit >= 1);
+  if (priv->hvx_reserved_units < limit) {
+    limit = priv->hvx_reserved_units;
+  }
   if (max_concurrent_dispatches == 0) {
     max_concurrent_dispatches = (int)limit;
   }
   if (max_concurrent_dispatches < 0 || max_concurrent_dispatches > limit) {
     FARF(ERROR,
          "HEXAGON-RUNTIME-ERROR: max concurrent dispatches %d exceeds %lld "
-         "(HVX contexts: %lld, worker threads: %lld)",
+         "(HVX contexts: %lld, reserved HVX units: %d, worker threads: %lld)",
          max_concurrent_dispatches, (long long)limit, (long long)hvx_contexts,
-         (long long)num_workers);
+         priv->hvx_reserved_units, (long long)num_workers);
     return AEE_EBADPARM;
   }
   priv->max_concurrent_dispatches = (uint32_t)max_concurrent_dispatches;

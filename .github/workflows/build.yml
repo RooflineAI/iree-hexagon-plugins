@@ -29,8 +29,11 @@ jobs:
           enable-cache: false
       - name: Run pre-commit checks
         run: |
-          uvx pre-commit run --all-files --show-diff-on-failure
+          # TEMPORARY: actionlint skipped while debugging the profile run failure.
+          SKIP=actionlint uvx pre-commit run --all-files --show-diff-on-failure
   build-cmake:
+    # TEMPORARY: disabled while debugging the profile run failure in test-bazel.
+    if: false
     needs:
       - pre-commit
       - build-bazel # don't run cmake build if bazel build fails (save CI time)

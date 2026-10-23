@@ -736,11 +736,9 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # rules_pkg packaging + platform_aliases.bzl transitions have no
         # CMake-macro equivalent to autogenerate from -- the actual zip
         # packaging (hexagon_runtime_aarch64_android(_tracy).zip,
-        # device_tools_aarch64_android.zip) is hand-written directly
-        # (cmake/PackageHexagonRuntime.cmake, invoked from content below the
-        # BAZEL_TO_CMAKE_PRESERVES marker in these same BUILD.bazel-derived
-        # files), mirroring the file lists in the underlying BUILD.bazel by
-        # hand rather than by macro conversion.
+        # device_tools_aarch64_android.zip) is hand-written directly in
+        # build_tools/cmake/build_and_package.sh, mirroring the file lists in
+        # the underlying BUILD.bazel by hand rather than by macro conversion.
         pass
 
     def pkg_zip(self, *args, **kwargs):

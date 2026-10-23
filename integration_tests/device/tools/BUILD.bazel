@@ -23,13 +23,36 @@ cc_binary(
 
 pkg_files(
     name = "device_tool_files",
-    srcs = [":limit_lifetime"],
+    srcs = [
+        ":limit_lifetime",
+        "//integration_tests/device/tools/rsync",
+    ],
     prefix = "bin",
 )
 
+_LICENSES = [
+    "licenses/rsync/COPYING",
+    "licenses/xxhash/LICENSE",
+    "licenses/zstd/LICENSE",
+]
+
+pkg_files(
+    name = "device_tool_license_files",
+    srcs = ["//integration_tests/device/tools/rsync:licenses"],
+    renames = {
+        "//integration_tests/device/tools/rsync:" + path: path
+        for path in _LICENSES
+    },
+)
+
+# Test helpers, not part of the release: build_tools/bazel/build_and_package.sh
+# collects this zip apart from the release packages.
 pkg_zip(
     name = "device_tools",
-    srcs = [":device_tool_files"],
+    srcs = [
+        ":device_tool_files",
+        ":device_tool_license_files",
+    ],
     package_dir = ".",
 )
 

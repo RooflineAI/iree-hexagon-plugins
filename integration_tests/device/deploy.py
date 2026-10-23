@@ -17,12 +17,22 @@ Two packages are unpacked into one directory per run:
         lib/libc++_shared.so         NDK C++ runtime
 
   * `//integration_tests/device/tools:device_tools_aarch64_android`,
-    which adds `bin/limit_lifetime`.
+    which adds `bin/limit_lifetime` and `bin/rsync`. A separate CI artifact, so
+    that they stay out of the release.
 
 Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
 
     runs/<run-id>/bin,lib/   the runtime and the helpers for this run
     runs/<run-id>/cases/     one directory per (model, compile case)
+    modules/<case>/module.vmfb   the last large module sent for each (model,
+                             compile case), kept across runs
+
+A run's directory is removed at the end of the run. `modules/` is not: each
+module there is the basis that rsync diffs the next build of the same case
+against, so a rebuilt module only sends the bytes that changed. It holds one
+module per (model, compile case) that ever ran with a module large enough to be
+kept (`_KEEP_MODULE_MIN_BYTES` in `stages/running.py`), and can be deleted at
+any time, at the cost of one full transfer per case.
 
 There is no lock: this suite is meant for one runner executing serially.
 """
@@ -70,11 +80,19 @@ class Deployment:
         return f"{self.run_dir}/bin/limit_lifetime"
 
     @property
+    def rsync(self) -> str:
+        return f"{self.run_dir}/bin/rsync"
+
+    @property
     def dsp_library_path(self) -> str:
         return f"{self.run_dir}/lib/hexagon"
 
     def case_dir(self, case_dir_name: str) -> str:
         return f"{self.run_dir}/cases/{case_dir_name}"
+
+    def kept_module(self, case_dir_name: str) -> str:
+        """Where the case's module lives across runs, see the module docstring."""
+        return f"{self.root}/modules/{case_dir_name}/module.vmfb"
 
 
 def _unpack(zip_path: Path, remote_dir: str) -> None:
@@ -100,7 +118,8 @@ def deploy(
         for binary in _ENTRY_BINARIES
     )
     chmods = " ".join(
-        shlex.quote(f"bin/{binary}") for binary in (*_ENTRY_BINARIES, "limit_lifetime")
+        shlex.quote(f"bin/{binary}")
+        for binary in (*_ENTRY_BINARIES, "limit_lifetime", "rsync")
     )
     adb.shell(
         f"cd {shlex.quote(deployment.run_dir)} && chmod +x {chmods} && {farf_writes}"

@@ -19,14 +19,20 @@ COMPILER_LIB_TARGETS=(
 )
 # Already zips, passed on as they are.
 ZIP_TARGETS=(
-    //integration_tests/device/tools:device_tools_aarch64_android
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
+)
+# Test helpers (limit_lifetime, rsync) that must not end up in the release,
+# which publishes everything in build-artifacts-bazel: collected in their own
+# directory and uploaded as a separate CI artifact.
+TEST_ZIP_TARGETS=(
+    //integration_tests/device/tools:device_tools_aarch64_android
 )
 TARGETS=(
     "${COMPILER_BIN_TARGETS[@]}"
     "${COMPILER_LIB_TARGETS[@]}"
     "${ZIP_TARGETS[@]}"
+    "${TEST_ZIP_TARGETS[@]}"
 )
 COMPILER_PKG_NAME=hexagon_compiler_x86_64_linux
 
@@ -51,8 +57,8 @@ bazel build --verbose_failures "${TARGETS[@]}"
 query_files() {
   bazel cquery --output=files "config($1, target)"
 }
-rm -rf build-artifacts-bazel
-mkdir -p build-artifacts-bazel
+rm -rf build-artifacts-bazel test-tools-bazel
+mkdir -p build-artifacts-bazel test-tools-bazel
 COMPILER_PKG_DIR="$PWD/tmp/${COMPILER_PKG_NAME}"
 rm -rf "${COMPILER_PKG_DIR}"
 mkdir -p "${COMPILER_PKG_DIR}/bin" "${COMPILER_PKG_DIR}/lib"
@@ -82,14 +88,19 @@ do
   mapfile -t target_files < <(query_files "$TARGET")
   cp "${target_files[@]}" build-artifacts-bazel
 done
+for TARGET in "${TEST_ZIP_TARGETS[@]}"
+do
+  mapfile -t target_files < <(query_files "$TARGET")
+  cp "${target_files[@]}" test-tools-bazel
+done
 cp third-party/iree/LICENSE build-artifacts-bazel/LICENSE.txt
 hexkl_license="$(bazel info execution_root)/$(
   bazel cquery --output=files @hexkl//:license_txt
 )"
 cp "$hexkl_license" build-artifacts-bazel/HEXKL_LICENSE.txt
 git rev-list -1 HEAD >build-artifacts-bazel/git-hash.txt
-chmod -R u+w build-artifacts-bazel
-chmod a-x build-artifacts-bazel/*.zip
+chmod -R u+w build-artifacts-bazel test-tools-bazel
+chmod a-x build-artifacts-bazel/*.zip test-tools-bazel/*.zip
 
 # --- Unit Tests - not including integration tests, which need a device
 bazel test //...

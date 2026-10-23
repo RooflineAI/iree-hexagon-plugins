@@ -26,6 +26,9 @@ STAGING_ROOT="${REPO_ROOT}/tmp"
 mkdir -p "${STAGING_ROOT}"
 OUT_DIR="$(realpath "${1:-${REPO_ROOT}/build-artifacts-cmake}")"
 mkdir -p "${OUT_DIR}"
+# Test helpers (limit_lifetime, rsync) that are not part of the packages in
+# OUT_DIR, uploaded as a separate CI artifact.
+TEST_OUT_DIR="$(realpath "${2:-${REPO_ROOT}/test-tools-cmake}")"
 
 export PATH="/usr/lib/llvm-19/bin:$PATH"
 
@@ -251,8 +254,14 @@ package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android_tracy.zip" \
   "lib/libc++_shared.so" "${LIBCXX_SHARED}" \
   "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO_TRACY}"
 
-package_zip "${OUT_DIR}/device_tools_aarch64_android.zip" \
-  "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)"
+RSYNC_DIR="$(find "${BUILD_ROOT}/android" -path '*/integration_tests/device/tools/rsync' -type d | head -n1)"
+mkdir -p "${TEST_OUT_DIR}"
+package_zip "${TEST_OUT_DIR}/device_tools_aarch64_android.zip" \
+  "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)" \
+  "bin/rsync" "${RSYNC_DIR}/build/rsync" \
+  "licenses/rsync/COPYING" "${RSYNC_DIR}/src/rsync/COPYING" \
+  "licenses/xxhash/LICENSE" "${RSYNC_DIR}/src/xxhash/LICENSE" \
+  "licenses/zstd/LICENSE" "${RSYNC_DIR}/src/zstd/LICENSE"
 
 # --- Licenses and git revision ----------------------------------------------
 cp "${IREE_SRC}/LICENSE" "${OUT_DIR}/LICENSE.txt"

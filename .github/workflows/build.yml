@@ -48,6 +48,14 @@ jobs:
           name: build-artifacts-cmake
           path: build-artifacts-cmake
           retention-days: 1
+      # Not in build-artifacts-*, which the release publishes: the device tools
+      # (limit_lifetime, rsync) are test helpers.
+      - name: Upload test tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-tools-cmake
+          path: test-tools-cmake
+          retention-days: 1
   test-cmake:
     needs:
       - build-cmake
@@ -77,6 +85,11 @@ jobs:
         with:
           name: build-artifacts-cmake
           path: build-artifacts
+      - name: Download test tools
+        uses: actions/download-artifact@v4
+        with:
+          name: test-tools-cmake
+          path: test-tools
       - &prep_build_artifacts
         name: Prepare build artifacts
         run: |
@@ -189,6 +202,17 @@ jobs:
         if: env.PHONE_ACCESS == 'true'
         run: |
           build_tools/create_test_venv.sh
+      - &install_rsync
+        name: Install rsync
+        if: env.PHONE_ACCESS == 'true'
+        run: |
+          # The tests send modules to the phone as rsync deltas. The phone's
+          # end ships in the device-tools zip; this is the host's end.
+          if ! command -v rsync >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y rsync
+          fi
+          rsync --version | head -n1
       - &integration_tests
         name: Integration tests
         if: env.PHONE_ACCESS == 'true'
@@ -198,7 +222,7 @@ jobs:
           .venv/bin/pytest integration_tests/ -v -rA \
           --iree-compile=build-artifacts/hexagon_compiler_x86_64_linux/bin/iree-compile \
           --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
-          --device-tools-zip=build-artifacts/device_tools_aarch64_android.zip \
+          --device-tools-zip=test-tools/device_tools_aarch64_android.zip \
           --lld=build-artifacts/hexagon_compiler_x86_64_linux/bin/ld.lld
       - &leave_overlay
         name: Leave the overlay
@@ -238,6 +262,12 @@ jobs:
           name: build-artifacts-bazel
           path: build-artifacts-bazel
           retention-days: 1
+      - name: Upload test tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-tools-bazel
+          path: test-tools-bazel
+          retention-days: 1
   test-bazel:
     needs:
       - build-bazel
@@ -258,6 +288,11 @@ jobs:
         with:
           name: build-artifacts-bazel
           path: build-artifacts
+      - name: Download test tools
+        uses: actions/download-artifact@v4
+        with:
+          name: test-tools-bazel
+          path: test-tools
       - *prep_build_artifacts
       - *install_pinned_platform_tools
       - *verify_android
@@ -266,6 +301,7 @@ jobs:
       - *check_phone_reachable
       - *install_uv
       - *setup_test_env
+      - *install_rsync
       - *integration_tests
       - *leave_overlay
   release:

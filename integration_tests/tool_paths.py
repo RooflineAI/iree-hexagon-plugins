@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Locating the four artifacts these tests drive.
+"""Locating the four artifacts these tests drive, and the host's rsync.
 
 The device suite runs under plain pytest, so the normal path is that each of
 `iree-compile`, the runtime zip, the device-tools zip and `ld.lld` arrives as a
@@ -12,6 +12,9 @@ command-line option and this module only checks that it exists.
 
 When an option is omitted the path is resolved with
 `bazel cquery` instead.
+
+rsync is not built here for the host but taken from the system: from `--rsync`,
+or else from PATH. Its device side ships in the device-tools zip.
 """
 
 from __future__ import annotations
@@ -30,6 +33,22 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 class ToolResolutionError(RuntimeError):
     pass
+
+
+def resolve_host_tool(name: str, explicit: str | None) -> Path:
+    """Return a tool installed on the host, preferring an explicitly given path."""
+    if explicit:
+        path = Path(explicit).resolve()
+        if not path.exists():
+            raise ToolResolutionError(f"{name}: given path does not exist: {path}")
+        return path
+    found = shutil.which(name)
+    if found is None:
+        raise ToolResolutionError(
+            f"{name} is not on PATH. Install it (e.g. 'apt-get install {name}') "
+            f"or pass its path with --{name}."
+        )
+    return Path(found)
 
 
 def resolve_bazel_artifact(target: str, explicit: str | None) -> Path:

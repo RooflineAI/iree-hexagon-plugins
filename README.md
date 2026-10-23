@@ -85,8 +85,10 @@ results in `build-artifacts-bazel/`. The host tools (`iree-compile`, `iree-opt`,
 `ld.lld`, ...) and `libIREECompiler.so` are packaged as
 `hexagon_compiler_x86_64_linux.zip`, with the tools in `bin/` and the library
 in `lib/`. The tools locate the library through the rpath `$ORIGIN/../lib`, which
-the script sets, so the unpacked directory can be moved anywhere. The runtime and
-device-tools ZIP files are placed next to it. Staging directories are created in
+the script sets, so the unpacked directory can be moved anywhere. The runtime ZIP files are placed next to it. The device-tools ZIP
+(`limit_lifetime` and rsync) used by the integration tests is not part of that
+directory, which is what gets released: it is collected in
+`test-tools-bazel/`. Staging directories are created in
 the git-ignored `tmp/` directory of the checkout.
 
 ### Runtime
@@ -135,7 +137,8 @@ build_tools/cmake/build_and_package.sh
 
 The results are placed in `build-artifacts-cmake/`, using the same layout as
 the Bazel packaging above: `hexagon_compiler_x86_64_linux.zip` with `bin/`
-and `lib/`, plus the runtime and device-tools ZIP files.
+and `lib/`, plus the runtime ZIP files. The device-tools ZIP is placed in
+`test-tools-cmake/`.
 
 ### All in a One
 

@@ -274,6 +274,66 @@ hexkl_repository = use_repo_rule(
 hexkl_repository(name = "hexkl")
 
 ###############################################################################
+# rsync sources, and the zstd and xxHash sources it is built with,
+# cross-compiled for the phone by //integration_tests/device/tools/rsync. The
+# integration tests transfer modules with it, so that a rebuilt module only
+# sends the bytes that changed. Keep the versions in lockstep with
+# integration_tests/device/tools/rsync/CMakeLists.txt.
+###############################################################################
+
+http_archive = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:http.bzl",
+    "http_archive",
+)
+
+http_archive(
+    name = "rsync",
+    build_file_content = """filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["COPYING", "configure"])
+""",
+    sha256 = "c55f9c9dc10fb8bec397b399a0fdded53cc9a2d8e30891bb0d63724d25c37bef",
+    strip_prefix = "rsync-3.5.1",
+    urls = ["https://github.com/RsyncProject/rsync/releases/download/v3.5.1/rsync-3.5.1.tar.gz"],
+)
+
+# Not the zstd bazel_dep above: rsync's build compiles zstd itself, with the
+# NDK compiler, from the release source.
+http_archive(
+    name = "rsync_zstd",
+    build_file_content = """filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["LICENSE", "lib/Makefile"])
+""",
+    sha256 = "eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3",
+    strip_prefix = "zstd-1.5.7",
+    urls = ["https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"],
+)
+
+http_archive(
+    name = "rsync_xxhash",
+    build_file_content = """filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["LICENSE", "xxhash.h"])
+""",
+    sha256 = "aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80",
+    strip_prefix = "xxHash-0.8.3",
+    urls = ["https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz"],
+)
+
+###############################################################################
 # Toolchain registrations for the hexagon runtime plugin.
 ###############################################################################
 

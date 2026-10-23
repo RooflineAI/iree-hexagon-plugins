@@ -1,0 +1,143 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# rsync for the phone, built from the upstream release with its own configure
+# and make, together with zstd and xxHash, also built from their releases. The
+# integration tests run it on the phone as the receiving end of a delta
+# transfer over `adb shell`, see integration_tests/device/adb.py.
+#
+# zstd and xxHash because without them rsync falls back to zlib, which
+# compresses weights at ~10-20 MB/s and caps a full transfer far below the link
+# speed, and to md5 block checksums, which make a delta of a multi-GB module
+# slow on the phone. adb.py pins both.
+#
+# A genrule rather than rules_foreign_cc's configure_make: configure_make hands
+# rsync's configure the C flags of the active cc toolchain, which here include
+# IREE's -Werror warning set and IREE-only defines. Those break configure's
+# feature probes. rsync is foreign code and gets the plain NDK compiler, exactly
+# as in the CMake build (CMakeLists.txt, hand-written, as bazel_to_cmake does
+# not convert this).
+
+load(
+    "@android_ndk_detect//:defs.bzl",
+    "ANDROID_NDK_TOOLCHAIN_DIR",
+    "ANDROID_NDK_VERSION",
+)
+
+package(
+    default_visibility = ["//visibility:public"],
+    licenses = [],
+)
+
+# The same compiler driver as //toolchain:aarch64_android_toolchain.
+_CC = ANDROID_NDK_TOOLCHAIN_DIR + "/bin/aarch64-linux-android" + ANDROID_NDK_VERSION + "-clang"
+
+_AR = ANDROID_NDK_TOOLCHAIN_DIR + "/bin/llvm-ar"
+
+# Keep in lockstep with RSYNC_CONFIGURE_OPTIONS in CMakeLists.txt.
+_CONFIGURE_OPTIONS = [
+    "--host=aarch64-linux-android",
+    # The bundled zlib and popt, so the binary needs nothing but libc.
+    "--with-included-zlib",
+    "--with-included-popt",
+    # Optional features that need libraries the NDK does not have, and that a
+    # plain file transfer does not use.
+    "--disable-md2man",
+    "--disable-openssl",
+    "--disable-lz4",
+    "--disable-idn",
+    "--disable-iconv",
+    "--disable-locale",
+    "--disable-acl-support",
+    "--disable-xattr-support",
+]
+
+# Builds in a temporary directory, with each step's output shown only when it
+# fails. zstd: the static library only, single threaded, without the dictionary
+# builder and legacy formats rsync does not use, built in a copy as its
+# Makefile writes into its own directory. xxHash: its one source file. rsync:
+# out of tree; its configure aborts if zstd or xxHash is unusable, as both are
+# enabled by default, and the config.h check guards against that changing.
+genrule(
+    name = "rsync",
+    srcs = [
+        "@rsync//:all_srcs",
+        "@rsync//:configure",
+        "@rsync_xxhash//:all_srcs",
+        "@rsync_xxhash//:xxhash.h",
+        "@rsync_zstd//:all_srcs",
+        "@rsync_zstd//:lib/Makefile",
+    ],
+    outs = ["bin/rsync"],
+    cmd = """
+set -euo pipefail
+rsync_src="$$PWD/$$(dirname $(execpath @rsync//:configure))"
+zstd_lib="$$PWD/$$(dirname $(execpath @rsync_zstd//:lib/Makefile))"
+xxhash_src="$$PWD/$$(dirname $(execpath @rsync_xxhash//:xxhash.h))"
+out="$$PWD/$@"
+build="$$(mktemp -d)"
+trap 'rm -rf "$$build"' EXIT
+mkdir -p "$$build/include" "$$build/lib" "$$build/rsync"
+step() {{
+    local log="$$build/$$1.log"
+    shift
+    if ! "$$@" >"$$log" 2>&1; then
+        cat "$$log" >&2
+        exit 1
+    fi
+}}
+
+cp -RL "$$zstd_lib" "$$build/zstd"
+step zstd make -C "$$build/zstd" -j8 libzstd.a CC={cc} AR={ar} \
+    ZSTD_LIB_DICTBUILDER=0 ZSTD_LIB_DEPRECATED=0 ZSTD_LEGACY_SUPPORT=0
+cp "$$build/zstd/libzstd.a" "$$build/lib/"
+cp "$$build/zstd/zstd.h" "$$build/zstd/zstd_errors.h" "$$build/include/"
+
+step xxhash {cc} -O2 -c "$$xxhash_src/xxhash.c" -o "$$build/xxhash.o"
+step xxhash-ar {ar} rcs "$$build/lib/libxxhash.a" "$$build/xxhash.o"
+cp "$$xxhash_src/xxhash.h" "$$build/include/"
+
+cd "$$build/rsync"
+step rsync-configure env CC={cc} CPPFLAGS="-I$$build/include" \
+    LDFLAGS="-L$$build/lib" "$$rsync_src/configure" {options}
+for feature in SUPPORT_ZSTD SUPPORT_XXHASH; do
+    grep -q "^#define $$feature 1" config.h \
+        || {{ echo "rsync configure did not enable $$feature" >&2; exit 1; }}
+done
+step rsync-make make -j8 rsync
+cp rsync "$$out"
+""".format(
+        ar = _AR,
+        cc = _CC,
+        options = " ".join(_CONFIGURE_OPTIONS),
+    ),
+    tags = ["manual"],
+    target_compatible_with = select({
+        "@android_ndk_detect//:android_ndk_available": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+# rsync is GPLv3; zstd and xxHash, linked into it, are BSD. Their licenses
+# travel with the binary in the device tools zip.
+genrule(
+    name = "licenses",
+    srcs = [
+        "@rsync//:COPYING",
+        "@rsync_xxhash//:LICENSE",
+        "@rsync_zstd//:LICENSE",
+    ],
+    outs = [
+        "licenses/rsync/COPYING",
+        "licenses/xxhash/LICENSE",
+        "licenses/zstd/LICENSE",
+    ],
+    cmd = " && ".join([
+        "cp $(execpath @rsync//:COPYING) $(RULEDIR)/licenses/rsync/COPYING",
+        "cp $(execpath @rsync_xxhash//:LICENSE) $(RULEDIR)/licenses/xxhash/LICENSE",
+        "cp $(execpath @rsync_zstd//:LICENSE) $(RULEDIR)/licenses/zstd/LICENSE",
+    ]),
+)

@@ -1,0 +1,214 @@
+diff --git a/llvm/lib/Target/Hexagon/HexagonPatternsHVX.td b/llvm/lib/Target/Hexagon/HexagonPatternsHVX.td
+index de8ef3bb7cc4..01640f3ab0f5 100644
+--- a/llvm/lib/Target/Hexagon/HexagonPatternsHVX.td
++++ b/llvm/lib/Target/Hexagon/HexagonPatternsHVX.td
+@@ -45,6 +45,16 @@ def HwLen2: SDNodeXForm<imm, [{
+ 
+ def Q2V: OutPatFrag<(ops node:$Qs), (V6_vandqrt $Qs, (ToI32 -1))>;
+ 
++// A predicate has one physical bit per byte. Truncating a halfword or word
++// to i1 must replicate its low bit across all bytes of that element. A
++// byte-wise vand predicate would instead test the low bit of each byte.
++def TruncH2Q: OutPatFrag<(ops node:$Vs),
++  (V6_veqh (V6_vand $Vs, (PS_vsplatiw (i32 65537))),
++           (PS_vsplatiw (i32 65537)))>;
++def TruncW2Q: OutPatFrag<(ops node:$Vs),
++  (V6_veqw (V6_vand $Vs, (PS_vsplatiw (i32 1))),
++           (PS_vsplatiw (i32 1)))>;
++
+ def Combinev: OutPatFrag<(ops node:$Vs, node:$Vt),
+   (REG_SEQUENCE HvxWR, $Vs, vsub_hi, $Vt, vsub_lo)>;
+ 
+@@ -771,15 +781,15 @@ let Predicates = [UseHVX] in {
+   def: Pat<(VecQ8 (trunc HVI8:$Vs)),
+            (V6_vandvrt HvxVR:$Vs, (ToI32 0x01010101))>;
+   def: Pat<(VecQ16 (trunc HVI16:$Vs)),
+-           (V6_vandvrt HvxVR:$Vs, (ToI32 0x01010101))>;
++           (TruncH2Q HvxVR:$Vs)>;
+   def: Pat<(VecQ32 (trunc HVI32:$Vs)),
+-           (V6_vandvrt HvxVR:$Vs, (ToI32 0x01010101))>;
++           (TruncW2Q HvxVR:$Vs)>;
+   def: Pat<(VecQ8 (trunc HWI16:$Vss)),
+-           (Combineq(VecQ16(V6_vandvrt (HiVec $Vss), (ToI32 0x01010101))),
+-           (VecQ16 (V6_vandvrt (LoVec $Vss), (ToI32 0x01010101))))>;
++           (Combineq (VecQ16 (TruncH2Q (HiVec $Vss))),
++                     (VecQ16 (TruncH2Q (LoVec $Vss))))>;
+   def: Pat<(VecQ16 (trunc HWI32:$Vss)),
+-           (Combineq(VecQ32(V6_vandvrt (HiVec $Vss), (ToI32 0x01010101))),
+-           (VecQ32 (V6_vandvrt (LoVec $Vss), (ToI32 0x01010101))))>;
++           (Combineq (VecQ32 (TruncW2Q (HiVec $Vss))),
++                     (VecQ32 (TruncW2Q (LoVec $Vss))))>;
+ }
+ 
+ let Predicates = [UseHVX] in {
+diff --git a/llvm/test/CodeGen/Hexagon/isel/trunc-vNi1-HVX.ll b/llvm/test/CodeGen/Hexagon/isel/trunc-vNi1-HVX.ll
+index 057d0788dfb0..88b8853ea0fd 100644
+--- a/llvm/test/CodeGen/Hexagon/isel/trunc-vNi1-HVX.ll
++++ b/llvm/test/CodeGen/Hexagon/isel/trunc-vNi1-HVX.ll
+@@ -8,7 +8,7 @@
+ ;   Predicates      (HvxQR): v128i1, v64i1, v32i1
+ ;
+ ; Tests cover:
+-;   - Full HVX width (single register): tablegen V6_vandvrt patterns
++;   - Full HVX width: byte vand or element-width low-bit comparison
+ ;   - HVX pairs: tablegen Combineq patterns
+ ;   - Sub-HVX width: C++ WidenHvxTruncateToBool (widen + trunc + extract)
+ ;
+@@ -19,7 +19,7 @@
+ ; ===========================================================================
+ ; Category 1: Full HVX single-register width -> HVX predicate (tablegen)
+ ;   These match tablegen patterns VecQ{8,16,32} (trunc HVI{8,16,32})
+-;   directly via V6_vandvrt.
++;   using predicates replicated across each element.
+ ; ===========================================================================
+ 
+ ; CHECK-LABEL: trunc_v128i8_to_v128i1:
+@@ -31,7 +31,7 @@ define void @trunc_v128i8_to_v128i1(<128 x i8> %v, ptr %p) {
+ }
+ 
+ ; CHECK-LABEL: trunc_v64i16_to_v64i1:
+-; CHECK: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.h,v{{[0-9]+}}.h)
+ define i64 @trunc_v64i16_to_v64i1(<64 x i16> %v) {
+   %1 = trunc <64 x i16> %v to <64 x i1>
+   %2 = bitcast <64 x i1> %1 to i64
+@@ -39,7 +39,7 @@ define i64 @trunc_v64i16_to_v64i1(<64 x i16> %v) {
+ }
+ 
+ ; CHECK-LABEL: trunc_v32i32_to_v32i1:
+-; CHECK: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
+ define i32 @trunc_v32i32_to_v32i1(<32 x i32> %v) {
+   %1 = trunc <32 x i32> %v to <32 x i1>
+   %2 = bitcast <32 x i1> %1 to i32
+@@ -48,13 +48,13 @@ define i32 @trunc_v32i32_to_v32i1(<32 x i32> %v) {
+ 
+ ; ===========================================================================
+ ; Category 2: HVX pair -> HVX predicate (tablegen, via Combineq)
+-;   These split the pair, apply V6_vandvrt to each half, and combine
++;   These split the pair, compare the low bit in each half, and combine
+ ;   the predicate halves.
+ ; ===========================================================================
+ 
+ ; CHECK-LABEL: trunc_v64i32_to_v64i1:
+-; CHECK-DAG: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
+-; CHECK-DAG: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
+ define void @trunc_v64i32_to_v64i1(<64 x i32> %v, ptr %p) {
+   %1 = trunc <64 x i32> %v to <64 x i1>
+   store <64 x i1> %1, ptr %p, align 8
+@@ -62,8 +62,8 @@ define void @trunc_v64i32_to_v64i1(<64 x i32> %v, ptr %p) {
+ }
+ 
+ ; CHECK-LABEL: trunc_v128i16_to_v128i1:
+-; CHECK-DAG: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
+-; CHECK-DAG: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.h,v{{[0-9]+}}.h)
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.h,v{{[0-9]+}}.h)
+ define void @trunc_v128i16_to_v128i1(<128 x i16> %v, ptr %p) {
+   %1 = trunc <128 x i16> %v to <128 x i1>
+   store <128 x i1> %1, ptr %p, align 16
+@@ -88,7 +88,7 @@ define i64 @trunc_v64i8_to_v64i1(<64 x i8> %v) {
+ }
+ 
+ ; CHECK-LABEL: trunc_v32i16_to_v32i1:
+-; CHECK: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.h,v{{[0-9]+}}.h)
+ define i32 @trunc_v32i16_to_v32i1(<32 x i16> %v) {
+   %1 = trunc <32 x i16> %v to <32 x i1>
+   %2 = bitcast <32 x i1> %1 to i32
+@@ -96,7 +96,7 @@ define i32 @trunc_v32i16_to_v32i1(<32 x i16> %v) {
+ }
+ 
+ ; CHECK-LABEL: trunc_v16i32_to_v16i1:
+-; CHECK: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
+ define i16 @trunc_v16i32_to_v16i1(<16 x i32> %v) {
+   %1 = trunc <16 x i32> %v to <16 x i1>
+   %2 = bitcast <16 x i1> %1 to i16
+@@ -106,7 +106,7 @@ define i16 @trunc_v16i32_to_v16i1(<16 x i32> %v) {
+ ; --- Quarter HVX width (256-bit input) ---
+ 
+ ; CHECK-LABEL: trunc_v32i8_to_v32i1:
+-; CHECK: q{{[0-9]+}} = vand(v{{[0-9]+}},r{{[0-9]+}})
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
+ define i32 @trunc_v32i8_to_v32i1(<32 x i8> %v) {
+   %1 = trunc <32 x i8> %v to <32 x i1>
+   %2 = bitcast <32 x i1> %1 to i32
+diff --git a/llvm/test/CodeGen/Hexagon/isel/trunc-predicate-select.ll b/llvm/test/CodeGen/Hexagon/isel/trunc-predicate-select.ll
+new file mode 100644
+index 000000000000..ceedc53eab56
+--- /dev/null
++++ b/llvm/test/CodeGen/Hexagon/isel/trunc-predicate-select.ll
+@@ -0,0 +1,70 @@
++; RUN: llc -mtriple=hexagon -mcpu=hexagonv79 -mattr=+hvxv79,+hvx-length128b -verify-machineinstrs < %s | FileCheck %s
++;
++; Truncating to i1 tests the integer element's low bit. HVX predicates have
++; one physical bit per byte, so halfword/word predicates must replicate that
++; bit before selecting data. Byte-wise vand is insufficient: for a word 1 it
++; sets only the first of four predicate bits and creates a mixed-byte result.
++; The narrow byte load also exercises legalization through word-sized lanes.
++
++; CHECK-LABEL: select_byte_mask:
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
++; CHECK: vmux
++define void @select_byte_mask(ptr %mask, ptr %yes, ptr %no, ptr %out) {
++  %m = load <32 x i8>, ptr %mask, align 1
++  %p = trunc <32 x i8> %m to <32 x i1>
++  %a = load <32 x float>, ptr %yes, align 128
++  %b = load <32 x float>, ptr %no, align 128
++  %r = select <32 x i1> %p, <32 x float> %a, <32 x float> %b
++  store <32 x float> %r, ptr %out, align 128
++  ret void
++}
++
++; CHECK-LABEL: select_halfword_mask:
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.h,v{{[0-9]+}}.h)
++; CHECK: vmux
++define void @select_halfword_mask(<64 x i16> %m, ptr %yes, ptr %no, ptr %out) {
++  %p = trunc <64 x i16> %m to <64 x i1>
++  %a = load <64 x i16>, ptr %yes, align 128
++  %b = load <64 x i16>, ptr %no, align 128
++  %r = select <64 x i1> %p, <64 x i16> %a, <64 x i16> %b
++  store <64 x i16> %r, ptr %out, align 128
++  ret void
++}
++
++; CHECK-LABEL: select_word_mask:
++; CHECK: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
++; CHECK: vmux
++define void @select_word_mask(<32 x i32> %m, ptr %yes, ptr %no, ptr %out) {
++  %p = trunc <32 x i32> %m to <32 x i1>
++  %a = load <32 x float>, ptr %yes, align 128
++  %b = load <32 x float>, ptr %no, align 128
++  %r = select <32 x i1> %p, <32 x float> %a, <32 x float> %b
++  store <32 x float> %r, ptr %out, align 128
++  ret void
++}
++
++; CHECK-LABEL: select_word_pair_mask:
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.w,v{{[0-9]+}}.w)
++; CHECK: vmux
++define void @select_word_pair_mask(<64 x i32> %m, ptr %yes, ptr %no, ptr %out) {
++  %p = trunc <64 x i32> %m to <64 x i1>
++  %a = load <64 x i16>, ptr %yes, align 128
++  %b = load <64 x i16>, ptr %no, align 128
++  %r = select <64 x i1> %p, <64 x i16> %a, <64 x i16> %b
++  store <64 x i16> %r, ptr %out, align 128
++  ret void
++}
++
++; CHECK-LABEL: select_halfword_pair_mask:
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.h,v{{[0-9]+}}.h)
++; CHECK-DAG: q{{[0-9]+}} = vcmp.eq(v{{[0-9]+}}.h,v{{[0-9]+}}.h)
++; CHECK: vmux
++define void @select_halfword_pair_mask(<128 x i16> %m, ptr %yes, ptr %no, ptr %out) {
++  %p = trunc <128 x i16> %m to <128 x i1>
++  %a = load <128 x i8>, ptr %yes, align 128
++  %b = load <128 x i8>, ptr %no, align 128
++  %r = select <128 x i1> %p, <128 x i8> %a, <128 x i8> %b
++  store <128 x i8> %r, ptr %out, align 128
++  ret void
++}

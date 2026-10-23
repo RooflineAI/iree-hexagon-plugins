@@ -7,6 +7,7 @@ patch includes a regression under `llvm/test/` for independent upstream review.
 | --- | --- | --- |
 | [0001-hexagon_postra_qfp_partial_pair_refill.patch](0001-hexagon_postra_qfp_partial_pair_refill.patch) | Hexagon backend correctness | Convert only the IEEE halves of a refilled register pair that still reach a qfloat conversion. |
 | [0002-widen_setcc_inputs_wider_than_result.patch](0002-widen_setcc_inputs_wider_than_result.patch) | SelectionDAG type legalization | Compare at the widened operands' lane count, then extract the required result lanes. |
+| [0003-hexagon_trunc_predicate_lane_replication.patch](0003-hexagon_trunc_predicate_lane_replication.patch) | Hexagon predicate correctness | Replicate the truncated low bit across halfword/word predicate lanes before selecting data. |
 
 ## Partially refilled qfloat pairs
 
@@ -35,6 +36,21 @@ result lanes. The extra lanes correspond to padding and do not change the
 retained comparisons. The regression covers 17-, 25- and 31-lane f16
 comparisons. This fixes type legalization; scalarized division and excessive
 stack usage in fused erf-GELU are separate problems.
+
+## Truncating integer vectors to predicates
+
+HVX predicates have one physical bit per byte. The previous truncation patterns
+used byte-wise `vand` for halfword and word inputs, testing each byte's low bit
+instead of replicating the integer element's low bit across its predicate bits.
+Using such a predicate in a select could mix bytes from its two operands.
+Narrow byte vectors can also reach the word pattern during legalization.
+
+The patch masks bit zero and compares at halfword/word width, including register
+pairs. The byte-width pattern is unchanged. Regressions cover direct, narrow and
+pair predicates feeding selects, and strengthen the existing truncation checks.
+On the phone, the minimal all-one byte-mask select changes from nonfinite values
+to exact zeros; mixed odd/even and high-bit inputs for i8/i16/i32 pass exactly.
+This also fixes Gemma-4's zero attention output in the fused dynamic-mask path.
 
 ## Running the regressions
 
@@ -67,3 +83,14 @@ set -o pipefail
 
 A complete LLVM lit suite additionally needs an LLVM build configured with its
 tests enabled; the commands above check just these two patch regressions.
+
+The predicate regressions use the same `llc` and `FileCheck` tools:
+
+```sh
+llvm_predicates=third-party/llvm-project/llvm/test/CodeGen/Hexagon/isel
+for test in trunc-vNi1-HVX.ll trunc-predicate-select.ll; do
+  "$llvm_llc" -mtriple=hexagon -mcpu=hexagonv79 \
+    -mattr=+hvxv79,+hvx-length128b -verify-machineinstrs \
+    "$llvm_predicates/$test" -o - | "$llvm_filecheck" "$llvm_predicates/$test"
+done
+```

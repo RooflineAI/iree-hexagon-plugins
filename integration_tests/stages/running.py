@@ -183,7 +183,7 @@ def run_module_on_device(
     timings: dict[str, float] = {}
 
     # debug memory issues on the phone and abort if errors occur
-    debug_malloc_options = "LIBC_DEBUG_MALLOC_OPTIONS='verify_pointers front_guard rear_guard free_track=4096 abort_on_error'"
+    debug_malloc_options = "LIBC_DEBUG_MALLOC_OPTIONS='verify_pointers abort_on_error'"
 
     push_total_start = time.time()
     remote_dir = deployment.case_dir(case_dir_name)

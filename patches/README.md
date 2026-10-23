@@ -7,6 +7,8 @@ inside `third-party/`.
 
 - [IREE](iree/README.md): embedded Bazel builds, Hexagon integration and
   APIs needed by the plugin.
+- [Tracy](tracy/README.md): client bug fixes, applied to IREE's nested
+  `third_party/tracy` checkout.
 - [LLVM](llvm-project/README.md): no active source patches after the upgrade.
 
 hexagon-mlir is not patched here. Its changes (LLVM compatibility, conversion

@@ -1072,8 +1072,6 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
 
   if (dsp_err != AEE_SUCCESS) {
     rpcmem_free(profiler_data);
-    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                         binding_table.count);
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
         dsp_err, "could not execute command buffer on DSP");
   }
@@ -1100,8 +1098,6 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       &device->tracy_plot_context);
 
   rpcmem_free(profiler_data);
-  iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                       binding_table.count);
 
   if (!iree_status_is_ok(status_exporting)) {
     return status_exporting;

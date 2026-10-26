@@ -202,8 +202,12 @@ struct ConvertGetRuntimeStateOp
   LogicalResult
   matchAndRewrite(IREE::Hexagon::GetRuntimeStateOp getStateOp, OpAdaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // The coroutines of the async threads are outlined from the dispatch and
+    // have other arguments; they get the state as a captured value instead.
     auto funcOp = getStateOp->getParentOfType<LLVM::LLVMFuncOp>();
-    if (!funcOp || funcOp.getNumArguments() < 2) {
+    if (!funcOp || funcOp.getNumArguments() < 2 ||
+        funcOp.walk([](LLVM::CoroIdOp) { return WalkResult::interrupt(); })
+            .wasInterrupted()) {
       return rewriter.notifyMatchFailure(
           getStateOp,
           "expected an enclosing function with a dispatch state argument");
@@ -422,6 +426,62 @@ getVtcmAllocFn(OpBuilder &builder, ModuleOp moduleOp, Type sizeType) {
   return LLVM::lookupOrCreateFn(builder, moduleOp, kVtcmAllocFnName,
                                 {ptrType, sizeType, builder.getI64Type()},
                                 ptrType);
+}
+
+/// Declares void *hexagon_runtime_coro_alloc(int64_t alignment, int64_t size).
+static FailureOr<LLVM::LLVMFuncOp> getCoroAllocFn(OpBuilder &builder,
+                                                  ModuleOp moduleOp) {
+  Type i64Type = builder.getI64Type();
+  Type ptrType = LLVM::LLVMPointerType::get(builder.getContext());
+  return LLVM::lookupOrCreateFn(builder, moduleOp, kCoroAllocFnName,
+                                {i64Type, i64Type}, ptrType);
+}
+
+/// Declares void hexagon_runtime_coro_free(void *frame).
+static FailureOr<LLVM::LLVMFuncOp> getCoroFreeFn(OpBuilder &builder,
+                                                 ModuleOp moduleOp) {
+  Type ptrType = LLVM::LLVMPointerType::get(builder.getContext());
+  return LLVM::lookupOrCreateFn(builder, moduleOp, kCoroFreeFnName, {ptrType},
+                                LLVM::LLVMVoidType::get(builder.getContext()));
+}
+
+/// ConvertAsyncToLLVM allocates each coroutine frame with libc `aligned_alloc`
+/// and frees it with `free`; the names are hard-coded there. Retargets exactly
+/// these calls, the allocation that feeds `llvm.intr.coro.begin` and the free
+/// of `llvm.intr.coro.free`, to the runtime's frame allocator. The libc
+/// declarations take the 64 bit index of the async lowering, which does not
+/// match the 32 bit size_t of Hexagon.
+static LogicalResult useRuntimeCoroFrameAllocator(ModuleOp moduleOp) {
+  SmallVector<LLVM::CallOp> allocCalls, freeCalls;
+  moduleOp.walk([&](LLVM::CallOp callOp) {
+    std::optional<StringRef> callee = callOp.getCallee();
+    if (!callee)
+      return;
+    if (*callee == "aligned_alloc" && callOp.getNumResults() == 1 &&
+        llvm::any_of(callOp->getUsers(), llvm::IsaPred<LLVM::CoroBeginOp>))
+      allocCalls.push_back(callOp);
+    else if (*callee == "free" && callOp.getArgOperands().size() == 1 &&
+             callOp.getArgOperands()[0].getDefiningOp<LLVM::CoroFreeOp>())
+      freeCalls.push_back(callOp);
+  });
+
+  OpBuilder builder(moduleOp.getContext());
+  builder.setInsertionPointToEnd(moduleOp.getBody());
+  if (!allocCalls.empty()) {
+    FailureOr<LLVM::LLVMFuncOp> allocFn = getCoroAllocFn(builder, moduleOp);
+    if (failed(allocFn))
+      return moduleOp.emitError("failed to declare ") << kCoroAllocFnName;
+    for (LLVM::CallOp callOp : allocCalls)
+      callOp.setCallee(allocFn->getSymName());
+  }
+  if (!freeCalls.empty()) {
+    FailureOr<LLVM::LLVMFuncOp> freeFn = getCoroFreeFn(builder, moduleOp);
+    if (failed(freeFn))
+      return moduleOp.emitError("failed to declare ") << kCoroFreeFnName;
+    for (LLVM::CallOp callOp : freeCalls)
+      callOp.setCallee(freeFn->getSymName());
+  }
+  return success();
 }
 
 /// Allocates |size| bytes aligned to |alignment| from the VTCM partition that
@@ -927,6 +987,9 @@ void HexagonConvertToLLVMPass::runOnOperation() {
     }
     funcOp.setSymName(newName);
   }
+
+  if (failed(useRuntimeCoroFrameAllocator(moduleOp)))
+    return signalPassFailure();
 
   // Materializations are allowed while the conversion is in flight, but must
   // not become another pipeline seam. Reconcile them here and fail if a cast

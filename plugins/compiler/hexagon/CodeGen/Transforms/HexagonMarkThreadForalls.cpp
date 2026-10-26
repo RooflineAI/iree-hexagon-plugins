@@ -14,6 +14,15 @@ namespace mlir::iree_compiler::hexagon::codegen {
 #define GEN_PASS_DEF_HEXAGONMARKTHREADFORALLSPASS
 #include "hexagon/CodeGen/Passes.h.inc"
 
+bool isThreadForall(Operation *op) {
+  auto forallOp = dyn_cast_if_present<scf::ForallOp>(op);
+  if (!forallOp)
+    return false;
+  std::optional<ArrayAttr> mapping = forallOp.getMapping();
+  return mapping && !mapping->empty() &&
+         llvm::all_of(*mapping, llvm::IsaPred<IREE::Codegen::LocalMappingAttr>);
+}
+
 namespace {
 
 struct HexagonMarkThreadForallsPass

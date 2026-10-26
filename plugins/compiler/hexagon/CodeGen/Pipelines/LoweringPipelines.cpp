@@ -320,9 +320,6 @@ void addHexagonMultiTilingExpertPassPipeline(
 
   addHexagonBufferizePasses(funcPassManager);
 
-  if (isVTCMTileThreadingEnabled())
-    funcPassManager.addPass(::mlir::hexagon::createFormAsyncThreadsPass());
-
   // Run IREE specific passes before vector lowering expert.
   funcPassManager.addPass(createPropagateDispatchSizeBoundsPass());
   funcPassManager.addPass(createRemoveSingleIterationLoopPass());
@@ -340,10 +337,18 @@ void addHexagonMultiTilingExpertPassPipeline(
     // introduces unnecessary malloc/free imports in the LLVM stage. Promote
     // just those DMA tag allocations to stack and drop their deallocs.
     funcPassManager.addPass(createPromoteDMATagAllocToStackPass());
+    // Hoisting moves allocations to the function entry, also out of the
+    // thread foralls. Give each thread its own slice first, so the hoisted
+    // allocation is not shared between the threads.
+    if (isVTCMTileThreadingEnabled())
+      funcPassManager.addPass(createHexagonPrivatizeThreadAllocationsPass());
     // Hoist the newly introduced allocas out of loops
     funcPassManager.addPass(createHoistStaticallyBoundAllocationsPass());
     funcPassManager.addPass(createCSEPass());
     funcPassManager.addPass(createCanonicalizerPass());
+    // The thread foralls become async threads -- after the hoisting.
+    if (isVTCMTileThreadingEnabled())
+      funcPassManager.addPass(createHexagonFormAsyncThreadsPass());
   }
 
   {
@@ -578,10 +583,19 @@ void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
 }
 
 void addHexagonPreLLVMConversionPasses(OpPassManager &modulePassManager) {
-  // Outline the async.execute bodies into coroutines before SCF is lowered to
-  // CF, since an async.execute region must stay a single block.
-  if (isVTCMTileThreadingEnabled())
+  if (isVTCMTileThreadingEnabled()) {
+    // Outline each async.execute body into a
+    // coroutine and lower the async ops to async.runtime ops.
+    // This has to run before SCF is lowered to CF, since an async.execute
+    // region must stay a single block.
     modulePassManager.addPass(createAsyncToAsyncRuntimePass());
+    // The runtime's tokens and groups are reference counted, and the lowering
+    // above inserts no drop_ref (see the reference counting comment in
+    // mlir/include/mlir/Dialect/Async/IR/AsyncOps.td:679). The policy-based
+    // variant suffices: each token is added to one group once and each group is
+    // awaited once, which is what iree-hexagon-form-async-threads emits.
+    modulePassManager.addPass(createAsyncRuntimePolicyBasedRefCountingPass());
+  }
 
   FunctionLikeNest(modulePassManager)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);

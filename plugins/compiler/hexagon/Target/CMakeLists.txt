@@ -163,6 +163,7 @@ iree_cc_library(
     ::HexagonTargetBackend
     ::HexagonTargetDevice
     MLIRArithTransforms
+    MLIRAsyncDialect
     MLIRMemRefTransforms
     MLIRSCFTransforms
     hexagon_mlir::HexagonDialectLibs

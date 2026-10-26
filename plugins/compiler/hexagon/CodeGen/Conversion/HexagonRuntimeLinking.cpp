@@ -28,16 +28,20 @@ const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
     }
     set.insert(mlir::hexagonmem::getCopyFnName());
     set.insert(kVtcmAllocFnName);
-    // MLIR async runtime, used by the threads inside a VTCM tile, plus the
-    // allocator that the coroutine frames use.
+    // Threads inside a VTCM tile. The skel links hexagon-mlir's MLIR async
+    // runtime, whose token, reference counting and error functions the
+    // generated code calls directly. Group creation, thread launch and the
+    // await are renamed to the skel's hexagon_runtime_thread_* wrappers of it
+    // (see getNativeRuntimeHelperNameMap), and the coroutine frames use the
+    // skel's frame allocator.
     for (llvm::StringRef name :
          {"mlirAsyncRuntimeAddRef", "mlirAsyncRuntimeDropRef",
           "mlirAsyncRuntimeCreateToken", "mlirAsyncRuntimeEmplaceToken",
           "mlirAsyncRuntimeIsTokenError", "mlirAsyncRuntimeAwaitToken",
-          "mlirAsyncRuntimeCreateGroup", "mlirAsyncRuntimeAddTokenToGroup",
-          "mlirAsyncRuntimeIsGroupError", "mlirAsyncRuntimeAwaitAllInGroup",
-          "mlirAsyncRuntimeExecute", "aligned_alloc", "free"})
+          "mlirAsyncRuntimeAddTokenToGroup", "mlirAsyncRuntimeIsGroupError"})
       set.insert(name);
+    set.insert(kCoroAllocFnName);
+    set.insert(kCoroFreeFnName);
     set.insert("hexagon_runtime_profiler_zone_begin");
     set.insert("hexagon_runtime_profiler_zone_end");
     set.insert("iree_hexagon_hmx_pack_f16");
@@ -80,6 +84,13 @@ const llvm::StringMap<llvm::StringLiteral> &getNativeRuntimeHelperNameMap() {
   static const llvm::StringMap<llvm::StringLiteral> names = [] {
     llvm::StringMap<llvm::StringLiteral> map;
     map.insert({"memrefCopy", "hexagon_runtime_memref_copy"});
+    // The in-dispatch threads: the runtime decides how the thread tasks of a
+    // dispatch are scheduled (hexagon/dsp/rt/async_runtime.h).
+    map.insert(
+        {"mlirAsyncRuntimeCreateGroup", "hexagon_runtime_thread_group_create"});
+    map.insert({"mlirAsyncRuntimeExecute", "hexagon_runtime_thread_execute"});
+    map.insert({"mlirAsyncRuntimeAwaitAllInGroup",
+                "hexagon_runtime_thread_await_all"});
     return map;
   }();
   return names;

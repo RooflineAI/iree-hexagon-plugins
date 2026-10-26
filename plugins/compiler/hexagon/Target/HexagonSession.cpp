@@ -19,6 +19,7 @@
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
 #include "iree/compiler/Utils/OptionUtils.h"
 #include "mlir/Dialect/Arith/Transforms/BufferDeallocationOpInterfaceImpl.h"
+#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/MemRef/Transforms/AllocationOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferDeallocationOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
@@ -38,9 +39,9 @@ struct HexagonSession
 
   void onRegisterDialects(mlir::DialectRegistry &registry) override {
     // MLIR hooks
-    registry
-        .insert<IREE::Hexagon::IREEHexagonDialect, mlir::hexkl::HexKLDialect,
-                mlir::hexagonmem::HexagonMemDialect>();
+    registry.insert<
+        IREE::Hexagon::IREEHexagonDialect, mlir::hexkl::HexKLDialect,
+        mlir::hexagonmem::HexagonMemDialect, mlir::async::AsyncDialect>();
 
     // iree_hexagon bufferization external models (e.g. hmx.matmul).
     IREE::Hexagon::registerBufferizableOpInterfaceExternalModels(registry);

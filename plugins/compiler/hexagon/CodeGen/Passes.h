@@ -36,6 +36,10 @@ void registerHexagonCodeGenPasses();
 #define GEN_PASS_DECL
 #include "hexagon/CodeGen/Passes.h.inc" // IWYU pragma: keep
 
+// Whether |op| is an scf.forall whose chunks run on threads, as marked by
+// iree-hexagon-mark-thread-foralls.
+bool isThreadForall(Operation *op);
+
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonSplitReductionPass(bool enableReassociateFpReductions);
 

@@ -15,6 +15,7 @@
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "hexagon/dsp/rt/vtcm_allocation.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
+#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/SymbolTable.h"
@@ -172,6 +173,8 @@ bool isInLoop(Operation *op, FunctionOpInterface funcOp) {
 struct DispatchResources {
   bool hvx = false;
   bool hmx = false;
+  /// Runs work on async worker threads.
+  bool threads = false;
   int64_t vtcmBytes = 0;
   /// Set when the VTCM use cannot be bounded; the dispatch then declares
   /// `DispatchResourcesAttr::kUnboundedVTCMBytes`.
@@ -195,6 +198,10 @@ LogicalResult collectResources(FunctionOpInterface funcOp, SymbolTable &symbols,
     }
     if (hasVectorValue(op))
       resources.hvx = true;
+    // After async-to-async-runtime, a thread launch is a set of async.runtime
+    // ops plus a call of the outlined coroutine.
+    if (isa<async::AsyncDialect>(op->getDialect()))
+      resources.threads = true;
 
     if (auto callOp = dyn_cast<func::CallOp>(op)) {
       auto callee = symbols.lookup<FunctionOpInterface>(callOp.getCallee());
@@ -256,8 +263,9 @@ struct HexagonAnnotateDispatchResourcesPass
                               ? DispatchResourcesAttr::kUnboundedVTCMBytes
                               : resources.vtcmBytes;
       exportOp->setAttr(DispatchResourcesAttr::getAttrName(),
-                        DispatchResourcesAttr::get(&getContext(), resources.hvx,
-                                                   resources.hmx, vtcmBytes));
+                        DispatchResourcesAttr::get(
+                            &getContext(), resources.hvx, resources.hmx,
+                            resources.threads, vtcmBytes));
     }
   }
 };

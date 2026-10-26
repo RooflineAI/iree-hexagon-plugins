@@ -76,7 +76,10 @@ static_assert(
         static_cast<uint64_t>(LibraryBuilder::HexagonDispatchFlags::USES_HVX) ==
             HEXAGON_DISPATCH_FLAG_USES_HVX &&
         static_cast<uint64_t>(LibraryBuilder::HexagonDispatchFlags::USES_HMX) ==
-            HEXAGON_DISPATCH_FLAG_USES_HMX,
+            HEXAGON_DISPATCH_FLAG_USES_HMX &&
+        static_cast<uint64_t>(
+            LibraryBuilder::HexagonDispatchFlags::USES_THREADS) ==
+            HEXAGON_DISPATCH_FLAG_USES_THREADS,
     "LibraryBuilder::HexagonDispatchFlags differ from the ABI header");
 
 // Temporary files handed to the linker. Each one is deleted when its remover is
@@ -272,6 +275,8 @@ buildExecutableMetadata(llvm::Module &llvmModule,
         flags |= static_cast<uint64_t>(HexagonFlags::USES_HVX);
       if (resources.getHmx())
         flags |= static_cast<uint64_t>(HexagonFlags::USES_HMX);
+      if (resources.getThreads())
+        flags |= static_cast<uint64_t>(HexagonFlags::USES_THREADS);
       dispatchAttrs.hexagonFlags = flags;
       dispatchAttrs.vtcmBytes = static_cast<uint64_t>(resources.getVtcmBytes());
     }

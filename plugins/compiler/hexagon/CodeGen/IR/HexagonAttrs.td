@@ -108,20 +108,25 @@ def IREEHexagon_DispatchResourcesAttr :
     serialization encodes it into the Hexagon extension of the executable's
     dispatch attributes.
 
+    `threads` is set if the dispatch runs parts of its work on async worker
+    threads (threads inside a VTCM tile).
+
     `vtcm_bytes` bounds the peak VTCM the dispatch allocates, 0 if it does not
     use VTCM, and `kUnboundedVTCMBytes` (INT64_MAX) if it cannot be bounded,
     so the dispatch must be treated as needing all of VTCM.
 
       #iree_hexagon.dispatch_resources<hvx = true, hmx = false,
-                                       vtcm_bytes = 1048576>
+                                       threads = false, vtcm_bytes = 1048576>
   }];
   let parameters = (ins
     "bool":$hvx,
     "bool":$hmx,
+    "bool":$threads,
     "int64_t":$vtcm_bytes
   );
   let assemblyFormat = [{
-    `<` `hvx` `=` $hvx `,` `hmx` `=` $hmx `,` `vtcm_bytes` `=` $vtcm_bytes `>`
+    `<` `hvx` `=` $hvx `,` `hmx` `=` $hmx `,`
+    `threads` `=` $threads `,` `vtcm_bytes` `=` $vtcm_bytes `>`
   }];
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{

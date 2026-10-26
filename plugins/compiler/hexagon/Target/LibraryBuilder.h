@@ -60,6 +60,8 @@ public:
     USES_HVX = 1ull << 1,
     // HEXAGON_DISPATCH_FLAG_USES_HMX
     USES_HMX = 1ull << 2,
+    // HEXAGON_DISPATCH_FLAG_USES_THREADS
+    USES_THREADS = 1ull << 3,
   };
 
   // hexagon_executable_dispatch_attrs_t

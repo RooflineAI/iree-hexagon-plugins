@@ -176,6 +176,8 @@ enum hexagon_dispatch_flag_bits_e {
   HEXAGON_DISPATCH_FLAG_USES_HVX = 1ull << 1,
   // The dispatch uses the HMX matrix unit.
   HEXAGON_DISPATCH_FLAG_USES_HMX = 1ull << 2,
+  // The dispatch runs parts of its work on worker threads of the thread pool.
+  HEXAGON_DISPATCH_FLAG_USES_THREADS = 1ull << 3,
 };
 typedef uint64_t hexagon_dispatch_flags_t;
 

@@ -87,6 +87,7 @@ done < "$WORK_DIR/io.txt"
   --iree-stream-resource-min-offset-alignment=128 \
   --iree-hexagon-enable-vtcm-tiling=true \
   --iree-hexagon-enable-hmx-matmul=true \
+  --iree-hexagon-enable-profiler-markers \
   --iree-hexagon-linker-path="$LLD" \
   --iree-llvmcpu-embedded-linker-path="$LLD"
 

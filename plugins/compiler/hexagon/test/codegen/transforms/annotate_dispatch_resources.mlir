@@ -78,15 +78,15 @@ hal.executable private @executable {
 }
 
 // CHECK-LABEL: hal.executable.export public @scalar
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 0>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, threads = false, vtcm_bytes = 0>}
 // CHECK-LABEL: hal.executable.export public @vector
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, vtcm_bytes = 0>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = false, threads = false, vtcm_bytes = 0>}
 // CHECK-LABEL: hal.executable.export public @allocs
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 7552>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, threads = false, vtcm_bytes = 7552>}
 // CHECK-LABEL: hal.executable.export public @hmx
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = true, vtcm_bytes = 0>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = true, hmx = true, threads = false, vtcm_bytes = 0>}
 // CHECK-LABEL: hal.executable.export public @calls_helper
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 1024>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, threads = false, vtcm_bytes = 1024>}
 
 // -----
 
@@ -115,7 +115,7 @@ hal.executable private @executable {
 }
 
 // CHECK-LABEL: hal.executable.export public @dynamic
-// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, vtcm_bytes = 9223372036854775807>}
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, threads = false, vtcm_bytes = 9223372036854775807>}
 
 // -----
 
@@ -181,3 +181,30 @@ hal.executable private @executable {
     }
   }
 }
+
+// -----
+
+// A dispatch that launches async worker threads declares `threads`.
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon">
+#layout = #hal.pipeline.layout<bindings = [#hal.pipeline.binding<storage_buffer>]>
+
+hal.executable private @executable {
+  hal.executable.variant public @variant target(#target) {
+    hal.executable.export public @threads ordinal(0) layout(#layout) count(%device: !hal.device) -> (index, index, index) {
+      %c1 = arith.constant 1 : index
+      hal.return %c1, %c1, %c1 : index, index, index
+    }
+    builtin.module {
+      func.func @threads() {
+        %c3 = arith.constant 3 : index
+        %group = async.runtime.create_group %c3 : !async.group
+        async.runtime.await %group : !async.group
+        return
+      }
+    }
+  }
+}
+
+// CHECK-LABEL: hal.executable.export public @threads
+// CHECK:       } attributes {iree_hexagon.dispatch_resources = #iree_hexagon.dispatch_resources<hvx = false, hmx = false, threads = true, vtcm_bytes = 0>}

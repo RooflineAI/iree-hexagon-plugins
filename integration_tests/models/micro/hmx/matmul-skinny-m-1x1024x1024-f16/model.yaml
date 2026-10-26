@@ -13,3 +13,4 @@ tolerances:
   atol: 2.5e-1
   rtol: 5.0e-3
   relative_l2_percent: 0.05
+run_cases: [parallel-debug-malloc]

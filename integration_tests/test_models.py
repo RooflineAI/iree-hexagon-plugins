@@ -106,6 +106,7 @@ def _run_pipeline(
         host_rsync=host_rsync,
         timeout=model_spec.run_timeout,
         tracy_port=tracy_port,
+        debug_malloc=run_case.debug_malloc,
     )
     print(result.log)
     print("timings:")

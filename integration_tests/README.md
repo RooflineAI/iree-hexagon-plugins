@@ -146,6 +146,15 @@ runs only `parallel`:
 * `parallel-profile`, `sequential-profile`: the same, run with the Tracy runtime
   and profiled, see [Profiling](#profiling).
 
+* `parallel-debug-malloc`, `sequential-debug-malloc`: the same, run under
+  bionic's [malloc debug](https://android.googlesource.com/platform/bionic/+/main/libc/malloc_debug/README.md)
+  (`verify_pointers abort_on_error`), so a free of an invalid pointer aborts
+  the run. Only for smaller models: malloc debug fails every single allocation
+  of 2 GiB or more, which crashes iree-run-module on a module that large.
+  `parallel-profile-debug-malloc` and `sequential-profile-debug-malloc` are
+  the profile run cases under malloc debug; it applies to iree-run-module only,
+  not to the Tracy tools.
+
 ```yaml
 run_cases: [parallel, sequential]
 ```

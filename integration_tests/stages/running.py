@@ -29,6 +29,8 @@ class RunCase:
     flags: tuple[str, ...] = ()
     # Run with the Tracy runtime and capture a profile, exported as CSV.
     profile: bool = False
+    # Run iree-run-module under bionic's malloc debug, see _DEBUG_MALLOC_OPTIONS.
+    debug_malloc: bool = False
 
 
 _SEQUENTIAL_FLAGS = ("--hexagon_max_concurrent_dispatches=1",)
@@ -39,7 +41,23 @@ RUN_CASES: tuple[RunCase, ...] = (
     RunCase(name="sequential", flags=_SEQUENTIAL_FLAGS),
     RunCase(name="parallel-profile", profile=True),
     RunCase(name="sequential-profile", flags=_SEQUENTIAL_FLAGS, profile=True),
+    RunCase(name="parallel-debug-malloc", debug_malloc=True),
+    RunCase(name="sequential-debug-malloc", flags=_SEQUENTIAL_FLAGS, debug_malloc=True),
+    RunCase(name="parallel-profile-debug-malloc", profile=True, debug_malloc=True),
+    RunCase(
+        name="sequential-profile-debug-malloc",
+        flags=_SEQUENTIAL_FLAGS,
+        profile=True,
+        debug_malloc=True,
+    ),
 )
+
+# Bionic's malloc debug: abort on a free/realloc of a pointer that is not a live
+# allocation. It refuses any single allocation above 2^31 - 1 bytes with a
+# silent ENOMEM (PointerInfoType::MaxSize() in libc/malloc_debug/PointerData.h),
+# and iree-run-module reads the whole module into one, so a model whose .vmfb
+# is 2 GiB or larger crashes under it. Only for smaller models.
+_DEBUG_MALLOC_OPTIONS = "verify_pointers abort_on_error"
 
 RUN_CASES_BY_NAME = {case.name: case for case in RUN_CASES}
 RUN_CASE_NAMES = tuple(RUN_CASES_BY_NAME)
@@ -158,6 +176,7 @@ def run_module_on_device(
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
     tracy_port: int | None = None,
+    debug_malloc: bool = False,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
 
@@ -171,6 +190,9 @@ def run_module_on_device(
 
     `timeout` bounds both the module push and the run.
 
+    With `debug_malloc`, iree-run-module runs under bionic's malloc debug, see
+    `_DEBUG_MALLOC_OPTIONS`.
+
     With `tracy_port`, the deployment must hold the Tracy runtime.
     The port is then used on device to connect `tracy-capture` to `iree-module-run`.
     It is not used on the host.
@@ -181,9 +203,6 @@ def run_module_on_device(
     every subsequent test fails for an unrelated reason.
     """
     timings: dict[str, float] = {}
-
-    # debug memory issues on the phone and abort if errors occur
-    debug_malloc_options = "LIBC_DEBUG_MALLOC_OPTIONS='verify_pointers abort_on_error'"
 
     push_total_start = time.time()
     remote_dir = deployment.case_dir(case_dir_name)
@@ -242,11 +261,19 @@ def run_module_on_device(
 
     # DSP_LIBRARY_PATH is where the DSP side looks for the skel and for the
     # FARF mask file; see examples/running.md.
-    script = f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && export {debug_malloc_options} &&"
+    script = (
+        f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
+    )
+    # Set for the run only, not for the Tracy tools of a profiled run.
+    env = (
+        f"LIBC_DEBUG_MALLOC_OPTIONS={shlex.quote(_DEBUG_MALLOC_OPTIONS)} "
+        if debug_malloc
+        else ""
+    )
     if tracy_port is None:
-        script += shlex.join(argv)
+        script += env + shlex.join(argv)
     else:
-        script += _capture_script(deployment, argv, tracy_port)
+        script += _capture_script(deployment, env + shlex.join(argv), tracy_port)
 
     local_output_dir.mkdir(parents=True, exist_ok=True)
     adb.logcat_clear()
@@ -298,8 +325,8 @@ _CSVEXPORT_LOG = "csvexport.log"
 _PROFILE_EXIT_CODES = "profile.exit_codes"
 
 
-def _capture_script(deployment: Deployment, argv: list[str], port: int) -> str:
-    """The shell script running `argv` while tracy-capture records it, and
+def _capture_script(deployment: Deployment, run_command: str, port: int) -> str:
+    """The shell script running `run_command` while tracy-capture records it, and
     tracy-csvexport exporting the recording.
 
     tracy-capture starts first and keeps retrying to connect until
@@ -333,7 +360,7 @@ def _capture_script(deployment: Deployment, argv: list[str], port: int) -> str:
     return f"""{{
     {shlex.join(capture_argv)} > {_CAPTURE_LOG} 2>&1 &
     capture_pid=$!
-    TRACY_NO_EXIT=1 TRACY_PORT={port} {shlex.join(argv)}
+    TRACY_NO_EXIT=1 TRACY_PORT={port} {run_command}
     run_exit_code=$?
     if [ $run_exit_code -ne 0 ]; then
       kill $capture_pid

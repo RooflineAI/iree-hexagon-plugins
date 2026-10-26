@@ -436,6 +436,9 @@ typedef struct hexa_cmd_buf_task_s {
   /// file descriptors mapped for the bindings, unmapped when finished
   int *mapped_fds;
   uint32_t num_buf_refs;
+  /// whether the dispatch (possibly) uses HVX, its thread then holds an HVX
+  /// context while executing it
+  bool uses_hvx;
   /// completion notification of the master
   hexa_cmd_buf_done_t *done_notify;
   /// set by the worker once the dispatch has been executed, guarded by
@@ -481,6 +484,8 @@ typedef struct hexa_cmd_buf_sched_s {
  * @param[out] out_vtcm_bytes VTCM the dispatch declared,
  *                            HEXAGON_RT_VTCM_PARTITION_ALL if unknown
  * @param[out] out_uses_hmx whether the dispatch (possibly) uses HMX
+ *
+ * Sets task->uses_hvx.
  * @retval AEE_SUCCESS for success
  */
 static int hexa_cmd_buf_prepare_dispatch(
@@ -578,6 +583,7 @@ static int hexa_cmd_buf_prepare_dispatch(
   task->dispatch_arrays = dispatch_arrays;
   task->mapped_fds = mapped_fds;
   task->num_buf_refs = 0;
+  task->uses_hvx = true;
 
   // Obtain constants from serialized data
   for (uint16_t c = 0; c < cmd_dispatch->constant_count; ++c) {
@@ -611,7 +617,7 @@ static int hexa_cmd_buf_prepare_dispatch(
 
   // The dispatch allocates VTCM only from its own partition, sized by the VTCM
   // the compiler declared for it. Without a declaration it gets all of VTCM.
-  // Without valid resource information, the dispatch might use HMX.
+  // Without valid resource information, the dispatch might use HVX and HMX.
   const hexagon_executable_dispatch_attrs_t *attrs = NULL;
   *out_vtcm_bytes = HEXAGON_RT_VTCM_PARTITION_ALL;
   *out_uses_hmx = true;
@@ -619,6 +625,8 @@ static int hexa_cmd_buf_prepare_dispatch(
           executable_handle, export_ordinal, &attrs) == AEE_SUCCESS &&
       attrs &&
       (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0) {
+    task->uses_hvx =
+        (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_USES_HVX) != 0;
     *out_uses_hmx =
         (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_USES_HMX) != 0;
     if (attrs->vtcm_bytes != (uint64_t)INT64_MAX) {
@@ -633,11 +641,21 @@ static int hexa_cmd_buf_prepare_dispatch(
  * @brief Execute all workgroups of a prepared dispatch.
  * @param[in] task prepared task with acquired VTCM partition
  *
- * Runs on the master or on a worker thread.
+ * Runs on the master or on a worker thread. An HVX dispatch holds an HVX
+ * context of the executing thread while it runs.
  */
 static void hexa_cmd_buf_run_dispatch(hexa_cmd_buf_task_t *task) {
   const hexagon_executable_dispatch_state_t *dispatch_state =
       &task->extended_dispatch_state.dispatch_state;
+
+  if (task->uses_hvx) {
+    int err = qurt_hvx_lock(QURT_HVX_MODE_128B);
+    if (err != QURT_EOK) {
+      FARF(ERROR, "HEXAGON-RUNTIME-ERROR: qurt_hvx_lock failed (%d) for %s",
+           err, task->func_name ? task->func_name : "(unnamed)");
+      abort();
+    }
+  }
 
   hexagon_rt_prof_record_t *prof_dispatch_record = profiler_measurement_start(
       task->runtime_state.prof_context, KERNEL, task->func_name);
@@ -668,6 +686,10 @@ static void hexa_cmd_buf_run_dispatch(hexa_cmd_buf_task_t *task) {
   }
 
   profiler_measurement_finish_and_record(prof_dispatch_record);
+
+  if (task->uses_hvx) {
+    qurt_hvx_unlock();
+  }
 }
 
 /**

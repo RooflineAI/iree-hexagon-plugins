@@ -331,6 +331,14 @@ exports_files(["LICENSE", "xxhash.h"])
     sha256 = "aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80",
     strip_prefix = "xxHash-0.8.3",
     urls = ["https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz"],
+)
+
+###############################################################################
+# Tracy host tools (tracy-capture, tracy-csvexport), built from IREE's
+# vendored Tracy
+###############################################################################
+
+http_archive(
     name = "tracy_capstone",
     build_file = "//build_tools/bazel/tracy:BUILD.capstone.bazel",
     sha256 = "4d62cf5f8a1578d2c70db1fa93533bc5ce58d207abe83ca654c36246dd4f266a",
@@ -339,8 +347,6 @@ exports_files(["LICENSE", "xxhash.h"])
     urls = ["https://github.com/capstone-engine/capstone/archive/97db712c91e964718f9cc300e81b9cf76b31a22e.tar.gz"],
 )
 
-# Tracy host tools (tracy-capture, tracy-csvexport), built from IREE's
-# vendored Tracy
 http_archive(
     name = "tracy_ppqsort",
     build_file = "//build_tools/bazel/tracy:BUILD.ppqsort.bazel",

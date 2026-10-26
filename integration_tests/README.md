@@ -45,9 +45,7 @@ the plain one.
 
 Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 (all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`,
-`--rsync`, and the four artifact paths.
-`--tracy-port` (default 8086), and the seven artifact paths.
-`--tracy-port` (default 8086), and the five artifact paths.
+`--rsync`, `--tracy-port` (default 8086), and the five artifact paths.
 
 ## Requirements
 

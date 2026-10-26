@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
-import concurrent.futures
 import shlex
 import time
 from dataclasses import dataclass, field

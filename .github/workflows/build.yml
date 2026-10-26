@@ -223,7 +223,7 @@ jobs:
           --iree-compile=build-artifacts/hexagon_compiler_x86_64_linux/bin/iree-compile \
           --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
           --runtime-zip-tracy=build-artifacts/hexagon_runtime_aarch64_android_tracy.zip \
-          --device-tools-zip=build-artifacts/device_tools_aarch64_android.zip \
+          --device-tools-zip=test-tools/device_tools_aarch64_android.zip \
           --lld=build-artifacts/hexagon_compiler_x86_64_linux/bin/ld.lld
       - &leave_overlay
         name: Leave the overlay

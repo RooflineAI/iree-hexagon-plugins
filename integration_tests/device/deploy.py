@@ -149,10 +149,6 @@ def deploy(
         f"printf '{_FARF_MASK}\\n' > {shlex.quote(f'lib/hexagon/{binary}.farf')}"
         for binary in _ENTRY_BINARIES
     )
-    chmods = " ".join(
-        shlex.quote(f"bin/{binary}")
-        for binary in (*_ENTRY_BINARIES, "limit_lifetime", "rsync")
-    )
     # Which binaries there are depends on the runtime: only the Tracy one has
     # tracy-capture and tracy-csvexport.
     adb.shell(

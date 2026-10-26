@@ -114,7 +114,17 @@ pkg_files(
     srcs = [
         "@iree//tools:iree-benchmark-module",
         "@iree//tools:iree-run-module",
-    ],
+    ] + select({
+        # The Tracy package also carries tracy-capture and tracy-csvexport, to
+        # record and export the trace on the device itself: the Tracy port is
+        # not reachable from the host when the device is behind a remote adb
+        # server, and the CSV is a fraction of the trace's size to pull.
+        "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
+            "@tracy_tools//:tracy-capture",
+            "@tracy_tools//:tracy-csvexport",
+        ],
+        "//conditions:default": [],
+    }),
     prefix = "bin",
 )
 

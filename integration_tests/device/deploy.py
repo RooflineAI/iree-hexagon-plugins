@@ -13,6 +13,9 @@ Two packages are unpacked into one directory per run:
 
         bin/iree-run-module          ARM host side, Hexagon HAL driver linked in
         bin/iree-benchmark-module    same, for benchmarking
+        bin/tracy-capture            only in the Tracy runtime, records the
+                                     trace on the device
+        bin/tracy-csvexport          only in the Tracy runtime, exports it
         lib/hexagon/libhexagon_dsp_skel.so   the DSP side
         lib/libc++_shared.so         NDK C++ runtime
 
@@ -66,6 +69,7 @@ class Deployment:
 
     root: str
     run_id: str
+    has_tracy: bool = False
 
     @property
     def run_dir(self) -> str:
@@ -74,6 +78,20 @@ class Deployment:
     @property
     def run_module(self) -> str:
         return f"{self.run_dir}/bin/iree-run-module"
+
+    @property
+    def tracy_capture(self) -> str:
+        """Only present in a deployment of the Tracy runtime."""
+        if not self.has_tracy:
+            raise ValueError(f"{self.run_dir} is not a deployment of the Tracy runtime")
+        return f"{self.run_dir}/bin/tracy-capture"
+
+    @property
+    def tracy_csvexport(self) -> str:
+        """Only present in a deployment of the Tracy runtime."""
+        if not self.has_tracy:
+            raise ValueError(f"{self.run_dir} is not a deployment of the Tracy runtime")
+        return f"{self.run_dir}/bin/tracy-csvexport"
 
     @property
     def limit_lifetime(self) -> str:
@@ -95,6 +113,14 @@ class Deployment:
         return f"{self.root}/modules/{case_dir_name}/module.vmfb"
 
 
+@dataclass(frozen=True)
+class Deployments:
+    """The plain runtime and the Tracy runtime, each in its own run directory."""
+
+    plain: Deployment
+    tracy: Deployment
+
+
 def _unpack(zip_path: Path, remote_dir: str) -> None:
     adb.shell(f"mkdir -p {shlex.quote(remote_dir)}")
     adb.push([zip_path], remote_dir + "/")
@@ -108,21 +134,25 @@ def deploy(
     tools_zip: Path,
     root: str = DEFAULT_DEVICE_ROOT,
     run_id: str | None = None,
+    has_tracy: bool = False,
 ) -> Deployment:
-    """Unpack the runtime and the helpers into a fresh directory for this run."""
-    deployment = Deployment(root=root, run_id=run_id or new_run_id())
+    """Unpack the runtime and the helpers into a fresh directory for this run.
+
+    `has_tracy` says whether `runtime_zip` is the Tracy runtime.
+    """
+    deployment = Deployment(
+        root=root, run_id=run_id or new_run_id(), has_tracy=has_tracy
+    )
     _unpack(runtime_zip, deployment.run_dir)
     _unpack(tools_zip, deployment.run_dir)
     farf_writes = " && ".join(
         f"printf '{_FARF_MASK}\\n' > {shlex.quote(f'lib/hexagon/{binary}.farf')}"
         for binary in _ENTRY_BINARIES
     )
-    chmods = " ".join(
-        shlex.quote(f"bin/{binary}")
-        for binary in (*_ENTRY_BINARIES, "limit_lifetime", "rsync")
-    )
+    # Which binaries there are depends on the runtime: only the Tracy one has
+    # tracy-capture and tracy-csvexport.
     adb.shell(
-        f"cd {shlex.quote(deployment.run_dir)} && chmod +x {chmods} && {farf_writes}"
+        f"cd {shlex.quote(deployment.run_dir)} && chmod +x bin/* && {farf_writes}"
     )
     return deployment
 

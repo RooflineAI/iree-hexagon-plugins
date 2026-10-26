@@ -27,6 +27,9 @@ IREE_COMPILE_TARGET = "@iree//tools:iree-compile"
 RUNTIME_ZIP_TARGET = "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android"
 LLD_TARGET = "@llvm-project//lld:ld.lld"
 DEVICE_TOOLS_TARGET = "//integration_tests/device/tools:device_tools_aarch64_android"
+RUNTIME_ZIP_TRACY_TARGET = (
+    "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy"
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 

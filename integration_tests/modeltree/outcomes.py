@@ -19,6 +19,10 @@ class Status(enum.StrEnum):
     COMPILE_FAILURE = "COMPILE_FAILURE"
     RUNTIME_FAILURE = "RUNTIME_FAILURE"
     ACCURACY_FAILURE = "ACCURACY_FAILURE"
+    # The profile could not be captured or exported.
+    CAPTURE_PROFILE_FAILURE = "CAPTURE_PROFILE_FAILURE"
+    # A profile check failed.
+    PROFILE_FAILURE = "PROFILE_FAILURE"
 
 
 class Mismatch(enum.StrEnum):

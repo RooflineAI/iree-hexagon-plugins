@@ -18,3 +18,4 @@ expected_outcomes:
     reason: "v32i1 = setcc"
     comment: >-
       LLVM Hexagon ISel cannot select a v32i1 setcc (setogt) from the f16 math.erf of the GELU fused into dispatch conv_4x32x4x25x32x3x3_f16xf16xf32, in both cases, within a second. The same failure as Qwen/Qwen3-ASR-0.6B (conv_4x480x32x25x480x3x3); the GELU alone, and the conv at batch 1, compile. Measured 2026-10-02.
+run_cases: [parallel-debug-malloc]

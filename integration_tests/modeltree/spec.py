@@ -15,6 +15,7 @@ A model in this suite is two files and no test code:
 from __future__ import annotations
 
 import dataclasses
+import typing
 from pathlib import Path
 
 import dacite
@@ -25,7 +26,15 @@ from integration_tests.stages.compiling import (
     COMPILE_CASE_NAMES,
     DEFAULT_COMPILE_CASE_NAMES,
 )
-from integration_tests.stages.running import DEFAULT_RUN_CASE_NAMES, RUN_CASE_NAMES
+from integration_tests.stages.profile_checks import (
+    PROFILE_CHECKS,
+    validate_check_args,
+)
+from integration_tests.stages.running import (
+    DEFAULT_RUN_CASE_NAMES,
+    RUN_CASE_NAMES,
+    RUN_CASES_BY_NAME,
+)
 
 # numpy/torch dtype names accepted in `inputs[].dtype`. Closed
 # set: a typo here would otherwise produce a silently different reference.
@@ -95,6 +104,27 @@ class SemanticCheck:
     output_index: int = 0
 
 
+# eq=False keeps it hashable (by identity) despite the dict, so ModelSpec is too.
+@dataclasses.dataclass(frozen=True, eq=False)
+class ProfileCheckSpec:
+    """One `profile_checks` entry: a check from `stages/profile_checks.py`,
+    the profile run cases and compile cases it applies to, and its arguments.
+    """
+
+    check: str
+    # "*" means every profile run case, or every compile case, of the model.
+    run_case: str = "*"
+    compile_case: str = "*"
+    args: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
+
+    def applies_to(self, compile_case: str, run_case: str) -> bool:
+        return (
+            RUN_CASES_BY_NAME[run_case].profile
+            and self.compile_case in ("*", compile_case)
+            and self.run_case in ("*", run_case)
+        )
+
+
 @dataclasses.dataclass(frozen=True)
 class ModelSpec:
     """One entry of the model tree."""
@@ -113,6 +143,8 @@ class ModelSpec:
     # Which runtime configurations to run each compile case with. Each one is
     # a separate test of the same compiled module.
     run_cases: tuple[str, ...] = DEFAULT_RUN_CASE_NAMES
+    # Checks on the profile of the profile run cases (e.g. parallel-profile).
+    profile_checks: tuple[ProfileCheckSpec, ...] = ()
     semantic_check: SemanticCheck | None = None
     extra_compile_flags: tuple[str, ...] = ()
     # Seconds the module push, and separately iree-run-module on the device,
@@ -144,6 +176,40 @@ class ModelSpec:
             raise SpecError(f"{self.name}: at least one run case is required")
         if self.skip is not None and not self.skip.strip():
             raise SpecError(f"{self.name}: 'skip' must say why the model is skipped")
+        for check in self.profile_checks:
+            self._validate_profile_check(check)
+
+    def _validate_profile_check(self, check: ProfileCheckSpec) -> None:
+        where = f"{self.name}: profile check {check.check!r}"
+        if check.check not in PROFILE_CHECKS:
+            raise SpecError(f"{where} is unknown; known: {sorted(PROFILE_CHECKS)}")
+        try:
+            validate_check_args(check.check, check.args)
+        except TypeError as err:
+            raise SpecError(f"{where}: bad args {check.args}: {err}") from err
+        profile_run_cases = [
+            name for name in self.run_cases if RUN_CASES_BY_NAME[name].profile
+        ]
+        if check.run_case == "*":
+            if not profile_run_cases:
+                raise SpecError(
+                    f"{where}: the model has no profile run case in 'run_cases'"
+                )
+        elif check.run_case not in profile_run_cases:
+            raise SpecError(
+                f"{where}: run case {check.run_case!r} is not one of the model's "
+                f"profile run cases {profile_run_cases}"
+            )
+        if check.compile_case != "*" and check.compile_case not in self.compile_cases:
+            raise SpecError(
+                f"{where}: compile case {check.compile_case!r} is not one of the "
+                f"model's compile cases {list(self.compile_cases)}"
+            )
+
+    def profile_checks_for(
+        self, compile_case: str, run_case: str
+    ) -> list[ProfileCheckSpec]:
+        return [c for c in self.profile_checks if c.applies_to(compile_case, run_case)]
 
     @property
     def model_source(self) -> Path:

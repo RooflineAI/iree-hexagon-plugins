@@ -26,13 +26,37 @@ class RunCase:
 
     name: str
     flags: tuple[str, ...] = ()
+    # Run with the Tracy runtime and capture a profile, exported as CSV.
+    profile: bool = False
+    # Run iree-run-module under bionic's malloc debug, see _DEBUG_MALLOC_OPTIONS.
+    debug_malloc: bool = False
 
+
+_SEQUENTIAL_FLAGS = ("--hexagon_max_concurrent_dispatches=1",)
 
 RUN_CASES: tuple[RunCase, ...] = (
     # The runtime default: as many concurrent dispatches as HVX contexts.
     RunCase(name="parallel"),
-    RunCase(name="sequential", flags=("--hexagon_max_concurrent_dispatches=1",)),
+    RunCase(name="sequential", flags=_SEQUENTIAL_FLAGS),
+    RunCase(name="parallel-profile", profile=True),
+    RunCase(name="sequential-profile", flags=_SEQUENTIAL_FLAGS, profile=True),
+    RunCase(name="parallel-debug-malloc", debug_malloc=True),
+    RunCase(name="sequential-debug-malloc", flags=_SEQUENTIAL_FLAGS, debug_malloc=True),
+    RunCase(name="parallel-profile-debug-malloc", profile=True, debug_malloc=True),
+    RunCase(
+        name="sequential-profile-debug-malloc",
+        flags=_SEQUENTIAL_FLAGS,
+        profile=True,
+        debug_malloc=True,
+    ),
 )
+
+# Bionic's malloc debug: abort on a free/realloc of a pointer that is not a live
+# allocation. It refuses any single allocation above 2^31 - 1 bytes with a
+# silent ENOMEM (PointerInfoType::MaxSize() in libc/malloc_debug/PointerData.h),
+# and iree-run-module reads the whole module into one, so a model whose .vmfb
+# is 2 GiB or larger crashes under it. Only for smaller models.
+_DEBUG_MALLOC_OPTIONS = "verify_pointers abort_on_error"
 
 RUN_CASES_BY_NAME = {case.name: case for case in RUN_CASES}
 RUN_CASE_NAMES = tuple(RUN_CASES_BY_NAME)
@@ -49,6 +73,10 @@ class RunModuleResult:
     logcat: str
     output_files: list[Path] = field(default_factory=list)
     timings: dict[str, float] = field(default_factory=dict)
+    # Only set for a profiled run.
+    profile_csv: Path | None = None
+    # Why the profile could not be captured or exported, if it could not.
+    profile_error: str | None = None
 
     def describe(self) -> str:
         return (
@@ -146,6 +174,8 @@ def run_module_on_device(
     host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
+    tracy_port: int | None = None,
+    debug_malloc: bool = False,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
 
@@ -158,6 +188,13 @@ def run_module_on_device(
     into the case directory.
 
     `timeout` bounds both the module push and the run.
+
+    With `debug_malloc`, iree-run-module runs under bionic's malloc debug, see
+    `_DEBUG_MALLOC_OPTIONS`.
+
+    With `tracy_port`, the deployment must hold the Tracy runtime.
+    The port is then used on device to connect `tracy-capture` to `iree-module-run`.
+    It is not used on the host.
 
     The command runs under `limit_lifetime`, so that when `timeout` fires and
     Python SIGKILLs the adb client, the on-device process group is killed too.
@@ -224,17 +261,25 @@ def run_module_on_device(
     # DSP_LIBRARY_PATH is where the DSP side looks for the skel and for the
     # FARF mask file; see examples/running.md.
     script = (
-        f"cd {remote_dir} && "
-        f"export DSP_LIBRARY_PATH={deployment.dsp_library_path} && " + shlex.join(argv)
+        f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
     )
+    # Set for the run only, not for the Tracy tools of a profiled run.
+    env = (
+        f"LIBC_DEBUG_MALLOC_OPTIONS={shlex.quote(_DEBUG_MALLOC_OPTIONS)} "
+        if debug_malloc
+        else ""
+    )
+    if tracy_port is None:
+        script += env + shlex.join(argv)
+    else:
+        script += _capture_script(deployment, env + shlex.join(argv), tracy_port)
 
+    local_output_dir.mkdir(parents=True, exist_ok=True)
     adb.logcat_clear()
     run_start = time.time()
     exit_code, log = adb.shell_exit_code(script, timeout=timeout)
     timings["run"] = time.time() - run_start
     logcat = adb.logcat_dump()
-
-    local_output_dir.mkdir(parents=True, exist_ok=True)
     pulled: list[Path] = []
     pull_start = time.time()
     for name in output_names:
@@ -249,6 +294,14 @@ def run_module_on_device(
             continue
         pulled.append(local_output)
     timings["pull"] = time.time() - pull_start
+
+    profile_csv = profile_error = None
+    if tracy_port is not None:
+        pull_profile_start = time.time()
+        profile_error = _pull_profile(remote_dir, local_output_dir)
+        timings["pull_profile"] = time.time() - pull_profile_start
+        if profile_error is None:
+            profile_csv = local_output_dir / _PROFILE_CSV
     return RunModuleResult(
         remote_dir=remote_dir,
         exit_code=exit_code,
@@ -256,4 +309,96 @@ def run_module_on_device(
         logcat=_filter_logcat_lines(logcat),
         output_files=pulled,
         timings=timings,
+        profile_csv=profile_csv,
+        profile_error=profile_error,
     )
+
+
+# Files the on-device capture and export leave in the case directory.
+_PROFILE_TRACE = "profile.tracy"
+_PROFILE_CSV = "profile.csv"
+_CAPTURE_LOG = "capture.log"
+_CSVEXPORT_LOG = "csvexport.log"
+# "<tracy-capture exit code> <tracy-csvexport exit code>", the latter "-" when
+# it did not run.
+_PROFILE_EXIT_CODES = "profile.exit_codes"
+
+
+def _capture_script(deployment: Deployment, run_command: str, port: int) -> str:
+    """The shell script running `run_command` while tracy-capture records it, and
+    tracy-csvexport exporting the recording.
+
+    tracy-capture starts first and keeps retrying to connect until
+    iree-run-module listens. TRACY_NO_EXIT keeps iree-run-module alive until the
+    capture has all data, so after a successful run the capture finishes on its
+    own. A failed run may never have listened, so then the capture is stopped.
+    Everything runs under `limit_lifetime`, so a timeout kills it all.
+    The script exits with the exit code of the run.
+
+    The export keeps the GPU zones only (`-g`): the DSP zones are Tracy GPU
+    zones, one GPU context per DSP thread. The export has no column for the
+    context, so the threads are merged.
+    """
+    capture_argv = [
+        deployment.limit_lifetime,
+        deployment.tracy_capture,
+        "-o",
+        _PROFILE_TRACE,
+        "-f",
+        "-p",
+        str(port),
+    ]
+    csvexport_argv = [
+        deployment.limit_lifetime,
+        deployment.tracy_csvexport,
+        "-g",
+        _PROFILE_TRACE,
+    ]
+    # The braces keep the `&` from sending the commands before it, which the
+    # caller chains with `&&`, to the background too.
+    return f"""{{
+    {shlex.join(capture_argv)} > {_CAPTURE_LOG} 2>&1 &
+    capture_pid=$!
+    TRACY_NO_EXIT=1 TRACY_PORT={port} {run_command}
+    run_exit_code=$?
+    if [ $run_exit_code -ne 0 ]; then
+      kill $capture_pid
+    fi
+    wait $capture_pid
+    capture_exit_code=$?
+    csvexport_exit_code=-
+    if [ $capture_exit_code -eq 0 ]; then
+      {shlex.join(csvexport_argv)} > {_PROFILE_CSV} 2> {_CSVEXPORT_LOG}
+      csvexport_exit_code=$?
+    fi
+    echo $capture_exit_code $csvexport_exit_code > {_PROFILE_EXIT_CODES}
+    exit $run_exit_code
+    }}"""
+
+
+def _pull_profile(remote_dir: str, local_output_dir: Path) -> str | None:
+    """Pull the CSV the on-device export wrote, returning why there is none, if
+    there is none.
+    """
+    status, exit_codes = adb.shell_exit_code(f"cat {remote_dir}/{_PROFILE_EXIT_CODES}")
+    if status != 0:
+        return f"the profiling left no exit codes:\n{exit_codes}"
+    capture_exit_code, csvexport_exit_code = exit_codes.split()
+    if capture_exit_code != "0":
+        # tracy-capture redraws its progress line with carriage returns.
+        log = _device_log(remote_dir, _CAPTURE_LOG).replace("\r", "\n")
+        return f"tracy-capture exited {capture_exit_code}:\n{log}"
+    if csvexport_exit_code != "0":
+        log = _device_log(remote_dir, _CSVEXPORT_LOG)
+        return f"tracy-csvexport exited {csvexport_exit_code}:\n{log}"
+    try:
+        adb.pull([f"{remote_dir}/{_PROFILE_CSV}"], local_output_dir)
+    except AdbError as err:
+        return f"could not pull the CSV tracy-csvexport wrote:\n{err}"
+    return None
+
+
+def _device_log(remote_dir: str, name: str) -> str:
+    """A log left in `remote_dir`, for an error message."""
+    _, log = adb.shell_exit_code(f"cat {remote_dir}/{name}")
+    return log

@@ -16,7 +16,7 @@
 // The operands in this focused unit test are function arguments and therefore
 // have no allocation provenance. These assumptions model the alignment
 // guarantees that allocations carry in the full lowering pipeline.
-// CHECK-LABEL: llvm.func @lower_layout_ops(
+// CHECK-LABEL: llvm.func internal @lower_layout_ops(
 // CHECK-SAME:    %{{[^:]+}}: !llvm.ptr, %[[SRC_BASE:[^:]+]]: !llvm.ptr, %[[SRC_OFFSET:[^:]+]]: i32,
 // CHECK-DAG:     %[[C16:.+]] = llvm.mlir.constant(16 : i32) : i32
 // CHECK-DAG:     %[[C1:.+]] = llvm.mlir.constant(1 : i32) : i32
@@ -119,7 +119,7 @@ func.func @lower_bounded_dynamic_rank3_unpack() {
 // transposed runtime packer, which fuses the 32x32 transpose into the pack. The
 // call takes (dest, src, stride, actual_interleave=K=src dim1, actual_other=N=src
 // dim0, interleave_tiles=k=dest dim0, other_tiles=n=dest dim1).
-// CHECK-LABEL: llvm.func @lower_transposed_pack(
+// CHECK-LABEL: llvm.func internal @lower_transposed_pack(
 // CHECK-DAG:     %[[C1:.+]] = llvm.mlir.constant(1 : i32) : i32
 // CHECK-DAG:     %[[C16:.+]] = llvm.mlir.constant(16 : i32) : i32
 // CHECK-DAG:     %[[C32:.+]] = llvm.mlir.constant(32 : i32) : i32
@@ -141,7 +141,7 @@ func.func private @lower_transposed_pack(
 // An f16 output matmul unpacks into an f16 destination: the accumulator read-out
 // tile is f16, so the lowering selects the non-widening runtime unpack
 // (de-interleave only) instead of the f16->f32 (widen + add) variant.
-// CHECK-LABEL: llvm.func @lower_unpack_f16_dest(
+// CHECK-LABEL: llvm.func internal @lower_unpack_f16_dest(
 // CHECK:         llvm.call @iree_hexagon_hmx_unpack_acc_f16_to_f16(%{{.+}}) : (!llvm.ptr, !llvm.ptr, i32, i32, i32, i32, i32) -> ()
 func.func private @lower_unpack_f16_dest(
     %acc: memref<1x1x16x32x2xf16, 1>,
@@ -158,7 +158,7 @@ func.func private @lower_unpack_f16_dest(
 
 // The rank-5 accumulator grid unpacks with a single call; the per-tile loop and
 // boundary clamping live in the runtime, not in MLIR.
-// CHECK-LABEL: llvm.func @lower_unpack_grid(
+// CHECK-LABEL: llvm.func internal @lower_unpack_grid(
 // CHECK-DAG:     %[[C96:.+]] = llvm.mlir.constant(96 : i32) : i32
 // CHECK-DAG:     %[[C64:.+]] = llvm.mlir.constant(64 : i32) : i32
 // CHECK-DAG:     %[[C128:.+]] = llvm.mlir.constant(128 : i32) : i32
@@ -179,7 +179,7 @@ func.func private @lower_unpack_grid(
 
 // -----
 
-// CHECK-LABEL: llvm.func @lower_acc_setup_read(
+// CHECK-LABEL: llvm.func internal @lower_acc_setup_read(
 // CHECK-SAME:    %{{[^:]+}}: !llvm.ptr, %[[CONFIG:[^:]+]]: !llvm.ptr,
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_setup_read_f16(%[[CONFIG]]) : (!llvm.ptr) -> ()
 func.func private @lower_acc_setup_read(%config: memref<256xi8, 1>) {
@@ -190,7 +190,7 @@ func.func private @lower_acc_setup_read(%config: memref<256xi8, 1>) {
 
 // -----
 
-// CHECK-LABEL: llvm.func @lower_direct_single_mma(
+// CHECK-LABEL: llvm.func internal @lower_direct_single_mma(
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
 // CHECK:         llvm.call @iree_hexagon_hmx_mma_f16(%{{.+}}, %{{.+}}) : (!llvm.ptr, !llvm.ptr) -> ()
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_read_f16(%{{.+}}) : (!llvm.ptr) -> ()
@@ -218,7 +218,7 @@ func.func private @lower_direct_single_mma(
 
 // The accumulator carried through the loop has no runtime value, so the block
 // arguments that carried it are dropped.
-// CHECK-LABEL: llvm.func @lower_acc_loop(
+// CHECK-LABEL: llvm.func internal @lower_acc_loop(
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
 // CHECK:         llvm.br ^[[LOOP:bb[0-9]+]](%{{.+}} : i32)
 // CHECK:       ^[[LOOP]](%{{.+}}: i32):
@@ -267,14 +267,14 @@ func.func private @lower_acc_loop(
 
 // -----
 
-// CHECK-LABEL: llvm.func @lower_first_function()
+// CHECK-LABEL: llvm.func internal @lower_first_function()
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
 func.func private @lower_first_function() {
   %acc = iree_hexagon.hmx.acc.zero : !iree_hexagon.hmx.acc<32x32xf32>
   return
 }
 
-// CHECK-LABEL: llvm.func @lower_second_function()
+// CHECK-LABEL: llvm.func internal @lower_second_function()
 // CHECK:         llvm.call @iree_hexagon_hmx_acc_clear_f16() : () -> ()
 func.func private @lower_second_function() {
   %acc = iree_hexagon.hmx.acc.zero : !iree_hexagon.hmx.acc<32x32xf32>

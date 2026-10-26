@@ -292,6 +292,21 @@ def HexagonVTCMTilingPass :
   }];
 }
 
+def HexagonMarkThreadForallsPass :
+    InterfacePass<"iree-hexagon-mark-thread-foralls",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Give every scf.forall without a mapping a local mapping so that
+      iree-codegen-forall-to-for leaves it alone.
+  }];
+  let description = [{
+      The scf.forall ops that remain after the VTCM tile has been
+      sequentialized are the thread loops created by form-virtual-threads.
+      They must survive the later forall-to-for conversions to reach
+      form-async-threads after bufferization.
+  }];
+}
+
 def InsertProfilerMarkersPass :
     InterfacePass<"iree-hexagon-insert-profiler-markers",
                   "mlir::FunctionOpInterface"> {

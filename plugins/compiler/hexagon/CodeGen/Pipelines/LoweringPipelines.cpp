@@ -28,9 +28,11 @@
 #include "iree/compiler/Dialect/Util/Transforms/Passes.h"
 #include "iree/compiler/Transforms/Passes.h"
 #include "iree/compiler/Utils/PassUtils.h"
+#include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/ComplexToStandard/ComplexToStandard.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
@@ -94,6 +96,17 @@ static llvm::cl::opt<bool> clHexagonEnableProfilerMarkers(
     llvm::cl::desc("Insert DSP profiler marker zones around selected Hexagon "
                    "kernel operations."),
     llvm::cl::init(false));
+
+static llvm::cl::opt<bool> clHexagonEnableVTCMTileThreading(
+    "iree-hexagon-enable-vtcm-tile-threading",
+    llvm::cl::desc("Split the parallel loops of the ops inside a VTCM tile "
+                   "over async worker threads (scf.forall -> async.execute). "
+                   "Only applies to the pipelines that use VTCM tiling."),
+    llvm::cl::init(true));
+
+static bool isVTCMTileThreadingEnabled() {
+  return clHexagonEnableVTCMTileThreading && isHexagonVTCMTilingEnabled();
+}
 
 void addHexagonExecutableLoweringPasses(
     OpPassManager &variantPassManager,
@@ -221,6 +234,17 @@ void addHexagonMultiTilingExpertPassPipeline(
   if (isHexagonVTCMTilingEnabled())
     funcPassManager.addPass(createHexagonVTCMTilingPass());
 
+  // Parallelize inside the VTCM tile: the forall of the dispatch tile becomes
+  // a sequential loop, so the only foralls left are the thread loops formed
+  // here. They are protected from the forall-to-for conversions below and
+  // are turned into async threads after bufferization.
+  if (isVTCMTileThreadingEnabled()) {
+    funcPassManager.addPass(createForallToForPass());
+    funcPassManager.addPass(::mlir::hexagon::createFormVirtualThreadsPass(
+        ::mlir::hexagon::FormVirtualThreadsOptions{}));
+    funcPassManager.addPass(createHexagonMarkThreadForallsPass());
+  }
+
   for (int i : IREE::Hexagon::getTilingLevelsAsInts()) {
     if (!loweringConfig.hasTilingLevel(i)) {
       continue;
@@ -295,6 +319,9 @@ void addHexagonMultiTilingExpertPassPipeline(
     funcPassManager.addPass(createHexagonLowerVTCMStagingPass());
 
   addHexagonBufferizePasses(funcPassManager);
+
+  if (isVTCMTileThreadingEnabled())
+    funcPassManager.addPass(::mlir::hexagon::createFormAsyncThreadsPass());
 
   // Run IREE specific passes before vector lowering expert.
   funcPassManager.addPass(createPropagateDispatchSizeBoundsPass());
@@ -551,6 +578,11 @@ void addHexagonVariantFinalizationPasses(OpPassManager &variantPassManager) {
 }
 
 void addHexagonPreLLVMConversionPasses(OpPassManager &modulePassManager) {
+  // Outline the async.execute bodies into coroutines before SCF is lowered to
+  // CF, since an async.execute region must stay a single block.
+  if (isVTCMTileThreadingEnabled())
+    modulePassManager.addPass(createAsyncToAsyncRuntimePass());
+
   FunctionLikeNest(modulePassManager)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 
@@ -634,6 +666,10 @@ void addHexagonPreLLVMConversionPasses(OpPassManager &modulePassManager) {
 }
 
 void addHexagonConvertToLLVMPasses(OpPassManager &modulePassManager) {
+  // async.runtime and coroutine ops -> mlirAsyncRuntime* calls and LLVM
+  // coroutine intrinsics.
+  if (isVTCMTileThreadingEnabled())
+    modulePassManager.addPass(createConvertAsyncToLLVMPass());
   modulePassManager.addPass(createHexagonVerifyHmxRuntimeABIPass());
 
   modulePassManager.addPass(createHexagonConvertToLLVMPass(

@@ -103,7 +103,7 @@ module attributes {hal.executable.target = #hexagon_target} {
 
   // Verifies non-public functions use ordinary func-to-LLVM conversion and do
   // not acquire dispatch ABI arguments or an i32 status result.
-  // CHECK-LABEL: llvm.func @consume(
+  // CHECK-LABEL: llvm.func internal @consume(
   // CHECK-SAME: attributes {sym_visibility = "private"}
   func.func private @consume(
       %id_x: index, %id_y: index, %id_z: index,

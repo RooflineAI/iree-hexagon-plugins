@@ -28,6 +28,16 @@ const llvm::StringSet<> &getHexagonRuntimeSymbolNames() {
     }
     set.insert(mlir::hexagonmem::getCopyFnName());
     set.insert(kVtcmAllocFnName);
+    // MLIR async runtime, used by the threads inside a VTCM tile, plus the
+    // allocator that the coroutine frames use.
+    for (llvm::StringRef name :
+         {"mlirAsyncRuntimeAddRef", "mlirAsyncRuntimeDropRef",
+          "mlirAsyncRuntimeCreateToken", "mlirAsyncRuntimeEmplaceToken",
+          "mlirAsyncRuntimeIsTokenError", "mlirAsyncRuntimeAwaitToken",
+          "mlirAsyncRuntimeCreateGroup", "mlirAsyncRuntimeAddTokenToGroup",
+          "mlirAsyncRuntimeIsGroupError", "mlirAsyncRuntimeAwaitAllInGroup",
+          "mlirAsyncRuntimeExecute", "aligned_alloc", "free"})
+      set.insert(name);
     set.insert("hexagon_runtime_profiler_zone_begin");
     set.insert("hexagon_runtime_profiler_zone_end");
     set.insert("iree_hexagon_hmx_pack_f16");

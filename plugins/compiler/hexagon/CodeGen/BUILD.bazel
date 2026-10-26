@@ -190,6 +190,7 @@ hexagon_plugin_library(
         "Transforms/HexagonEmitVectorizationRemarks.cpp",
         "Transforms/HexagonExpandHmxMatmul.cpp",
         "Transforms/HexagonLinkExecutables.cpp",
+        "Transforms/HexagonMarkThreadForalls.cpp",
         "Transforms/HexagonPeel.cpp",
         "Transforms/HexagonSplitReduction.cpp",
         "Transforms/HexagonSynchronizeSymbolVisibility.cpp",
@@ -285,5 +286,8 @@ hexagon_plugin_library(
         ":TargetConfig",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "@hexagon-mlir//qcom_hexagon_backend:HexagonLoweringSupport",
+        "@llvm-project//mlir:AsyncDialect",
+        "@llvm-project//mlir:AsyncToLLVM",
+        "@llvm-project//mlir:AsyncTransforms",
     ],
 )

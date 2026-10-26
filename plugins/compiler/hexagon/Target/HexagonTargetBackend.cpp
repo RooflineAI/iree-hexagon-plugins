@@ -14,6 +14,7 @@
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "hexagon/Target/HexagonExecutableSerialization.h"
 #include "hexagon/Target/HexagonLLVMTarget.h"
+#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -69,7 +70,7 @@ public:
 
   void getDependentDialects(mlir::DialectRegistry &registry) const override {
     registry.insert<LLVM::LLVMDialect, IREE::Hexagon::IREEHexagonDialect,
-                    mlir::hexkl::HexKLDialect,
+                    mlir::async::AsyncDialect, mlir::hexkl::HexKLDialect,
                     mlir::hexagonmem::HexagonMemDialect>();
     registerBuiltinDialectTranslation(registry);
     registerLLVMDialectTranslation(registry);

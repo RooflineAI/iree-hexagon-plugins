@@ -50,6 +50,7 @@
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
@@ -333,6 +334,45 @@ static Value castToIntType(OpBuilder &builder, Location loc, Value value,
     return LLVM::ZExtOp::create(builder, loc, type, value);
   return LLVM::TruncOp::create(builder, loc, type, value);
 }
+
+/// Returns true for the `index -> i64` casts that the async-to-LLVM lowering
+/// emits for the fixed 64 bit arguments of the AsyncRuntime (group sizes).
+static bool isIndexToI64Cast(UnrealizedConversionCastOp castOp) {
+  return castOp.getNumOperands() == 1 && castOp.getNumResults() == 1 &&
+         castOp.getOperand(0).getType().isIndex() &&
+         castOp.getResult(0).getType().isInteger(64);
+}
+
+/// `index` is 32 bit on Hexagon, so the `index -> i64` casts above can't be
+/// reconciled away and widen the converted operand instead.
+struct IndexToI64CastLowering
+    : public OpConversionPattern<UnrealizedConversionCastOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(UnrealizedConversionCastOp castOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!isIndexToI64Cast(castOp))
+      return failure();
+    rewriter.replaceOp(castOp, castToIntType(rewriter, castOp.getLoc(),
+                                             adaptor.getOperands().front(),
+                                             rewriter.getI64Type()));
+    return success();
+  }
+};
+
+/// The async lowering asserts that the awaited thread group is not in an error
+/// state. For Hexagon, the RT handles this case and aborts instead, so no need
+/// to codegen it
+struct DropAssertLowering
+    : public mlir::OpConversionPattern<mlir::cf::AssertOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(mlir::cf::AssertOp assertOp, OpAdaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(assertOp);
+    return success();
+  }
+};
 
 /// Returns the constant |value| holds, looking through memref descriptor
 /// insertvalue/extractvalue chains, which are not folded yet after conversion.
@@ -826,6 +866,8 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   populateVtcmPartitionToLLVMConversionPatterns(abi, typeConverter, patterns,
                                                 vtcmPartitionError);
   populateHexagonHmxToLLVMConversionPatterns(typeConverter, patterns);
+  patterns.add<IndexToI64CastLowering, DropAssertLowering>(typeConverter,
+                                                           &getContext());
 
   // Target-specific lowerings participate in the same conversion transaction
   // as the standard and HAL ABI lowerings. Pattern labels supplied by these
@@ -842,12 +884,48 @@ void HexagonConvertToLLVMPass::runOnOperation() {
                            math::MathDialect, tosa::TosaDialect,
                            hexagonmem::HexagonMemDialect, hexkl::HexKLDialect,
                            IREE::Hexagon::IREEHexagonDialect>();
-  target.addIllegalOp<memref::DmaStartOp, memref::DmaWaitOp>();
+  target.addIllegalOp<memref::DmaStartOp, memref::DmaWaitOp, cf::AssertOp>();
+  target.addDynamicallyLegalOp<UnrealizedConversionCastOp>(
+      [](UnrealizedConversionCastOp castOp) {
+        return !isIndexToI64Cast(castOp);
+      });
 
   if (failed(applyPartialConversion(moduleOp, target, std::move(patterns))) ||
       vtcmPartitionError) {
     signalPassFailure();
     return;
+  }
+
+  // Private symbols must not end up public
+  for (auto funcOp : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
+    if (!funcOp.isExternal() && funcOp.isPrivate())
+      funcOp.setLinkage(LLVM::Linkage::Internal);
+  }
+
+  // Rename the generated async coroutines
+  // third-party/llvm-project/mlir/lib/Dialect/Async/Transforms/AsyncToAsyncRuntime.cpp:338
+  // contains a TODO: Derive outlined function name from the parent FuncOp so we
+  // do that here for now and re-name the generated functions, to match te
+  // dispatchs name
+  for (auto funcOp :
+       llvm::make_early_inc_range(moduleOp.getOps<LLVM::LLVMFuncOp>())) {
+    if (funcOp.isExternal() ||
+        !funcOp.getSymName().starts_with("async_execute_fn"))
+      continue;
+    auto uses = SymbolTable::getSymbolUses(funcOp, moduleOp);
+    if (!uses || uses->empty())
+      continue;
+    auto caller = uses->begin()->getUser()->getParentOfType<LLVM::LLVMFuncOp>();
+    SymbolTable symbolTable(moduleOp);
+    std::string newName = (caller.getSymName() + "_async").str();
+    for (int i = 1; symbolTable.lookup(newName); ++i)
+      newName = (caller.getSymName() + "_async_" + Twine(i)).str();
+    if (failed(SymbolTable::replaceAllSymbolUses(
+            funcOp, StringAttr::get(&getContext(), newName), moduleOp))) {
+      funcOp.emitOpError("failed to rename async helper");
+      return signalPassFailure();
+    }
+    funcOp.setSymName(newName);
   }
 
   // Materializations are allowed while the conversion is in flight, but must

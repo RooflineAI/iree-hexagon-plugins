@@ -210,6 +210,7 @@ iree_cc_library(
     "Transforms/HexagonEmitVectorizationRemarks.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
     "Transforms/HexagonLinkExecutables.cpp"
+    "Transforms/HexagonMarkThreadForalls.cpp"
     "Transforms/HexagonPeel.cpp"
     "Transforms/HexagonSplitReduction.cpp"
     "Transforms/HexagonSynchronizeSymbolVisibility.cpp"
@@ -235,6 +236,9 @@ iree_cc_library(
     MLIRAffineDialect
     MLIRAffineToStandard
     MLIRAffineUtils
+    MLIRAsyncDialect
+    MLIRAsyncToLLVM
+    MLIRAsyncTransforms
     MLIRAnalysis
     MLIRArithDialect
     MLIRBufferizationDialect

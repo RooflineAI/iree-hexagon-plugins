@@ -481,13 +481,15 @@ typedef struct hexa_cmd_buf_sched_s {
  * @param[out] out_vtcm_bytes VTCM the dispatch declared,
  *                            HEXAGON_RT_VTCM_PARTITION_ALL if unknown
  * @param[out] out_uses_hmx whether the dispatch (possibly) uses HMX
+ * @param[out] out_uses_threads whether the dispatch (possibly) runs thread
+ *                              tasks on the thread pool
  * @retval AEE_SUCCESS for success
  */
 static int hexa_cmd_buf_prepare_dispatch(
     hexa_cmd_buf_task_t *task, const uint8_t **cmd_buf_data, int *cmd_buf_size,
     const hexagon_rt_arm_dsp_binding_t *bind_tab, uint32_t bind_tab_num_ent,
     hexagon_rt_prof_context_t *prof_context, size_t *out_vtcm_bytes,
-    bool *out_uses_hmx) {
+    bool *out_uses_hmx, bool *out_uses_threads) {
   PEEK_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
                   hexagon_rt_arm_dsp_cmd_dispatch_t, cmd_dispatch)
   int64_t executable_handle = cmd_dispatch->executable_handle;
@@ -611,16 +613,20 @@ static int hexa_cmd_buf_prepare_dispatch(
 
   // The dispatch allocates VTCM only from its own partition, sized by the VTCM
   // the compiler declared for it. Without a declaration it gets all of VTCM.
-  // Without valid resource information, the dispatch might use HMX.
+  // Without valid resource information, the dispatch might use HMX and
+  // threads.
   const hexagon_executable_dispatch_attrs_t *attrs = NULL;
   *out_vtcm_bytes = HEXAGON_RT_VTCM_PARTITION_ALL;
   *out_uses_hmx = true;
+  *out_uses_threads = true;
   if (hexagon_dsp_executable_get_dispatch_attrs(
           executable_handle, export_ordinal, &attrs) == AEE_SUCCESS &&
       attrs &&
       (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0) {
     *out_uses_hmx =
         (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_USES_HMX) != 0;
+    *out_uses_threads =
+        (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_USES_THREADS) != 0;
     if (attrs->vtcm_bytes != (uint64_t)INT64_MAX) {
       *out_vtcm_bytes = (size_t)attrs->vtcm_bytes;
     }
@@ -777,9 +783,10 @@ static int hexa_cmd_buf_exec_dispatch(
   hexa_cmd_buf_task_t *task = &sched->tasks[task_idx];
   size_t vtcm_bytes = 0;
   bool uses_hmx = true;
-  int err = hexa_cmd_buf_prepare_dispatch(task, cmd_buf_data, cmd_buf_size,
-                                          bind_tab, bind_tab_num_ent,
-                                          prof_context, &vtcm_bytes, &uses_hmx);
+  bool uses_threads = true;
+  int err = hexa_cmd_buf_prepare_dispatch(
+      task, cmd_buf_data, cmd_buf_size, bind_tab, bind_tab_num_ent,
+      prof_context, &vtcm_bytes, &uses_hmx, &uses_threads);
   if (err != AEE_SUCCESS) {
     profiler_measurement_finish_and_record(prof_record);
     return err;
@@ -795,6 +802,15 @@ static int hexa_cmd_buf_exec_dispatch(
          name, (unsigned long long)vtcm_bytes,
          (unsigned long long)sched->vtcm_pool_size);
     abort();
+  }
+
+  // FIXME: this is to make it work and prevent deadlocks, if several dispatches
+  // It should not be necessary. but prevents oversubscription for now
+  // A dispatch with thread tasks runs exclusively, on the master: the pool
+  // workers then only run its tasks, so at most the master plus its tasks use
+  // HVX. Waiting for the other dispatches also frees their VTCM.
+  if (uses_threads) {
+    hexa_cmd_buf_sched_drain(sched);
   }
 
   // Wait until the partition can be carved out of the pool.
@@ -823,8 +839,9 @@ static int hexa_cmd_buf_exec_dispatch(
   sched->vtcm_in_use += task->vtcm_partition.size;
 
   // The master holds the HMX lock, so HMX dispatches run here. Workers that
-  // are already running keep going in the meantime.
-  if (uses_hmx || sched->max_concurrent == 1) {
+  // are already running keep going in the meantime, except for a dispatch with
+  // thread tasks, see above.
+  if (uses_hmx || uses_threads || sched->max_concurrent == 1) {
     profiler_measurement_finish_and_record(prof_record);
     hexa_cmd_buf_run_dispatch(task);
     hexa_cmd_buf_finish_dispatch(sched, task_idx);

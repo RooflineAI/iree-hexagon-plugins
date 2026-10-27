@@ -16,10 +16,12 @@ run_cases: [parallel-debug-malloc, sequential-debug-malloc, parallel-profile-deb
 # main$async_dispatch_2_conv_... and main$async_dispatch_3_reduction_... (the max).
 profile_checks:
   # The two convs are independent and run in parallel.
-  # Disabled while threads inside a VTCM tile make the dispatches serialize
-  # - check: overlap
-  #   run_case: parallel-profile-debug-malloc
-  #   args: {a: dispatch_1_conv, b: dispatch_2_conv}
+  #TODO it could be, that they dont overlap, if all T first process dispatch 1 and then dispatch 2
+  # This does not happen for the small model ou our device, since there are enough threads.
+  # but the schedule does not prevent this, so this test could be considered flakey
+  - check: overlap
+    run_case: parallel-profile-debug-malloc
+    args: {a: dispatch_1_conv, b: dispatch_2_conv}
   # The max reads both conv results, so it must run after both of them.
   - check: no_overlap
     args: {a: dispatch_3_reduction, b: "dispatch_[12]_conv"}

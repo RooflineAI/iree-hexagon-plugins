@@ -17,6 +17,7 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 
 #include <optional>
+#include <string>
 
 namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
@@ -33,7 +34,7 @@ constexpr llvm::StringLiteral kCopyMarker = "memref_copy";
 constexpr llvm::StringLiteral kHexagonMemAllocMarker = "hexagonmem.alloc";
 constexpr llvm::StringLiteral kHexagonMemDeallocMarker = "hexagonmem.dealloc";
 constexpr llvm::StringLiteral kHexagonMemCopyMarker = "hexagonmem.copy";
-constexpr llvm::StringLiteral kComputeInnerLoopMarker = "compute.inner_loop";
+constexpr llvm::StringLiteral kComputeInnerLoopMarkerPrefix = "inner:";
 constexpr llvm::StringLiteral kThreadJoinMarker = "thread.join";
 
 Value insertGetRuntimeState(IRRewriter &rewriter,
@@ -111,7 +112,8 @@ bool isOuterMostOpWithoutHexagonMemOps(Operation *op) {
   return containsHexagonMemOp(parent) && !containsHexagonMemOp(op);
 }
 
-std::optional<MarkerTarget> getMarkerTargetForOp(Operation *op) {
+std::optional<MarkerTarget>
+getMarkerTargetForOp(Operation *op, StringRef computeInnerLoopMarker) {
   if (isa<mlir::memref::AllocOp>(op)) {
     return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
                         kAllocMarker};
@@ -149,7 +151,7 @@ std::optional<MarkerTarget> getMarkerTargetForOp(Operation *op) {
     if (isOuterMostOpWithoutHexagonMemOps(op) ||
         isThreadForall(op->getParentOp())) {
       return MarkerTarget{op, IREE::Hexagon::ProfilerZone::Marker,
-                          kComputeInnerLoopMarker};
+                          computeInnerLoopMarker};
     }
   }
   return std::nullopt;
@@ -165,11 +167,15 @@ struct InsertProfilerMarkersPass final
   void runOnOperation() override {
     mlir::FunctionOpInterface funcOp = getOperation();
 
+    std::string computeInnerLoopMarker =
+        (kComputeInnerLoopMarkerPrefix + funcOp.getName()).str();
+
     // Collect the targets first so the walk is not perturbed by the markers
     // inserted around each operation.
     llvm::SmallVector<MarkerTarget> markerTargets;
     funcOp.walk([&](Operation *op) {
-      if (std::optional<MarkerTarget> markerTarget = getMarkerTargetForOp(op)) {
+      if (std::optional<MarkerTarget> markerTarget =
+              getMarkerTargetForOp(op, computeInnerLoopMarker)) {
         markerTargets.push_back(*markerTarget);
       }
     });

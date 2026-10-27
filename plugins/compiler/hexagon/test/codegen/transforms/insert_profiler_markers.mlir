@@ -23,7 +23,7 @@ func.func @insert_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
 // CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "hexagonmem.copy"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: hexagonmem.copy
 // CHECK-NEXT: iree_hexagon.profiler.end %[[COPY_REC]] : !iree_hexagon.profiler_record
-// CHECK: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = marker, extra_info = "compute.inner_loop"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = marker, extra_info = "inner:insert_markers"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: scf.for
 // CHECK: }
 // CHECK-NEXT: iree_hexagon.profiler.end %[[LOOP_REC]] : !iree_hexagon.profiler_record
@@ -48,12 +48,12 @@ func.func @nested_loop_markers(%src: memref<4xf32>, %dst: memref<4xf32, 1>) {
 
 // CHECK-LABEL: func.func @nested_loop_markers(
 // CHECK: %[[CTX:.*]] = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
-// CHECK-NOT: extra_info = "compute.inner_loop"
+// CHECK-NOT: extra_info = "inner:
 // CHECK: scf.for
 // CHECK: %[[COPY_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = memory_management, extra_info = "hexagonmem.copy"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: hexagonmem.copy
 // CHECK-NEXT: iree_hexagon.profiler.end %[[COPY_REC]] : !iree_hexagon.profiler_record
-// CHECK-NEXT: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = marker, extra_info = "compute.inner_loop"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
+// CHECK-NEXT: %[[LOOP_REC:.*]] = iree_hexagon.profiler.begin %[[CTX]] <zone_type = marker, extra_info = "inner:nested_loop_markers"> : !iree_hexagon.runtime_state -> !iree_hexagon.profiler_record
 // CHECK-NEXT: scf.for
 // CHECK-NOT: iree_hexagon.profiler.begin
 // CHECK: scf.for

@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
@@ -28,6 +29,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/MathExtras.h"
 
+#include <algorithm>
 #include <optional>
 
 namespace mlir::iree_compiler::hexagon::codegen {
@@ -173,8 +175,11 @@ bool isInLoop(Operation *op, FunctionOpInterface funcOp) {
 struct DispatchResources {
   bool hvx = false;
   bool hmx = false;
-  /// Runs work on async worker threads.
-  bool threads = false;
+  /// Maximum number of tasks submitted to async worker threads.
+  int64_t threads = 1;
+  /// Set when the tasks in flight cannot be bounded; the dispatch then
+  /// declares `DispatchResourcesAttr::kUnboundedThreads`.
+  bool threadsUnbounded = false;
   int64_t vtcmBytes = 0;
   /// Set when the VTCM use cannot be bounded; the dispatch then declares
   /// `DispatchResourcesAttr::kUnboundedVTCMBytes`.
@@ -199,9 +204,19 @@ LogicalResult collectResources(FunctionOpInterface funcOp, SymbolTable &symbols,
     if (hasVectorValue(op))
       resources.hvx = true;
     // After async-to-async-runtime, a thread launch is a set of async.runtime
-    // ops plus a call of the outlined coroutine.
-    if (isa<async::AsyncDialect>(op->getDialect()))
-      resources.threads = true;
+    // ops plus a call of the outlined coroutine. HexagonFormAsyncThreads puts
+    // the tasks of one thread loop in a group of constant size and awaits it
+    // before the next loop, so the largest group bounds the tasks in flight.
+    if (auto groupOp = dyn_cast<async::RuntimeCreateGroupOp>(op)) {
+      APInt size;
+      if (matchPattern(groupOp.getSize(), m_ConstantInt(&size)))
+        resources.threads = std::max(resources.threads, size.getSExtValue());
+      else
+        resources.threadsUnbounded = true;
+    } else if (isa<async::ExecuteOp>(op)) {
+      // A task that is not in a group of known size.
+      resources.threadsUnbounded = true;
+    }
 
     if (auto callOp = dyn_cast<func::CallOp>(op)) {
       auto callee = symbols.lookup<FunctionOpInterface>(callOp.getCallee());
@@ -259,13 +274,16 @@ struct HexagonAnnotateDispatchResourcesPass
                                   resources)))
         return signalPassFailure();
 
+      int64_t threads = resources.threadsUnbounded
+                            ? DispatchResourcesAttr::kUnboundedThreads
+                            : resources.threads;
       int64_t vtcmBytes = resources.vtcmUnbounded
                               ? DispatchResourcesAttr::kUnboundedVTCMBytes
                               : resources.vtcmBytes;
       exportOp->setAttr(DispatchResourcesAttr::getAttrName(),
-                        DispatchResourcesAttr::get(
-                            &getContext(), resources.hvx, resources.hmx,
-                            resources.threads, vtcmBytes));
+                        DispatchResourcesAttr::get(&getContext(), resources.hvx,
+                                                   resources.hmx, threads,
+                                                   vtcmBytes));
     }
   }
 };

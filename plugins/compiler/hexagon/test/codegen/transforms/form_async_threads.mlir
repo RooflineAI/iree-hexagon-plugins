@@ -1,7 +1,7 @@
 // RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-form-async-threads, cse))" --split-input-file --verify-diagnostics %s | FileCheck %s
 
 // Every chunk becomes a task of one group, none runs inline; the await is
-// where the dispatching thread joins the pool.
+// where the dispatching thread runs queued tasks of the pool.
 
 // CHECK-LABEL: func.func @four_chunks(
 //  CHECK-SAME:     %[[BUF:.+]]: memref<256xf32>

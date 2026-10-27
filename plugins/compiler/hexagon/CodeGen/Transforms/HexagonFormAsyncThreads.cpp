@@ -33,8 +33,8 @@ namespace {
 ///   async.await_all %group
 ///
 /// with N = ceildiv(%ub - %lb, %step) chunks. Every chunk is a task of the
-/// thread pool; the dispatching thread computes its share by joining the pool
-/// in the await (hexagon_runtime_thread_await_all).
+/// thread pool; the dispatching thread computes its share by running queued
+/// tasks in the await (hexagon_runtime_thread_await_all).
 LogicalResult formAsyncThreads(RewriterBase &rewriter, scf::ForallOp forallOp) {
   if (forallOp.getRank() != 1)
     return forallOp.emitOpError("expected a one-dimensional thread forall");

@@ -50,8 +50,8 @@ void hexagon_runtime_thread_execute(void *handle, void (*resume)(void *)) {
   mlir::runtime::mlirAsyncRuntimeExecute(handle, resume);
 }
 
-// The caller Joins The Threadpool until all tasks are done
+// The caller runs queued tasks of the thread pool until all tasks are done
 void hexagon_runtime_thread_await_all(void *group) {
-  mlir::runtime::mlirAsyncRuntimeJoinAllInGroup(
+  mlir::runtime::mlirAsyncRuntimeAwaitAllInGroupRunningTasks(
       static_cast<mlir::runtime::AsyncGroup *>(group));
 }

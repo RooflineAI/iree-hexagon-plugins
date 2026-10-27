@@ -62,8 +62,9 @@ void *hexagon_runtime_thread_group_create(int64_t num_tasks);
 void hexagon_runtime_thread_execute(void *handle, void (*resume)(void *));
 
 /**
- * @brief Join the thread pool until all thread tasks of the group have
- *        completed: run queued tasks while there are any, block otherwise.
+ * @brief Wait until all thread tasks of the group have completed, running
+ *        queued tasks of the thread pool while there are any, blocking
+ *        otherwise.
  * @param[in] group group created by hexagon_runtime_thread_group_create
  */
 void hexagon_runtime_thread_await_all(void *group);

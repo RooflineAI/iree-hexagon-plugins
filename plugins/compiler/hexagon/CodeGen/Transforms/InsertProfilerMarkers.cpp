@@ -139,8 +139,8 @@ getMarkerTargetForOp(Operation *op, StringRef computeInnerLoopMarker) {
                         kHexagonMemCopyMarker};
   }
   // A thread forall runs on the dispatching thread as: queue all chunks on the
-  // thread pool, then join the pool until they are done. The zone covers both,
-  // and the chunks the dispatching thread runs itself nest in it.
+  // thread pool, then run queued tasks until they are done. The zone covers
+  // both, and the chunks the dispatching thread runs itself nest in it.
   if (isThreadForall(op)) {
     return MarkerTarget{op, IREE::Hexagon::ProfilerZone::Marker,
                         kThreadJoinMarker};

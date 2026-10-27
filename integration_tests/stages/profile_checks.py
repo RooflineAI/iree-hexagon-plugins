@@ -35,6 +35,20 @@ _NON_KERNEL_ZONE_NAMES = frozenset(
     }
 )
 
+# The per-thread compute loop zones carry the dispatch name after this prefix,
+# and the thread pool join zone has a fixed name, see
+# plugins/compiler/hexagon/CodeGen/Transforms/InsertProfilerMarkers.cpp.
+_INNER_LOOP_MARKER_PREFIX = "inner:"
+_THREAD_JOIN_MARKER_NAME = "thread.join"
+
+
+def _is_kernel_zone_name(name: str) -> bool:
+    return (
+        name not in _NON_KERNEL_ZONE_NAMES
+        and name != _THREAD_JOIN_MARKER_NAME
+        and not name.startswith(_INNER_LOOP_MARKER_PREFIX)
+    )
+
 
 class ProfileError(AssertionError):
     pass
@@ -78,7 +92,7 @@ class Profile:
         return cls(tuple(sorted(zones, key=lambda z: (z.start_ns, z.end_ns))))
 
     def kernels(self) -> list[Zone]:
-        return [z for z in self.zones if z.name not in _NON_KERNEL_ZONE_NAMES]
+        return [z for z in self.zones if _is_kernel_zone_name(z.name)]
 
     def select(self, pattern: str) -> list[Zone]:
         """The kernels whose name matches `pattern`, at least one of them.

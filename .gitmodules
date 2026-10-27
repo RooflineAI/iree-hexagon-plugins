@@ -3,7 +3,7 @@
 	url = https://github.com/iree-org/iree
 [submodule "third-party/hexagon-mlir"]
 	path = third-party/hexagon-mlir
-	url = https://github.com/ttm02/hexagon-mlir.git
+	url = https://github.com/iree-org/hexagon-mlir.git
 	branch = ttm02/joinThreadPool
 [submodule "third-party/torch-mlir"]
 	path = third-party/torch-mlir

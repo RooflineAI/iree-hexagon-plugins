@@ -206,6 +206,7 @@ iree_cc_library(
     "Transforms/HexagonAnnotateDispatchResources.cpp"
     "Transforms/HexagonAssignConstantOrdinals.cpp"
     "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp"
+    "Transforms/HexagonCoalesceVTCMLoops.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonEmitVectorizationRemarks.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"
@@ -213,6 +214,7 @@ iree_cc_library(
     "Transforms/HexagonLinkExecutables.cpp"
     "Transforms/HexagonMarkThreadForalls.cpp"
     "Transforms/HexagonPeel.cpp"
+    "Transforms/HexagonPipelineVTCMTransfers.cpp"
     "Transforms/HexagonPrivatizeThreadAllocations.cpp"
     "Transforms/HexagonSpecializeHmxContractions.cpp"
     "Transforms/HexagonSplitReduction.cpp"
@@ -265,6 +267,7 @@ iree_cc_library(
     MLIRReconcileUnrealizedCasts
     MLIRSCFDialect
     MLIRSCFToControlFlow
+    MLIRSCFUtils
     MLIRTensorDialect
     MLIRTensorTransforms
     MLIRTilingInterface

@@ -40,6 +40,11 @@ void registerHexagonCodeGenPasses();
 // iree-hexagon-mark-thread-foralls.
 bool isThreadForall(Operation *op);
 
+// Marks the VTCM tile loops that iree-hexagon-pipeline-vtcm-transfers
+// double-buffers. Set by iree-hexagon-coalesce-vtcm-loops.
+inline constexpr llvm::StringLiteral kVTCMTileLoopAttrName =
+    "iree_hexagon.vtcm_tile_loop";
+
 std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
 createHexagonSplitReductionPass(bool enableReassociateFpReductions);
 

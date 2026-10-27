@@ -6,6 +6,8 @@
 
 #include "hexagon/CodeGen/Pipelines/Bufferization.h"
 
+#include "hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 #include "hexagon/Transforms/Transforms.h"
 #include "iree/compiler/Codegen/Common/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -29,7 +31,8 @@ mlir::LogicalResult memrefCopyFn(mlir::OpBuilder &builder, mlir::Location loc,
 
 } // namespace
 
-void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager) {
+void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager,
+                               bool enableDoubleBuffering) {
   // In order to take full advantage of hexagon's VTCM, we need to be able to
   // return allocations from within tiled loops and therefore it is necessary to
   // pass the the allowReturnAllocsFromLoops option here
@@ -50,6 +53,13 @@ void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager) {
   funcPassManager.addPass(mlir::bufferization::createLowerDeallocationsPass());
   funcPassManager.addPass(mlir::createCanonicalizerPass());
   funcPassManager.addPass(createEraseHALDescriptorTypeFromMemRefPass());
+  // Needs the buffers hoisted and deallocated, integer memory spaces for the
+  // DMA ops, and the transfers still as memref.copy.
+  if (enableDoubleBuffering) {
+    funcPassManager.addPass(createHexagonPipelineVTCMTransfersPass(
+        HexagonPipelineVTCMTransfersPassOptions{
+            isHexagonDoubleBufferingOfOuterTileLoopsEnabled()}));
+  }
   funcPassManager.addPass(::mlir::hexagon::createConvertToHexagonmemPass());
 }
 

@@ -20,6 +20,8 @@ void buildHexagonTranslationPassPipeline(
 
 bool isHexagonVTCMTilingEnabled();
 int64_t getHexagonVTCMTileBudgetBytes();
+bool isHexagonDoubleBufferingEnabled();
+bool isHexagonDoubleBufferingOfOuterTileLoopsEnabled();
 bool isHexagonHmxMatmulEnabled();
 
 } // namespace mlir::iree_compiler::hexagon::codegen

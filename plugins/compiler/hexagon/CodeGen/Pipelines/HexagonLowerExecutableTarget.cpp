@@ -21,6 +21,7 @@
 #include "iree/compiler/Codegen/Utils/Utils.h"
 #include "iree/compiler/Dialect/HAL/IR/HALDialect.h"
 #include "iree/compiler/Dialect/LinalgExt/IR/LinalgExtDialect.h"
+#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -49,6 +50,7 @@ public:
     // clang-format off
     registry.insert<IREE::HAL::HALDialect,
                     IREE::Hexagon::IREEHexagonDialect,
+                    async::AsyncDialect,
                     IREE::LinalgExt::IREELinalgExtDialect,
                     bufferization::BufferizationDialect,
                     mlir::hexagonmem::HexagonMemDialect,

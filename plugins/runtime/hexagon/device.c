@@ -1072,6 +1072,7 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
 
   if (dsp_err != AEE_SUCCESS) {
     rpcmem_free(profiler_data);
+    IREE_TRACE_ZONE_END(z0);
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
         dsp_err, "could not execute command buffer on DSP");
   }

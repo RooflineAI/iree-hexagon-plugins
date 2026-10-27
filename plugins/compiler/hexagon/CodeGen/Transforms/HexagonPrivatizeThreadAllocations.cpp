@@ -171,10 +171,23 @@ struct HexagonPrivatizeThreadAllocationsPass
     IRRewriter rewriter(&getContext());
     for (scf::ForallOp forallOp : forallOps) {
       SmallVector<Operation *> allocOps;
+      SmallVector<Operation *> deallocOps;
       forallOp.getBody()->walk([&](Operation *op) {
         if (isAllocation(op))
           allocOps.push_back(op);
+        if (isDeallocation(op))
+          deallocOps.push_back(op);
       });
+      // privatize only rewrites deallocations of the allocation itself, not
+      // of an alias of it or of a buffer from outside the body.
+      for (Operation *deallocOp : deallocOps) {
+        Operation *defOp = deallocOp->getOperand(0).getDefiningOp();
+        if (!defOp || !llvm::is_contained(allocOps, defOp)) {
+          deallocOp->emitOpError("inside a thread body must deallocate an "
+                                 "allocation of the same body directly");
+          return signalPassFailure();
+        }
+      }
       if (allocOps.empty())
         continue;
 

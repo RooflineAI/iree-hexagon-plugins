@@ -103,3 +103,25 @@ func.func @dynamic_bounds(%ub: index) {
   } {mapping = [#iree_codegen.local_mapping<0>]}
   return
 }
+
+// -----
+
+func.func @dealloc_alias() {
+  scf.forall (%iv) = (0) to (256) step (64) {
+    %a = memref.alloc() : memref<4xi32, 1>
+    %cast = memref.cast %a : memref<4xi32, 1> to memref<?xi32, 1>
+    // expected-error @+1 {{inside a thread body must deallocate an allocation of the same body directly}}
+    memref.dealloc %cast : memref<?xi32, 1>
+  } {mapping = [#iree_codegen.local_mapping<0>]}
+  return
+}
+
+// -----
+
+func.func @dealloc_outer(%buffer: memref<4xi32, 1>) {
+  scf.forall (%iv) = (0) to (256) step (64) {
+    // expected-error @+1 {{inside a thread body must deallocate an allocation of the same body directly}}
+    memref.dealloc %buffer : memref<4xi32, 1>
+  } {mapping = [#iree_codegen.local_mapping<0>]}
+  return
+}

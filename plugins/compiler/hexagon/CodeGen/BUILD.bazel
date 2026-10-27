@@ -253,6 +253,7 @@ hexagon_plugin_library(
         "@llvm-project//mlir:ConvertToLLVM",
         "@llvm-project//mlir:ControlFlowDialect",
         "@llvm-project//mlir:ControlFlowTransforms",
+        "@llvm-project//mlir:DataLayoutInterfaces",
         "@llvm-project//mlir:DialectUtils",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:FunctionInterfaces",

@@ -344,7 +344,9 @@ def HexagonPrivatizeThreadAllocationsPass :
       safe
 
       Allocations in the body must have a static shape and the forall static
-      bounds.
+      bounds. If the size of T is not a multiple of the alignment of the
+      allocation, each slice is padded to it, so that every slice stays
+      aligned.
   }];
   let dependentDialects = [
     "::mlir::arith::ArithDialect",

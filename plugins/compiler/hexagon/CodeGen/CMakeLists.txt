@@ -248,6 +248,7 @@ iree_cc_library(
     MLIRControlFlowDialect
     MLIRControlFlowTransforms
     MLIRConvertToLLVMPass
+    MLIRDataLayoutInterfaces
     MLIRFuncDialect
     MLIRFunctionInterfaces
     MLIRIR

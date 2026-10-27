@@ -39,6 +39,9 @@
 #include "mlir/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 
+#include <algorithm>
+#include <limits>
+
 #define DEBUG_TYPE "iree-hexagon-pass-pipelines"
 
 namespace mlir::iree_compiler::hexagon::codegen {
@@ -97,15 +100,27 @@ static llvm::cl::opt<bool> clHexagonEnableProfilerMarkers(
                    "kernel operations."),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool> clHexagonEnableVTCMTileThreading(
-    "iree-hexagon-enable-vtcm-tile-threading",
-    llvm::cl::desc("Split the parallel loops of the ops inside a VTCM tile "
-                   "over async worker threads (scf.forall -> async.execute). "
-                   "Only applies to the pipelines that use VTCM tiling."),
-    llvm::cl::init(true));
+static llvm::cl::opt<unsigned> clHexagonVTCMTileNumThreads(
+    "iree-hexagon-vtcm-tile-num-threads",
+    llvm::cl::desc("Number of chunks the parallel loop of an op inside a VTCM "
+                   "tile is split into, each run on an async worker thread "
+                   "(scf.forall -> async.execute). 1 disables the threading, "
+                   "0 gives every iteration its own chunk. Only applies to "
+                   "the pipelines that use VTCM tiling."),
+    llvm::cl::init(4)); // the default value Hexagon MLIR chooses
 
 static bool isVTCMTileThreadingEnabled() {
-  return clHexagonEnableVTCMTileThreading && isHexagonVTCMTilingEnabled();
+  return clHexagonVTCMTileNumThreads != 1 && isHexagonVTCMTilingEnabled();
+}
+
+/// The preferred number of threads for FormVirtualThreads. The pass takes it
+/// as an int and splits a loop of range r into steps of r / n (1 if r <= n),
+/// so INT_MAX makes every iteration a chunk.
+static int64_t getVTCMTileNumThreads() {
+  if (clHexagonVTCMTileNumThreads == 0)
+    return std::numeric_limits<int>::max();
+  return std::min<int64_t>(clHexagonVTCMTileNumThreads,
+                           std::numeric_limits<int>::max());
 }
 
 void addHexagonExecutableLoweringPasses(
@@ -240,8 +255,10 @@ void addHexagonMultiTilingExpertPassPipeline(
   // are turned into async threads after bufferization.
   if (isVTCMTileThreadingEnabled()) {
     funcPassManager.addPass(createForallToForPass());
-    funcPassManager.addPass(::mlir::hexagon::createFormVirtualThreadsPass(
-        ::mlir::hexagon::FormVirtualThreadsOptions{}));
+    ::mlir::hexagon::FormVirtualThreadsOptions threadOptions;
+    threadOptions.preferredNumThreads = getVTCMTileNumThreads();
+    funcPassManager.addPass(
+        ::mlir::hexagon::createFormVirtualThreadsPass(threadOptions));
     funcPassManager.addPass(createHexagonMarkThreadForallsPass());
   }
 

@@ -804,15 +804,6 @@ static int hexa_cmd_buf_exec_dispatch(
     abort();
   }
 
-  // FIXME: this is to make it work and prevent deadlocks, if several dispatches
-  // It should not be necessary. but prevents oversubscription for now
-  // A dispatch with thread tasks runs exclusively, on the master: the pool
-  // workers then only run its tasks, so at most the master plus its tasks use
-  // HVX. Waiting for the other dispatches also frees their VTCM.
-  if (uses_threads) {
-    hexa_cmd_buf_sched_drain(sched);
-  }
-
   // Wait until the partition can be carved out of the pool.
   while (!hexagon_rt_try_acquire_vtcm_partition(vtcm_bytes, task->func_name,
                                                 &task->vtcm_partition)) {
@@ -841,7 +832,7 @@ static int hexa_cmd_buf_exec_dispatch(
   // The master holds the HMX lock, so HMX dispatches run here. Workers that
   // are already running keep going in the meantime, except for a dispatch with
   // thread tasks, see above.
-  if (uses_hmx || uses_threads || sched->max_concurrent == 1) {
+  if (uses_hmx || sched->max_concurrent == 1) {
     profiler_measurement_finish_and_record(prof_record);
     hexa_cmd_buf_run_dispatch(task);
     hexa_cmd_buf_finish_dispatch(sched, task_idx);

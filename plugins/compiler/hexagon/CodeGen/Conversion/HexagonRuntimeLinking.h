@@ -25,6 +25,12 @@ inline constexpr llvm::StringLiteral kNativeRuntimeLinkVariantAttrName =
 //   void *(const hexagon_rt_state_t *, size_t nbytes, uint64_t alignment)
 inline constexpr llvm::StringLiteral kVtcmAllocFnName =
     "hexagon_runtime_vtcm_alloc";
+// Allocator of the coroutine frames of the async threads, in DDR:
+//   void *(int64_t alignment, int64_t size) and void (void *)
+inline constexpr llvm::StringLiteral kCoroAllocFnName =
+    "hexagon_runtime_coro_alloc";
+inline constexpr llvm::StringLiteral kCoroFreeFnName =
+    "hexagon_runtime_coro_free";
 // HexKL matmul variants that take their VTCM scratch from the caller.
 inline constexpr llvm::StringLiteral kHexKLMatmulScratchBytesFnName =
     "hexkl_matmul_f16f16_f32_scratch_bytes";

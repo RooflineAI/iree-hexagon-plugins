@@ -178,6 +178,7 @@ hexagon_plugin_library(
         # These dependencies are not present in the base iree-compile binary,
         # so they need to be added with the dynamic plugin.
         "@llvm-project//mlir:ArithTransforms",
+        "@llvm-project//mlir:AsyncDialect",
         "@llvm-project//mlir:MemRefTransforms",
         "@llvm-project//mlir:SCFTransforms",
     ],

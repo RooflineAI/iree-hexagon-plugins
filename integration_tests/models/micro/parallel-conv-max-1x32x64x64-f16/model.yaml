@@ -11,6 +11,10 @@ tolerances:
   atol: 5.0e-2
   rtol: 5.0e-2
   relative_l2_percent: 1.0
+# Split each VTCM tile over only 2 threads, so that the threads of one conv
+# leave workers free for the other conv.
+extra_compile_flags:
+  - "--iree-hexagon-vtcm-tile-num-threads=2"
 run_cases: [parallel-debug-malloc, sequential-debug-malloc, parallel-profile-debug-malloc, sequential-profile-debug-malloc]
 # Kernel zones are named after the dispatch: main$async_dispatch_1_conv_...,
 # main$async_dispatch_2_conv_... and main$async_dispatch_3_reduction_... (the max).

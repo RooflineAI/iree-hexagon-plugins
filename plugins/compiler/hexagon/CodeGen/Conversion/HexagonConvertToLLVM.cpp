@@ -50,6 +50,7 @@
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
@@ -201,8 +202,12 @@ struct ConvertGetRuntimeStateOp
   LogicalResult
   matchAndRewrite(IREE::Hexagon::GetRuntimeStateOp getStateOp, OpAdaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // The coroutines of the async threads are outlined from the dispatch and
+    // have other arguments; they get the state as a captured value instead.
     auto funcOp = getStateOp->getParentOfType<LLVM::LLVMFuncOp>();
-    if (!funcOp || funcOp.getNumArguments() < 2) {
+    if (!funcOp || funcOp.getNumArguments() < 2 ||
+        funcOp.walk([](LLVM::CoroIdOp) { return WalkResult::interrupt(); })
+            .wasInterrupted()) {
       return rewriter.notifyMatchFailure(
           getStateOp,
           "expected an enclosing function with a dispatch state argument");
@@ -334,6 +339,45 @@ static Value castToIntType(OpBuilder &builder, Location loc, Value value,
   return LLVM::TruncOp::create(builder, loc, type, value);
 }
 
+/// Returns true for the `index -> i64` casts that the async-to-LLVM lowering
+/// emits for the fixed 64 bit arguments of the AsyncRuntime (group sizes).
+static bool isIndexToI64Cast(UnrealizedConversionCastOp castOp) {
+  return castOp.getNumOperands() == 1 && castOp.getNumResults() == 1 &&
+         castOp.getOperand(0).getType().isIndex() &&
+         castOp.getResult(0).getType().isInteger(64);
+}
+
+/// `index` is 32 bit on Hexagon, so the `index -> i64` casts above can't be
+/// reconciled away and widen the converted operand instead.
+struct IndexToI64CastLowering
+    : public OpConversionPattern<UnrealizedConversionCastOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(UnrealizedConversionCastOp castOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!isIndexToI64Cast(castOp))
+      return failure();
+    rewriter.replaceOp(castOp, castToIntType(rewriter, castOp.getLoc(),
+                                             adaptor.getOperands().front(),
+                                             rewriter.getI64Type()));
+    return success();
+  }
+};
+
+/// The async lowering asserts that the awaited thread group is not in an error
+/// state. For Hexagon, the RT handles this case and aborts instead, so no need
+/// to codegen it
+struct DropAssertLowering
+    : public mlir::OpConversionPattern<mlir::cf::AssertOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(mlir::cf::AssertOp assertOp, OpAdaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(assertOp);
+    return success();
+  }
+};
+
 /// Returns the constant |value| holds, looking through memref descriptor
 /// insertvalue/extractvalue chains, which are not folded yet after conversion.
 static std::optional<int64_t> getConstantIntValue(Value value) {
@@ -382,6 +426,62 @@ getVtcmAllocFn(OpBuilder &builder, ModuleOp moduleOp, Type sizeType) {
   return LLVM::lookupOrCreateFn(builder, moduleOp, kVtcmAllocFnName,
                                 {ptrType, sizeType, builder.getI64Type()},
                                 ptrType);
+}
+
+/// Declares void *hexagon_runtime_coro_alloc(int64_t alignment, int64_t size).
+static FailureOr<LLVM::LLVMFuncOp> getCoroAllocFn(OpBuilder &builder,
+                                                  ModuleOp moduleOp) {
+  Type i64Type = builder.getI64Type();
+  Type ptrType = LLVM::LLVMPointerType::get(builder.getContext());
+  return LLVM::lookupOrCreateFn(builder, moduleOp, kCoroAllocFnName,
+                                {i64Type, i64Type}, ptrType);
+}
+
+/// Declares void hexagon_runtime_coro_free(void *frame).
+static FailureOr<LLVM::LLVMFuncOp> getCoroFreeFn(OpBuilder &builder,
+                                                 ModuleOp moduleOp) {
+  Type ptrType = LLVM::LLVMPointerType::get(builder.getContext());
+  return LLVM::lookupOrCreateFn(builder, moduleOp, kCoroFreeFnName, {ptrType},
+                                LLVM::LLVMVoidType::get(builder.getContext()));
+}
+
+/// ConvertAsyncToLLVM allocates each coroutine frame with libc `aligned_alloc`
+/// and frees it with `free`; the names are hard-coded there. Retargets exactly
+/// these calls, the allocation that feeds `llvm.intr.coro.begin` and the free
+/// of `llvm.intr.coro.free`, to the runtime's frame allocator. The libc
+/// declarations take the 64 bit index of the async lowering, which does not
+/// match the 32 bit size_t of Hexagon.
+static LogicalResult useRuntimeCoroFrameAllocator(ModuleOp moduleOp) {
+  SmallVector<LLVM::CallOp> allocCalls, freeCalls;
+  moduleOp.walk([&](LLVM::CallOp callOp) {
+    std::optional<StringRef> callee = callOp.getCallee();
+    if (!callee)
+      return;
+    if (*callee == "aligned_alloc" && callOp.getNumResults() == 1 &&
+        llvm::any_of(callOp->getUsers(), llvm::IsaPred<LLVM::CoroBeginOp>))
+      allocCalls.push_back(callOp);
+    else if (*callee == "free" && callOp.getArgOperands().size() == 1 &&
+             callOp.getArgOperands()[0].getDefiningOp<LLVM::CoroFreeOp>())
+      freeCalls.push_back(callOp);
+  });
+
+  OpBuilder builder(moduleOp.getContext());
+  builder.setInsertionPointToEnd(moduleOp.getBody());
+  if (!allocCalls.empty()) {
+    FailureOr<LLVM::LLVMFuncOp> allocFn = getCoroAllocFn(builder, moduleOp);
+    if (failed(allocFn))
+      return moduleOp.emitError("failed to declare ") << kCoroAllocFnName;
+    for (LLVM::CallOp callOp : allocCalls)
+      callOp.setCallee(allocFn->getSymName());
+  }
+  if (!freeCalls.empty()) {
+    FailureOr<LLVM::LLVMFuncOp> freeFn = getCoroFreeFn(builder, moduleOp);
+    if (failed(freeFn))
+      return moduleOp.emitError("failed to declare ") << kCoroFreeFnName;
+    for (LLVM::CallOp callOp : freeCalls)
+      callOp.setCallee(freeFn->getSymName());
+  }
+  return success();
 }
 
 /// Allocates |size| bytes aligned to |alignment| from the VTCM partition that
@@ -826,6 +926,8 @@ void HexagonConvertToLLVMPass::runOnOperation() {
   populateVtcmPartitionToLLVMConversionPatterns(abi, typeConverter, patterns,
                                                 vtcmPartitionError);
   populateHexagonHmxToLLVMConversionPatterns(typeConverter, patterns);
+  patterns.add<IndexToI64CastLowering, DropAssertLowering>(typeConverter,
+                                                           &getContext());
 
   // Target-specific lowerings participate in the same conversion transaction
   // as the standard and HAL ABI lowerings. Pattern labels supplied by these
@@ -842,13 +944,52 @@ void HexagonConvertToLLVMPass::runOnOperation() {
                            math::MathDialect, tosa::TosaDialect,
                            hexagonmem::HexagonMemDialect, hexkl::HexKLDialect,
                            IREE::Hexagon::IREEHexagonDialect>();
-  target.addIllegalOp<memref::DmaStartOp, memref::DmaWaitOp>();
+  target.addIllegalOp<memref::DmaStartOp, memref::DmaWaitOp, cf::AssertOp>();
+  target.addDynamicallyLegalOp<UnrealizedConversionCastOp>(
+      [](UnrealizedConversionCastOp castOp) {
+        return !isIndexToI64Cast(castOp);
+      });
 
   if (failed(applyPartialConversion(moduleOp, target, std::move(patterns))) ||
       vtcmPartitionError) {
     signalPassFailure();
     return;
   }
+
+  // Private symbols must not end up public
+  for (auto funcOp : moduleOp.getOps<LLVM::LLVMFuncOp>()) {
+    if (!funcOp.isExternal() && funcOp.isPrivate())
+      funcOp.setLinkage(LLVM::Linkage::Internal);
+  }
+
+  // Rename the generated async coroutines
+  // third-party/llvm-project/mlir/lib/Dialect/Async/Transforms/AsyncToAsyncRuntime.cpp:338
+  // contains a TODO: Derive outlined function name from the parent FuncOp so we
+  // do that here for now and re-name the generated functions, to match te
+  // dispatchs name
+  for (auto funcOp :
+       llvm::make_early_inc_range(moduleOp.getOps<LLVM::LLVMFuncOp>())) {
+    if (funcOp.isExternal() ||
+        !funcOp.getSymName().starts_with("async_execute_fn"))
+      continue;
+    auto uses = SymbolTable::getSymbolUses(funcOp, moduleOp);
+    if (!uses || uses->empty())
+      continue;
+    auto caller = uses->begin()->getUser()->getParentOfType<LLVM::LLVMFuncOp>();
+    SymbolTable symbolTable(moduleOp);
+    std::string newName = (caller.getSymName() + "_async").str();
+    for (int i = 1; symbolTable.lookup(newName); ++i)
+      newName = (caller.getSymName() + "_async_" + Twine(i)).str();
+    if (failed(SymbolTable::replaceAllSymbolUses(
+            funcOp, StringAttr::get(&getContext(), newName), moduleOp))) {
+      funcOp.emitOpError("failed to rename async helper");
+      return signalPassFailure();
+    }
+    funcOp.setSymName(newName);
+  }
+
+  if (failed(useRuntimeCoroFrameAllocator(moduleOp)))
+    return signalPassFailure();
 
   // Materializations are allowed while the conversion is in flight, but must
   // not become another pipeline seam. Reconcile them here and fail if a cast

@@ -17,6 +17,7 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 
 #include <optional>
+#include <string>
 
 namespace mlir::iree_compiler::hexagon::codegen {
 namespace IREE = mlir::iree_compiler::IREE;
@@ -33,7 +34,8 @@ constexpr llvm::StringLiteral kCopyMarker = "memref_copy";
 constexpr llvm::StringLiteral kHexagonMemAllocMarker = "hexagonmem.alloc";
 constexpr llvm::StringLiteral kHexagonMemDeallocMarker = "hexagonmem.dealloc";
 constexpr llvm::StringLiteral kHexagonMemCopyMarker = "hexagonmem.copy";
-constexpr llvm::StringLiteral kComputeInnerLoopMarker = "compute.inner_loop";
+constexpr llvm::StringLiteral kComputeInnerLoopMarkerPrefix = "inner:";
+constexpr llvm::StringLiteral kThreadJoinMarker = "thread.join";
 
 Value insertGetRuntimeState(IRRewriter &rewriter,
                             mlir::FunctionOpInterface funcOp) {
@@ -110,7 +112,8 @@ bool isOuterMostOpWithoutHexagonMemOps(Operation *op) {
   return containsHexagonMemOp(parent) && !containsHexagonMemOp(op);
 }
 
-std::optional<MarkerTarget> getMarkerTargetForOp(Operation *op) {
+std::optional<MarkerTarget>
+getMarkerTargetForOp(Operation *op, StringRef computeInnerLoopMarker) {
   if (isa<mlir::memref::AllocOp>(op)) {
     return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
                         kAllocMarker};
@@ -135,10 +138,20 @@ std::optional<MarkerTarget> getMarkerTargetForOp(Operation *op) {
     return MarkerTarget{op, IREE::Hexagon::ProfilerZone::MemoryManagement,
                         kHexagonMemCopyMarker};
   }
+  // A thread forall runs on the dispatching thread as: queue all chunks on the
+  // thread pool, then run queued tasks until they are done. The zone covers
+  // both, and the chunks the dispatching thread runs itself nest in it.
+  if (isThreadForall(op)) {
+    return MarkerTarget{op, IREE::Hexagon::ProfilerZone::Marker,
+                        kThreadJoinMarker};
+  }
   if (isa<mlir::scf::ForOp>(op)) {
-    if (isOuterMostOpWithoutHexagonMemOps(op)) {
+    // The compute loop of a thread body, so that each thread records its own
+    // zone. The thread foralls become async threads only after this pass.
+    if (isOuterMostOpWithoutHexagonMemOps(op) ||
+        isThreadForall(op->getParentOp())) {
       return MarkerTarget{op, IREE::Hexagon::ProfilerZone::Marker,
-                          kComputeInnerLoopMarker};
+                          computeInnerLoopMarker};
     }
   }
   return std::nullopt;
@@ -154,11 +167,15 @@ struct InsertProfilerMarkersPass final
   void runOnOperation() override {
     mlir::FunctionOpInterface funcOp = getOperation();
 
+    std::string computeInnerLoopMarker =
+        (kComputeInnerLoopMarkerPrefix + funcOp.getName()).str();
+
     // Collect the targets first so the walk is not perturbed by the markers
     // inserted around each operation.
     llvm::SmallVector<MarkerTarget> markerTargets;
     funcOp.walk([&](Operation *op) {
-      if (std::optional<MarkerTarget> markerTarget = getMarkerTargetForOp(op)) {
+      if (std::optional<MarkerTarget> markerTarget =
+              getMarkerTargetForOp(op, computeInnerLoopMarker)) {
         markerTargets.push_back(*markerTarget);
       }
     });

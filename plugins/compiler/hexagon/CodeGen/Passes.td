@@ -28,6 +28,9 @@ def HexagonAnnotateDispatchResourcesPass :
     - `hmx`: the dispatch contains HMX ops.
     - `hvx`: the dispatch has vector values. LLVM's loop and SLP vectorizers
       are disabled, so no other HVX code appears later.
+    - `threads`: the maximum number of tasks the dispatch launches to
+      the async worker pool, 1 if it runs no tasks; a group of dynamic size or an `async.execute` declares
+      it unbounded (INT64_MAX).
     - `vtcm_bytes`: the sum of every heap allocation at the size the runtime
       allocates for it. Heap memory, `malloc` included, is served from the
       VTCM pool.
@@ -290,6 +293,66 @@ def HexagonVTCMTilingPass :
   let summary = [{
       Apply Hexagon config-driven VTCM staging and tiling to a dispatch.
   }];
+}
+
+def HexagonFormAsyncThreadsPass :
+    InterfacePass<"iree-hexagon-form-async-threads",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Run the chunks of every thread forall as tasks of the thread pool.
+  }];
+  let description = [{
+      Lowers each bufferized, one-dimensional scf.forall marked by
+      iree-hexagon-mark-thread-foralls. Each of its N chunks becomes an
+      async.execute region in one async group, which is awaited after the
+      loop.
+  }];
+  let dependentDialects = [
+    "::mlir::async::AsyncDialect",
+    "::mlir::scf::SCFDialect",
+  ];
+}
+
+def HexagonMarkThreadForallsPass :
+    InterfacePass<"iree-hexagon-mark-thread-foralls",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Give every scf.forall without a mapping a local mapping so that
+      iree-codegen-forall-to-for leaves it alone.
+  }];
+  let description = [{
+      The scf.forall ops that remain after the VTCM tile has been
+      sequentialized are the thread loops created by form-virtual-threads.
+      They must survive the later forall-to-for conversions to reach
+      form-async-threads after bufferization.
+  }];
+}
+
+def HexagonPrivatizeThreadAllocationsPass :
+    InterfacePass<"iree-hexagon-privatize-thread-allocations",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Give each chunk of a thread forall its own slice of the allocations in
+      the forall body.
+  }];
+  let description = [{
+      Every chunk of a thread forall runs on its own thread, so the scratch
+      memory it allocates (memref.alloc, memref.alloca, hexagonmem.alloc)
+      must stay private to the chunk. This pass replaces each
+      allocation of type T in the body of a forall with N chunks by one
+      allocation of N x T right before the forall, and the body uses the
+      slice (iv - lb) / step of it. Hoisting that combined allocation afterwards is
+      safe
+
+      Allocations in the body must have a static shape and the forall static
+      bounds. If the size of T is not a multiple of the alignment of the
+      allocation, each slice is padded to it, so that every slice stays
+      aligned.
+  }];
+  let dependentDialects = [
+    "::mlir::arith::ArithDialect",
+    "::mlir::memref::MemRefDialect",
+  ];
 }
 
 def InsertProfilerMarkersPass :

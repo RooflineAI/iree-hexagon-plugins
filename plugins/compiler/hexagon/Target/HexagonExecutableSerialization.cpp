@@ -63,11 +63,12 @@ static_assert(static_cast<uint32_t>(LibraryBuilder::Version::LATEST) ==
               "hexagon/dsp/rt/executable_library.h");
 
 // guard against struct layout changes
-static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 16 &&
+static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 24 &&
                   offsetof(hexagon_executable_dispatch_attrs_t,
                            hexagon_flags) == 0 &&
                   offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) ==
-                      8,
+                      8 &&
+                  offsetof(hexagon_executable_dispatch_attrs_t, threads) == 16,
               "dispatch attrs layout differs from LibraryBuilder");
 static_assert(
     static_cast<uint64_t>(
@@ -274,6 +275,7 @@ buildExecutableMetadata(llvm::Module &llvmModule,
         flags |= static_cast<uint64_t>(HexagonFlags::USES_HMX);
       dispatchAttrs.hexagonFlags = flags;
       dispatchAttrs.vtcmBytes = static_cast<uint64_t>(resources.getVtcmBytes());
+      dispatchAttrs.threads = static_cast<uint64_t>(resources.getThreads());
     }
 
     libraryBuilder.addExport(exportOp.getName(), dispatchAttrs, llvmFunc);

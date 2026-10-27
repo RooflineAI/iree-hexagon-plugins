@@ -28,8 +28,9 @@ def HexagonAnnotateDispatchResourcesPass :
     - `hmx`: the dispatch contains HMX ops.
     - `hvx`: the dispatch has vector values. LLVM's loop and SLP vectorizers
       are disabled, so no other HVX code appears later.
-    - `threads`: the dispatch launches async worker threads (async dialect
-      ops, after async-to-async-runtime).
+    - `threads`: the maximum number of tasks the dispatch lunches to
+      the async worker pool, 1 if it runs no tasks; a group of dynamic size or an `async.execute` declares
+      it unbounded (INT64_MAX).
     - `vtcm_bytes`: the sum of every heap allocation at the size the runtime
       allocates for it. Heap memory, `malloc` included, is served from the
       VTCM pool.

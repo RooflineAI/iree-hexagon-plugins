@@ -108,20 +108,21 @@ def IREEHexagon_DispatchResourcesAttr :
     serialization encodes it into the Hexagon extension of the executable's
     dispatch attributes.
 
-    `threads` is set if the dispatch runs parts of its work on async worker
-    threads (threads inside a VTCM tile).
+    `threads` is the maximum number of tasks the dispatch concurrently submits to the
+    async thread pool (threads inside a VTCM tile), 1 if it runs
+    no tasks, and `kUnboundedThreads` (INT64_MAX) if it cannot be bounded.
 
     `vtcm_bytes` bounds the peak VTCM the dispatch allocates, 0 if it does not
     use VTCM, and `kUnboundedVTCMBytes` (INT64_MAX) if it cannot be bounded,
     so the dispatch must be treated as needing all of VTCM.
 
       #iree_hexagon.dispatch_resources<hvx = true, hmx = false,
-                                       threads = false, vtcm_bytes = 1048576>
+                                       threads = 1, vtcm_bytes = 1048576>
   }];
   let parameters = (ins
     "bool":$hvx,
     "bool":$hmx,
-    "bool":$threads,
+    "int64_t":$threads,
     "int64_t":$vtcm_bytes
   );
   let assemblyFormat = [{
@@ -138,6 +139,10 @@ def IREEHexagon_DispatchResourcesAttr :
 
     /// `vtcm_bytes` of a dispatch whose VTCM use cannot be bounded.
     static constexpr int64_t kUnboundedVTCMBytes =
+        std::numeric_limits<int64_t>::max();
+
+    /// `threads` of a dispatch whose tasks in flight cannot be bounded.
+    static constexpr int64_t kUnboundedThreads =
         std::numeric_limits<int64_t>::max();
   }];
 }

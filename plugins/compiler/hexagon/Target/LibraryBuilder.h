@@ -60,8 +60,6 @@ public:
     USES_HVX = 1ull << 1,
     // HEXAGON_DISPATCH_FLAG_USES_HMX
     USES_HMX = 1ull << 2,
-    // HEXAGON_DISPATCH_FLAG_USES_THREADS
-    USES_THREADS = 1ull << 3,
   };
 
   // hexagon_executable_dispatch_attrs_t
@@ -72,6 +70,9 @@ public:
     // Planned peak VTCM bytes. Only meaningful if hexagonFlags has
     // RESOURCES_VALID.
     uint64_t vtcmBytes = 0;
+    // Maximum number of tasks in flight on worker threads, 1 if none. Only
+    // meaningful if hexagonFlags has RESOURCES_VALID.
+    uint64_t threads = 1;
   };
 
   LibraryBuilder(llvm::Module *module, Version version = Version::LATEST)

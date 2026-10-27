@@ -46,8 +46,10 @@ PipelineAttr::buildPipeline(OpPassManager &pm,
 
 LogicalResult
 DispatchResourcesAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                              bool hvx, bool hmx, bool threads,
+                              bool hvx, bool hmx, int64_t threads,
                               int64_t vtcmBytes) {
+  if (threads < 1)
+    return emitError() << "threads must be at least 1, got " << threads;
   if (vtcmBytes < 0)
     return emitError() << "vtcm_bytes must be nonnegative, got " << vtcmBytes;
   return success();

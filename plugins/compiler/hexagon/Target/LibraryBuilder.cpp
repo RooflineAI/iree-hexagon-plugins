@@ -49,6 +49,7 @@ static llvm::StructType *makeImportTableType(llvm::LLVMContext &context) {
 // %struct.hexagon_executable_dispatch_attrs_t = type {
 //   i64,     // hexagon_flags
 //   i64,     // vtcm_bytes
+//   i64,     // threads
 // }
 // Must match hexagon/dsp/rt/executable_library.h;
 // HexagonExecutableSerialization checks the offsets at build time.
@@ -62,6 +63,7 @@ static llvm::StructType *makeDispatchAttrsType(llvm::LLVMContext &context) {
                                         {
                                             i64Type, // hexagon_flags
                                             i64Type, // vtcm_bytes
+                                            i64Type, // threads
                                         },
                                         "hexagon_executable_dispatch_attrs_t",
                                         /*isPacked=*/false);
@@ -270,6 +272,8 @@ LibraryBuilder::buildLibraryV0ExportTable(std::string libraryName) {
             llvm::ConstantInt::get(i64Type, dispatch.attrs.hexagonFlags),
             // vtcm_bytes=
             llvm::ConstantInt::get(i64Type, dispatch.attrs.vtcmBytes),
+            // threads=
+            llvm::ConstantInt::get(i64Type, dispatch.attrs.threads),
         }));
   }
   llvm::Constant *exportAttrs = createArrayConstant(

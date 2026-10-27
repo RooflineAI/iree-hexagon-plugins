@@ -211,6 +211,7 @@ iree_cc_library(
     "Transforms/HexagonExpandHmxMatmul.cpp"
     "Transforms/HexagonLinkExecutables.cpp"
     "Transforms/HexagonPeel.cpp"
+    "Transforms/HexagonSortToTopk.cpp"
     "Transforms/HexagonSplitReduction.cpp"
     "Transforms/HexagonSynchronizeSymbolVisibility.cpp"
     "Transforms/HexagonTile.cpp"

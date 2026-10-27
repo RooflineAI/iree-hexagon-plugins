@@ -75,6 +75,7 @@ iree_lit_test_suite(
     "codegen/transforms/peel.mlir"
     "codegen/transforms/peel_boundaries.mlir"
     "codegen/transforms/promote_dma_tag_alloc_to_stack.mlir"
+    "codegen/transforms/sort_to_topk.mlir"
     "codegen/transforms/split_reduction.mlir"
     "codegen/transforms/split_reduction_boundaries.mlir"
     "codegen/transforms/synchronize_symbol_visibility.mlir"

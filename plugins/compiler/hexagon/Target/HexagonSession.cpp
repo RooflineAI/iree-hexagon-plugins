@@ -54,6 +54,11 @@ struct HexagonSession
     scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
   }
 
+  void extendPreprocessingPassPipeline(OpPassManager &passManager) override {
+    // Only rewrites modules whose devices are all hexagon.
+    passManager.addPass(codegen::createHexagonSortToTopkPass());
+  }
+
   void populateHALTargetDevices(HAL::TargetDeviceList &targets) override {
     targets.add("hexagon", [this, options = options]() {
       return createHexagonTargetDevice(options);

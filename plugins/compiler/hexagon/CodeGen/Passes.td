@@ -150,6 +150,40 @@ def HexagonSelectLoweringStrategyPass :
   }];
 }
 
+def HexagonSortToTopkPass :
+    Pass<"iree-hexagon-sort-to-topk", "mlir::ModuleOp"> {
+  let summary = [{
+      Rewrites a full sort whose results are only read through a leading
+      slice into a top-k.
+  }];
+  let description = [{
+    torch-mlir decomposes `aten.topk` into a full `aten.sort` followed by a
+    `[0, k)` slice. `iree_linalg_ext.sort` lowers to an O(n^2) bubble sort,
+    while `iree_linalg_ext.topk` lowers to an O(n * k) insertion. This pass
+    matches a sort whose every result use is a `tensor.extract_slice` of the
+    leading k elements along the sort dimension and replaces it with a topk.
+
+    Matched sorts take values plus an optional indices operand that must be an
+    iota along the sort dimension (the topk derives these implicitly). The
+    comparator must be a single `arith.cmpf`/`arith.cmpi` of the two values.
+    Topk keeps the earlier index among equal values, which matches the sort
+    for the non-strict predicates (e.g. `oge`) torch-mlir emits.
+
+    Runs in preprocessing, before device-specific lowering. The plugin is
+    activated by default and must not change compiles for other targets, so
+    the pass only rewrites when every device target in the module is hexagon.
+
+    This was encountered to be a problem with Gemma4 model
+    FIXME: add as an upstream IREE patch?
+  }];
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "IREE::LinalgExt::IREELinalgExtDialect",
+    "linalg::LinalgDialect",
+    "tensor::TensorDialect",
+  ];
+}
+
 def HexagonSplitReductionPass :
     InterfacePass<"iree-hexagon-split-reduction", "mlir::FunctionOpInterface"> {
   let summary = "Pass to splitReduce linalg operations.";

@@ -26,11 +26,14 @@ MODEL_NAME="$(basename "$MODEL_DIR")"
 WORK_DIR="${WORK_DIR:-/tmp/profile_on_device/$MODEL_NAME}" # local dir, where model is compiled
 REMOTE_DIR=/data/local/tmp/${USER}/profile_on_device/$MODEL_NAME # dir on the phone to upload model to
 
-EXTRA_COMPILE_FLAGS=""
+# The integration tests' device root; their kept modules are reused below.
+DEVICE_ROOT="${DEVICE_ROOT:-/data/local/tmp/hexagon_it}"
 
 RUN_FLAGS="" # parallel
+RUN_CASE=parallel # the integration-test run case with the same runtime flags
 if [[ "${2:-}" == serial ]]; then
   RUN_FLAGS+=" --hexagon_max_concurrent_dispatches=1"
+  RUN_CASE=sequential
 fi
 
 
@@ -38,16 +41,21 @@ fi
 bazel build \
   @iree//tools:iree-compile \
   @llvm-project//lld:ld.lld \
-  //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
+  //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy \
+  //integration_tests/device/tools:device_tools_aarch64_android
 
 IREE_COMPILE="$REPO/$(bazel cquery --output=files @iree//tools:iree-compile 2>/dev/null | head -n1)"
 LLD="$REPO/$(bazel cquery --output=files @llvm-project//lld:ld.lld 2>/dev/null | head -n1)"
 RUNTIME_ZIP_TRACY="$REPO/$(bazel cquery --output=files \
   //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy 2>/dev/null | head -n1)"
+DEVICE_TOOLS_ZIP="$REPO/$(bazel cquery --output=files \
+  //integration_tests/device/tools:device_tools_aarch64_android 2>/dev/null | head -n1)"
 
 # --- Import: torch model -> model.mlir + input*.npy -------------------------
-# The import also writes io.txt, listing the entry function and the input and
-# output file names, so the run below works for any number of inputs/outputs.
+# The import also writes io.txt, listing the entry function, the input and
+# output file names, the model's extra_compile_flags from model.yaml and its
+# name in the model tree, so the compile, deploy and run below work for any
+# model.
 mkdir -p "$WORK_DIR"
 .venv/bin/python -c "
 from pathlib import Path
@@ -63,17 +71,23 @@ imported = import_model(spec, Path('$WORK_DIR'))
 lines = [f'function {imported.function}']
 lines += [f'input {p.name}' for p in imported.input_files]
 lines += [f'output {name}' for name in imported.output_names]
+lines += [f'flag {flag}' for flag in spec.extra_compile_flags]
+lines += [f'name {spec.name}']
 Path('$WORK_DIR/io.txt').write_text('\\n'.join(lines) + '\\n')
 "
 
 FUNCTION=main
 INPUT_FILES=()
 IO_FLAGS=""
+EXTRA_COMPILE_FLAGS=()
 while read -r kind name; do
   case "$kind" in
     function) FUNCTION="$name" ;;
     input) INPUT_FILES+=("$WORK_DIR/$name"); IO_FLAGS+=" --input=@$name" ;;
     output) IO_FLAGS+=" --output=@$name" ;;
+    flag) EXTRA_COMPILE_FLAGS+=("$name") ;;
+    # as the integration tests name the case directory (test_models.py)
+    name) CASE_PREFIX="${name//\//_}" ;;
   esac
 done < "$WORK_DIR/io.txt"
 
@@ -89,12 +103,30 @@ done < "$WORK_DIR/io.txt"
   --iree-hexagon-enable-hmx-matmul=true \
   --iree-hexagon-enable-profiler-markers \
   --iree-hexagon-linker-path="$LLD" \
-  --iree-llvmcpu-embedded-linker-path="$LLD"
+  --iree-llvmcpu-embedded-linker-path="$LLD" \
+  ${EXTRA_COMPILE_FLAGS[@]+"${EXTRA_COMPILE_FLAGS[@]}"}
 
 # --- Deploy -----------------------------------------------------------------
 adb push "$RUNTIME_ZIP_TRACY" "$REMOTE_DIR/runtime.zip"
-adb shell "cd $REMOTE_DIR && unzip -oq runtime.zip && rm runtime.zip && chmod +x bin/iree-run-module"
-adb push "$WORK_DIR/model.vmfb" ${INPUT_FILES[@]+"${INPUT_FILES[@]}"} "$REMOTE_DIR/"
+adb push "$DEVICE_TOOLS_ZIP" "$REMOTE_DIR/device_tools.zip"
+adb shell "cd $REMOTE_DIR && unzip -oq runtime.zip && unzip -oq device_tools.zip && rm runtime.zip device_tools.zip && chmod +x bin/iree-run-module bin/limit_lifetime bin/rsync"
+# Send the module with the integration tests' push_module: cache models on the phone
+.venv/bin/python -c "
+from pathlib import Path
+from integration_tests.stages.running import push_module
+from integration_tests.tool_paths import resolve_host_tool
+push_module(
+    module_vmfb=Path('$WORK_DIR/model.vmfb'),
+    remote_module='$REMOTE_DIR/model.vmfb',
+    kept_module='$DEVICE_ROOT/modules/${CASE_PREFIX}_hexagon-vtcm-hmx_$RUN_CASE/module.vmfb',
+    host_rsync=resolve_host_tool('rsync', None),
+    device_rsync='$REMOTE_DIR/bin/limit_lifetime $REMOTE_DIR/bin/rsync',
+    timeout=4 * 3600.0,
+)
+"
+if [[ ${#INPUT_FILES[@]} -gt 0 ]]; then
+  adb push "${INPUT_FILES[@]}" "$REMOTE_DIR/"
+fi
 
 # --- Run under Tracy --------------------------------------------------------
 adb forward tcp:8086 tcp:8086

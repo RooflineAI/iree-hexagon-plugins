@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: integration_tests/profile_on_device.sh <path/to/model/dir> [serial]
+# Usage: dev_tools/profile_on_device.sh <path/to/model/dir> [serial]
 # Import, compile and run an integration-test model (any number of inputs) on
 # the device under the Tracy runtime. iree-run-module runs with
 # TRACY_NO_EXIT=1, so it does not exit until a Tracy profiler has connected and received the trace.

@@ -16,29 +16,27 @@ module attributes {hal.executable.target = #hexagon_target} {
   llvm.func @hexagon_runtime_profiler_zone_begin(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
   llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr)
 
-  // Verifies one runtime-state load feeds all markers, equal strings share a
-  // global, distinct strings do not alias, empty metadata becomes null, and
-  // representative zone enum endpoints retain their runtime numeric values.
+  // Verifies the dispatch-state argument feeds all markers, equal strings
+  // share a global, distinct strings do not alias, empty metadata becomes null,
+  // and representative zone enum endpoints retain their runtime numeric values.
   // CHECK-COUNT-1: llvm.mlir.global internal constant {{.*}}("unique\00")
   // CHECK-COUNT-1: llvm.mlir.global internal constant {{.*}}("shared\00")
   // CHECK-COUNT-1: llvm.func @hexagon_runtime_profiler_zone_begin(!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr attributes {hal.import.static}
   // CHECK-COUNT-1: llvm.func @hexagon_runtime_profiler_zone_end(!llvm.ptr) attributes {hal.import.static}
   // CHECK-LABEL: llvm.func @kernel(
   // CHECK-SAME: %{{.+}}: !llvm.ptr, %[[DISPATCH:.+]]: !llvm.ptr, %{{.+}}: !llvm.ptr
-  // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_t", {{.*}}>, ptr)>
-  // CHECK: %[[RUNTIME:.+]] = llvm.load %[[RUNTIME_ADDR]] : !llvm.ptr -> !llvm.ptr
   // CHECK: %[[ZONE_7:.+]] = llvm.mlir.constant(7 : i32) : i32
-  // CHECK: %[[SHARED0:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[RUNTIME]], %[[ZONE_7]], {{.+}}) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK: %[[SHARED0:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[DISPATCH]], %[[ZONE_7]], {{.+}}) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
   // CHECK: llvm.call @hexagon_runtime_profiler_zone_end(%[[SHARED0]])
   // CHECK: %[[ZONE_4:.+]] = llvm.mlir.constant(4 : i32) : i32
-  // CHECK: %[[SHARED1:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[RUNTIME]], %[[ZONE_4]], {{.+}}) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK: %[[SHARED1:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[DISPATCH]], %[[ZONE_4]], {{.+}}) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
   // CHECK: llvm.call @hexagon_runtime_profiler_zone_end(%[[SHARED1]])
   // CHECK: %[[ZONE_8:.+]] = llvm.mlir.constant(8 : i32) : i32
-  // CHECK: %[[UNIQUE:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[RUNTIME]], %[[ZONE_8]], {{.+}}) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK: %[[UNIQUE:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[DISPATCH]], %[[ZONE_8]], {{.+}}) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
   // CHECK: llvm.call @hexagon_runtime_profiler_zone_end(%[[UNIQUE]])
   // CHECK: %[[ZONE_0:.+]] = llvm.mlir.constant(0 : i32) : i32
   // CHECK: %[[NULL:.+]] = llvm.mlir.zero : !llvm.ptr
-  // CHECK: %[[EMPTY:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[RUNTIME]], %[[ZONE_0]], %[[NULL]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
+  // CHECK: %[[EMPTY:.+]] = llvm.call @hexagon_runtime_profiler_zone_begin(%[[DISPATCH]], %[[ZONE_0]], %[[NULL]]) : (!llvm.ptr, i32, !llvm.ptr) -> !llvm.ptr
   // CHECK: llvm.call @hexagon_runtime_profiler_zone_end(%[[EMPTY]])
   llvm.func @kernel(%environment: !llvm.ptr, %dispatch_state: !llvm.ptr,
                     %workgroup_state: !llvm.ptr) {

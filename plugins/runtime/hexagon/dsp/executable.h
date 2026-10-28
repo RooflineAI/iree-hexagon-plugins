@@ -11,7 +11,6 @@
 #include <stdlib.h>
 
 #include "hexagon/dsp/rt/executable_library.h"
-#include "hexagon/dsp/rt/runtime_state.h"
 
 #include "hexagon_dsp.h"
 

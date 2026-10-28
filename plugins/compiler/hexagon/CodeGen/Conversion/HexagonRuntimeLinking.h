@@ -22,7 +22,8 @@ inline constexpr llvm::StringLiteral kNativeRuntimeLinkVariantAttrName =
     "hexagon.native_runtime_linking";
 
 // Allocates VTCM from the dispatch's partition:
-//   void *(const hexagon_rt_state_t *, size_t nbytes, uint64_t alignment)
+//   void *(const hexagon_executable_dispatch_state_t *, size_t nbytes,
+//          uint64_t alignment)
 inline constexpr llvm::StringLiteral kVtcmAllocFnName =
     "hexagon_runtime_vtcm_alloc";
 // Allocator of the coroutine frames of the async threads, in DDR:

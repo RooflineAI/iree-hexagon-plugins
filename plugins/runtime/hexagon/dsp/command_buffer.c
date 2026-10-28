@@ -411,6 +411,16 @@ typedef struct hexa_cmd_buf_done_s {
   uint32_t num_completed;
 } hexa_cmd_buf_done_t;
 
+/// Execution state of a dispatch task.
+typedef enum hexa_cmd_buf_task_state_e {
+  /// prepared and not executed yet, or still executing
+  HEXA_CMD_BUF_TASK_RUNNING,
+  /// all workgroups executed successfully
+  HEXA_CMD_BUF_TASK_SUCCEEDED,
+  /// a workgroup failed, the remaining workgroups were skipped
+  HEXA_CMD_BUF_TASK_FAILED,
+} hexa_cmd_buf_task_state_t;
+
 /**
  * A dispatch, prepared by the master thread (the one walking the command
  * buffer) and executed either by the master or by a worker thread.
@@ -436,7 +446,7 @@ typedef struct hexa_cmd_buf_task_s {
   hexa_cmd_buf_done_t *done_notify;
   /// set by the worker once the dispatch has been executed, guarded by
   /// done_notify->mutex
-  bool done;
+  hexa_cmd_buf_task_state_t state;
   /// submitted to a worker and not finished yet, master only
   bool in_flight;
 } hexa_cmd_buf_task_t;
@@ -459,6 +469,8 @@ typedef struct hexa_cmd_buf_sched_s {
   size_t vtcm_pool_size;
   /// sum of the sizes of all partitions currently acquired
   size_t vtcm_in_use;
+  /// first error of a finished dispatch, AEE_SUCCESS if none failed
+  int status;
 } hexa_cmd_buf_sched_t;
 
 /**
@@ -620,12 +632,15 @@ static int hexa_cmd_buf_prepare_dispatch(
 }
 
 /**
- * @brief Execute all workgroups of a prepared dispatch.
+ * @brief Execute all workgroups of a prepared dispatch. Stops at the first
+ *        workgroup that fails.
  * @param[in] task prepared task with acquired VTCM partition
+ * @return HEXA_CMD_BUF_TASK_SUCCEEDED or HEXA_CMD_BUF_TASK_FAILED
  *
  * Runs on the master or on a worker thread.
  */
-static void hexa_cmd_buf_run_dispatch(hexa_cmd_buf_task_t *task) {
+static hexa_cmd_buf_task_state_t
+hexa_cmd_buf_run_dispatch(const hexa_cmd_buf_task_t *task) {
   const hexagon_executable_dispatch_state_t *dispatch_state =
       &task->dispatch_state;
 
@@ -650,25 +665,39 @@ static void hexa_cmd_buf_run_dispatch(hexa_cmd_buf_task_t *task) {
             .processor_id = 0,
         };
 
-        // call dispatch function
-        task->dispatch_func(task->environment, dispatch_state,
-                            &workgroup_state);
+        // call dispatch function, non-zero return means failure
+        int ret = task->dispatch_func(task->environment, dispatch_state,
+                                      &workgroup_state);
+        if (ret != 0) {
+          FARF(ERROR,
+               "HEXAGON-RUNTIME-ERROR: dispatch %s failed with %d in "
+               "workgroup (%u, %u, %u)",
+               task->func_name ? task->func_name : "(unnamed)", ret,
+               (unsigned)wg_id_x, (unsigned)wg_id_y, (unsigned)wg_id_z);
+          profiler_measurement_finish_and_record(prof_dispatch_record);
+          return HEXA_CMD_BUF_TASK_FAILED;
+        }
       }
     }
   }
 
   profiler_measurement_finish_and_record(prof_dispatch_record);
+  return HEXA_CMD_BUF_TASK_SUCCEEDED;
 }
 
 /**
  * @brief Release the resources of an executed dispatch and return its task
  *        slot. Master only, as it returns the VTCM partition to the pool.
+ *        Records the first failing dispatch in sched->status.
  * @param[in,out] sched scheduler state
  * @param[in] task_idx index of the executed task, free again afterwards
  */
 static void hexa_cmd_buf_finish_dispatch(hexa_cmd_buf_sched_t *sched,
                                          uint32_t task_idx) {
   hexa_cmd_buf_task_t *task = &sched->tasks[task_idx];
+  if (task->state == HEXA_CMD_BUF_TASK_FAILED) {
+    sched->status = AEE_EFAILED;
+  }
   sched->vtcm_in_use -= task->vtcm_partition.size;
   hexagon_rt_release_vtcm_partition(&task->vtcm_partition);
   hexa_cmd_buf_unmap(task->mapped_fds, task->num_buf_refs);
@@ -679,11 +708,11 @@ static void hexa_cmd_buf_finish_dispatch(hexa_cmd_buf_sched_t *sched,
 /// Worker thread entry point: execute the dispatch and notify the master.
 static void hexa_cmd_buf_task_worker(void *arg) {
   hexa_cmd_buf_task_t *task = (hexa_cmd_buf_task_t *)arg;
-  hexa_cmd_buf_run_dispatch(task);
+  hexa_cmd_buf_task_state_t state = hexa_cmd_buf_run_dispatch(task);
   // notify master of completion and mark this task completed
   hexa_cmd_buf_done_t *done_notify = task->done_notify;
   qurt_mutex_lock(&done_notify->mutex);
-  task->done = true;
+  task->state = state;
   ++done_notify->num_completed;
   qurt_cond_signal(&done_notify->cond);
   qurt_mutex_unlock(&done_notify->mutex);
@@ -694,8 +723,9 @@ static void hexa_cmd_buf_task_worker(void *arg) {
  *        it. Must only be called with dispatches in flight.
  * @param[in,out] sched scheduler state
  *
- * A worker sets done and counts the completion under the same lock, so each
- * counted completion matches a task that is done and not finished yet.
+ * A worker sets the task state and counts the completion under the same lock,
+ * so each counted completion matches a task that is done and not finished
+ * yet.
  */
 static void hexa_cmd_buf_sched_wait_one(hexa_cmd_buf_sched_t *sched) {
   assert(sched->num_in_flight > 0);
@@ -708,7 +738,8 @@ static void hexa_cmd_buf_sched_wait_one(hexa_cmd_buf_sched_t *sched) {
   --done_notify->num_completed;
   // search which task completed
   for (uint32_t idx = 0; idx < sched->max_concurrent; ++idx) {
-    if (sched->tasks[idx].in_flight && sched->tasks[idx].done) {
+    if (sched->tasks[idx].in_flight &&
+        sched->tasks[idx].state != HEXA_CMD_BUF_TASK_RUNNING) {
       task_idx = idx;
       break;
     }
@@ -818,13 +849,14 @@ static int hexa_cmd_buf_exec_dispatch(
   // thread tasks, see above.
   if (uses_hmx || sched->max_concurrent == 1) {
     profiler_measurement_finish_and_record(prof_record);
-    hexa_cmd_buf_run_dispatch(task);
+    task->state = hexa_cmd_buf_run_dispatch(task);
     hexa_cmd_buf_finish_dispatch(sched, task_idx);
-    return AEE_SUCCESS;
+    // finish_dispatch has moved the error code to the sched state
+    return sched->status;
   }
 
   // give the dispatch to a worker to execute
-  task->done = false;
+  task->state = HEXA_CMD_BUF_TASK_RUNNING;
   task->in_flight = true;
   ++sched->num_in_flight;
   hexagon_rt_async_execute(hexa_cmd_buf_task_worker, task);
@@ -940,6 +972,7 @@ static int hexa_cmd_buf_exec_fill(const uint8_t **cmd_buf_data,
  * @retval AEE_SUCCESS for success
  *
  * Dispatches may still be in flight when this function returns.
+ * Stops once a dispatch has failed and returns its error.
  */
 static int hexa_cmd_buf_walk_cmds(hexa_cmd_buf_sched_t *sched,
                                   const uint8_t *cmd_buf_data, int cmd_buf_size,
@@ -950,6 +983,10 @@ static int hexa_cmd_buf_walk_cmds(hexa_cmd_buf_sched_t *sched,
   READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_buf_t,
                   cmd_buf)
   for (uint32_t idx_entry = 0; idx_entry < cmd_buf->num_entries; ++idx_entry) {
+    // skip the rest of the command buffer once a dispatch has failed
+    if (sched->status != AEE_SUCCESS) {
+      return sched->status;
+    }
     PEEK_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_base_t,
                     cmd_base)
     switch ((hexagon_rt_arm_dsp_cmd_type_enum_t)cmd_base->cmd_type) {
@@ -1046,6 +1083,7 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
       // worker exists.
       .vtcm_pool_size = hexagon_rt_vtcm_pool_size(),
       .vtcm_in_use = 0,
+      .status = AEE_SUCCESS,
   };
 
   // Allocate the task slots, one per dispatch that can execute at the same
@@ -1080,6 +1118,11 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
 
   // wait fial all outstanding tasks to complete
   hexa_cmd_buf_sched_drain(&sched);
+  // report dispatches that failed after the last command was walked
+  if (err == AEE_SUCCESS) {
+    // dont override another error from walking the cmd buffer
+    err = sched.status;
+  }
 
   qurt_cond_destroy(&sched.done_notify.cond);
   qurt_mutex_destroy(&sched.done_notify.mutex);

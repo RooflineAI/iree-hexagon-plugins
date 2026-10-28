@@ -163,6 +163,68 @@ def _check_module_after_rsync(
         )
 
 
+def push_module(
+    module_vmfb: Path,
+    remote_module: str,
+    kept_module: str,
+    host_rsync: Path,
+    device_rsync: str,
+    timeout: float,
+    setup: str = "",
+    timings: dict[str, float] | None = None,
+) -> None:
+    """Make `remote_module` on the device a copy of the `module_vmfb` built.
+
+    A module of at least `_KEEP_MODULE_MIN_BYTES` goes to `kept_module` (see
+    `integration_tests/device/deploy.py`) with `host_rsync`, as a delta against
+    the module sent there last time, or with adb push if there is none yet.
+    `remote_module` then gets its own copy of it, and `ModuleMismatchError` is
+    raised unless that copy's checksum matches `module_vmfb`, defending against a different user doing this at teh same time.
+    A smaller module is pushed straight to `remote_module`.
+
+    `device_rsync` is the command that runs rsync on the device. `setup` is a
+    shell script run first, in the same adb shell that looks for a kept
+    module. `timeout` bounds the transfer. With `timings`, the durations of the
+    transfer and of the check are added to it.
+    """
+    if timings is None:
+        timings = {}
+    should_keep_module = module_vmfb.stat().st_size >= _KEEP_MODULE_MIN_BYTES
+    # One adb round trip runs the setup and, for a kept module, finds out
+    # whether an earlier run left one to diff against.
+    script = setup or "true"
+    if should_keep_module:
+        script += (
+            f"; mkdir -p {posixpath.dirname(kept_module)}"
+            f"; if [ -f {kept_module} ]; then echo kept; fi"
+        )
+    has_kept_module = adb.shell(script).strip() == "kept"
+    push_module_start = time.time()
+    if not should_keep_module:
+        adb.push([module_vmfb], remote_module, timeout=timeout)
+    elif has_kept_module:
+        # A delta against the module this case sent last time, so a rebuilt
+        # module only sends what changed. With `device_rsync` under
+        # limit_lifetime, the device side ends if the transfer times out.
+        adb.sync(
+            host_rsync=host_rsync,
+            device_rsync=device_rsync,
+            local_path=module_vmfb,
+            remote_path=kept_module,
+            timeout=timeout,
+        )
+    else:
+        # Nothing to diff against, and for a full transfer adb push is faster
+        # than rsync over `adb shell`.
+        adb.push([module_vmfb], kept_module, timeout=timeout)
+    timings["push_module"] = time.time() - push_module_start
+    if should_keep_module:
+        # otherwise, it is already pushed to the case dir, and no need to verify, that no one else overrides it in between
+        verify_module_start = time.time()
+        _check_module_after_rsync(module_vmfb, kept_module, remote_module)
+        timings["verify_module"] = time.time() - verify_module_start
+
+
 def run_module_on_device(
     deployment: Deployment,
     case_dir_name: str,
@@ -205,44 +267,18 @@ def run_module_on_device(
 
     push_total_start = time.time()
     remote_dir = deployment.case_dir(case_dir_name)
-    remote_module = f"{remote_dir}/module.vmfb"
-    kept_module = deployment.kept_module(case_dir_name)
-    should_keep_module = module_vmfb.stat().st_size >= _KEEP_MODULE_MIN_BYTES
-    # One adb round trip sets up the case directory and, for a kept module,
-    # finds out whether an earlier run left one to diff against.
-    setup = f"rm -rf {remote_dir}; mkdir -p {remote_dir}"
-    if should_keep_module:
-        setup += (
-            f"; mkdir -p {posixpath.dirname(kept_module)}"
-            f"; if [ -f {kept_module} ]; then echo kept; fi"
-        )
-    has_kept_module = adb.shell(setup).strip() == "kept"
     # The first transfer of a large module takes a while, so it gets the same
     # budget as the run.
-    push_module_start = time.time()
-    if not should_keep_module:
-        adb.push([module_vmfb], remote_module, timeout=timeout)
-    elif has_kept_module:
-        # A delta against the module this case sent last time, so a rebuilt
-        # module only sends what changed. limit_lifetime ends the device side
-        # if the transfer times out.
-        adb.sync(
-            host_rsync=host_rsync,
-            device_rsync=f"{deployment.limit_lifetime} {deployment.rsync}",
-            local_path=module_vmfb,
-            remote_path=kept_module,
-            timeout=timeout,
-        )
-    else:
-        # Nothing to diff against, and for a full transfer adb push is faster
-        # than rsync over `adb shell`.
-        adb.push([module_vmfb], kept_module, timeout=timeout)
-    timings["push_module"] = time.time() - push_module_start
-    if should_keep_module:
-        # otherwise, it is already pushed to the case dir, and no need to verify, that no one else overrides it in between
-        verify_module_start = time.time()
-        _check_module_after_rsync(module_vmfb, kept_module, remote_module)
-        timings["verify_module"] = time.time() - verify_module_start
+    push_module(
+        module_vmfb=module_vmfb,
+        remote_module=f"{remote_dir}/module.vmfb",
+        kept_module=deployment.kept_module(case_dir_name),
+        host_rsync=host_rsync,
+        device_rsync=f"{deployment.limit_lifetime} {deployment.rsync}",
+        timeout=timeout,
+        setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
+        timings=timings,
+    )
     if input_files:
         adb.push(input_files, remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start

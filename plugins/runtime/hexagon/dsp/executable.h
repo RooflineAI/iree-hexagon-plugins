@@ -39,52 +39,56 @@ int hexagon_dsp_executable_close(remote_handle64 rpc_handle,
                                  int64 executable_handle);
 
 /**
- * @brief get dispatch function pointer for an entry point
+ * @brief Look up an exported function by name.
+ * @param[in] rpc_handle handle of DSP RPC session
  * @param[in] executable_handle handle of the executable
- * @param[in] export_ordinal number of exported function
- * @param[out] out_dispatch_func pointer to dispatch function
- * @retval AEE_SUCCESS for success
+ * @param[in] name name of the exported function
+ * @param[out] function_handle handle of the function, a pointer to a
+ *             hexagon_dsp_function_t owned by the executable
+ * @retval AEE_SUCCESS for success, AEE_ERESOURCENOTFOUND if there is no export
+ *         with that name
  */
-int hexagon_dsp_executable_get_dispatch_func(
-    int64 executable_handle, uint32_t export_ordinal,
-    hexagon_executable_dispatch_fn_t *out_dispatch_func);
+int hexagon_dsp_executable_lookup_function(remote_handle64 rpc_handle,
+                                           int64 executable_handle,
+                                           const char *name,
+                                           int64 *function_handle);
+
+/***** DSP internal functions *****/
+
+/// exported function of a loaded executable, the RPC function handle points
+/// to this, valid as long as the executable is loaded
+typedef struct hexagon_dsp_function_s hexagon_dsp_function_t;
 
 /**
- * @brief get initialized executable environment
- * @param[in] executable_handle handle of the executable
- * @param[out] out_environment initialized HAL executable environment
- * @retval AEE_SUCCESS for success
+ * @brief get dispatch function pointer of a function
+ * @param[in] function function
+ * @return dispatch function pointer
  */
-int hexagon_dsp_executable_get_environment(
-    int64 executable_handle,
-    const hexagon_executable_environment_t **out_environment);
+hexagon_executable_dispatch_fn_t
+hexagon_dsp_function_get_dispatch_func(const hexagon_dsp_function_t *function);
 
 /**
- * @brief Get the dispatch function.
- *
- * The export table may omit names to save binary size. When unavailable,
- * the corresponding output pointers are set to NULL.
- *
- * @param[in] executable_handle handle of the executable
- * @param[in] export_ordinal number of exported function
- * @param[out] out_name optional export name string
- * @retval AEE_SUCCESS for success
+ * @brief get initialized environment of the executable containing a function
+ * @param[in] function function
+ * @return initialized HAL executable environment
  */
-int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
-                                                  uint32_t export_ordinal,
-                                                  const char **out_name);
+const hexagon_executable_environment_t *
+hexagon_dsp_function_get_environment(const hexagon_dsp_function_t *function);
 
 /**
- * @brief Get the dispatch attributes of an export.
- *
- * @param[in] executable_handle handle of the executable
- * @param[in] export_ordinal number of exported function
- * @param[out] out_attrs dispatch attributes of the export, or NULL if the
- *             executable has no attribute table
- * @retval AEE_SUCCESS for success
+ * @brief get export name of a function
+ * @param[in] function function
+ * @return export name, for profiling and diagnostics
  */
-int hexagon_dsp_executable_get_dispatch_attrs(
-    int64 executable_handle, uint32_t export_ordinal,
-    const hexagon_executable_dispatch_attrs_t **out_attrs);
+const char *
+hexagon_dsp_function_get_name(const hexagon_dsp_function_t *function);
+
+/**
+ * @brief get dispatch attributes of a function
+ * @param[in] function function
+ * @return dispatch attributes, NULL if the executable has no attribute table
+ */
+const hexagon_executable_dispatch_attrs_t *
+hexagon_dsp_function_get_attrs(const hexagon_dsp_function_t *function);
 
 #endif // #ifndef HEXAGON_DSP_EXECUTABLE_H

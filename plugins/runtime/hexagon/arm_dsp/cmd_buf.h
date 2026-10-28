@@ -56,10 +56,9 @@ typedef struct hexagon_rt_arm_dsp_cmd_base_s {
 /// dispatch command, "derived" from hexagon_rt_arm_dsp_cmd_base_t
 typedef struct hexagon_rt_arm_dsp_cmd_dispatch_s {
   hexagon_rt_arm_dsp_cmd_base_t base; ///< keep this the first entry
-  /// DSP handle to executable that contains the function to call
-  int64_t executable_handle;
-  /// number of exported function to call from executable
-  uint32_t export_ordinal;
+  /// DSP handle to function to call (as returned by executable function
+  /// lookup)
+  int64_t function_handle;
   /// workgroup size - divided into x * y * z (z uses smaller type in IREE)
   //@{
   uint32_t workgroup_size_x;

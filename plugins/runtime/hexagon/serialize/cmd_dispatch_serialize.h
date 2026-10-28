@@ -28,9 +28,7 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_prep(
 
 /**
  * @brief serialize dispatch command to ARM/DSP data
- * @param[in] executable_handle handle to executable that contains the function
- *            to call
- * @param[in] export_ordinal number of exported function to call from executable
+ * @param[in] function_handle handle to the DSP function to call
  * @param[in] config workgroup configuration
  * @param[in] constants constants to pass to the kernel, multiple of 4 bytes
  * @param[in] bindings buffer bindings for the dispatch, either fixed buffers or
@@ -44,7 +42,7 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_prep(
  * @return IREE status
  */
 iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
-    rpc_executable_handle_t executable_handle, uint32_t export_ordinal,
+    rpc_function_handle_t function_handle,
     const iree_hal_dispatch_config_t *config,
     const iree_const_byte_span_t *constants,
     const iree_hal_buffer_ref_list_t *bindings,

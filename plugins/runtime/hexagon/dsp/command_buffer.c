@@ -492,8 +492,8 @@ static int hexa_cmd_buf_prepare_dispatch(
     bool *out_uses_hmx, uint64_t *out_threads) {
   PEEK_SERIALIZED(*cmd_buf_data, *cmd_buf_size,
                   hexagon_rt_arm_dsp_cmd_dispatch_t, cmd_dispatch)
-  int64_t executable_handle = cmd_dispatch->executable_handle;
-  uint32_t export_ordinal = cmd_dispatch->export_ordinal;
+  const hexagon_dsp_function_t *function =
+      (const hexagon_dsp_function_t *)cmd_dispatch->function_handle;
   uint32_t num_buf_refs = cmd_dispatch->num_bindings;
 
   // Check the whole entry is present, so reading it below cannot fail after
@@ -509,17 +509,13 @@ static int hexa_cmd_buf_prepare_dispatch(
   *cmd_buf_size -= sizeof(hexagon_rt_arm_dsp_cmd_dispatch_t);
 
   // Obtain dispatch function pointer.
-  hexagon_executable_dispatch_fn_t dispatch_func = NULL;
-  int err = hexagon_dsp_executable_get_dispatch_func(
-      executable_handle, export_ordinal, &dispatch_func);
-  if (err != AEE_SUCCESS) {
-    return err;
+  if (!function) {
+    return AEE_EBADPARM;
   }
-  const hexagon_executable_environment_t *environment = NULL;
-  err = hexagon_dsp_executable_get_environment(executable_handle, &environment);
-  if (err != AEE_SUCCESS) {
-    return err;
-  }
+  hexagon_executable_dispatch_fn_t dispatch_func =
+      hexagon_dsp_function_get_dispatch_func(function);
+  const hexagon_executable_environment_t *environment =
+      hexagon_dsp_function_get_environment(function);
 
   // Allocate buffer for nested arrays in dispatch state.
   // The dispatch state contains some pointers, which are arrays semantically.
@@ -540,8 +536,8 @@ static int hexa_cmd_buf_prepare_dispatch(
       binding_lengths_offset + binding_lengths_size, int);
   size_t mapped_fds_size = num_buf_refs * sizeof(int);
   uint8_t *dispatch_arrays = NULL;
-  err = HAP_malloc(mapped_fds_offset + mapped_fds_size,
-                   (void **)&dispatch_arrays);
+  int err = HAP_malloc(mapped_fds_offset + mapped_fds_size,
+                       (void **)&dispatch_arrays);
   if (err != AEE_SUCCESS) {
     return err;
   }
@@ -606,22 +602,18 @@ static int hexa_cmd_buf_prepare_dispatch(
     ++task->num_buf_refs;
   }
 
-  // Note that this function is also called when profiler is disabled, but it
-  // is not very expensive. We do not care if it fails either.
-  hexagon_dsp_executable_get_dispatch_func_name(
-      executable_handle, export_ordinal, &task->func_name);
+  task->func_name = hexagon_dsp_function_get_name(function);
 
   // The dispatch allocates VTCM only from its own partition, sized by the VTCM
   // the compiler declared for it. Without a declaration it gets all of VTCM.
   // Without valid resource information, the dispatch might use HMX and
   // any number of threads.
-  const hexagon_executable_dispatch_attrs_t *attrs = NULL;
+  const hexagon_executable_dispatch_attrs_t *attrs =
+      hexagon_dsp_function_get_attrs(function);
   *out_vtcm_bytes = HEXAGON_RT_VTCM_PARTITION_ALL;
   *out_uses_hmx = true;
   *out_threads = (uint64_t)INT64_MAX;
-  if (hexagon_dsp_executable_get_dispatch_attrs(
-          executable_handle, export_ordinal, &attrs) == AEE_SUCCESS &&
-      attrs &&
+  if (attrs &&
       (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_RESOURCES_VALID) != 0) {
     *out_uses_hmx =
         (attrs->hexagon_flags & HEXAGON_DISPATCH_FLAG_USES_HMX) != 0;

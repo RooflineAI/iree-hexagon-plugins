@@ -748,11 +748,10 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
   }
 
   // serialize dispatch command
-  // The Hexagon executable indexes its exported functions by dense ordinal, so
-  // decode the opaque function token back to that ordinal for the wire format.
-  uint32_t export_ordinal = iree_hal_executable_function_index(function);
+  // The function token is the DSP function handle returned by the executable's
+  // lookup_function_by_name.
   iree_status_t status_serialize = iree_hal_hexagon_cmd_dispatch_serialize_exec(
-      rpc_executable_handle, export_ordinal, &config, &constants, &bindings,
+      (rpc_function_handle_t)function.value, &config, &constants, &bindings,
       iree_hal_hexagon_buffer_get_fd_for_dsp, cmd_data, cmd_size);
   if (!iree_status_is_ok(status_serialize)) {
     iree_hal_hexagon_command_buffer_helper_unmap(bindings.values,

@@ -46,7 +46,7 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_prep(
 }
 
 iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
-    rpc_executable_handle_t executable_handle, uint32_t export_ordinal,
+    rpc_function_handle_t function_handle,
     const iree_hal_dispatch_config_t *config,
     const iree_const_byte_span_t *constants,
     const iree_hal_buffer_ref_list_t *bindings,
@@ -81,8 +81,7 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
   // serialize dispatch command
   SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_cmd_dispatch_t, dispatch)
   dispatch->base.cmd_type = HEXAGON_RT_ARM_DSP_CMD_DISPATCH;
-  dispatch->executable_handle = executable_handle;
-  dispatch->export_ordinal = export_ordinal;
+  dispatch->function_handle = function_handle;
   // workgroup size 0 means default workgroup size, it is 1 here
   dispatch->workgroup_size_x =
       config->workgroup_size[0] ? config->workgroup_size[0] : 1;

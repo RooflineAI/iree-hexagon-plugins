@@ -22,6 +22,9 @@ typedef unsigned long rpc_session_handle_t;
 /// RPC executable handle
 typedef long long rpc_executable_handle_t;
 
+/// RPC function handle (function within an executable)
+typedef long long rpc_function_handle_t;
+
 /// RPC command buffer handle
 typedef long long rpc_command_buffer_handle_t;
 

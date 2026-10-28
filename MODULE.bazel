@@ -14,8 +14,7 @@ module(
 )
 
 # Needed directly by our own plugin BUILD files (e.g.
-# plugins/runtime/hexagon/schemas, referenced from the compiler plugin's
-# Target/BUILD.bazel).
+# plugins/runtime/hexagon/BUILD.bazel).
 bazel_dep(name = "rules_cc", version = "0.2.25")
 
 # IREE is referenced via the "@iree" local_repository alias below (not the

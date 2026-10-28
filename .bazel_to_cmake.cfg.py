@@ -584,8 +584,12 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
     _FLATCC_TOOL_VAR = "IREE_FLATCC_TOOL_BINARY"
 
     def genrule(self, name, srcs=None, outs=None, cmd=None, tools=None, **kwargs):
+        # FIXME: unused since the Hexagon executable-def flatbuffer schema
+        # (plugins/runtime/hexagon/schemas) was removed in favor of looking up
+        # functions by name on the DSP; remove this handler and the flatcc tool
+        # mapping above if no other genrule shows up.
         # No existing bazel_to_cmake handler for plain genrule (IREE itself
-        # only ever uses its own higher-level macros). This repo has exactly
+        # only ever uses its own higher-level macros). This repo had exactly
         # one: flatcc schema codegen in plugins/runtime/hexagon/schemas. Only
         # the two Make-variable substitutions that genrule actually uses
         # ($(location <label>), $(RULEDIR)) are implemented -- this is not a

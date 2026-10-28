@@ -22,7 +22,7 @@ namespace {
 
 TEST(CmdDispatchSerializeTest, Serialize) {
   // Dispatch with two indirect bindings, one direct binding, and constants.
-  rpc_executable_handle_t rpc_executable_handle = 0x123456;
+  rpc_function_handle_t rpc_function_handle = 0x123456;
 
   iree_hal_dispatch_config_t config =
       iree_hal_make_static_dispatch_config(/*x=*/3, /*y=*/2, /*z=*/1);
@@ -64,15 +64,14 @@ TEST(CmdDispatchSerializeTest, Serialize) {
   // Serialization.
   std::vector<uint8_t> buffer(cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_dispatch_serialize_exec(
-      rpc_executable_handle, /*export_ordinal=*/7, &config, &constants,
-      &bindings, hexagon_test_get_buffer_fd, buffer.data(), buffer.size()));
+      rpc_function_handle, &config, &constants, &bindings,
+      hexagon_test_get_buffer_fd, buffer.data(), buffer.size()));
 
   const auto *cmd_dispatch =
       reinterpret_cast<const hexagon_rt_arm_dsp_cmd_dispatch_t *>(
           buffer.data());
   EXPECT_EQ(HEXAGON_RT_ARM_DSP_CMD_DISPATCH, cmd_dispatch->base.cmd_type);
-  EXPECT_EQ(rpc_executable_handle, cmd_dispatch->executable_handle);
-  EXPECT_EQ(7u, cmd_dispatch->export_ordinal);
+  EXPECT_EQ(rpc_function_handle, cmd_dispatch->function_handle);
   EXPECT_EQ(8u, cmd_dispatch->workgroup_size_x);
   EXPECT_EQ(4u, cmd_dispatch->workgroup_size_y);
   EXPECT_EQ(2u, cmd_dispatch->workgroup_size_z);

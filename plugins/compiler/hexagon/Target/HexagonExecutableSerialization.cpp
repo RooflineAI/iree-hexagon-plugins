@@ -12,13 +12,9 @@
 #include "hexagon/Target/LibraryBuilder.h"
 #include "hexagon/Target/Linking/HexagonLinker.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
-#include "iree/compiler/Utils/FlatbufferUtils.h"
 #include "iree/compiler/Utils/StringUtils.h"
 // Hexagon-owned copy of the executable library ABI, shared with the DSP.
 #include "hexagon/dsp/rt/executable_library.h"
-// Generated flatcc builder for the Hexagon executable-def flatbuffer (host-
-// readable export names + ELF). See serialize/hexagon_executable_def.fbs.
-#include "hexagon/schemas/hexagon_executable_def_builder.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Target/LLVMIR/Export.h"
@@ -198,16 +194,14 @@ static void dumpAssemblyFromLLVMModule(HAL::ExecutableVariantOp variantOp,
 // Build the IREE HAL executable library metadata. The runtime uses this
 // to find the entry point functions and their information. More details:
 //
-// The linking pipeline assigns ordinals to the functions and associates
-// exported symbols to them, by creating hal.executable.export attributes
-// (also does the same for imports btw). The hal instructions use these
-// ordinals to call on the functions. Therefore, we must expose a "query"
-// function that should allow to retrieve the addresses of the functions from
-// their assigned ordinals and add it to the executable so that the hal can
-// call on it.
+// The linking pipeline creates hal.executable.export ops for the dispatch
+// functions (also does the same for imports btw), and the hal instructions
+// refer to them by name. Therefore, we must expose a "query" function that
+// returns the export table (function pointers, names and attributes) so the
+// DSP runtime can look the functions up by name.
 //
 // Also note that this is not the solution implemented for other targets. The
-// GPUs embed this information into the flatbuffer instead. This must be
+// GPUs embed this information into a flatbuffer instead. This must be
 // synchronized with the hal. We are copying the pattern from the CPU for the
 // time being though.
 //
@@ -215,10 +209,8 @@ static void dumpAssemblyFromLLVMModule(HAL::ExecutableVariantOp variantOp,
 // functions except the query function have their visibility changed and are
 // hidden. We are not currently doing the same for Hexagon and all functions
 // are exposed.
-static void
-buildExecutableMetadata(llvm::Module &llvmModule,
-                        HAL::ExecutableVariantOp &variantOp,
-                        llvm::SmallVectorImpl<std::string> &entryPointNames) {
+static void buildExecutableMetadata(llvm::Module &llvmModule,
+                                    HAL::ExecutableVariantOp &variantOp) {
   LibraryBuilder libraryBuilder(&llvmModule, LibraryBuilder::Version::LATEST);
 
   // Declare dynamically imported functions if present. Hexagon currently
@@ -279,11 +271,6 @@ buildExecutableMetadata(llvm::Module &llvmModule,
     }
 
     libraryBuilder.addExport(exportOp.getName(), dispatchAttrs, llvmFunc);
-
-    // Collect the export name in the SAME order it is added to the library so
-    // the host-readable flatbuffer's entry_points[i] lines up with the DSP's
-    // exports->ptrs[i] (i.e. index == dispatch ordinal).
-    entryPointNames.push_back(exportOp.getName().str());
   }
 
   auto queryFunctionName = std::string(kQueryFunctionName);
@@ -517,8 +504,7 @@ mlir::LogicalResult serializeHexagonExecutable(
     return variantOp.emitOpError()
            << "failed to translate module to LLVM IR for Hexagon";
 
-  llvm::SmallVector<std::string> entryPointNames;
-  buildExecutableMetadata(*llvmModule, variantOp, entryPointNames);
+  buildExecutableMetadata(*llvmModule, variantOp);
 
   auto targetMachine = createHexagonTargetMachine(configAttr);
   if (!targetMachine) {
@@ -624,29 +610,21 @@ mlir::LogicalResult serializeHexagonExecutable(
                    ".so", libraryData);
   }
 
-  // Wrap the export names (host-readable, in dense ordinal order) plus the
-  // linked ELF into the executable-def flatbuffer, mirroring the GPU targets.
-  // This lets the HAL resolve the by-name dispatch references introduced by
-  // IREE #24036 to ordinals on the host; the DSP still loads the ELF and
-  // dispatches by that same ordinal (exports->ptrs[ordinal]).
-  FlatbufferBuilder builder;
-  iree_hal_hexagon_ExecutableDef_start_as_root(builder);
-  auto entryPointsRef = builder.createStringVec(entryPointNames);
-  auto elfRef = flatbuffers_uint8_vec_create(
-      builder, reinterpret_cast<const uint8_t *>(libraryData.data()),
-      libraryData.size());
-  iree_hal_hexagon_ExecutableDef_entry_points_add(builder, entryPointsRef);
-  iree_hal_hexagon_ExecutableDef_elf_add(builder, elfRef);
-  iree_hal_hexagon_ExecutableDef_end_as_root(builder);
-
+  // Embed the linked ELF into the IR. The runtime writes it to a .so that the
+  // DSP dlopen-s. Functions are looked up by name in the library's export
+  // table on the DSP, so no host-readable metadata is needed.
+  auto bufferAttr = mlir::DenseIntElementsAttr::get(
+      mlir::VectorType::get(
+          {static_cast<int64_t>(libraryData.size())},
+          mlir::IntegerType::get(executableBuilder.getContext(), 8)),
+      llvm::ArrayRef<int8_t>(
+          reinterpret_cast<const int8_t *>(libraryData.data()),
+          libraryData.size()));
   auto binaryOp = HAL::ExecutableBinaryOp::create(
       executableBuilder, variantOp.getLoc(), variantOp.getSymName(),
-      variantOp.getTarget().getFormat(),
-      builder.getHeaderPrefixedBufferAttr(
-          executableBuilder.getContext(),
-          iree_hal_hexagon_ExecutableDef_file_identifier, /*version=*/0));
+      variantOp.getTarget().getFormat(), bufferAttr);
   binaryOp.setMimeTypeAttr(
-      executableBuilder.getStringAttr("application/x-flatbuffers"));
+      executableBuilder.getStringAttr("application/x-elf"));
 
   return mlir::success();
 }

@@ -18,8 +18,27 @@ inputs:
 # Measured 2026-09-30 (hexagon-vtcm-hmx): relative L2 0.076%, max abs 0.17.
 # 98% of the output is the mask fill value, so the elementwise check is
 # dominated by it; the tolerances keep a ~3x margin.
+# increased the tolerance:
+# The Reference has a high variance depending on which CI runner computes it:
+# an alternative solution would be to compute the reference in f32, as the difference between the different CI runners is smaller there
+
+#runner: qc-small-1000009667
+#cpu: AMD EPYC 7763 64-Core Processor
+#cpu flags: avx2
+#torch 2.9.0+cpu, capability AVX2, 4 threads, mkldnn True
+#output0 (float16): sha256 c03bc61d4d2eb3f4, [153019]=2.5215, [151363]=0.13354, [138133]=-14.031, [221674]=-2.6348, [223170]=-1.3574
+#output0 (float32): sha256 8487a629e10875bb, [153019]=2.2503, [151363]=-0.046238, [138133]=-14.215, [221674]=-2.8354, [223170]=-1.5612
+#output0 float16 vs float32: max abs diff 0.271166, relative L2 0.3400%
+
+#runner: qc-small-1000009665
+#cpu: INTEL(R) XEON(R) PLATINUM 8573C
+#cpu flags: avx2 avx512f
+#torch 2.9.0+cpu, capability AVX512, 4 threads, mkldnn True
+#output0 (float16): sha256 f46d585a87e4b5f2, [153019]=1.9736, [151363]=-0.32056, [138133]=-14.461, [221674]=-3.0977, [223170]=-1.8086
+#output0 (float32): sha256 83380556ae6875cb, [153019]=2.2508, [151363]=-0.045923, [138133]=-14.214, [221674]=-2.8349, [223170]=-1.5608
+#output0 float16 vs float32: max abs diff 0.277174, relative L2 0.1925%
 tolerances:
-  atol: 5.0e-1
+  atol: 1.0
   rtol: 5.0e-2
   relative_l2_percent: 0.3
 compile_cases: [hexagon-vtcm-hmx]

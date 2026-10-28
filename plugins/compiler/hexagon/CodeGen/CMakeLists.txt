@@ -238,11 +238,11 @@ iree_cc_library(
     MLIRAffineDialect
     MLIRAffineToStandard
     MLIRAffineUtils
+    MLIRAnalysis
+    MLIRArithDialect
     MLIRAsyncDialect
     MLIRAsyncToLLVM
     MLIRAsyncTransforms
-    MLIRAnalysis
-    MLIRArithDialect
     MLIRBufferizationDialect
     MLIRComplexToStandard
     MLIRControlFlowDialect

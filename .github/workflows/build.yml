@@ -19,6 +19,10 @@ jobs:
     # PRs, so check the base ref here. Every other job depends on this one
     # and is skipped along with it.
     if: github.event_name != 'pull_request' || (github.event.pull_request.base.ref == 'main' && (github.event.action != 'edited' || github.event.changes.base))
+    # TEMPORARY: reference-report fails on purpose, which skips this job and
+    # with it every job downstream. Remove before merging.
+    needs:
+      - reference-report
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -333,6 +337,50 @@ jobs:
             --target "${git_hash}" \
             --title "v${version}" \
             --notes "git hash ${git_hash}, github run id ${{ github.run_id }}"
+  reference-report:
+    # Informational and independent of every other job: prints the host-side
+    # torch reference of a model on the runners that run the integration
+    # tests, to compare against a local run of the same script. float16
+    # references depend on the host CPU. Not a gatekeeper dependency.
+    # Fork PRs get no HF_TOKEN for the gated model, so they skip this.
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main' && (github.event.action != 'edited' || github.event.changes.base))
+    strategy:
+      fail-fast: false
+      matrix:
+        # qc-small is a pool; several copies land on different machines.
+        sample: [1, 2, 3]
+    runs-on:
+      group: qualcomm
+      labels: qc-small
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+          enable-cache: false
+      - name: Setup environment for integration tests
+        run: |
+          build_tools/create_test_venv.sh
+      - name: Report the torch reference
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN_CI }}
+        run: |
+          echo "runner: ${RUNNER_NAME}"
+          .venv/bin/python -m integration_tests.report_reference \
+            --model=google/gemma-4-E2B-it-assistant-patched \
+            --save-dir=reference-report
+      - name: Upload the reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-report-${{ matrix.sample }}
+          path: reference-report/
+      - name: Abort the rest of the workflow
+        # TEMPORARY: only the report is wanted; failing here skips pre-commit
+        # and so every other job. Remove before merging.
+        run: |
+          echo "::error::Failing on purpose so that the other jobs do not run."
+          exit 1
   gatekeeper:
     needs:
       - pre-commit

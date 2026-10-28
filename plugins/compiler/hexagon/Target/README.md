@@ -32,7 +32,7 @@ HexagonSession                  plugin "hexagon": dialects, passes, options
           5. emit object file (+ per-frame stack-size check)
           6. collect hal.executable.objects
           7. linking::linkHexagonSharedObject → .so
-          8. wrap export names + .so in the hexagon ExecutableDef flatbuffer
+          8. embed the .so in hal.executable.binary (application/x-elf)
 ```
 
 `HexagonTarget::storeToConfigAttrs` writes the configuration dictionary. It is

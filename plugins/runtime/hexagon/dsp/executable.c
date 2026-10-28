@@ -39,7 +39,54 @@ typedef struct hexagon_dsp_executable_s {
   /// executable environment passed to dispatches
   /// FIXME: zero-initialized; executable constants are not populated.
   hexagon_executable_environment_t environment;
+  /// exported functions, one per export, RPC function handles point here
+  hexagon_dsp_function_t *functions;
+  /// number of entries in functions
+  uint32_t function_count;
 } hexagon_dsp_executable_t;
+
+struct hexagon_dsp_function_s {
+  /// executable that contains the function
+  const hexagon_dsp_executable_t *executable;
+  /// dispatch function pointer
+  hexagon_executable_dispatch_fn_t dispatch_func;
+  /// export name for profiling and diagnostics
+  const char *name;
+  /// dispatch attributes, NULL if the executable has no attribute table
+  const hexagon_executable_dispatch_attrs_t *attrs;
+};
+
+/// set up function table of executable, inside hexagon_dsp_executable_set_up()
+static int
+hexagon_dsp_executable_set_up_functions(hexagon_dsp_executable_t *executable) {
+  const hexagon_executable_export_table_t *exports =
+      &executable->library.v0->exports;
+  if (exports->count == 0) {
+    return AEE_SUCCESS;
+  }
+  // functions are looked up by name, so names are required
+  if (!exports->names) {
+    FARF(ERROR,
+         "HEXAGON-RUNTIME-ERROR: executable '%s' has no export names, "
+         "cannot look up functions by name",
+         executable->name ? executable->name : "(null)");
+    return AEE_EUNSUPPORTED;
+  }
+  executable->functions = (hexagon_dsp_function_t *)calloc(
+      exports->count, sizeof(hexagon_dsp_function_t));
+  if (!executable->functions) {
+    return AEE_ENOMEMORY;
+  }
+  executable->function_count = exports->count;
+  for (uint32_t i = 0; i < exports->count; ++i) {
+    hexagon_dsp_function_t *function = &executable->functions[i];
+    function->executable = executable;
+    function->dispatch_func = exports->ptrs[i];
+    function->name = exports->names[i];
+    function->attrs = exports->attrs ? &exports->attrs[i] : NULL;
+  }
+  return AEE_SUCCESS;
+}
 
 /// set up executable data structure, used inside hexagon_dsp_executable_load()
 int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
@@ -96,7 +143,7 @@ int hexagon_dsp_executable_set_up(hexagon_dsp_executable_t *executable,
     return AEE_EUNSUPPORTED;
   }
 
-  return AEE_SUCCESS;
+  return hexagon_dsp_executable_set_up_functions(executable);
 }
 
 int hexagon_dsp_executable_load(remote_handle64 rpc_handle, const char *name,
@@ -129,72 +176,48 @@ int hexagon_dsp_executable_close(remote_handle64 rpc_handle,
   if (executable->shlib) {
     dlclose(executable->shlib);
   }
+  free(executable->functions);
   free(executable->name);
   // free management data structure
   free(executable);
   return AEE_SUCCESS;
 }
 
-int hexagon_dsp_executable_get_dispatch_func(
-    int64 executable_handle, uint32_t export_ordinal,
-    hexagon_executable_dispatch_fn_t *out_dispatch_func) {
-  hexagon_dsp_executable_t *executable =
-      (hexagon_dsp_executable_t *)executable_handle;
-  const hexagon_executable_export_table_t *exports =
-      &executable->library.v0->exports;
-
-  if (export_ordinal >= exports->count) {
-    return AEE_EBADITEM;
-  }
-
-  *out_dispatch_func = exports->ptrs[export_ordinal];
-  return AEE_SUCCESS;
-}
-
-int hexagon_dsp_executable_get_environment(
-    int64 executable_handle,
-    const hexagon_executable_environment_t **out_environment) {
-  if (!out_environment) {
+int hexagon_dsp_executable_lookup_function(remote_handle64 rpc_handle,
+                                           int64 executable_handle,
+                                           const char *name,
+                                           int64 *function_handle) {
+  if (!executable_handle || !name || !function_handle) {
     return AEE_EBADPARM;
   }
   hexagon_dsp_executable_t *executable =
       (hexagon_dsp_executable_t *)executable_handle;
-  *out_environment = &executable->environment;
-  return AEE_SUCCESS;
+  for (uint32_t i = 0; i < executable->function_count; ++i) {
+    hexagon_dsp_function_t *function = &executable->functions[i];
+    if (function->name && strcmp(function->name, name) == 0) {
+      *function_handle = (int64)function;
+      return AEE_SUCCESS;
+    }
+  }
+  return AEE_ERESOURCENOTFOUND;
 }
 
-int hexagon_dsp_executable_get_dispatch_func_name(int64 executable_handle,
-                                                  uint32_t export_ordinal,
-                                                  const char **out_name) {
-  hexagon_dsp_executable_t *executable =
-      (hexagon_dsp_executable_t *)executable_handle;
-  const hexagon_executable_export_table_t *exports =
-      &executable->library.v0->exports;
-
-  if (export_ordinal >= exports->count || !out_name) {
-    FARF(RUNTIME_HIGH, "HEXAGON-RUNTIME-WARNING: Failed to retrieve dispatch "
-                       "function name.\n");
-    return AEE_EBADPARM;
-  }
-
-  *out_name = exports->names ? exports->names[export_ordinal] : NULL;
-
-  return AEE_SUCCESS;
+hexagon_executable_dispatch_fn_t
+hexagon_dsp_function_get_dispatch_func(const hexagon_dsp_function_t *function) {
+  return function->dispatch_func;
 }
 
-int hexagon_dsp_executable_get_dispatch_attrs(
-    int64 executable_handle, uint32_t export_ordinal,
-    const hexagon_executable_dispatch_attrs_t **out_attrs) {
-  if (!out_attrs) {
-    return AEE_EBADPARM;
-  }
-  hexagon_dsp_executable_t *executable =
-      (hexagon_dsp_executable_t *)executable_handle;
-  const hexagon_executable_export_table_t *exports =
-      &executable->library.v0->exports;
-  if (export_ordinal >= exports->count) {
-    return AEE_EBADITEM;
-  }
-  *out_attrs = exports->attrs ? &exports->attrs[export_ordinal] : NULL;
-  return AEE_SUCCESS;
+const hexagon_executable_environment_t *
+hexagon_dsp_function_get_environment(const hexagon_dsp_function_t *function) {
+  return &function->executable->environment;
+}
+
+const char *
+hexagon_dsp_function_get_name(const hexagon_dsp_function_t *function) {
+  return function->name;
+}
+
+const hexagon_executable_dispatch_attrs_t *
+hexagon_dsp_function_get_attrs(const hexagon_dsp_function_t *function) {
+  return function->attrs;
 }

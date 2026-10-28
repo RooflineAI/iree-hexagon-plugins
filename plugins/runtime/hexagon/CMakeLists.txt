@@ -49,10 +49,7 @@ iree_cc_library(
     iree::async::util::proactor_pool
     iree::base
     iree::base::internal
-    iree::base::internal::flatcc::building
-    iree::base::internal::flatcc::parsing
     iree::hal
-    iree::hal::utils::executable_header
     iree::hal::utils::file_transfer
     iree::hal::utils::files
     iree::hal::utils::queue_emulation
@@ -60,7 +57,6 @@ iree_cc_library(
     iree::hal::utils::resource_set
     iree_hexagon_plugins::plugins::runtime::hexagon::arm_dsp::hexagon_arm_dsp
     iree_hexagon_plugins::plugins::runtime::hexagon::interface::hexagon_dsp_stub_lib
-    iree_hexagon_plugins::plugins::runtime::hexagon::schemas::hexagon_executable_def_c_fbs
     iree_hexagon_plugins::plugins::runtime::hexagon::serialize::serialize_plugin
   ALWAYSLINK
   INCLUDES
@@ -90,10 +86,7 @@ iree_cc_library(
     iree::async::util::proactor_pool
     iree::base
     iree::base::internal
-    iree::base::internal::flatcc::building
-    iree::base::internal::flatcc::parsing
     iree::hal
-    iree::hal::utils::executable_header
     iree::hal::utils::file_transfer
     iree::hal::utils::files
     iree::hal::utils::queue_emulation

@@ -5,8 +5,6 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 import os
-import re
-import shlex
 
 import bazel_to_cmake_converter
 import bazel_to_cmake_targets
@@ -572,87 +570,6 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             f")\n\n"
         )
         self._emit_platform_guard_end(target_compatible_with)
-
-    # The flatcc driver binary has no plain-library CMake target under the
-    # name the base target map gives it (bazel_to_cmake_targets.py maps
-    # "@com_github_dvidelabs_flatcc//:flatcc" to the "flatcc" *library*
-    # target, not the "iree-flatcc-cli" tool binary that this genrule's
-    # $(location)/tools actually need) -- and, unlike an ordinary library
-    # dep, it needs cross-compile-aware host-tool resolution, mirroring
-    # IREE core's own build_tools/cmake/flatbuffer_c_library.cmake.
-    _FLATCC_TOOL_LABEL = "@com_github_dvidelabs_flatcc//:flatcc"
-    _FLATCC_TOOL_VAR = "IREE_FLATCC_TOOL_BINARY"
-
-    def genrule(self, name, srcs=None, outs=None, cmd=None, tools=None, **kwargs):
-        # No existing bazel_to_cmake handler for plain genrule (IREE itself
-        # only ever uses its own higher-level macros). This repo has exactly
-        # one: flatcc schema codegen in plugins/runtime/hexagon/schemas. Only
-        # the two Make-variable substitutions that genrule actually uses
-        # ($(location <label>), $(RULEDIR)) are implemented -- this is not a
-        # general Bazel genrule interpreter.
-        srcs = srcs or []
-        tools = tools or []
-        uses_flatcc = self._FLATCC_TOOL_LABEL in tools
-
-        def _location(label):
-            if label in srcs:
-                return f"${{CMAKE_CURRENT_SOURCE_DIR}}/{label}"
-            if label == self._FLATCC_TOOL_LABEL:
-                return "${" + self._FLATCC_TOOL_VAR + "}"
-            return self._targets.convert_target(label)[0]
-
-        resolved_cmd = cmd.replace("$(RULEDIR)", "${CMAKE_CURRENT_BINARY_DIR}")
-        resolved_cmd = re.sub(
-            r"\$\(location ([^)]+)\)", lambda m: _location(m.group(1)), resolved_cmd
-        )
-        outs_block = "\n".join(f'    "${{CMAKE_CURRENT_BINARY_DIR}}/{o}"' for o in outs)
-        srcs_block = "\n".join(f'    "${{CMAKE_CURRENT_SOURCE_DIR}}/{s}"' for s in srcs)
-        tool_targets = [
-            "${" + self._FLATCC_TOOL_VAR + "}"
-            if t == self._FLATCC_TOOL_LABEL
-            else self._targets.convert_target(t)[0]
-            for t in tools
-        ]
-        tools_block = "\n".join(f"    {t}" for t in tool_targets)
-
-        flatcc_setup = ""
-        if uses_flatcc:
-            # Cross-compile-aware host-tool resolution (mirrors
-            # flatbuffer_c_library.cmake in IREE core): natively, the plain
-            # target name is used directly as a COMMAND token below, which
-            # CMake resolves to that executable target's build output at
-            # generate time; when cross-compiling, IREE_HOST_BIN_DIR points
-            # at the already-built host tools tree instead.
-            flatcc_setup = (
-                f"set({self._FLATCC_TOOL_VAR} iree-flatcc-cli)\n"
-                f"if(IREE_HOST_BIN_DIR)\n"
-                f'  set({self._FLATCC_TOOL_VAR} "${{IREE_HOST_BIN_DIR}}/iree-flatcc-cli")\n'
-                f"endif()\n"
-            )
-            # The tool must be its own COMMAND token (not embedded in a
-            # single shell string) for CMake's target-name-to-output-path
-            # substitution to apply in the native (non-cross-compiling)
-            # case -- so split into argv instead of the generic
-            # `sh -c <whole cmd>` used below. Plain CMake double-quoting
-            # (not shlex/shell quoting -- there is no shell here) is enough:
-            # none of these argv tokens contain embedded double quotes.
-            command_block = "\n".join(
-                f'    "{arg}"' for arg in shlex.split(resolved_cmd)
-            )
-            command = f"  COMMAND\n{command_block}\n"
-        else:
-            command = f"  COMMAND sh -c {shlex.quote(resolved_cmd)}\n"
-
-        self._converter.body += (
-            f"{flatcc_setup}"
-            f"add_custom_command(\n"
-            f"  OUTPUT\n{outs_block}\n"
-            f"{command}"
-            f"  DEPENDS\n{srcs_block}\n{tools_block}\n"
-            f"  VERBATIM\n"
-            f")\n"
-            f"add_custom_target({name}_gen DEPENDS\n{outs_block}\n)\n\n"
-        )
 
     def hexagon_plugin_library(self, deps=None, hdr_deps=None, **kwargs):
         # Bazel-side, hexagon_plugin_library (build_tools/bazel/defs.bzl) wraps

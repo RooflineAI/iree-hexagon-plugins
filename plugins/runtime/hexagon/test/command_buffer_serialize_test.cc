@@ -103,8 +103,8 @@ TEST(CommandBufferSerializeTest, ConcatenatesSerializedEntries) {
       &empty_constants, &dispatch_binding_list, &dispatch_cmd_size));
   auto dispatch_entry = make_entry(dispatch_cmd_size);
   IREE_EXPECT_OK(iree_hal_hexagon_cmd_dispatch_serialize_exec(
-      /*executable_handle=*/0xCAFE, /*export_ordinal=*/4, &dispatch_config,
-      &empty_constants, &dispatch_binding_list, hexagon_test_get_buffer_fd,
+      /*function_handle=*/0xCAFE, &dispatch_config, &empty_constants,
+      &dispatch_binding_list, hexagon_test_get_buffer_fd,
       dispatch_entry.cmd_data, dispatch_entry.entry->size));
 
   // Barrier entry.

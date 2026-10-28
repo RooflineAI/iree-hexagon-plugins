@@ -101,7 +101,6 @@ hexagon_plugin_library(
         "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
         "@iree//compiler/src/iree/compiler/Utils",
         "//plugins/runtime/hexagon/dsp/rt:executable_library",
-        "//plugins/runtime/hexagon/schemas:hexagon_executable_def_c_fbs",
         "@llvm-project//llvm:BitWriter",
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:MC",
@@ -123,7 +122,6 @@ hexagon_plugin_library(
         "//plugins/compiler/hexagon/CodeGen:codegen",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
         "//plugins/compiler/hexagon/Target/Linking:HexagonLinker",
-        # FlatbufferBuilder + flatcc runtime for the executable-def flatbuffer.
         "@iree//compiler/src/iree/compiler/Utils",
     ],
 )

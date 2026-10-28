@@ -97,8 +97,6 @@ typedef struct hexagon_executable_environment_t {
 } hexagon_executable_environment_t;
 
 // Read-only per-dispatch state passed to each workgroup in a dispatch.
-// The DSP runtime passes this as the first member of
-// hexagon_dsp_extended_dispatch_state_t (dispatch_state.h).
 typedef struct hexagon_executable_dispatch_state_t {
   // Workgroup size chosen for the dispatch.
   uint32_t workgroup_size_x;
@@ -121,6 +119,13 @@ typedef struct hexagon_executable_dispatch_state_t {
   void *const *binding_ptrs;
   // The length of each binding in bytes, 1:1 with |binding_ptrs|.
   const size_t *binding_lengths;
+
+  // Hexagon runtime state accessed from inside dispatches. The types are only
+  // forward declared so this header stays standalone.
+  // Profiler context of the running dispatch, may be NULL.
+  struct hexagon_rt_prof_context_s *prof_context;
+  // VTCM partition of the running dispatch, never NULL inside a dispatch.
+  struct hexagon_rt_vtcm_partition_s *vtcm_partition;
 } hexagon_executable_dispatch_state_t;
 static_assert(sizeof(hexagon_executable_dispatch_state_t) <= 64,
               "try keeping dispatch state small enough to fit in a cache line");

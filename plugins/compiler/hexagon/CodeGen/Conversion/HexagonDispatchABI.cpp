@@ -84,20 +84,17 @@ HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
   fieldTypes.push_back(opaquePtrType);
   fieldTypes.push_back(opaquePtrType);
 
+  // hexagon_rt_prof_context_t * prof_context;
+  // hexagon_rt_vtcm_partition_t * vtcm_partition;
+  fieldTypes.push_back(opaquePtrType);
+  fieldTypes.push_back(opaquePtrType);
+
   LogicalResult bodySet = structType.setBody(fieldTypes, /*isPacked=*/false);
   assert(succeeded(bodySet) &&
          "could not set the body of an identified struct");
   (void)bodySet;
 
   return structType;
-}
-
-// static
-LLVM::LLVMStructType
-HexagonDispatchABI::getExtendedDispatchStateType(MLIRContext *context) {
-  return LLVM::LLVMStructType::getLiteral(
-      context,
-      {getDispatchStateType(context), LLVM::LLVMPointerType::get(context)});
 }
 
 // static
@@ -401,39 +398,8 @@ Value HexagonDispatchABI::castValueToType(Location loc, Value value,
   return builder.createOrFold<LLVM::ZExtOp>(loc, resultType, value);
 }
 
-Value HexagonDispatchABI::loadRuntimeState(Operation *forOp,
-                                           OpBuilder &builder) {
-  Location loc = forOp->getLoc();
-  Value dispatchState = getLocalArgument(forOp, /*argNum=*/1);
-  auto ptrType = LLVM::LLVMPointerType::get(context);
-  Value runtimeStateAddr = LLVM::GEPOp::create(
-      builder, loc, ptrType, getExtendedDispatchStateType(context),
-      dispatchState, ArrayRef<LLVM::GEPArg>{0, 1},
-      LLVM::GEPNoWrapFlags::inbounds);
-  return LLVM::LoadOp::create(builder, loc, ptrType, runtimeStateAddr);
-}
-
-Value HexagonDispatchABI::getRuntimeStateAtEntry(Operation *forOp,
-                                                 OpBuilder &builder) {
-  auto funcOp = forOp->getParentOfType<LLVM::LLVMFuncOp>();
-  assert(funcOp && "usage requires an enclosing LLVMFuncOp");
-  Block &entryBlock = funcOp.getBody().front();
-  // Check if we already have the load Op in IR
-  Value dispatchState = funcOp.getArgument(1);
-  Type extendedStateType = getExtendedDispatchStateType(context);
-  for (auto loadOp : entryBlock.getOps<LLVM::LoadOp>()) {
-    auto gepOp = loadOp.getAddr().getDefiningOp<LLVM::GEPOp>();
-    if (gepOp && gepOp.getBase() == dispatchState &&
-        gepOp.getElemType() == extendedStateType &&
-        gepOp.getDynamicIndices().empty() &&
-        gepOp.getRawConstantIndices() == ArrayRef<int32_t>{0, 1}) {
-      return loadOp;
-    }
-  }
-  // build if not found
-  OpBuilder::InsertionGuard guard(builder);
-  builder.setInsertionPointToStart(&entryBlock);
-  return loadRuntimeState(forOp, builder);
+Value HexagonDispatchABI::getRuntimeStateAtEntry(Operation *forOp) {
+  return getLocalArgument(forOp, /*argIndex=*/1);
 }
 
 Value HexagonDispatchABI::loadFieldValue(Operation *forOp,

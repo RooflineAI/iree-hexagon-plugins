@@ -26,8 +26,7 @@ namespace mlir::iree_compiler::hexagon::codegen {
 //
 // Hexagon owns this ABI; the environment, dispatch-state and workgroup-state
 // layouts match hexagon/dsp/rt/executable_library.h
-// Hexagon extends the dispatch-state allocation with a trailing
-// runtime-state pointer; access to that extension is kept in this class.
+// The dispatch state also carries the Hexagon runtime state.
 
 //------------------------------------------------------------------------------
 // HexagonDispatchABI
@@ -59,6 +58,8 @@ public:
     /*intptr_t*/ constants,
     /*intptr_t*/ binding_ptrs,
     /*intptr_t*/ binding_lengths,
+    /*intptr_t*/ prof_context,
+    /*intptr_t*/ vtcm_partition,
   };
   friend DispatchStateField operator+(DispatchStateField lhs, int32_t rhs) {
     return static_cast<DispatchStateField>(static_cast<int32_t>(lhs) + rhs);
@@ -66,12 +67,6 @@ public:
 
   // Returns a Type representing hexagon_executable_dispatch_state_t.
   static LLVM::LLVMStructType getDispatchStateType(MLIRContext *context);
-
-  // Returns the Hexagon extension of the IREE dispatch state. The base state
-  // is the first member so the entry point retains the standard local
-  // executable ABI; the second member is a Hexagon runtime-state pointer.
-  static LLVM::LLVMStructType
-  getExtendedDispatchStateType(MLIRContext *context);
 
   enum class WorkgroupStateField {
     /*uint32_t*/ workgroup_id_x = 0,
@@ -106,13 +101,8 @@ public:
         dispatchStateType(getDispatchStateType(context)),
         workgroupStateType(getWorkgroupStateType(context)) {}
 
-  // Loads the Hexagon runtime-state pointer from the extended dispatch state.
-  Value loadRuntimeState(Operation *forOp, OpBuilder &builder);
-
-  // Returns the runtime-state pointer loaded at the entry of the function
-  // enclosing |forOp|. It is loaded there on first use, and later uses in the
-  // same function reuse that load.
-  Value getRuntimeStateAtEntry(Operation *forOp, OpBuilder &builder);
+  // Returns the runtime-state handle (argument)
+  Value getRuntimeStateAtEntry(Operation *forOp);
 
   // Loads the workgroup_id[dim] value (XYZ) and casts it to |resultType|.
   Value loadWorkgroupID(Operation *forOp, int32_t dim, Type resultType,

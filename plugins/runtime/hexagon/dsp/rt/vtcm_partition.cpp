@@ -12,7 +12,6 @@
 #include "HAP_farf.h"
 #include "HexagonAPI.h"
 #include "VTCMPool.h"
-#include "hexagon/dsp/rt/runtime_state.h"
 #include "hexagon/dsp/rt/vtcm_allocation.h"
 
 // Allocation granularities of the partition, shared with the compiler that
@@ -168,8 +167,9 @@ void *hexagon_rt_vtcm_partition_alloc(hexagon_rt_vtcm_partition_t *partition,
   return partition->base + begin;
 }
 
-void *hexagon_runtime_vtcm_alloc(const hexagon_rt_state_t *runtime_state,
-                                 size_t nbytes, uint64_t alignment) {
-  return hexagon_rt_vtcm_partition_alloc(runtime_state->vtcm_partition, nbytes,
+void *hexagon_runtime_vtcm_alloc(
+    const hexagon_executable_dispatch_state_t *dispatch_state, size_t nbytes,
+    uint64_t alignment) {
+  return hexagon_rt_vtcm_partition_alloc(dispatch_state->vtcm_partition, nbytes,
                                          alignment);
 }

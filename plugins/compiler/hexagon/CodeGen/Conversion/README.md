@@ -87,19 +87,19 @@ environment pointer, dispatch-state pointer, workgroup-state pointer -> i32
 The three arguments are non-null, no-alias, no-undef, and 16-byte aligned. A
 successful dispatch currently returns zero.
 
-Hexagon extends the allocation addressed by the second argument:
+The dispatch state addressed by the second argument
+(`hexagon_executable_dispatch_state_t`) includes the Hexagon runtime state:
 
 ```text
-{
-  hexagon_executable_dispatch_state_t base;
-  hexagon_rt_state_t *runtime_state;
-}
+  ...
+  const size_t *binding_lengths;
+  hexagon_rt_prof_context_t *prof_context;     // may be NULL
+  hexagon_rt_vtcm_partition_t *vtcm_partition; // never NULL in a dispatch
 ```
 
-The base state remains at offset zero and the runtime-state pointer immediately
-follows it. Compiler access is centralized in `loadRuntimeState`; runtime-side
-static assertions in `plugins/runtime/hexagon/dsp/rt/dispatch_state.h` protect
-the matching C layout.
+The C layout is defined in
+`plugins/runtime/hexagon/dsp/rt/executable_library.h` and must match
+`getDispatchStateType`.
 
 Changing any entry argument, structure member, field width, or
 instrumentation record is an ABI change. Compiler and runtime

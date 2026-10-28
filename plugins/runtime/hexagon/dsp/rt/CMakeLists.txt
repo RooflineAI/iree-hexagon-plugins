@@ -38,11 +38,8 @@ iree_cc_library(
     hexagon_rt_library
   HDRS
     "async_runtime.h"
-    "dispatch_state.h"
     "memref_copy.h"
     "profiler.h"
-    "runtime_state.h"
-    "runtime_state_fwd_decl.h"
     "vtcm_partition.h"
   SRCS
     "async_runtime.cpp"

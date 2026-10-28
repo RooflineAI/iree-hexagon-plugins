@@ -23,10 +23,8 @@
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/power_mode.h"
 #include "hexagon/dsp/rt/async_runtime.h"
-#include "hexagon/dsp/rt/dispatch_state.h"
 #include "hexagon/dsp/rt/executable_library.h"
 #include "hexagon/dsp/rt/profiler.h"
-#include "hexagon/dsp/rt/runtime_state.h"
 #include "hexagon/dsp/rt/vtcm_partition.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"
@@ -421,10 +419,8 @@ typedef struct hexa_cmd_buf_task_s {
   /// dispatch state passed to the dispatch function - must be aligned at 16
   /// bytes, because dispatch function declarations assume that alignment
   HEXAGON_ALIGNAS(16)
-  hexagon_dsp_extended_dispatch_state_t extended_dispatch_state;
-  /// runtime state the extended dispatch state points to
-  hexagon_rt_state_t runtime_state;
-  /// VTCM partition the runtime state points to, acquired by the master
+  hexagon_executable_dispatch_state_t dispatch_state;
+  /// VTCM partition the dispatch state points to, acquired by the master
   hexagon_rt_vtcm_partition_t vtcm_partition;
   hexagon_executable_dispatch_fn_t dispatch_func;
   const hexagon_executable_environment_t *environment;
@@ -551,25 +547,22 @@ static int hexa_cmd_buf_prepare_dispatch(
   int *mapped_fds = (int *)(dispatch_arrays + mapped_fds_offset);
 
   // Build dispatch state.
-  // Hexagon uses a custom extended dispatch state that carries a pointer to the
-  // runtime state, which some dispatches access via the dispatch state
-  // argument.
+  // It also carries the runtime state (profiler context, VTCM partition), which
+  // some dispatches access via the dispatch state argument.
   task->vtcm_partition = (hexagon_rt_vtcm_partition_t){};
-  task->runtime_state.prof_context = prof_context;
-  task->runtime_state.vtcm_partition = &task->vtcm_partition;
-  task->extended_dispatch_state.dispatch_state =
-      (hexagon_executable_dispatch_state_t){
-          .workgroup_size_x = cmd_dispatch->workgroup_size_x,
-          .workgroup_size_y = cmd_dispatch->workgroup_size_y,
-          .workgroup_size_z = cmd_dispatch->workgroup_size_z,
-          .workgroup_count_x = cmd_dispatch->workgroup_count_x,
-          .workgroup_count_y = cmd_dispatch->workgroup_count_y,
-          .workgroup_count_z = cmd_dispatch->workgroup_count_z,
-          .constants = constants,
-          .binding_ptrs = binding_ptrs,
-          .binding_lengths = binding_lengths,
-      };
-  task->extended_dispatch_state.runtime_state = &task->runtime_state;
+  task->dispatch_state = (hexagon_executable_dispatch_state_t){
+      .workgroup_size_x = cmd_dispatch->workgroup_size_x,
+      .workgroup_size_y = cmd_dispatch->workgroup_size_y,
+      .workgroup_size_z = cmd_dispatch->workgroup_size_z,
+      .workgroup_count_x = cmd_dispatch->workgroup_count_x,
+      .workgroup_count_y = cmd_dispatch->workgroup_count_y,
+      .workgroup_count_z = cmd_dispatch->workgroup_count_z,
+      .constants = constants,
+      .binding_ptrs = binding_ptrs,
+      .binding_lengths = binding_lengths,
+      .prof_context = prof_context,
+      .vtcm_partition = &task->vtcm_partition,
+  };
   task->dispatch_func = dispatch_func;
   task->environment = environment;
   task->func_name = NULL;
@@ -634,10 +627,10 @@ static int hexa_cmd_buf_prepare_dispatch(
  */
 static void hexa_cmd_buf_run_dispatch(hexa_cmd_buf_task_t *task) {
   const hexagon_executable_dispatch_state_t *dispatch_state =
-      &task->extended_dispatch_state.dispatch_state;
+      &task->dispatch_state;
 
   hexagon_rt_prof_record_t *prof_dispatch_record = profiler_measurement_start(
-      task->runtime_state.prof_context, KERNEL, task->func_name);
+      task->dispatch_state.prof_context, KERNEL, task->func_name);
 
   // for now, run all workgroups sequentially
   for (uint16_t wg_id_z = 0; wg_id_z < dispatch_state->workgroup_count_z;

@@ -7,7 +7,7 @@
 #ifndef HEXAGON_DSP_RT_VTCM_PARTITION_H
 #define HEXAGON_DSP_RT_VTCM_PARTITION_H
 
-#include "hexagon/dsp/rt/runtime_state_fwd_decl.h"
+#include "hexagon/dsp/rt/executable_library.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -114,12 +114,13 @@ void *hexagon_rt_vtcm_partition_alloc(hexagon_rt_vtcm_partition_t *partition,
 
 /**
  * @brief Runtime entry point for VTCM allocations issued by generated code.
- * Overload of hexagon_rt_vtcm_partition_alloc, takes a hexagon_rt_state_t*
- * instead of the hexagon_rt_vtcm_partition_t* directly Results in easier
+ * Overload of hexagon_rt_vtcm_partition_alloc, takes the dispatch state
+ * instead of the hexagon_rt_vtcm_partition_t* directly. Results in easier
  * codegen
  */
-void *hexagon_runtime_vtcm_alloc(const hexagon_rt_state_t *runtime_state,
-                                 size_t nbytes, uint64_t alignment);
+void *hexagon_runtime_vtcm_alloc(
+    const hexagon_executable_dispatch_state_t *dispatch_state, size_t nbytes,
+    uint64_t alignment);
 
 #ifdef __cplusplus
 } // extern "C"

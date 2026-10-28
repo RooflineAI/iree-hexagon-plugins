@@ -27,10 +27,6 @@ module attributes {hal.executable.target = #hexagon_target} {
   // CHECK-SAME: %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr {llvm.align = 16 : i64, llvm.noalias, llvm.nonnull, llvm.noundef}) -> i32
   // CHECK-SAME: attributes {llvm.emit_c_interface}
   func.func @entry() attributes {llvm.emit_c_interface} {
-    // Verifies the Hexagon runtime pointer is the trailing field of the
-    // extended dispatch state, loaded from ABI argument 1 once at the entry.
-    // CHECK: %[[RUNTIME_ADDR:.+]] = llvm.getelementptr inbounds %[[DISPATCH]][0, 1] : (!llvm.ptr) -> !llvm.ptr, !llvm.struct<(struct<"hexagon_executable_dispatch_state_t", {{.*}}>, ptr)>
-    // CHECK: %[[RUNTIME:.+]] = llvm.load %[[RUNTIME_ADDR]] : !llvm.ptr -> !llvm.ptr
     // Verifies workgroup ID x/y/z field selection from the workgroup-state
     // argument. With the 32-bit index, i32 fields are used as-is and only the
     // i16 field is extended.
@@ -46,8 +42,10 @@ module attributes {hal.executable.target = #hexagon_target} {
     %id_z = hal.interface.workgroup.id[2] : index
 
     // Verifies workgroup size x/y/z field selection from the dispatch-state
-    // argument, including the narrower z field.
+    // argument, including the narrower z field. The dispatch state ends with
+    // the runtime state (profiler context and VTCM partition pointers).
     // CHECK: %[[SIZE_X_STATE:.+]] = llvm.load %[[DISPATCH]]
+    // CHECK-SAME: !llvm.struct<"hexagon_executable_dispatch_state_t", (i32, i32, i16, i32, i32, i16, i8, ptr, ptr, ptr, ptr, ptr)>
     // CHECK: %[[SIZE_X_32:.+]] = llvm.extractvalue %[[SIZE_X_STATE]][0]
     %size_x = hal.interface.workgroup.size[0] : index
     // CHECK: %[[SIZE_Y_STATE:.+]] = llvm.load %[[DISPATCH]]
@@ -88,6 +86,7 @@ module attributes {hal.executable.target = #hexagon_target} {
     // CHECK: %[[EXEC_CONSTANT:.+]] = llvm.load %[[EXEC_CONSTANT_PTR]] : !llvm.ptr -> i32
     %executable_constant = hal.executable.constant.load "foo" : i32
 
+    // Verifies the runtime state is the dispatch-state argument itself.
     %state = iree_hexagon.get_runtime_state : !iree_hexagon.runtime_state
 
     func.call @consume(%id_x, %id_y, %id_z, %size_x, %size_y, %size_z,
@@ -95,7 +94,7 @@ module attributes {hal.executable.target = #hexagon_target} {
                        %executable_constant, %state)
         : (index, index, index, index, index, index, index, index, index,
            index, i32, !iree_hexagon.runtime_state) -> ()
-    // CHECK: llvm.call @consume(%[[ID_X_32]], %[[ID_Y_32]], %[[ID_Z]], %[[SIZE_X_32]], %[[SIZE_Y_32]], %[[SIZE_Z]], %[[COUNT_X_32]], %[[COUNT_Y_32]], %[[COUNT_Z]], %[[CONSTANT_32]], %[[EXEC_CONSTANT]], %[[RUNTIME]]) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, !llvm.ptr) -> ()
+    // CHECK: llvm.call @consume(%[[ID_X_32]], %[[ID_Y_32]], %[[ID_Z]], %[[SIZE_X_32]], %[[SIZE_Y_32]], %[[SIZE_Z]], %[[COUNT_X_32]], %[[COUNT_Y_32]], %[[COUNT_Z]], %[[CONSTANT_32]], %[[EXEC_CONSTANT]], %[[DISPATCH]]) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, !llvm.ptr) -> ()
     // CHECK: %[[ZERO:.+]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK: llvm.return %[[ZERO]] : i32
     return

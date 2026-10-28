@@ -39,11 +39,8 @@ cc_library(
     ],
     hdrs = [
         "async_runtime.h",
-        "dispatch_state.h",
         "memref_copy.h",
         "profiler.h",
-        "runtime_state.h",
-        "runtime_state_fwd_decl.h",
         "vtcm_partition.h",
     ],
     defines = select({

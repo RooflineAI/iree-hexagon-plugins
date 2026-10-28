@@ -8,7 +8,7 @@
 #define HEXAGON_DSP_RT_PROFILER_H
 
 #include "hexagon/arm_dsp/profiler.h"
-#include "hexagon/dsp/rt/runtime_state_fwd_decl.h"
+#include "hexagon/dsp/rt/executable_library.h"
 #include <stdint.h>
 
 /**
@@ -116,19 +116,20 @@ void profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record);
  * This is intended for generated code. It is a no-op when no active profiler
  * context is set.
  *
- * @param runtime_state The runtime state data structure from which to get the
- *                      profiler context data structure. May be NULL.
+ * @param dispatch_state The dispatch state from which to get the profiler
+ *                       context data structure. May be NULL.
  * @param zone_type Zone identifier to associate with this record.
  * @param extra_info Additional information (string) to be copied into the
  *                   record. Supports up to 63 characters and longer strings
  *                   will be truncated. May be NULL if no extra information
  *                   is present.
- * @return profiler record being filled, NULL if no runtime_state or no record
+ * @return profiler record being filled, NULL if no dispatch_state, no
+ *         profiler context or no record
  *         storage space available
  */
-hexagon_rt_prof_record_t *
-hexagon_runtime_profiler_zone_begin(hexagon_rt_state_t *runtime_state,
-                                    uint32_t zone_type, const char *extra_info);
+hexagon_rt_prof_record_t *hexagon_runtime_profiler_zone_begin(
+    const hexagon_executable_dispatch_state_t *dispatch_state,
+    uint32_t zone_type, const char *extra_info);
 
 /**
  * @brief Finishes the passed profiler zone in the active dispatch

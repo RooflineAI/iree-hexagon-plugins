@@ -191,8 +191,8 @@ static Value getOrCreateCStringPtr(ModuleOp moduleOp, OpBuilder &builder,
       .getResult();
 }
 
-/// Lowers `iree_hexagon.get_runtime_state` by delegating the entry argument and
-/// extended dispatch-state layout to HexagonDispatchABI.
+/// Lowers `iree_hexagon.get_runtime_state` by delegating the entry argument
+/// selection to HexagonDispatchABI.
 struct ConvertGetRuntimeStateOp
     : public ConvertOpToLLVMPattern<IREE::Hexagon::GetRuntimeStateOp> {
   ConvertGetRuntimeStateOp(HexagonDispatchABI &abi,
@@ -212,8 +212,7 @@ struct ConvertGetRuntimeStateOp
           getStateOp,
           "expected an enclosing function with a dispatch state argument");
     }
-    rewriter.replaceOp(getStateOp,
-                       abi.getRuntimeStateAtEntry(getStateOp, rewriter));
+    rewriter.replaceOp(getStateOp, abi.getRuntimeStateAtEntry(getStateOp));
     return success();
   }
 
@@ -418,8 +417,9 @@ getHexKLMatmulWithScratchFn(OpBuilder &builder, ModuleOp moduleOp) {
       {i64Type, i64Type, i64Type, ptrType, ptrType, ptrType, ptrType}, i32Type);
 }
 
-/// Declares void *hexagon_runtime_vtcm_alloc(const hexagon_rt_state_t *,
-/// size_t nbytes, uint64_t alignment).
+/// Declares void *hexagon_runtime_vtcm_alloc(
+/// const hexagon_executable_dispatch_state_t *, size_t nbytes,
+/// uint64_t alignment).
 static FailureOr<LLVM::LLVMFuncOp>
 getVtcmAllocFn(OpBuilder &builder, ModuleOp moduleOp, Type sizeType) {
   Type ptrType = LLVM::LLVMPointerType::get(builder.getContext());
@@ -596,7 +596,7 @@ struct ConvertAllocOpToVtcmPartition
           memRefType.getElementType()));
     }
 
-    Value state = abi.getRuntimeStateAtEntry(allocOp, rewriter);
+    Value state = abi.getRuntimeStateAtEntry(allocOp);
     Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
                                 alignment);
     Type elementPtrType = getElementPtrType(memRefType);
@@ -640,7 +640,7 @@ struct ConvertHexagonMemAllocOpToVtcmPartition
     Value sizeBytes;
     getMemRefDescriptorSizes(loc, memRefType, adaptor.getOperands(), rewriter,
                              sizes, strides, sizeBytes, /*sizeInBytes=*/true);
-    Value state = abi.getRuntimeStateAtEntry(allocOp, rewriter);
+    Value state = abi.getRuntimeStateAtEntry(allocOp);
     Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
                                 allocOp.getAlignment());
     Value descriptor = createMemRefDescriptor(loc, memRefType, ptr, ptr, sizes,
@@ -753,7 +753,7 @@ useHexKLMatmulWithScratch(ModuleOp moduleOp, HexagonDispatchABI &abi,
     Value scratch;
     {
       OpBuilder::InsertionGuard guard(builder);
-      Value state = abi.getRuntimeStateAtEntry(callOp, builder);
+      Value state = abi.getRuntimeStateAtEntry(callOp);
       builder.setInsertionPointAfterValue(state);
       SmallVector<Value> dimValues;
       for (int64_t dim : dims) {

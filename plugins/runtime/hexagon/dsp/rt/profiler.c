@@ -6,7 +6,6 @@
 
 #include "hexagon/dsp/rt/profiler.h"
 #include "hexagon/arm_dsp/profiler.h"
-#include "hexagon/dsp/rt/runtime_state.h"
 #include "qurt_atomic_ops.h"
 #include <string.h>
 
@@ -38,11 +37,10 @@ profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record) {
   (void)record;
 }
 
-hexagon_rt_prof_record_t *
-hexagon_runtime_profiler_zone_begin(hexagon_rt_state_t *runtime_state,
-                                    uint32_t zone_type,
-                                    const char *extra_info) {
-  (void)runtime_state;
+hexagon_rt_prof_record_t *hexagon_runtime_profiler_zone_begin(
+    const hexagon_executable_dispatch_state_t *dispatch_state,
+    uint32_t zone_type, const char *extra_info) {
+  (void)dispatch_state;
   (void)zone_type;
   (void)extra_info;
   return NULL;
@@ -178,14 +176,13 @@ void profiler_measurement_finish_and_record(hexagon_rt_prof_record_t *record) {
   record->record_completed = 1;
 }
 
-hexagon_rt_prof_record_t *
-hexagon_runtime_profiler_zone_begin(hexagon_rt_state_t *runtime_state,
-                                    uint32_t zone_type,
-                                    const char *extra_info) {
-  if (!runtime_state || !runtime_state->prof_context) {
+hexagon_rt_prof_record_t *hexagon_runtime_profiler_zone_begin(
+    const hexagon_executable_dispatch_state_t *dispatch_state,
+    uint32_t zone_type, const char *extra_info) {
+  if (!dispatch_state || !dispatch_state->prof_context) {
     return NULL;
   }
-  return profiler_measurement_start(runtime_state->prof_context, zone_type,
+  return profiler_measurement_start(dispatch_state->prof_context, zone_type,
                                     extra_info);
 }
 

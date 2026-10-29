@@ -57,33 +57,17 @@ static inline uint32_t iree_hexagon_hmx_tile_extent(uint32_t actual,
   return rem < HMX_TILE ? rem : HMX_TILE;
 }
 
-// Rearrange one row-major f16 tile at (base_row, base_col) into the HMX
-// tile-major layout. `valid_rows`/`valid_cols` (<=32) bound the region present
-// in the source; the remainder of the 32x32 tile is zero-filled so the HMX
-// unit (which has no masking) sees zeros in the padding.
-static void iree_hexagon_hmx_pack_rm_tile_to_hmx_layout(
-    uint8_t *dest, const _Float16 *source, uint32_t source_stride,
-    uint32_t base_row, uint32_t base_col, uint32_t valid_rows,
-    uint32_t valid_cols) {
-  HVX_Vector *packed = (HVX_Vector *)dest;
-  // Fast path: a full tile whose source rows are vector-aligned (stride is a
-  // multiple of the 32-element vector). Ragged strides (e.g. K not a multiple
-  // of 32) fall back to the scalar-gather path below.
-  if (valid_rows >= HMX_TILE && valid_cols >= HMX_TILE &&
-      (source_stride % HMX_TILE) == 0u) {
-    for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
-      const _Float16 *row0 =
-          source + (base_row + 2u * row_pair) * source_stride + base_col;
-      const _Float16 *row1 = row0 + source_stride;
-      hmx_vector_halves_t combined;
-      combined.halves[0] = *(const hmx_half_vector_t *)row0;
-      combined.halves[1] = *(const hmx_half_vector_t *)row1;
-      packed[row_pair] = Q6_Vh_vshuff_Vh(combined.vector);
-    }
-    return;
-  }
-  // Boundary/ragged tile: gather the valid sub-region into a zeroed 32x32
-  // scratch (scalar, alignment-agnostic), then shuffle the padded scratch.
+// Boundary/ragged tile of iree_hexagon_hmx_pack_rm_tile_to_hmx_layout: gather
+// the valid sub-region into a zeroed 32x32 scratch (scalar,
+// alignment-agnostic), then shuffle the padded scratch. Not inlined, so that
+// the 2 KiB scratch is only on the stack while a ragged tile is packed, and not
+// below the full-tile path, which runs within the deep call chain of a
+// dispatch.
+static __attribute__((noinline)) void
+iree_hexagon_hmx_pack_rm_ragged_tile(HVX_Vector *packed, const _Float16 *source,
+                                     uint32_t source_stride, uint32_t base_row,
+                                     uint32_t base_col, uint32_t valid_rows,
+                                     uint32_t valid_cols) {
   _Float16 scratch[HMX_TILE * HMX_TILE] __attribute__((aligned(128)));
   memset(scratch, 0, sizeof(scratch));
   for (uint32_t r = 0; r < valid_rows; ++r) {
@@ -101,6 +85,35 @@ static void iree_hexagon_hmx_pack_rm_tile_to_hmx_layout(
         *(const hmx_half_vector_t *)(scratch + (2u * row_pair + 1u) * HMX_TILE);
     packed[row_pair] = Q6_Vh_vshuff_Vh(combined.vector);
   }
+}
+
+// Rearrange one row-major f16 tile at (base_row, base_col) into the HMX
+// tile-major layout. `valid_rows`/`valid_cols` (<=32) bound the region present
+// in the source; the remainder of the 32x32 tile is zero-filled so the HMX
+// unit (which has no masking) sees zeros in the padding.
+static void iree_hexagon_hmx_pack_rm_tile_to_hmx_layout(
+    uint8_t *dest, const _Float16 *source, uint32_t source_stride,
+    uint32_t base_row, uint32_t base_col, uint32_t valid_rows,
+    uint32_t valid_cols) {
+  HVX_Vector *packed = (HVX_Vector *)dest;
+  // Fast path: a full tile whose source rows are vector-aligned (stride is a
+  // multiple of the 32-element vector). Ragged strides (e.g. K not a multiple
+  // of 32) fall back to the scalar-gather path.
+  if (valid_rows >= HMX_TILE && valid_cols >= HMX_TILE &&
+      (source_stride % HMX_TILE) == 0u) {
+    for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
+      const _Float16 *row0 =
+          source + (base_row + 2u * row_pair) * source_stride + base_col;
+      const _Float16 *row1 = row0 + source_stride;
+      hmx_vector_halves_t combined;
+      combined.halves[0] = *(const hmx_half_vector_t *)row0;
+      combined.halves[1] = *(const hmx_half_vector_t *)row1;
+      packed[row_pair] = Q6_Vh_vshuff_Vh(combined.vector);
+    }
+    return;
+  }
+  iree_hexagon_hmx_pack_rm_ragged_tile(packed, source, source_stride, base_row,
+                                       base_col, valid_rows, valid_cols);
 }
 
 // Pack a (possibly ragged) row-major matrix of `actual_rows` x `actual_cols`
@@ -137,22 +150,18 @@ void iree_hexagon_hmx_pack_f16(_Float16 *dest, const _Float16 *source,
 // with one within-vector offset bit), so a fixed sequence of these stages
 // realizes the transpose. Ported from the playground transposed HMX kernel
 // (hmx_matmul_hexkl_dma_hoisted_transposed.c), bit-verified on the simulator.
+//
+// The pairs are disjoint, so each pair is shuffled in place. The stage is
+// inlined, so `d` is a constant and the division folds away.
 static inline void
 iree_hexagon_hmx_vshuff_cross_stage(HVX_Vector v[HMX_TILE_VECTORS], uint32_t d,
                                     int32_t rt) {
-  HVX_Vector nv[HMX_TILE_VECTORS];
-  for (uint32_t i = 0; i < HMX_TILE_VECTORS; ++i) {
-    nv[i] = v[i];
-  }
   for (uint32_t i = 0; i < HMX_TILE_VECTORS; ++i) {
     if ((i / d) % 2u == 0u) {
       HVX_VectorPair w = Q6_W_vshuff_VVR(v[i + d], v[i], rt);
-      nv[i] = Q6_V_lo_W(w);
-      nv[i + d] = Q6_V_hi_W(w);
+      v[i] = Q6_V_lo_W(w);
+      v[i + d] = Q6_V_hi_W(w);
     }
-  }
-  for (uint32_t i = 0; i < HMX_TILE_VECTORS; ++i) {
-    v[i] = nv[i];
   }
 }
 
@@ -196,6 +205,35 @@ static void iree_hexagon_hmx_pack_transposed_full_tile(uint8_t *dest,
   }
 }
 
+// Boundary/ragged tile of a TRANSPOSED pack: gather the valid transposed
+// sub-region into a zeroed interleave-major scratch (scratch[i][o] =
+// source[base_o+o][base_i+i]), which is exactly the standard operand tile
+// layout, then shuffle it. Not inlined, so that its 2 KiB scratch is only on
+// the stack while a ragged tile is packed (see
+// iree_hexagon_hmx_pack_rm_ragged_tile).
+static __attribute__((noinline)) void
+iree_hexagon_hmx_pack_transposed_ragged_tile(
+    HVX_Vector *packed, const _Float16 *source, uint32_t source_stride,
+    uint32_t base_i, uint32_t base_o, uint32_t valid_i, uint32_t valid_o) {
+  _Float16 scratch[HMX_TILE * HMX_TILE] __attribute__((aligned(128)));
+  memset(scratch, 0, sizeof(scratch));
+  for (uint32_t o = 0; o < valid_o; ++o) {
+    const _Float16 *src_row =
+        source + (size_t)(base_o + o) * source_stride + base_i;
+    for (uint32_t i = 0; i < valid_i; ++i) {
+      scratch[i * HMX_TILE + o] = src_row[i];
+    }
+  }
+  for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
+    hmx_vector_halves_t combined;
+    combined.halves[0] =
+        *(const hmx_half_vector_t *)(scratch + (2u * row_pair) * HMX_TILE);
+    combined.halves[1] =
+        *(const hmx_half_vector_t *)(scratch + (2u * row_pair + 1u) * HMX_TILE);
+    packed[row_pair] = Q6_Vh_vshuff_Vh(combined.vector);
+  }
+}
+
 // Pack a (possibly ragged) TRANSPOSED row-major matrix into an
 // `interleave_tiles` x `other_tiles` grid of HMX tiles. `source` is stored
 // [actual_other][actual_interleave] (e.g. a weight B^T laid out [n][k]); the
@@ -229,29 +267,32 @@ void iree_hexagon_hmx_pack_transposed_f16(
                                                    base_i, base_o);
         continue;
       }
-      // Boundary/ragged tile: gather the valid transposed sub-region into a
-      // zeroed interleave-major scratch (scratch[i][o] =
-      // source[base_o+o][base_i+i]), which is exactly the standard operand tile
-      // layout, then shuffle it.
-      _Float16 scratch[HMX_TILE * HMX_TILE] __attribute__((aligned(128)));
-      memset(scratch, 0, sizeof(scratch));
-      for (uint32_t o = 0; o < valid_o; ++o) {
-        const _Float16 *src_row =
-            source + (size_t)(base_o + o) * source_stride + base_i;
-        for (uint32_t i = 0; i < valid_i; ++i) {
-          scratch[i * HMX_TILE + o] = src_row[i];
-        }
-      }
-      HVX_Vector *packed = (HVX_Vector *)tile;
-      for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
-        hmx_vector_halves_t combined;
-        combined.halves[0] =
-            *(const hmx_half_vector_t *)(scratch + (2u * row_pair) * HMX_TILE);
-        combined.halves[1] =
-            *(const hmx_half_vector_t *)(scratch +
-                                         (2u * row_pair + 1u) * HMX_TILE);
-        packed[row_pair] = Q6_Vh_vshuff_Vh(combined.vector);
-      }
+      iree_hexagon_hmx_pack_transposed_ragged_tile((HVX_Vector *)tile, source,
+                                                   source_stride, base_i,
+                                                   base_o, valid_i, valid_o);
+    }
+  }
+}
+
+// Boundary/ragged tile of iree_hexagon_hmx_unpack_acc_tile: convert to a
+// scratch, then add only the valid region. Not inlined, so that its 4 KiB
+// scratch is only on the stack while a ragged tile is unpacked (see
+// iree_hexagon_hmx_pack_rm_ragged_tile).
+static __attribute__((noinline)) void iree_hexagon_hmx_unpack_acc_ragged_tile(
+    float *dest, const HVX_Vector *src, uint32_t dest_stride,
+    uint32_t valid_rows, uint32_t valid_cols) {
+  float scratch[HMX_TILE * HMX_TILE] __attribute__((aligned(128)));
+  for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
+    HVX_VectorPair rows_f32 = Q6_Wsf_vcvt_Vhf(src[row_pair]);
+    *(HVX_Vector *)(scratch + (2u * row_pair) * HMX_TILE) = Q6_V_lo_W(rows_f32);
+    *(HVX_Vector *)(scratch + (2u * row_pair + 1u) * HMX_TILE) =
+        Q6_V_hi_W(rows_f32);
+  }
+  for (uint32_t r = 0; r < valid_rows; ++r) {
+    float *drow = dest + r * dest_stride;
+    const float *srow = scratch + r * HMX_TILE;
+    for (uint32_t c = 0; c < valid_cols; ++c) {
+      drow[c] += srow[c];
     }
   }
 }
@@ -276,21 +317,8 @@ static void iree_hexagon_hmx_unpack_acc_tile(float *dest, const HVX_Vector *src,
     }
     return;
   }
-  // Boundary/ragged tile: convert to a scratch, then add only the valid region.
-  float scratch[HMX_TILE * HMX_TILE] __attribute__((aligned(128)));
-  for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
-    HVX_VectorPair rows_f32 = Q6_Wsf_vcvt_Vhf(src[row_pair]);
-    *(HVX_Vector *)(scratch + (2u * row_pair) * HMX_TILE) = Q6_V_lo_W(rows_f32);
-    *(HVX_Vector *)(scratch + (2u * row_pair + 1u) * HMX_TILE) =
-        Q6_V_hi_W(rows_f32);
-  }
-  for (uint32_t r = 0; r < valid_rows; ++r) {
-    float *drow = dest + r * dest_stride;
-    const float *srow = scratch + r * HMX_TILE;
-    for (uint32_t c = 0; c < valid_cols; ++c) {
-      drow[c] += srow[c];
-    }
-  }
+  iree_hexagon_hmx_unpack_acc_ragged_tile(dest, src, dest_stride, valid_rows,
+                                          valid_cols);
 }
 
 // Unpack a `row_tiles` x `col_tiles` grid of HMX accumulator-read tiles into a
@@ -328,6 +356,34 @@ void iree_hexagon_hmx_unpack_acc_f16_to_f32(float *dest, const _Float16 *source,
   }
 }
 
+// Boundary/ragged tile of iree_hexagon_hmx_unpack_acc_tile_f16: de-interleave
+// into a scratch, then add only the valid region. Not inlined, so that its
+// 2 KiB scratch is only on the stack while a ragged tile is unpacked (see
+// iree_hexagon_hmx_pack_rm_ragged_tile).
+static __attribute__((noinline)) void
+iree_hexagon_hmx_unpack_acc_ragged_tile_f16(_Float16 *dest,
+                                            const HVX_Vector *src,
+                                            uint32_t dest_stride,
+                                            uint32_t valid_rows,
+                                            uint32_t valid_cols) {
+  _Float16 scratch[HMX_TILE * HMX_TILE] __attribute__((aligned(128)));
+  for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
+    hmx_vector_halves_t rows;
+    rows.vector = Q6_Vh_vdeal_Vh(src[row_pair]);
+    *(hmx_half_vector_t *)(scratch + (2u * row_pair) * HMX_TILE) =
+        rows.halves[0];
+    *(hmx_half_vector_t *)(scratch + (2u * row_pair + 1u) * HMX_TILE) =
+        rows.halves[1];
+  }
+  for (uint32_t r = 0; r < valid_rows; ++r) {
+    _Float16 *drow = dest + r * dest_stride;
+    const _Float16 *srow = scratch + r * HMX_TILE;
+    for (uint32_t c = 0; c < valid_cols; ++c) {
+      drow[c] += srow[c];
+    }
+  }
+}
+
 // De-interleave one HMX accumulator-read tile (row-pair interleaved f16, the
 // same layout the packer produces) into its valid `valid_rows` x `valid_cols`
 // sub-region of the (possibly strided) row-major f16 destination. Unlike the
@@ -358,24 +414,8 @@ static void iree_hexagon_hmx_unpack_acc_tile_f16(_Float16 *dest,
     }
     return;
   }
-  // Boundary/ragged tile: de-interleave into a scratch, then copy only the
-  // valid region.
-  _Float16 scratch[HMX_TILE * HMX_TILE] __attribute__((aligned(128)));
-  for (uint32_t row_pair = 0; row_pair < HMX_TILE / 2u; ++row_pair) {
-    hmx_vector_halves_t rows;
-    rows.vector = Q6_Vh_vdeal_Vh(src[row_pair]);
-    *(hmx_half_vector_t *)(scratch + (2u * row_pair) * HMX_TILE) =
-        rows.halves[0];
-    *(hmx_half_vector_t *)(scratch + (2u * row_pair + 1u) * HMX_TILE) =
-        rows.halves[1];
-  }
-  for (uint32_t r = 0; r < valid_rows; ++r) {
-    _Float16 *drow = dest + r * dest_stride;
-    const _Float16 *srow = scratch + r * HMX_TILE;
-    for (uint32_t c = 0; c < valid_cols; ++c) {
-      drow[c] += srow[c];
-    }
-  }
+  iree_hexagon_hmx_unpack_acc_ragged_tile_f16(dest, src, dest_stride,
+                                              valid_rows, valid_cols);
 }
 
 // Unpack a `row_tiles` x `col_tiles` grid of HMX accumulator-read tiles into a

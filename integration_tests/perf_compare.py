@@ -178,6 +178,13 @@ def read_recent_runs_from_files(paths: Sequence[Path], count: int) -> list[CIRun
     return [run for run in recent_runs if run.run_times]
 
 
+@dataclasses.dataclass(frozen=True)
+class Thresholds:
+    warn_percent: float
+    fail_percent: float
+    min_delta_s: float  # everything change below is considered noise
+
+
 class Verdict(enum.StrEnum):
     FAIL = "FAIL"
     WARN = "WARN"
@@ -208,7 +215,7 @@ class Row:
 
 
 def _verdict(
-    current: float | None, baseline: float | None, thresholds: argparse.Namespace
+    current: float | None, baseline: float | None, thresholds: Thresholds
 ) -> Verdict:
     if current is None:
         return Verdict.MISSING
@@ -231,10 +238,9 @@ def _verdict(
 def compare(
     current: dict[str, float],
     recent_runs: Sequence[CIRun],
-    thresholds: argparse.Namespace,
+    thresholds: Thresholds,
 ) -> list[Row]:
-    """`recent_runs` first the baseline, others are used to measure the usual spread. `thresholds`
-    are the command-line arguments warn_percent, fail_percent and min_delta_s."""
+    """`recent_runs` first the baseline, others are used to measure the usual spread."""
     baseline_times = recent_runs[0].run_times
     rows = []
     for case_id in sorted(current.keys() | baseline_times.keys()):
@@ -385,7 +391,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
 
-    rows = compare(current, recent_runs, args)
+    thresholds = Thresholds(
+        warn_percent=args.warn_percent,
+        fail_percent=args.fail_percent,
+        min_delta_s=args.min_delta_s,
+    )
+    rows = compare(current, recent_runs, thresholds)
     print(_format_table(rows, recent_runs))
     _annotate(rows, recent_runs[0])
     return 1 if any(row.verdict is Verdict.FAIL for row in rows) else 0

@@ -9,10 +9,7 @@
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
-#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Sequence.h"
 
 namespace mlir::iree_compiler::hexagon::codegen {
 
@@ -20,25 +17,6 @@ namespace mlir::iree_compiler::hexagon::codegen {
 #include "hexagon/CodeGen/Passes.h.inc"
 
 namespace {
-
-// Returns whether `op` is a named matmul that HMX lowering can take: a
-// linalg.matmul or linalg.batch_matmul whose output is indexed by the leading
-// (batch, M, N) loops in order. HexagonConvertMatmulToHmx requires a canonical
-// MxN output and rejects anything else outright, so specializing to a named op
-// with a transposed output would turn a slow compile into a failed one.
-static bool isHmxConvertibleNamedMatmul(linalg::LinalgOp op) {
-  if (!isa<linalg::MatmulOp, linalg::BatchMatmulOp>(op.getOperation()))
-    return false;
-  AffineMap outputMap = op.getMatchingIndexingMap(op.getDpsInitOperand(0));
-  unsigned numLoops = outputMap.getNumDims();
-  if (numLoops == 0)
-    return false;
-  // The named ops order their loops (batch..., M, N, K).
-  SmallVector<unsigned> leadingLoops =
-      llvm::to_vector(llvm::seq<unsigned>(0, numLoops - 1));
-  return outputMap == AffineMap::getMultiDimMapWithTargets(
-                          numLoops, leadingLoops, op.getContext());
-}
 
 class HexagonSpecializeHmxContractionsPass final
     : public impl::HexagonSpecializeHmxContractionsPassBase<
@@ -71,7 +49,9 @@ public:
         rewriter.eraseOp(clone);
         continue;
       }
-      if (!isHmxConvertibleNamedMatmul(*named)) {
+      // A named op with a transposed output would be rejected outright by
+      // HMX lowering, turning a slow compile into a failed one.
+      if (!planning::isHmxLowerableMatmul(*named)) {
         rewriter.eraseOp(*named);
         continue;
       }

@@ -35,14 +35,6 @@ analyzeSupportedContraction(linalg::LinalgOp op) {
   return std::move(*dimensions);
 }
 
-bool hasHmxElementTypes(linalg::LinalgOp op) {
-  // HMX planning is currently restricted to f16 inputs.
-  // Hardware also supports int8 though.
-  return llvm::all_of(op.getDpsInputs(), [](Value input) {
-    return getElementTypeOrSelf(input.getType()).isF16();
-  });
-}
-
 SmallVector<TileDecision> inferContractionComputeTile(
     const PlanningContext &context, const OpShape &shape, linalg::LinalgOp op,
     const linalg::ContractionDimensions &dimensions, bool useHmx) {
@@ -113,6 +105,38 @@ bool isHmxCandidateContraction(linalg::LinalgOp op) {
          analyzeSupportedContraction(op).has_value() && hasHmxElementTypes(op);
 }
 
+bool hasHmxElementTypes(linalg::LinalgOp op) {
+  // HMX lowering is currently restricted to f16 inputs into f16 or
+  // f32.
+  // TODO FIXME: Hardware also supports int8 though.
+  if (op.getNumDpsInits() != 1)
+    return false;
+  Type outputElementType =
+      getElementTypeOrSelf(op.getDpsInitOperand(0)->get().getType());
+  return (outputElementType.isF16() || outputElementType.isF32()) &&
+         llvm::all_of(op.getDpsInputs(), [](Value input) {
+           return getElementTypeOrSelf(input.getType()).isF16();
+         });
+}
+
+bool isHmxLowerableMatmul(linalg::LinalgOp op) {
+  if (!isa<linalg::MatmulOp, linalg::BatchMatmulOp>(op.getOperation()) ||
+      !hasHmxElementTypes(op))
+    return false;
+  std::optional<linalg::ContractionDimensions> dimensions =
+      analyzeSupportedContraction(op);
+  if (!dimensions)
+    return false;
+  // HMX writes a canonical MxN output tile; a transposed output is rejected.
+  AffineMap outputMap = op.getMatchingIndexingMap(op.getDpsInitOperand(0));
+  MLIRContext *context = op.getContext();
+  std::optional<unsigned> m = outputMap.getResultPosition(
+      getAffineDimExpr(dimensions->m.front(), context));
+  std::optional<unsigned> n = outputMap.getResultPosition(
+      getAffineDimExpr(dimensions->n.front(), context));
+  return m && n && *m < *n;
+}
+
 FailureOr<std::optional<DispatchStrategy>>
 selectHmxStrategy(const PlanningContext &context,
                   const DispatchShape &dispatchShape) {
@@ -121,18 +145,16 @@ selectHmxStrategy(const PlanningContext &context,
   auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(dispatchShape.root);
   if (!linalgOp || !isHmxCandidateContraction(linalgOp))
     return std::optional<DispatchStrategy>{};
-  // HexagonConvertMatmulToHmx converts only named linalg.matmul and
-  // linalg.batch_matmul. HexagonSpecializeHmxContractions rewrites
-  // matmul-shaped generics before planning, so any that still gets here was not
-  // recognized: warn, and let the regular contraction strategy plan it.
-  if (!isa<linalg::MatmulOp, linalg::BatchMatmulOp>(linalgOp.getOperation())) {
+  if (!isHmxLowerableMatmul(linalgOp)) {
     linalgOp->emitWarning()
         << "matmul-like '" << linalgOp->getName()
         << "' is not lowered to HMX: only named linalg.matmul and "
-           "linalg.batch_matmul are; planning it without HMX";
+           "linalg.batch_matmul with an MxN output are; planning it without "
+           "HMX";
     context.trace.record(DecisionStage::Strategy, DecisionKind::Rejected,
                          "HMX-eligible contraction is not a named "
-                         "linalg.matmul or linalg.batch_matmul");
+                         "linalg.matmul or linalg.batch_matmul with an MxN "
+                         "output");
     return std::optional<DispatchStrategy>{};
   }
   std::optional<linalg::ContractionDimensions> dimensions =

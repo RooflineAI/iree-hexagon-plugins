@@ -21,6 +21,7 @@
 #include "hexagon/CodeGen/IR/HexagonOps.h"
 #include "hexagon/CodeGen/IR/HmxContracts.h"
 #include "hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Strategy/Planning/Strategies/Strategy.h"
 
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
@@ -81,17 +82,8 @@ static FailureOr<int64_t> alignedUpperBound(Value value, int64_t dim) {
 static FailureOr<linalg::ContractionDimensions>
 matchHmxContractionShape(linalg::LinalgOp linalgOp) {
   if (!linalgOp.hasPureTensorSemantics() || linalgOp.getNumDpsInputs() != 2 ||
-      linalgOp.getNumDpsInits() != 1) {
-    return failure();
-  }
-  for (Value input : linalgOp.getDpsInputs()) {
-    if (!getElementTypeOrSelf(input.getType()).isF16()) {
-      return failure();
-    }
-  }
-  Type outputElementType =
-      getElementTypeOrSelf(linalgOp.getDpsInitOperand(0)->get().getType());
-  if (!outputElementType.isF16() && !outputElementType.isF32()) {
+      linalgOp.getNumDpsInits() != 1 ||
+      !planning::hasHmxElementTypes(linalgOp)) {
     return failure();
   }
 
@@ -283,12 +275,14 @@ analyzeHmxMatmul(linalg::MatmulOp matmulOp) {
   int64_t rhsInterleaveDim = operandDimForIterator(matmulOp, rhsOperand, kDim);
   int64_t outputInterleaveDim =
       operandDimForIterator(matmulOp, outputOperand, mDim);
-  if (lhsInterleaveDim < 0 || lhsInterleaveDim > 1 || rhsInterleaveDim < 0 ||
-      rhsInterleaveDim > 1 || outputInterleaveDim != 0) {
+  if (!planning::isHmxLowerableMatmul(matmulOp)) {
     matmulOp.emitWarning("unsupported HMX matmul operand layout (rank-2 "
                          "operands with a canonical MxN output required)");
     return failure();
   }
+  assert(lhsInterleaveDim >= 0 && lhsInterleaveDim <= 1 &&
+         rhsInterleaveDim >= 0 && rhsInterleaveDim <= 1 &&
+         "isHmxLowerableMatmul implies rank-2 operands holding M and K");
 
   // HMX layout conversion and its runtime kernels require every operand to be
   // VTCM-resident. This is an early tensor-level pipeline check: rewrite only

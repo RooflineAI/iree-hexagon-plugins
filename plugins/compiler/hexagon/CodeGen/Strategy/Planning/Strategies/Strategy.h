@@ -21,11 +21,21 @@ class LinalgOp;
 
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 
+/// Returns whether `op` has the element types HMX supports: f16 inputs and an
+/// f16 or f32 output.
+bool hasHmxElementTypes(linalg::LinalgOp op);
+
 /// Returns whether `op` is a contraction the HMX strategy can plan: one M, N
-/// and K dimension, at most one batch dimension, and f16 inputs.
-/// HMX lowering additionally requires a named linalg.matmul or
-/// linalg.batch_matmul.
+/// and K dimension, at most one batch dimension, and HMX element types.
+/// HMX lowering additionally requires isHmxLowerableMatmul.
 bool isHmxCandidateContraction(linalg::LinalgOp op);
+
+/// Returns whether `op` is what HexagonConvertMatmulToHmx lowers: a named
+/// linalg.matmul or linalg.batch_matmul with HMX element types, one M, N and K
+/// dimension, at most one batch dimension, and an output that keeps M before N.
+/// The batch dimension is dropped before packing, so its position does not
+/// matter.
+bool isHmxLowerableMatmul(linalg::LinalgOp op);
 
 /// A dispatch strategy selector has three outcomes:
 ///   - success(nullopt): it does not apply;

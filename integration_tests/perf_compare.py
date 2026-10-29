@@ -7,9 +7,10 @@
 """Compare the run times of a test session against the latest main runs.
 
 Reads the pytest output of `pytest integration_tests/ -v -rA`.
-The baseline is the same job of the latest completed main run, read from its GitHub log with `gh`;
-the main runs before it give the min-max spread shown next to it.
-The thresholds to be used are set as cmd line arguments
+The recent runs are the same job of the latest completed main runs, read from
+their GitHub logs with `gh`. The newest of them is the baseline every case is
+compared against; all of them give the min-max spread shown next to it.
+The thresholds to be used are set as cmd line arguments.
 Exits 1 when a case is slower than the fail threshold, 0 otherwise.
 """
 
@@ -26,10 +27,13 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from tabulate import tabulate
+
 from integration_tests.stages.running import RUN_CASES
 
-# GitHub prefixes every line of a downloaded log with "<job>\t<step>\t<time> ".
-_GITHUB_PREFIX = re.compile(r"^[^\t]*\t[^\t]*\t\d{4}-\d\d-\d\dT\S+Z ")
+# GitHub prefixes every line of a job log with "<time> ", and `gh run view
+# --log` with "<job>\t<step>\t<time> "; the API's log starts with a BOM.
+_GITHUB_PREFIX = re.compile(r"^﻿?(?:[^\t]*\t[^\t]*\t)?\d{4}-\d\d-\d\dT\S+Z ")
 _SECTION = re.compile(r"^=+ (.+?) =+$")
 _TEST_HEADER = re.compile(r"^_+ test_model_on_device\[(.+)\] _+$")
 # Printed by test_models.py under "timings:".
@@ -50,22 +54,16 @@ class LogParseError(ValueError):
     """The log is not the output of a single pytest session."""
 
 
-@dataclasses.dataclass(frozen=True)
-class ParsedLog:
-    # Run time in seconds of every passed, comparable test id.
-    run_times: dict[str, float]
-    # Every passed test id.
-    passed: frozenset[str]
-
-
-def parse_log(text: str) -> ParsedLog:
-    """The run times of the passed tests in pytest's `-rA` output.
+def parse_log(text: str) -> dict[str, float]:
+    """The run times in seconds of the passed, timed tests in pytest's `-rA`
+    output.
 
     A failed test prints its timings too, in FAILURES; only the PASSES section
     is read, and a test only counts when the short summary says PASSED.
 
     Raises LogParseError when a test id has a second run time, e.g. because
-    the log holds more than one session.
+    the log holds more than one session, and when timed tests passed but none
+    has a run time: then the output format changed under this parser.
     """
     section = None
     case_id = None
@@ -92,24 +90,92 @@ def parse_log(text: str) -> ParsedLog:
         elif section == "short test summary info":
             if match := _PASSED.match(line):
                 passed.add(match.group(1))
-    return ParsedLog(
-        run_times={
-            case: seconds
-            for case, seconds in run_times.items()
-            if case in passed and _is_timed(case)
-        },
-        passed=frozenset(passed),
-    )
+    timed = {case for case in passed if _is_timed(case)}
+    if timed and not run_times:
+        raise LogParseError(
+            "no run time found for any passed test; did the 'timings:' output "
+            "of test_models.py change?"
+        )
+    return {case: run_times[case] for case in timed if case in run_times}
+
+
+def _parse_file(path: Path) -> dict[str, float]:
+    try:
+        return parse_log(path.read_text(errors="replace"))
+    except LogParseError as err:
+        raise LogParseError(f"{path}: {err}") from err
 
 
 @dataclasses.dataclass(frozen=True)
-class Thresholds:
-    # Main runs shown as the spread; the newest is the baseline.
-    baseline_runs: int
-    warn_percent: float
-    fail_percent: float
-    # A case is only flagged when it is slower by both the percentage and this.
-    min_delta_s: float
+class CIRun:
+    # The GitHub run id, or the log file it was read from.
+    label: str
+    run_times: dict[str, float]
+
+
+def _gh_api(endpoint: str, *args: str) -> str:
+    """One GitHub REST request"""
+    # using gh run view sends several requests, of which we are only interested in one
+    return subprocess.run(
+        ["gh", "api", f"repos/{{owner}}/{{repo}}/actions/{endpoint}", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+def fetch_recent_runs(
+    job: str, workflow: str, branch: str, count: int, runs_searched: int
+) -> list[CIRun]:
+    """fetch `job` in the latest `count` completed push runs of `branch` that have
+    run times, newest first and parses their log. Only the latest `runs_searched` runs are looked
+    at.
+
+    The run executing this is still in progress, so it is never among them.
+    """
+    print(f"Fetching up to {runs_searched} runs of {job} on {branch} from GitHub")
+    # fetch latest runs for branch
+    runs = json.loads(
+        _gh_api(
+            f"workflows/{workflow}/runs?branch={branch}&event=push"
+            f"&status=completed&per_page={runs_searched}"
+        )
+    )["workflow_runs"]
+    recent_runs = []
+    for run in runs:
+        run_id = str(run["id"])
+        # fetch jobs of the run
+        jobs = json.loads(_gh_api(f"runs/{run_id}/jobs?per_page=100"))["jobs"]
+        # look up the job id. There is only 1 job with matching name
+        job_ids = [entry["id"] for entry in jobs if entry["name"] == job]
+        if len(job_ids) != 1:
+            raise LookupError(
+                f"{branch} run {run_id} has {len(job_ids)} jobs named {job}"
+            )
+        (job_id,) = job_ids
+        try:
+            # and fetch the logs
+            # The log holds the colour codes of the output.
+            log = _gh_api(f"jobs/{job_id}/logs", "--allow-escape-sequences")
+        except subprocess.CalledProcessError:
+            # Skipped jobs and expired logs have nothing to download.
+            continue
+        try:
+            run_times = parse_log(log)
+        except LogParseError as err:
+            raise LogParseError(f"{branch} run {run_id}: {err}") from err
+        if run_times:
+            recent_runs.append(CIRun(run_id, run_times))
+        if len(recent_runs) == count:
+            break
+    return recent_runs
+
+
+def read_recent_runs_from_files(paths: Sequence[Path], count: int) -> list[CIRun]:
+    """The logs at `paths`, newest first, as recent runs; the ones without run
+    times are skipped, like in `fetch_recent_runs`."""
+    recent_runs = [CIRun(str(path), _parse_file(path)) for path in paths[:count]]
+    return [run for run in recent_runs if run.run_times]
 
 
 class Verdict(enum.StrEnum):
@@ -130,6 +196,7 @@ class Row:
     current: float | None
     # None for a case the baseline does not have.
     baseline: float | None
+    # Min and max over the recent runs that have the case.
     spread: tuple[float, float] | None
     verdict: Verdict
 
@@ -140,7 +207,13 @@ class Row:
         return 100.0 * (self.current - self.baseline) / self.baseline
 
 
-def _verdict(current: float, baseline: float, thresholds: Thresholds) -> Verdict:
+def _verdict(
+    current: float | None, baseline: float | None, thresholds: argparse.Namespace
+) -> Verdict:
+    if current is None:
+        return Verdict.MISSING
+    if baseline is None:
+        return Verdict.NEW
     delta = current - baseline
     percent = 100.0 * delta / baseline
     if abs(delta) < thresholds.min_delta_s:
@@ -154,139 +227,84 @@ def _verdict(current: float, baseline: float, thresholds: Thresholds) -> Verdict
     return Verdict.OK
 
 
+# build comparison table
 def compare(
     current: dict[str, float],
-    baselines: Sequence[dict[str, float]],
-    thresholds: Thresholds,
+    recent_runs: Sequence[CIRun],
+    thresholds: argparse.Namespace,
 ) -> list[Row]:
-    """`baselines` newest first; the newest is the baseline, all give the
-    spread."""
+    """`recent_runs` first the baseline, others are used to measure the usual spread. `thresholds`
+    are the command-line arguments warn_percent, fail_percent and min_delta_s."""
+    baseline_times = recent_runs[0].run_times
     rows = []
-    for case_id in sorted(current.keys() | baselines[0].keys()):
-        history = [run[case_id] for run in baselines if case_id in run]
+    for case_id in sorted(current.keys() | baseline_times.keys()):
+        history = [
+            run.run_times[case_id] for run in recent_runs if case_id in run.run_times
+        ]
         seconds = current.get(case_id)
-        baseline = baselines[0].get(case_id)
-        if seconds is None:
-            verdict = Verdict.MISSING
-        elif baseline is None:
-            verdict = Verdict.NEW
-        else:
-            verdict = _verdict(seconds, baseline, thresholds)
+        baseline = baseline_times.get(case_id)
         rows.append(
             Row(
                 case_id=case_id,
                 current=seconds,
                 baseline=baseline,
                 spread=(min(history), max(history)) if history else None,
-                verdict=verdict,
+                verdict=_verdict(seconds, baseline, thresholds),
             )
         )
     return rows
 
 
-def _gh(*args: str) -> str:
-    return subprocess.run(
-        ["gh", *args], check=True, capture_output=True, text=True
-    ).stdout
-
-
-def fetch_baselines(
-    job: str, workflow: str, branch: str, count: int, runs_searched: int
-) -> list[tuple[str, dict[str, float]]]:
-    """The run times of `job` in the latest `count` completed push runs of
-    `branch` that have any, newest first, labelled by run id. Only the latest
-    `runs_searched` runs are looked at.
-
-    The run executing this is still in progress, so it is never among them.
-    """
-    print(f"Fetch {runs_searched} Baseline Jobs from GitHub")
-    runs = json.loads(
-        _gh(
-            "run", "list",
-            "--workflow", workflow,
-            "--branch", branch,
-            "--event", "push",
-            "--status", "completed",
-            "--limit", str(runs_searched),
-            "--json", "databaseId",
-        )
-    )  # fmt: skip
-    baselines = []
-    for run in runs:
-        run_id = str(run["databaseId"])
-        jobs = json.loads(_gh("run", "view", run_id, "--json", "jobs"))["jobs"]
-        job_ids = [str(entry["databaseId"]) for entry in jobs if entry["name"] == job]
-        if not job_ids:
-            continue
-        try:
-            log = _gh("run", "view", "--job", job_ids[0], "--log")
-        except subprocess.CalledProcessError:
-            # Skipped jobs and expired logs have nothing to download.
-            continue
-        try:
-            run_times = parse_log(log).run_times
-        except LogParseError as err:
-            raise LogParseError(f"{branch} run {run_id}: {err}") from err
-        if run_times:
-            baselines.append((run_id, run_times))
-        if len(baselines) == count:
-            break
-    return baselines
-
-
 _TABLE_HEADER = ("case", "baseline", "spread", "current", "change", "verdict")
-# Columns aligned left; the others (the numbers) right.
-_LEFT_ALIGNED = {"case", "verdict"}
+_TABLE_ALIGN = ("left", "right", "right", "right", "right", "left")
 
 
-def _format_table(rows: Sequence[Row], baseline_label: str, runs: int) -> str:
+def _format_table(rows: Sequence[Row], recent_runs: Sequence[CIRun]) -> str:
     """A plain-text table with aligned columns, for the terminal and log."""
-    cells: list[Sequence[str]] = [_TABLE_HEADER]
-    for row in rows:
-        cells.append(
-            (
-                row.case_id,
-                "-" if row.baseline is None else f"{row.baseline:.2f}s",
-                "-"
-                if row.spread is None
-                else f"{row.spread[0]:.2f}-{row.spread[1]:.2f}s",
-                "-" if row.current is None else f"{row.current:.2f}s",
-                "-" if row.percent is None else f"{row.percent:+.1f}%",
-                str(row.verdict),
-            )
-        )
-    widths = [max(len(line[i]) for line in cells) for i in range(len(_TABLE_HEADER))]
-
-    def format_line(line: Sequence[str]) -> str:
-        return "  ".join(
-            cell.ljust(width) if name in _LEFT_ALIGNED else cell.rjust(width)
-            for name, cell, width in zip(_TABLE_HEADER, line, widths)
-        ).rstrip()
-
-    lines = [
+    cells = [
         (
-            f"Performance against main run {baseline_label} "
-            f"(host wall-clock of iree-run-module; spread over the last {runs} "
-            "main run(s))"
-        ),
-        "",
-        format_line(cells[0]),
-        "  ".join("-" * width for width in widths),
-        *(format_line(line) for line in cells[1:]),
+            row.case_id,
+            "-" if row.baseline is None else f"{row.baseline:.2f}s",
+            "-" if row.spread is None else f"{row.spread[0]:.2f}-{row.spread[1]:.2f}s",
+            "-" if row.current is None else f"{row.current:.2f}s",
+            "-" if row.percent is None else f"{row.percent:+.1f}%",
+            str(row.verdict),
+        )
+        for row in rows
     ]
-    return "\n".join(lines) + "\n"
+    title = (
+        f"Performance against the baseline, main run {recent_runs[0].label} "
+        f"(host wall-clock of iree-run-module; spread over the last "
+        f"{len(recent_runs)} main run(s))"
+    )
+    # The cells are formatted already; tabulate must not reparse them.
+    table = tabulate(cells, _TABLE_HEADER, colalign=_TABLE_ALIGN, disable_numparse=True)
+    return f"{title}\n\n{table}\n"
 
 
-def _report(table: str) -> None:
-    print(table)
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        # Markdown; a code block keeps the alignment.
-        with open(summary, "a") as file:
-            file.write(f"```text\n{table}```\n")
+def _annotate(rows: Sequence[Row], baseline: CIRun) -> None:
+    """GitHub annotations for the rows that changed or are missing."""
+    for row in rows:
+        if row.verdict is Verdict.MISSING:
+            print(
+                f"::notice title=performance case missing::{row.case_id}: timed in "
+                f"the baseline {baseline.label} ({row.baseline:.2f}s), but not "
+                "in this run (removed, renamed or failed?)"
+            )
+        elif row.verdict in (Verdict.FAIL, Verdict.WARN):
+            level = "error" if row.verdict is Verdict.FAIL else "warning"
+            print(
+                f"::{level} title=performance regression::{row.case_id}: "
+                f"{row.baseline:.2f}s -> {row.current:.2f}s ({row.percent:+.1f}%)"
+            )
+        elif row.verdict is Verdict.FASTER:
+            print(
+                f"::notice title=performance improvement::{row.case_id}: "
+                f"{row.baseline:.2f}s -> {row.current:.2f}s ({row.percent:+.1f}%)"
+            )
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--current", type=Path, required=True, help="pytest output of this session"
@@ -296,109 +314,80 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         action="append",
         default=[],
-        help="pytest output or GitHub job log to compare against, newest first "
-        "(repeatable); skips fetching main runs with gh",
+        help="pytest output or GitHub job log to compare against (repeatable): "
+        "the first is the baseline, all give the spread;"
+        " skips fetching main runs with gh",
     )
     parser.add_argument(
         "--job",
         default=os.environ.get("GITHUB_JOB"),
-        help="job whose main runs are the baseline (default: $GITHUB_JOB)",
+        help="job to compare against (test-bazel or test-cmake) (default: $GITHUB_JOB) ",
     )
     parser.add_argument("--workflow", default="build.yml")
     parser.add_argument("--branch", default="main")
-    parser.add_argument("--baseline-runs", type=int, required=True)
+    parser.add_argument(
+        "--num-recent-runs",
+        type=int,
+        required=True,
+        help="how many main runs give the spread; the newest is the baseline",
+    )
     parser.add_argument(
         "--max-runs-searched",
         type=int,
         required=True,
-        help="how many main runs to look through for --baseline-runs with run "
-        "times; runs without them (cancelled, expired log) are skipped",
+        help="how many runs to look through for --num-recent-runs to find completed runs",
     )
     parser.add_argument("--warn-percent", type=float, required=True)
     parser.add_argument("--fail-percent", type=float, required=True)
-    parser.add_argument("--min-delta-s", type=float, required=True)
-    args = parser.parse_args(argv)
-
-    thresholds = Thresholds(
-        baseline_runs=args.baseline_runs,
-        warn_percent=args.warn_percent,
-        fail_percent=args.fail_percent,
-        min_delta_s=args.min_delta_s,
+    parser.add_argument(
+        "--min-delta-s",
+        type=float,
+        required=True,
+        help="a case is only flagged when it is slower by both the percentage "
+        "and this many seconds",
     )
-
-    try:
-        return _check(args, parser, thresholds)
-    except LogParseError as err:
-        print(f"::error title=perf check::{err}")
-        return 1
-
-
-def _parse_file(path: Path) -> ParsedLog:
-    try:
-        return parse_log(path.read_text(errors="replace"))
-    except LogParseError as err:
-        raise LogParseError(f"{path}: {err}") from err
-
-
-def _check(
-    args: argparse.Namespace,
-    parser: argparse.ArgumentParser,
-    thresholds: Thresholds,
-) -> int:
-    current = _parse_file(args.current)
-    if not current.run_times:
-        if any(_is_timed(case) for case in current.passed):
-            # Tests passed but no time was found: the output format changed
-            # under this parser. Fail rather than silently check nothing.
-            print(
-                f"::error title=perf check::{args.current}: no run time found for "
-                "any passed test; did the 'timings:' output of test_models.py "
-                "change?"
-            )
-            return 1
-        print(f"::notice title=perf check::{args.current}: no passed timed test")
-        return 0
-
-    if args.baseline_log:
-        baselines = [
-            (str(path), _parse_file(path).run_times)
-            for path in args.baseline_log[: thresholds.baseline_runs]
-        ]
-        baselines = [(label, times) for label, times in baselines if times]
-    elif args.job is None:
+    args = parser.parse_args(argv)
+    if not args.baseline_log and args.job is None:
         parser.error("--job (or $GITHUB_JOB) is required to fetch main runs")
-    else:
-        try:
-            baselines = fetch_baselines(
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_args(argv)
+    try:
+        current = _parse_file(args.current)
+        if not current:
+            print(
+                f"::warn title=performance check::{args.current}: no timed test found"
+            )
+            return 0
+        if args.baseline_log:
+            recent_runs = read_recent_runs_from_files(
+                args.baseline_log, args.num_recent_runs
+            )
+        else:
+            recent_runs = fetch_recent_runs(
                 args.job,
                 args.workflow,
                 args.branch,
-                thresholds.baseline_runs,
+                args.num_recent_runs,
                 args.max_runs_searched,
             )
-        except subprocess.CalledProcessError as err:
-            # A perf check that cannot see main is not a reason to fail the PR.
-            print(f"::warning title=perf check::gh failed: {err.stderr.strip()}")
-            return 1
-    if not baselines:
-        print(f"::notice title=perf check::no {args.branch} run with run times found")
+    except (LogParseError, LookupError) as err:
+        print(f"::error title=performance check::{err}")
+        return 1
+    except subprocess.CalledProcessError as err:
+        print(f"::error title=performance check::gh failed: {err.stderr.strip()}")
+        return 1
+    if not recent_runs:
+        print(
+            f"::error title=performance check::no {args.branch} run with run times found"
+        )
         return 1
 
-    rows = compare(current.run_times, [times for _, times in baselines], thresholds)
-    _report(_format_table(rows, baselines[0][0], len(baselines)))
-    for row in rows:
-        if row.verdict is Verdict.MISSING:
-            print(
-                f"::warning title=perf case missing::{row.case_id}: timed in "
-                f"{args.branch} run {baselines[0][0]} ({row.baseline:.2f}s), but "
-                "not in this run (removed, renamed or failed?)"
-            )
-        elif row.verdict in (Verdict.FAIL, Verdict.WARN):
-            level = "error" if row.verdict is Verdict.FAIL else "warning"
-            print(
-                f"::{level} title=perf regression::{row.case_id}: "
-                f"{row.baseline:.2f}s -> {row.current:.2f}s ({row.percent:+.1f}%)"
-            )
+    rows = compare(current, recent_runs, args)
+    print(_format_table(rows, recent_runs))
+    _annotate(rows, recent_runs[0])
     return 1 if any(row.verdict is Verdict.FAIL for row in rows) else 0
 
 

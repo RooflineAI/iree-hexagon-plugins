@@ -267,7 +267,7 @@ To compare a local session:
 .venv/bin/pytest integration_tests/ -v -rA ... | tee pytest-output.log
 # compare against CI's main
 python -m integration_tests.perf_compare --current pytest-output.log \
-    --baseline-runs 5 --max-runs-searched 5 \
+    --num-recent-runs 5 --max-runs-searched 5 \
     --warn-percent 5 --fail-percent 30 --min-delta-s 0.3 \
     --job test-bazel # or --baseline-log <file>, repeatable
 ```

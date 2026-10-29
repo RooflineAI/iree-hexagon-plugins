@@ -235,6 +235,30 @@ A profile run case with no checks still produces the CSV.
 
 `test_profile_checks.py` tests the checks on hand-written CSVs, without a device.
 
+## Performance
+
+CI compares the run time of every passed test against the same job of the
+latest completed main run, in a step of its own after the tests:
+`perf_compare.py` parses the `-rA` output of the session, the `run:` line under `timings:` of each passed test, and reads the earlier main runs' output from their GitHub logs with `gh`.
+When no time can be found for any passed test, the check fails.
+
+The time is the host wall-clock of `iree-run-module` over adb, so it includes
+the adb round trip, opening the DSP session and loading the module. The micro
+models are mostly that fixed overhead (~1.75 s), so a regression in their
+kernels does not show. Profile and debug-malloc run cases are not compared.
+
+The thresholds when a warning is raised are command-line arguments.
+To compare a local session:
+```sh
+# collect the log from stdout
+.venv/bin/pytest integration_tests/ -v -rA ... | tee pytest-output.log
+# compare against CI's main
+python -m integration_tests.perf_compare --current pytest-output.log \
+    --num-recent-runs 5 --max-runs-searched 5 \
+    --warn-percent 5 --fail-percent 30 --min-delta-s 0.3 \
+    --job test-bazel # or --baseline-log <file>, repeatable
+```
+
 ## Known failures
 
 A model may record known failures:

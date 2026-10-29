@@ -72,6 +72,10 @@ jobs:
     concurrency: &phone_lock
       group: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'phone-1' || format('no-phone-{0}-{1}', github.run_id, github.job) }}
       cancel-in-progress: false
+    # actions: read lets the performance check read earlier main runs' logs.
+    permissions: &test_permissions
+      contents: read
+      actions: read
     env:
       # Fork PRs never receive secrets, so they cannot hold an overlay key and
       # cannot reach the phone. That is the boundary working as intended, not
@@ -219,16 +223,39 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN_CI }}
         run: |
+          # The output is kept for the performance check, which parses it.
+          set -o pipefail
           .venv/bin/pytest integration_tests/ -v -rA \
           --iree-compile=build-artifacts/hexagon_compiler_x86_64_linux/bin/iree-compile \
           --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
           --runtime-zip-tracy=build-artifacts/hexagon_runtime_aarch64_android_tracy.zip \
           --device-tools-zip=test-tools/device_tools_aarch64_android.zip \
-          --lld=build-artifacts/hexagon_compiler_x86_64_linux/bin/ld.lld
+          --lld=build-artifacts/hexagon_compiler_x86_64_linux/bin/ld.lld \
+          | tee pytest-output.log
       - &leave_overlay
         name: Leave the overlay
         if: always()
         run: sudo tailscale logout || true
+      - &performance_check
+        name: Performance check
+        # Also after failed tests: the cases that passed are still compared.
+        if: ${{ !cancelled() && env.PHONE_ACCESS == 'true' && hashFiles('pytest-output.log') != '' }}
+        env:
+          # Reads the logs of this job in earlier main runs.
+          GH_TOKEN: ${{ github.token }}
+        # A case is flagged when slower by both the percentage and
+        # --min-delta-s. The time is host wall-clock over adb and moves in
+        # ~0.1 s steps (the 100 ms poll of limit_lifetime), so smaller
+        # differences are noise. The last --num-recent-runs main runs give the
+        # spread shown in the table; the newest of them is the baseline.
+        run: |
+          .venv/bin/python -m integration_tests.perf_compare \
+          --current pytest-output.log \
+          --num-recent-runs 5 \
+          --max-runs-searched 5 \
+          --warn-percent 5 \
+          --fail-percent 30 \
+          --min-delta-s 0.3
   build-bazel:
     needs:
       - pre-commit
@@ -276,6 +303,7 @@ jobs:
       group: qualcomm
       labels: qc-small
     concurrency: *phone_lock
+    permissions: *test_permissions
     env:
       # Fork PRs never receive secrets, so they cannot hold an overlay key and
       # cannot reach the phone. That is the boundary working as intended, not
@@ -305,6 +333,7 @@ jobs:
       - *install_rsync
       - *integration_tests
       - *leave_overlay
+      - *performance_check
   release:
     needs:
       - pre-commit

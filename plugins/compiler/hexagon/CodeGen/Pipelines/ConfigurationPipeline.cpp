@@ -52,9 +52,8 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 
   // Strategy selection uses the operation kind to choose HMX or vector
-  // lowering. Specialize eligible generics first: HMX conversion accepts named
-  // matmuls, and the lowering config must be attached to the op that will be
-  // lowered.
+  // lowering. Specialize eligible generics first, so that HMX lowering will be
+  // considered.
   if (isHexagonHmxMatmulEnabled()) {
     FunctionLikeNest(modulePassManager)
         .addPass(createHexagonSpecializeHmxContractionsPass);

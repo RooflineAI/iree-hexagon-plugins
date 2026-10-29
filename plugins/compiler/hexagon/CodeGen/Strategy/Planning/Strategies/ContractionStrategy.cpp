@@ -122,11 +122,9 @@ selectHmxStrategy(const PlanningContext &context,
   if (!linalgOp || !isHmxCandidateContraction(linalgOp))
     return std::optional<DispatchStrategy>{};
   // HexagonConvertMatmulToHmx converts only named linalg.matmul and
-  // linalg.batch_matmul. Planning HMX for any other contraction would leave
-  // its K dimension untiled and the contraction unconverted, to be vectorized
-  // whole. HexagonSpecializeHmxContractions rewrites matmul-shaped generics
-  // before planning, so one that still gets here was not recognized: warn,
-  // and let the regular contraction strategy plan it.
+  // linalg.batch_matmul. HexagonSpecializeHmxContractions rewrites
+  // matmul-shaped generics before planning, so any that still gets here was not
+  // recognized: warn, and let the regular contraction strategy plan it.
   if (!isa<linalg::MatmulOp, linalg::BatchMatmulOp>(linalgOp.getOperation())) {
     linalgOp->emitWarning()
         << "matmul-like '" << linalgOp->getName()

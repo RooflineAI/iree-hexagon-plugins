@@ -237,8 +237,8 @@ A profile run case with no checks still produces the CSV.
 
 ## Performance
 
-CI compares the run time of every passed test against the same job of the
-latest completed main run, in a step of its own after the tests:
+CI compares the run time of every passed test against its average in the same
+job of the latest completed main runs, in a step of its own after the tests:
 `perf_compare.py` parses the `-rA` output of the session, the `run:` line under `timings:` of each passed test, and reads the earlier main runs' output from their GitHub logs with `gh`.
 When no time can be found for any passed test, the check fails.
 
@@ -254,7 +254,7 @@ To compare a local session:
 .venv/bin/pytest integration_tests/ -v -rA ... | tee pytest-output.log
 # compare against CI's main
 python -m integration_tests.perf_compare --current pytest-output.log \
-    --num-recent-runs 5 --max-runs-searched 5 \
+    --num-recent-runs 5 --max-runs-searched 10 \
     --warn-percent 5 --fail-percent 30 --min-delta-s 0.3 \
     --job test-bazel # or --baseline-log <file>, repeatable
 ```

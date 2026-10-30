@@ -8,8 +8,8 @@
 
 Reads the pytest output of `pytest integration_tests/ -v -rA`.
 The recent runs are the same job of the latest completed main runs, read from
-their GitHub logs with `gh`. The newest of them is the baseline every case is
-compared against; all of them give the min-max spread shown next to it.
+their GitHub logs with `gh`. The average of a case's run times in them is the
+baseline it is compared against; their min-max spread is shown next to it.
 The thresholds to be used are set as cmd line arguments.
 Exits 1 when a case is slower than the fail threshold, 0 otherwise.
 """
@@ -22,6 +22,7 @@ import enum
 import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -191,8 +192,8 @@ class Verdict(enum.StrEnum):
     OK = "ok"
     FASTER = "faster"
     NEW = "new"
-    # Timed in the baseline but not in this session: removed, renamed, failed
-    # or no longer comparable.
+    # Timed in the recent runs but not in this session: removed, renamed,
+    # failed or no longer comparable.
     MISSING = "MISSING"
 
 
@@ -201,7 +202,8 @@ class Row:
     case_id: str
     # None for a case this session has no time for.
     current: float | None
-    # None for a case the baseline does not have.
+    # The average over the recent runs that have the case; None for a case
+    # none of them has.
     baseline: float | None
     # Min and max over the recent runs that have the case.
     spread: tuple[float, float] | None
@@ -240,15 +242,16 @@ def compare(
     recent_runs: Sequence[CIRun],
     thresholds: Thresholds,
 ) -> list[Row]:
-    """`recent_runs` first the baseline, others are used to measure the usual spread."""
-    baseline_times = recent_runs[0].run_times
+    """Each case against the average of its times in `recent_runs`, which also
+    give the usual spread."""
+    recent_cases = set().union(*(run.run_times.keys() for run in recent_runs))
     rows = []
-    for case_id in sorted(current.keys() | baseline_times.keys()):
+    for case_id in sorted(current.keys() | recent_cases):
         history = [
             run.run_times[case_id] for run in recent_runs if case_id in run.run_times
         ]
         seconds = current.get(case_id)
-        baseline = baseline_times.get(case_id)
+        baseline = statistics.fmean(history) if history else None
         rows.append(
             Row(
                 case_id=case_id,
@@ -279,22 +282,22 @@ def _format_table(rows: Sequence[Row], recent_runs: Sequence[CIRun]) -> str:
         for row in rows
     ]
     title = (
-        f"Performance against the baseline, main run {recent_runs[0].label} "
-        f"(host wall-clock of iree-run-module; spread over the last "
-        f"{len(recent_runs)} main run(s))"
+        f"Performance against the average of the last {len(recent_runs)} main "
+        f"run(s), {', '.join(run.label for run in recent_runs)} "
+        f"(host wall-clock of iree-run-module)"
     )
     # The cells are formatted already; tabulate must not reparse them.
     table = tabulate(cells, _TABLE_HEADER, colalign=_TABLE_ALIGN, disable_numparse=True)
     return f"{title}\n\n{table}\n"
 
 
-def _annotate(rows: Sequence[Row], baseline: CIRun) -> None:
+def _annotate(rows: Sequence[Row]) -> None:
     """GitHub annotations for the rows that changed or are missing."""
     for row in rows:
         if row.verdict is Verdict.MISSING:
             print(
                 f"::notice title=performance case missing::{row.case_id}: timed in "
-                f"the baseline {baseline.label} ({row.baseline:.2f}s), but not "
+                f"the recent main runs (average {row.baseline:.2f}s), but not "
                 "in this run (removed, renamed or failed?)"
             )
         elif row.verdict in (Verdict.FAIL, Verdict.WARN):
@@ -321,7 +324,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         action="append",
         default=[],
         help="pytest output or GitHub job log to compare against (repeatable): "
-        "the first is the baseline, all give the spread;"
+        "their average is the baseline, they give the spread;"
         " skips fetching main runs with gh",
     )
     parser.add_argument(
@@ -335,7 +338,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--num-recent-runs",
         type=int,
         required=True,
-        help="how many main runs give the spread; the newest is the baseline",
+        help="how many main runs give the baseline (their average) and the spread",
     )
     parser.add_argument(
         "--max-runs-searched",
@@ -398,7 +401,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     rows = compare(current, recent_runs, thresholds)
     print(_format_table(rows, recent_runs))
-    _annotate(rows, recent_runs[0])
+    _annotate(rows)
     return 1 if any(row.verdict is Verdict.FAIL for row in rows) else 0
 
 

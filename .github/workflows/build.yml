@@ -246,13 +246,13 @@ jobs:
         # A case is flagged when slower by both the percentage and
         # --min-delta-s. The time is host wall-clock over adb and moves in
         # ~0.1 s steps (the 100 ms poll of limit_lifetime), so smaller
-        # differences are noise. The last --num-recent-runs main runs give the
-        # spread shown in the table; the newest of them is the baseline.
+        # differences are noise. The baseline is the average of each case over
+        # the last --num-recent-runs main runs, which also give the spread.
         run: |
           .venv/bin/python -m integration_tests.perf_compare \
           --current pytest-output.log \
           --num-recent-runs 5 \
-          --max-runs-searched 5 \
+          --max-runs-searched 10 \
           --warn-percent 5 \
           --fail-percent 30 \
           --min-delta-s 0.3

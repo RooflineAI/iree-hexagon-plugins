@@ -12,6 +12,7 @@
 #include "hexagon/Target/LibraryBuilder.h"
 #include "hexagon/Target/Linking/HexagonLinker.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
+#include "iree/compiler/Utils/OptionUtils.h"
 #include "iree/compiler/Utils/StringUtils.h"
 // Hexagon-owned copy of the executable library ABI, shared with the DSP.
 #include "hexagon/dsp/rt/executable_library.h"
@@ -301,14 +302,15 @@ runLLVMOptimizationPasses(llvm::TargetMachine &targetMachine,
       llvmModule.getContext(), /*DebugLogging=*/false);
   standardInstrumentations.registerCallbacks(passInstrumentationCallbacks);
 
-  llvm::PipelineTuningOptions tuningOptions;
+  llvm::PipelineTuningOptions tuningOptions(
+      &llvmModule.getContext().getLibraryOptions());
   tuningOptions.LoopInterleaving = false;
   tuningOptions.LoopVectorization = false;
   tuningOptions.LoopUnrolling = false;
   tuningOptions.SLPVectorization = false;
 
-  llvm::PassBuilder passBuilder(&targetMachine, tuningOptions,
-                                /*PGOOpt=*/std::nullopt,
+  llvm::PassBuilder passBuilder(llvmModule.getContext(), &targetMachine,
+                                tuningOptions, /*PGOOpt=*/std::nullopt,
                                 &passInstrumentationCallbacks);
   passBuilder.registerModuleAnalyses(moduleAnalysisManager);
   passBuilder.registerCGSCCAnalyses(cgsccAnalysisManager);
@@ -494,6 +496,7 @@ mlir::LogicalResult serializeHexagonExecutable(
            << "missing executable target attribute configuration";
 
   llvm::LLVMContext context;
+  context.getLibraryOptions().assign(*commandLineOptions);
   auto libraryName =
       variantOp->getParentOfType<HAL::ExecutableOp>().getName().str();
 
@@ -506,7 +509,8 @@ mlir::LogicalResult serializeHexagonExecutable(
 
   buildExecutableMetadata(*llvmModule, variantOp);
 
-  auto targetMachine = createHexagonTargetMachine(configAttr);
+  auto targetMachine =
+      createHexagonTargetMachine(configAttr, context.getLibraryOptions());
   if (!targetMachine) {
     return variantOp.emitOpError()
            << "failed to create Hexagon target machine from " << configAttr;

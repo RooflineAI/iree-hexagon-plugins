@@ -39,9 +39,11 @@ struct HexagonTarget {
 HexagonTarget createHexagonTarget(const HexagonOptions &options);
 
 // Creates the LLVM target machine for the target described in `config`.
-// Returns nullptr on failure.
-std::unique_ptr<llvm::TargetMachine>
-createHexagonTargetMachine(mlir::DictionaryAttr config);
+// `libraryOptions` supplies LLVM's command-line options and must outlive the
+// target machine. Returns nullptr on failure.
+std::unique_ptr<llvm::TargetMachine> createHexagonTargetMachine(
+    mlir::DictionaryAttr config,
+    const llvm::cl::LibraryOptionsContext &libraryOptions);
 
 } // namespace mlir::iree_compiler::hexagon::target
 

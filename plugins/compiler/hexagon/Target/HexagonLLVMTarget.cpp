@@ -83,8 +83,9 @@ HexagonTarget createHexagonTarget(const HexagonOptions &options) {
   return target;
 }
 
-std::unique_ptr<llvm::TargetMachine>
-createHexagonTargetMachine(mlir::DictionaryAttr config) {
+std::unique_ptr<llvm::TargetMachine> createHexagonTargetMachine(
+    mlir::DictionaryAttr config,
+    const llvm::cl::LibraryOptionsContext &libraryOptions) {
   std::optional<llvm::StringRef> tripleStr = getConfigTargetTriple(config);
   if (!tripleStr) {
     return nullptr;
@@ -106,6 +107,7 @@ createHexagonTargetMachine(mlir::DictionaryAttr config) {
   targetOptions.FunctionSections = true;
   targetOptions.DataSections = true;
   targetOptions.UniqueSectionNames = true;
+  targetOptions.MCOptions.LibraryOptions = &libraryOptions;
 
   return std::unique_ptr<llvm::TargetMachine>(llvmTarget->createTargetMachine(
       triple, dsp, dspFeatures, targetOptions, llvm::Reloc::Model::PIC_,

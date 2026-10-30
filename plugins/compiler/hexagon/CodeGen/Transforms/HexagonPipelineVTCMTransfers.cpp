@@ -258,11 +258,16 @@ FailureOr<TileLoopTransfers> analyzeTileLoop(scf::ForOp loop) {
                  << "view can not be recomputed: " << copy << "\n");
       return failure();
     }
-    auto &copyOf = load ? loadOf : storeOf;
-    if (!copyOf.try_emplace(buffer, copy).second)
-      return failure();
-    (load ? transfers.loads : transfers.stores)
-        .push_back(Transfer{copy, buffer, *shape, Value()});
+    Transfer transfer{copy, buffer, *shape, Value()};
+    if (load) {
+      if (!loadOf.try_emplace(buffer, copy).second)
+        return failure();
+      transfers.loads.push_back(transfer);
+    } else {
+      if (!storeOf.try_emplace(buffer, copy).second)
+        return failure();
+      transfers.stores.push_back(transfer);
+    }
   }
 
   // Each buffer must hold its tile for one iteration only.
@@ -345,9 +350,9 @@ void createDMAStart(OpBuilder &builder, Location loc, Value source,
                              stride, width);
 }
 
-/// The wait identifies the transfer by its tag only; for a tile with a
-/// dynamic number of rows, the size of the full buffer is given as its number
-/// of elements.
+/// The wait identifies the transfer by its tag only. Its number of elements is
+/// a placeholder and is set to the size of the full buffer, which is static
+/// even for a tile with a dynamic number of rows.
 void createDMAWait(OpBuilder &builder, Location loc, const Transfer &transfer,
                    Value slot) {
   Value numElements =

@@ -324,6 +324,14 @@ def HexagonCoalesceVTCMLoopsPass :
       from one iteration to the next. This guarantees that a VTCM buffer of
       the tile never holds data of a previous tile, which is what makes
       double-buffering the output buffers legal.
+
+      Not supported, and not checked, are tiles whose DDR regions overlap
+      those of the next iteration, e.g. a tile that is loaded, updated and
+      stored back, and loaded again by the next iteration: the load of the
+      next tile is issued before the store of the current one and would read
+      stale data. Equally, the compute must not read parts of a VTCM buffer
+      that the load of its iteration does not write, expecting the data of a
+      previous tile there.
   }];
   let dependentDialects = [
     "::mlir::affine::AffineDialect",

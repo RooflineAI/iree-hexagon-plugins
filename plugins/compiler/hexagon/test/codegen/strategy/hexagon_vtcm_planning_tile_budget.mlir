@@ -1,24 +1,35 @@
 // --iree-hexagon-vtcm-tile-budget-bytes bounds the VTCM tile search. One row
 // of the 64x65536xf32 input is 256 KiB and the reduction is staged whole, so
 // the parallel tile shrinks with the budget until a single row does not fit.
+// Double buffering halves the budget; it is disabled where the budget alone is
+// under test.
 //
 // RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling \
 // RUN:   --iree-hexagon-enable-hmx-matmul=false \
+// RUN:   --iree-hexagon-enable-double-buffering=false \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   %s | FileCheck %s --check-prefix=DEFAULT
 // RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling \
 // RUN:   --iree-hexagon-enable-hmx-matmul=false \
+// RUN:   --iree-hexagon-enable-double-buffering=false \
 // RUN:   --iree-hexagon-vtcm-tile-budget-bytes=524288 \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   %s | FileCheck %s --check-prefix=SMALL
 // RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling \
 // RUN:   --iree-hexagon-enable-hmx-matmul=false \
+// RUN:   --iree-hexagon-enable-double-buffering=false \
 // RUN:   --iree-hexagon-vtcm-tile-budget-bytes=131072 \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
 // RUN:   %s | FileCheck %s --check-prefix=TOO-SMALL
+// RUN: iree-opt \
+// RUN:   --iree-hexagon-enable-vtcm-tiling \
+// RUN:   --iree-hexagon-enable-hmx-matmul=false \
+// RUN:   --iree-hexagon-enable-double-buffering \
+// RUN:   --pass-pipeline='builtin.module(iree-hexagon-select-lowering-strategy)' \
+// RUN:   %s | FileCheck %s --check-prefix=DOUBLE-BUFFERED
 
 #target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
@@ -42,6 +53,12 @@ func.func @row_reduction(%input: tensor<64x65536xf32>) -> tensor<64xf32> attribu
 // DEFAULT: func.func @row_reduction(
 // DEFAULT: linalg.generic
 // DEFAULT-SAME: lowering_config = #[[ROOT]]
+
+// Double buffering plans against half of the default budget, 1 MiB: 2 rows.
+// DOUBLE-BUFFERED: #[[ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [2, 65536]>
+// DOUBLE-BUFFERED: func.func @row_reduction(
+// DOUBLE-BUFFERED: linalg.generic
+// DOUBLE-BUFFERED-SAME: lowering_config = #[[ROOT]]
 
 // 512 KiB leaves room for a single row.
 // SMALL: #[[ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [1, 65536]>

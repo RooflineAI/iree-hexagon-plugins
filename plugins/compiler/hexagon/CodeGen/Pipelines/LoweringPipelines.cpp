@@ -329,13 +329,20 @@ void addHexagonMultiTilingExpertPassPipeline(
     addLargeVectorCheck(funcPassManager);
   }
 
+  // Coalesce and mark the VTCM tile loops for double buffering while the
+  // staging ops still identify them.
+  if (isHexagonDoubleBufferingEnabled())
+    funcPassManager.addPass(createHexagonCoalesceVTCMLoopsPass());
+
   // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
   // emitted as fusion barriers into real bufferization.alloc_tensor ops.
   // This must happen after all tiling passes have run.
   if (isHexagonVTCMTilingEnabled())
     funcPassManager.addPass(createHexagonLowerVTCMStagingPass());
 
-  addHexagonBufferizePasses(funcPassManager);
+  addHexagonBufferizePasses(funcPassManager,
+                            /*enableDoubleBuffering=*/
+                            isHexagonDoubleBufferingEnabled());
 
   // Run IREE specific passes before vector lowering expert.
   funcPassManager.addPass(createPropagateDispatchSizeBoundsPass());
@@ -453,12 +460,19 @@ void addHexagonHmxMatmulExpertPassPipeline(
     addLargeVectorCheck(funcPassManager);
   }
 
+  // Coalesce and mark the VTCM tile loops for double buffering while the
+  // staging ops still identify them.
+  if (isHexagonDoubleBufferingEnabled())
+    funcPassManager.addPass(createHexagonCoalesceVTCMLoopsPass());
+
   // Lower the iree_hexagon staging ops that HexagonVTCMTilingPass
   // emitted as fusion barriers into real bufferization.alloc_tensor ops.
   // This must happen after all tiling passes have run.
   funcPassManager.addPass(createHexagonLowerVTCMStagingPass());
 
-  addHexagonBufferizePasses(funcPassManager);
+  addHexagonBufferizePasses(funcPassManager,
+                            /*enableDoubleBuffering=*/
+                            isHexagonDoubleBufferingEnabled());
 
   funcPassManager.addPass(createPropagateDispatchSizeBoundsPass());
   funcPassManager.addPass(createRemoveSingleIterationLoopPass());

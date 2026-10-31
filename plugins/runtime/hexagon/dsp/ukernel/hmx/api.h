@@ -26,15 +26,16 @@ void iree_hexagon_hmx_acc_setup_read_f16(uint8_t *config);
 void iree_hexagon_hmx_acc_clear_f16(void);
 
 // Packs row-major f16 data into 32x32 HMX tiles. Full tiles use only small
-// locals; a ragged tile uses approximately 2 KiB of aligned stack scratch.
+// locals; only a ragged tile uses approximately 2 KiB of aligned stack scratch.
 void iree_hexagon_hmx_pack_f16(_Float16 *dest, const _Float16 *source,
                                uint32_t source_stride, uint32_t actual_rows,
                                uint32_t actual_cols, uint32_t row_tiles,
                                uint32_t col_tiles);
 
 // Packs a transposed row-major f16 matrix into HMX tiles. A ragged tile uses
-// approximately 2 KiB of aligned stack scratch. The full-tile transpose may
-// require roughly 4 KiB for its vector arrays before compiler spills.
+// approximately 2 KiB of aligned stack scratch. The full-tile transpose uses
+// approximately 2 KiB for its vector array; the two are never on the stack at
+// the same time.
 void iree_hexagon_hmx_pack_transposed_f16(
     _Float16 *dest, const _Float16 *source, uint32_t source_stride,
     uint32_t actual_interleave, uint32_t actual_other,

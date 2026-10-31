@@ -33,6 +33,23 @@ static llvm::cl::opt<int64_t> clHexagonVTCMTileBudgetBytes(
         "smaller budgets allow for more asynchronous dispatches"),
     llvm::cl::init(2 * 1024 * 1024));
 
+static llvm::cl::opt<bool> clHexagonEnableDoubleBuffering(
+    "iree-hexagon-enable-double-buffering",
+    llvm::cl::desc(
+        "Double-buffer the DDR <-> VTCM transfers of the VTCM tile loops, so "
+        "that they overlap with the compute of the neighbouring tiles. Only "
+        "applies when VTCM tiling is enabled. The VTCM tile budget is halved "
+        "to leave room for the second buffers."),
+    llvm::cl::init(true));
+
+static llvm::cl::opt<bool> clHexagonDoubleBufferOuterTileLoops(
+    "iree-hexagon-double-buffer-outer-tile-loops",
+    llvm::cl::desc("With --iree-hexagon-enable-double-buffering, also "
+                   "double-buffer VTCM tile loops that contain another tile "
+                   "loop (e.g. the M loop of an HMX matmul tiled in M and "
+                   "N)."),
+    llvm::cl::init(true));
+
 static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
     "iree-hexagon-enable-hmx-matmul",
     llvm::cl::desc("Route eligible f16 matmul/contraction dispatches through "
@@ -42,6 +59,14 @@ static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
 bool isHexagonVTCMTilingEnabled() { return clHexagonEnableVTCMTiling; }
 
 int64_t getHexagonVTCMTileBudgetBytes() { return clHexagonVTCMTileBudgetBytes; }
+
+bool isHexagonDoubleBufferingEnabled() {
+  return clHexagonEnableDoubleBuffering && clHexagonEnableVTCMTiling;
+}
+
+bool isHexagonDoubleBufferingOfOuterTileLoopsEnabled() {
+  return clHexagonDoubleBufferOuterTileLoops;
+}
 
 bool isHexagonHmxMatmulEnabled() { return clHexagonEnableHmxMatmul; }
 

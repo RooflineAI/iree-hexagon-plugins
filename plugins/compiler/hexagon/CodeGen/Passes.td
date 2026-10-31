@@ -304,6 +304,95 @@ def HexagonVTCMTilingPass :
   }];
 }
 
+def HexagonCoalesceVTCMLoopsPass :
+    InterfacePass<"iree-hexagon-coalesce-vtcm-loops",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Coalesce the VTCM tile loops of a dispatch and mark them for double
+      buffering.
+  }];
+  let description = [{
+      Runs on tensors, while iree_hexagon.stage_to_vtcm still identifies the
+      loops that stage tiles into VTCM. A perfect nest of such loops (the
+      band) is coalesced into one loop, so that double buffering can prefetch
+      across the whole dispatch instead of restarting at every outer
+      iteration. Loops of a band that is not perfectly nested are left as
+      they are. Every loop that directly stages tiles is marked with
+      `iree_hexagon.vtcm_tile_loop` for iree-hexagon-pipeline-vtcm-transfers.
+
+      A band is only marked if its loops carry nothing but the DDR result
+      from one iteration to the next. This guarantees that a VTCM buffer of
+      the tile never holds data of a previous tile, which is what makes
+      double-buffering the output buffers legal.
+
+      Not supported, and not checked, are tiles whose DDR regions overlap
+      those of the next iteration, e.g. a tile that is loaded, updated and
+      stored back, and loaded again by the next iteration: the load of the
+      next tile is issued before the store of the current one and would read
+      stale data. Equally, the compute must not read parts of a VTCM buffer
+      that the load of its iteration does not write, expecting the data of a
+      previous tile there.
+  }];
+  let dependentDialects = [
+    "::mlir::affine::AffineDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect",
+  ];
+}
+
+def HexagonPipelineVTCMTransfersPass :
+    InterfacePass<"iree-hexagon-pipeline-vtcm-transfers",
+                  "mlir::FunctionOpInterface"> {
+  let summary = [{
+      Double-buffer the DDR <-> VTCM transfers of the marked VTCM tile loops.
+  }];
+  let description = [{
+      Runs on memrefs, before memref.copy is converted to hexagonmem. For each
+      loop marked by iree-hexagon-coalesce-vtcm-loops, innermost first, every
+      VTCM buffer staged from or to DDR gets a second buffer, and its copies
+      become memref.dma_start/memref.dma_wait. The loop is rotated so that
+      iteration t issues the loads of tile t+1 before it waits for the loads
+      of tile t, computes, issues the stores of tile t and finally waits for
+      the stores of tile t-1:
+
+        loads(lb)
+        scf.for %t {
+          scf.if (%t + step < ub) { loads(%t + step) }
+          wait loads(%t); compute(%t); stores(%t)
+          scf.if (%t > lb) { wait stores(%t - step) }
+        }
+        wait stores(ub - step)
+
+      The compute stays in place and is never cloned or modified; only the
+      DMA issue and wait operations are duplicated. The loop is annotated so
+      that LLVM does not peel it again.
+
+      The VTCM side of a transfer may be a subview of the buffer, e.g. the
+      valid rows of a ragged tile, whose number of rows is then only known at
+      runtime. Subviews of a buffer that are hoisted out of the loop are moved
+      back into it.
+
+      A loop is left unchanged if any of its DDR <-> VTCM transfers can not
+      become a single asynchronous DMA: the in-order DMA engine would make a
+      remaining synchronous transfer wait for the prefetch.
+  }];
+  let options = [
+    Option<"pipelineOuterTileLoops", "outer-tile-loops", "bool",
+           /*default=*/"false",
+           "Also double-buffer the tile loops that contain another tile loop, "
+           "e.g. the M loop of an HMX matmul tiled in M and N. Its prefetch "
+           "is issued before the inner loop, so the first load of the inner "
+           "loop waits for it on the in-order DMA engine.">,
+  ];
+  let dependentDialects = [
+    "::mlir::affine::AffineDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::LLVM::LLVMDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::scf::SCFDialect",
+  ];
+}
+
 def HexagonFormAsyncThreadsPass :
     InterfacePass<"iree-hexagon-form-async-threads",
                   "mlir::FunctionOpInterface"> {

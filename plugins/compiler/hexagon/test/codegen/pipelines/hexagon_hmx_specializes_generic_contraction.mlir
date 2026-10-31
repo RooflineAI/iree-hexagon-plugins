@@ -14,7 +14,7 @@
 
 // K stays whole in the VTCM stage and untiled in the vector stage: HMX packing
 // consumes it.
-// CONFIG-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0], vtcm = [256, 256, 1536]>
+// CONFIG-DAG: #[[ROOT:.+]] = #iree_hexagon.lowering_config<distribution = [0, 0, 0], vector_common_parallel = [32, 32, 0], vtcm = [128, 128, 1536]>
 // CONFIG-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<HmxMatmulExpert>>
 // CONFIG: func.func @patch_embedding_dispatch() attributes {translation_info = #[[TRANSLATION]]}
 // CONFIG-NOT: "reduction"

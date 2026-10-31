@@ -13,7 +13,10 @@
 
 namespace mlir::iree_compiler::hexagon::codegen {
 
-void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager);
+// With `enableDoubleBuffering`, the VTCM tile loops marked by
+// iree-hexagon-coalesce-vtcm-loops are double-buffered.
+void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager,
+                               bool enableDoubleBuffering = false);
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 

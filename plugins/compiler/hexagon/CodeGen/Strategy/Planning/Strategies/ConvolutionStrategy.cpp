@@ -57,8 +57,8 @@ Type getConvolutionVectorType(linalg::LinalgOp op) {
 /// been optimized. They were just observed to work on a subset of models and
 /// are only intended to guarantee correctness.
 SmallVector<TileDecision>
-inferConvolutionComputeTile(const PlanningContext &context,
-                            const OpShape &shape, linalg::LinalgOp op) {
+inferConvolutionDistributionTile(const PlanningContext &context,
+                                 const OpShape &shape, linalg::LinalgOp op) {
   Type vectorType = getConvolutionVectorType(op);
   SmallVector<TileDecision> tiles(shape.dimensions.size());
   if (!vectorType)
@@ -90,6 +90,36 @@ inferConvolutionComputeTile(const PlanningContext &context,
   return tiles;
 }
 
+/// Narrows the distribution tile to one native vector row: only the loop that
+/// indexes the innermost result dimension keeps its tile, every other tiled
+/// parallel loop is tiled to 1. The fused elementwise consumers are vectorized
+/// at this shape, and a multi-row vector is unrolled op by op over all of its
+/// rows. A wide consumer such as an exact-erf GELU then keeps hundreds of rows
+/// live at once and spills (138 KiB of stack for a 32x25 f32 tile).
+SmallVector<TileDecision>
+inferConvolutionComputeTile(const PlanningContext &context,
+                            const OpShape &shape, linalg::LinalgOp op) {
+  SmallVector<TileDecision> tiles =
+      inferConvolutionDistributionTile(context, shape, op);
+  if (op.getNumDpsInits() != 1)
+    return tiles;
+  AffineMap resultMap = op.getMatchingIndexingMap(op.getDpsInitOperand(0));
+  if (resultMap.getNumResults() == 0)
+    return tiles;
+  auto innermost = dyn_cast<AffineDimExpr>(resultMap.getResults().back());
+  if (!innermost)
+    return tiles;
+  for (const LocalDim &dimension : shape.dimensions) {
+    if (dimension.iteratorType != utils::IteratorType::parallel ||
+        dimension.position == innermost.getPosition())
+      continue;
+    TileDecision &tile = tiles[dimension.position];
+    if (tile.size > 1)
+      tile = TileDecision{1};
+  }
+  return tiles;
+}
+
 } // namespace
 
 FailureOr<std::optional<DispatchStrategy>>
@@ -100,16 +130,16 @@ selectConvolutionStrategy(const PlanningContext &context,
     return std::optional<DispatchStrategy>{};
 
   const OpShape &shape = getRootShape(dispatchShape);
-  SmallVector<TileDecision> compute =
-      inferConvolutionComputeTile(context, shape, linalgOp);
 
   DispatchStrategy strategy;
   strategy.pipeline =
       IREE::Hexagon::LoweringPipeline::ConvTileAndDecomposeExpert;
-  strategy.rootTiling.distributionTile = compute;
+  strategy.rootTiling.distributionTile =
+      inferConvolutionDistributionTile(context, shape, linalgOp);
   strategy.rootTiling.cacheTile =
       SmallVector<TileDecision>(shape.dimensions.size());
-  strategy.rootTiling.computeTile = std::move(compute);
+  strategy.rootTiling.computeTile =
+      inferConvolutionComputeTile(context, shape, linalgOp);
 
   return std::optional<DispatchStrategy>(std::move(strategy));
 }

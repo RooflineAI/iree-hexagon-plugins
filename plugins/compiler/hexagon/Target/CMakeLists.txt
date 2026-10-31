@@ -179,4 +179,11 @@ iree_cc_library(
   PUBLIC
 )
 
+target_link_libraries(iree_hexagon_plugins_plugins_compiler_hexagon_Target_HexagonSession INTERFACE
+    MLIRArithBufferDeallocationOpInterfaceImpl
+    MLIRMemRefAllocationOpInterfaceImpl
+    MLIRSCFBufferDeallocationOpInterfaceImpl
+    MLIRSCFBufferizableOpInterfaceImpl
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

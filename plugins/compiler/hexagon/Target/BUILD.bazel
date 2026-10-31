@@ -3,6 +3,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("@iree//build_tools/bazel:build_defs.oss.bzl", "iree_cmake_extra_content")
 load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
 package(
@@ -180,4 +181,17 @@ hexagon_plugin_library(
         "@llvm-project//mlir:MemRefTransforms",
         "@llvm-project//mlir:SCFTransforms",
     ],
+)
+
+# FIXME: LLVM split these libraries in the CMake build, but not yet in bazel
+iree_cmake_extra_content(
+    content = """
+target_link_libraries(iree_hexagon_plugins_plugins_compiler_hexagon_Target_HexagonSession INTERFACE
+    MLIRArithBufferDeallocationOpInterfaceImpl
+    MLIRMemRefAllocationOpInterfaceImpl
+    MLIRSCFBufferDeallocationOpInterfaceImpl
+    MLIRSCFBufferizableOpInterfaceImpl
+)
+""",
+    inline = True,
 )

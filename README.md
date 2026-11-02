@@ -54,13 +54,16 @@ sudo mv "/opt/android-ndk-${NDK_VERSION}" "/opt/android-sdk/ndk/${NDK_FOLDER}"
 This is the same configuration that `build_tools/bazel/build_and_package.sh`
 writes. The hermetic clang toolchain (`mlinux`) needs no system compiler, and
 the rpath lets the host tools find `libIREECompiler.so` in a `lib/` directory
-next to their `bin/` directory.
+next to their `bin/` directory. `--incompatible_strict_action_env` runs actions
+with a fixed `PATH` instead of the shell's, so a changed environment does not
+invalidate the build cache.
 
 ```sh
 cat - >configured.bazelrc << 'EOF'
 build --config=generic_clang
 build --config=mlinux
 build --linkopt=-Wl,-rpath,$ORIGIN/../lib
+build --incompatible_strict_action_env
 EOF
 ```
 

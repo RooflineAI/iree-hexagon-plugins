@@ -44,10 +44,13 @@ cd "$(dirname "$0")/../.."
 # distributions than the machine they are built on.
 # The host tools find libIREECompiler.so, which is packaged in a lib/ directory
 # next to their bin/ directory, through the rpath $ORIGIN/../lib.
+# --incompatible_strict_action_env runs actions with a fixed PATH instead of the
+# caller's, so changes to the shell environment do not invalidate the cache.
 cat - >configured.bazelrc <<'EOF'
 build --config=generic_clang
 build --config=mlinux
 build --linkopt=-Wl,-rpath,$ORIGIN/../lib
+build --incompatible_strict_action_env
 EOF
 
 # --- Build

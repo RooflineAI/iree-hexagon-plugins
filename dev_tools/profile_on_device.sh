@@ -1,22 +1,109 @@
 #!/usr/bin/env bash
-# Usage: dev_tools/profile_on_device.sh <path/to/model/dir> [serial]
+# Usage: dev_tools/profile_on_device.sh [--serial] [--pmu-events=<list>] <path/to/model/dir>
+#        dev_tools/profile_on_device.sh --list-pmu-events
 # Import, compile and run an integration-test model (any number of inputs) on
 # the device under the Tracy runtime. iree-run-module runs with
 # TRACY_NO_EXIT=1, so it does not exit until a Tracy profiler has connected and received the trace.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PMU_TABLE="$REPO/plugins/runtime/hexagon/arm_dsp/pmu/hexagon_pmu_events_table.inc"
+
+usage() {
+  cat <<EOF
+usage: $0 [--serial] [--pmu-events=<list>] <path/to/model/dir>
+       $0 --list-pmu-events
+
+  <path/to/model/dir>  model directory (the one holding model.yaml and model.py),
+                       e.g. integration_tests/models/micro/parallel-conv-max-1x32x64x64-f16
+  --serial             run one dispatch at a time on one DSP thread; default is
+                       parallel
+  --pmu-events=<list>  comma-separated Hexagon PMU events, up to 8, each a name
+                       (HVXST_VTCM or HEX_PMU_EVENT_HVXST_VTCM) or a numeric ID
+                       (0x0126); counters not given keep the runtime defaults
+  --list-pmu-events    print the PMU event names, IDs and descriptions
+EOF
+}
+
+# Prints "<id>  <name>  <description>" for every event in the PMU table, with
+# the description taken from the comment above each definition.
+list_pmu_events() {
+  awk '
+    /^ *\/\// { line = $0; sub(/^ *\/\/ */, "", line); desc = desc (desc == "" ? "" : " ") line; next }
+    /^HEXAGON_PMU_EVENT_DEF\(/ {
+      match($0, /HEX_PMU_EVENT_[A-Z0-9_]+/); name = substr($0, RSTART + 14, RLENGTH - 14)
+      match($0, /0x[0-9A-Fa-f]+/); id = substr($0, RSTART, RLENGTH)
+      sub(/^0x[0-9A-Fa-f]+: */, "", desc)
+      printf "%s  %-40s  %s\n", id, name, desc
+    }
+    { desc = "" }
+  ' "$PMU_TABLE"
+}
+
+# Prints the numeric ID of a PMU event given by number or by name (with or
+# without the HEX_PMU_EVENT_ prefix, in any case).
+pmu_event_id() {
+  local event="$1"
+  if [[ "$event" =~ ^(0[xX][0-9a-fA-F]+|[0-9]+)$ ]]; then
+    echo "$event"
+    return
+  fi
+  local name="${event^^}"
+  name="HEX_PMU_EVENT_${name#HEX_PMU_EVENT_}"
+  local id=""
+  if [[ "$name" =~ ^[A-Z0-9_]+$ ]]; then
+    id="$(sed -n "s/^HEXAGON_PMU_EVENT_DEF(${name}, \(0x[0-9A-Fa-f]*\))$/\1/p" "$PMU_TABLE")"
+  fi
+  if [[ -z "$id" ]]; then
+    echo "error: unknown PMU event '$event' (see --list-pmu-events)" >&2
+    return 1
+  fi
+  echo "$id"
+}
 
 # config
-# $1: path to a model directory (the one holding model.yaml and model.py),
-# e.g. integration_tests/models/micro/parallel-conv-max-1x32x64x64-f16
-# $2 (optional): "serial" to run one dispatch at a time; default is parallel.
-if [[ $# -lt 1 || $# -gt 2 || ( $# -eq 2 && "$2" != serial ) ]]; then
-  echo "usage: $0 <path/to/model/dir> [serial]" >&2
+MODEL_ARG=""
+SERIAL=false
+PMU_EVENTS=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --serial) SERIAL=true ;;
+    --pmu-events=*) PMU_EVENTS="${1#--pmu-events=}" ;;
+    --pmu-events) [[ $# -ge 2 ]] || { usage >&2; exit 1; }; PMU_EVENTS="$2"; shift ;;
+    --list-pmu-events) list_pmu_events; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
+    -*) echo "error: unknown option '$1'" >&2; usage >&2; exit 1 ;;
+    *)
+      if [[ -n "$MODEL_ARG" ]]; then
+        usage >&2
+        exit 1
+      fi
+      MODEL_ARG="$1"
+      ;;
+  esac
+  shift
+done
+if [[ -z "$MODEL_ARG" ]]; then
+  usage >&2
   exit 1
 fi
+
+# Resolved here, before the long build, so a typo fails early.
+PMU_EVENT_IDS=()
+IFS=',' read -ra PMU_EVENT_LIST <<< "$PMU_EVENTS"
+for event in ${PMU_EVENT_LIST[@]+"${PMU_EVENT_LIST[@]}"}; do
+  event="${event//[[:space:]]/}"
+  [[ -n "$event" ]] || continue
+  id="$(pmu_event_id "$event")"
+  PMU_EVENT_IDS+=("$id")
+done
+if [[ ${#PMU_EVENT_IDS[@]} -gt 8 ]]; then
+  echo "error: ${#PMU_EVENT_IDS[@]} PMU events given, the PMU has 8 counters" >&2
+  exit 1
+fi
+
 # Resolved before the cd below, so a path relative to the caller's cwd works.
-MODEL_DIR="$(realpath "$1")"
+MODEL_DIR="$(realpath "$MODEL_ARG")"
 if [[ ! -f "$MODEL_DIR/model.yaml" ]]; then
   echo "error: no model.yaml in $MODEL_DIR" >&2
   exit 1
@@ -29,11 +116,18 @@ REMOTE_DIR=/data/local/tmp/${USER}/profile_on_device/$MODEL_NAME # dir on the ph
 # The integration tests' device root; their kept modules are reused below.
 DEVICE_ROOT="${DEVICE_ROOT:-/data/local/tmp/hexagon_it}"
 
+COMPILE_FLAGS=()
 RUN_FLAGS="" # parallel
 RUN_CASE=parallel # the integration-test run case with the same runtime flags
-if [[ "${2:-}" == serial ]]; then
+if [[ "$SERIAL" == true ]]; then
+  # Without async worker threads inside VTCM-tiled kernels, too. Passed after
+  # the model's extra_compile_flags, so it overrides a thread count set there.
+  COMPILE_FLAGS+=(--iree-hexagon-vtcm-tile-num-threads=1)
   RUN_FLAGS+=" --hexagon_max_concurrent_dispatches=1"
   RUN_CASE=sequential
+fi
+if [[ ${#PMU_EVENT_IDS[@]} -gt 0 ]]; then
+  RUN_FLAGS+=" --hexagon_pmu_events=$(IFS=,; echo "${PMU_EVENT_IDS[*]}")"
 fi
 
 
@@ -104,7 +198,8 @@ done < "$WORK_DIR/io.txt"
   --iree-hexagon-enable-profiler-markers \
   --iree-hexagon-linker-path="$LLD" \
   --iree-llvmcpu-embedded-linker-path="$LLD" \
-  ${EXTRA_COMPILE_FLAGS[@]+"${EXTRA_COMPILE_FLAGS[@]}"}
+  ${EXTRA_COMPILE_FLAGS[@]+"${EXTRA_COMPILE_FLAGS[@]}"} \
+  ${COMPILE_FLAGS[@]+"${COMPILE_FLAGS[@]}"}
 
 # --- Deploy -----------------------------------------------------------------
 adb push "$RUNTIME_ZIP_TRACY" "$REMOTE_DIR/runtime.zip"

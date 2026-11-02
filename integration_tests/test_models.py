@@ -150,8 +150,8 @@ def _run_pipeline(
             # The trace stays on the device, so point at how to get one.
             failures.append(
                 "the trace is not kept; to look at one, run "
-                f"dev_tools/profile_on_device.sh {model_spec.directory} "
-                "[serial]"
+                "dev_tools/profile_on_device.sh [--serial] "
+                f"{model_spec.directory}"
             )
             return Outcome(Status.PROFILE_FAILURE, "\n".join(failures))
     return Outcome(Status.PASSED, result.log)

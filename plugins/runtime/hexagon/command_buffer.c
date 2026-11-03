@@ -734,12 +734,12 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
       iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);
       return status_map;
     }
-    if (!bindings.values[idx].buffer) {
+    if (!normalized_buffer_ref.buffer) {
       continue;
     }
     int fd = -1;
     iree_status_t status =
-        iree_hal_hexagon_buffer_map_to_dsp(bindings.values[idx].buffer, &fd);
+        iree_hal_hexagon_buffer_map_to_dsp(normalized_buffer_ref.buffer, &fd);
     if (!iree_status_is_ok(status)) {
       iree_hal_hexagon_command_buffer_helper_unmap(bindings.values, idx);
       iree_allocator_free(command_buffer->host_allocator, cmd_dispatch_entry);

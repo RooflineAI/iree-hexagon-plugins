@@ -294,9 +294,13 @@ def run_module_on_device(
     argv += [f"--output=@{name}" for name in output_names]
     argv += list(extra_flags)
 
+    # adbd runs with oom_score_adj -1000 and its children inherit that, so when
+    # memory runs out Android kills system_server, which kills the device instead of the
+    # run. Set it to 1000 so the run is killed first. Raising it works without root.
     # DSP_LIBRARY_PATH is where the DSP side looks for the skel and for the
     # FARF mask file; see examples/running.md.
     script = (
+        "echo 1000 > /proc/self/oom_score_adj && "
         f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
     )
     # Set for the run only, not for the Tracy tools of a profiled run.

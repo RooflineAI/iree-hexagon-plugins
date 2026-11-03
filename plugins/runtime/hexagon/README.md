@@ -147,7 +147,7 @@ adb shell rm -rf $DIRECTORY/bin $DIRECTORY/lib $DIRECTORY/hexagon_runtime_aarch6
 adb push bazel-bin/plugins/runtime/hexagon/hexagon_runtime_aarch64_android_tracy.zip $DIRECTORY
 adb shell unzip $DIRECTORY/hexagon_runtime_aarch64_android_tracy.zip -d $DIRECTORY
 adb shell chmod +x $DIRECTORY/bin/iree-run-module
-adb shell "export DSP_LIBRARY_PATH=$DIRECTORY/farf && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
+adb shell "echo 1000 > /proc/self/oom_score_adj && export DSP_LIBRARY_PATH=$DIRECTORY/farf && TRACY_NO_EXIT=1 $DIRECTORY/bin/iree-run-module --module=$DIRECTORY/model.vmfb --input=@$DIRECTORY/input0.npy --input=@$DIRECTORY/input1.npy --input=@$DIRECTORY/input2.npy --device=hexagon
 ```
 On a different shell, retrieve the output from profiler:
 ```sh

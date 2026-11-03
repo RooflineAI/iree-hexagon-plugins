@@ -233,6 +233,7 @@ echo "  ./third-party/iree/third_party/tracy/capture/build/tracy-capture -o /tmp
 echo
 
 adb shell "cd $REMOTE_DIR && \
+  echo 1000 > /proc/self/oom_score_adj && \
   export DSP_LIBRARY_PATH=$REMOTE_DIR/lib/hexagon && \
   TRACY_NO_EXIT=1 bin/iree-run-module \
     --module=model.vmfb \

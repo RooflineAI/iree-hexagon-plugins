@@ -58,7 +58,7 @@ iree_status_t iree_hal_hexagon_cmd_fill_serialize_exec(
   fill->trgt.slot = normalized_target_ref.buffer_slot;
   fill->trgt.fd = fd;
   fill->trgt.offset = normalized_target_ref.offset;
-  fill->trgt.length = target_ref->length;
+  fill->trgt.length = normalized_target_ref.length;
   fill->trgt.alloc_size = alloc_size;
 
   return iree_ok_status();

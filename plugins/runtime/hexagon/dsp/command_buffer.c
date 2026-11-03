@@ -369,7 +369,7 @@ hexa_cmd_buf_resolve_and_map(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
   }
   // indirect buffer reference -> use entry from binding table
   else {
-    if (buf_ref->slot > bind_tab_num_ent) {
+    if (buf_ref->slot >= bind_tab_num_ent) {
       return AEE_EBADITEM; // access behind end of binding table
     }
     const hexagon_rt_arm_dsp_binding_t *bind_entry = &bind_tab[buf_ref->slot];
@@ -391,12 +391,17 @@ hexa_cmd_buf_resolve_and_map(const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
     if (buf_ref->offset > bind_entry->length) {
       return AEE_EBADITEM; // offset to behind binding table entry's buffer
     }
-    if (buf_ref->offset + buf_ref->length > bind_entry->length) {
+    // indirect refs cannot be normalized on the host, so a whole-buffer length
+    // (IREE_HAL_WHOLE_BUFFER) means the rest of the binding table entry
+    uint64_t length = buf_ref->length == UINT64_MAX
+                          ? bind_entry->length - buf_ref->offset
+                          : buf_ref->length;
+    if (length > bind_entry->length - buf_ref->offset) {
       return AEE_EBADITEM; // buffer ref extends to behind bind tabs's buffer
     }
     out_res_buf->offset = bind_entry->offset +
                           buf_ref->offset; // overall offset into bind tab's buf
-    out_res_buf->length = buf_ref->length;
+    out_res_buf->length = length;
     alloc_size = bind_entry->alloc_size;
   }
 

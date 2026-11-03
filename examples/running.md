@@ -98,9 +98,23 @@ adb push "$OUT/$EXAMPLE.vmfb" "$REMOTE_DIR/"
 ### Run
 
 `DSP_LIBRARY_PATH` must point at the directory holding `libhexagon_dsp_skel.so`:
+In order to avoid crashing the device on OOM error: reset the priority of the process: `echo 1000 > /proc/self/oom_score_adj`
+
+<details>
+<summary>Why OOM would crash the device</summary>
+
+`adbd` runs with `oom_score_adj` -1000, which means the process is never killed
+on OOM, and everything started with `adb shell` inherits it. When memory runs
+out, Android then kills `system_server` (-900) instead of `iree-run-module`,
+and the entire device crashes. A process may raise its own score without root, so
+setting it to 1000 (the highest score) makes the run the first one that is
+killed, before the `system_server`.
+
+</details>
 
 ```sh
-adb shell "export DSP_LIBRARY_PATH=$REMOTE_DIR/lib/hexagon && \
+adb shell "echo 1000 > /proc/self/oom_score_adj && \
+  export DSP_LIBRARY_PATH=$REMOTE_DIR/lib/hexagon && \
   $REMOTE_DIR/bin/iree-run-module \
     --module=$REMOTE_DIR/$EXAMPLE.vmfb \
     --function=$FUNCTION \
@@ -172,7 +186,8 @@ collector to attach:
 ```sh
 adb forward tcp:8086 tcp:8086
 
-adb shell "export DSP_LIBRARY_PATH=$REMOTE_DIR/lib/hexagon && \
+adb shell "echo 1000 > /proc/self/oom_score_adj && \
+  export DSP_LIBRARY_PATH=$REMOTE_DIR/lib/hexagon && \
   TRACY_NO_EXIT=1 $REMOTE_DIR/bin/iree-run-module \
     --module=$REMOTE_DIR/$EXAMPLE.vmfb \
     --function=$FUNCTION \

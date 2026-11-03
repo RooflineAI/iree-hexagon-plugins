@@ -29,8 +29,10 @@ module attributes {hal.executable.target = #hexagon_target} {
   func.func @entry() attributes {llvm.emit_c_interface} {
     // Verifies workgroup ID x/y/z field selection from the workgroup-state
     // argument. With the 32-bit index, i32 fields are used as-is and only the
-    // i16 field is extended.
+    // i16 field is extended. The workgroup state ends with the VTCM partition
+    // pointer.
     // CHECK: %[[ID_X_STATE:.+]] = llvm.load %[[WORKGROUP]]
+    // CHECK-SAME: !llvm.struct<"hexagon_executable_workgroup_state_t", (i32, i32, i16, i32, ptr)>
     // CHECK: %[[ID_X_32:.+]] = llvm.extractvalue %[[ID_X_STATE]][0]
     %id_x = hal.interface.workgroup.id[0] : index
     // CHECK: %[[ID_Y_STATE:.+]] = llvm.load %[[WORKGROUP]]
@@ -43,9 +45,9 @@ module attributes {hal.executable.target = #hexagon_target} {
 
     // Verifies workgroup size x/y/z field selection from the dispatch-state
     // argument, including the narrower z field. The dispatch state ends with
-    // the runtime state (profiler context and VTCM partition pointers).
+    // the runtime state (profiler context pointer).
     // CHECK: %[[SIZE_X_STATE:.+]] = llvm.load %[[DISPATCH]]
-    // CHECK-SAME: !llvm.struct<"hexagon_executable_dispatch_state_t", (i32, i32, i16, i32, i32, i16, i8, ptr, ptr, ptr, ptr, ptr)>
+    // CHECK-SAME: !llvm.struct<"hexagon_executable_dispatch_state_t", (i32, i32, i16, i32, i32, i16, i8, ptr, ptr, ptr, ptr)>
     // CHECK: %[[SIZE_X_32:.+]] = llvm.extractvalue %[[SIZE_X_STATE]][0]
     %size_x = hal.interface.workgroup.size[0] : index
     // CHECK: %[[SIZE_Y_STATE:.+]] = llvm.load %[[DISPATCH]]

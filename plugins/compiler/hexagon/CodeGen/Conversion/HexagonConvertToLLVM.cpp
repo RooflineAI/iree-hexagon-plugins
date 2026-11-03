@@ -418,7 +418,7 @@ getHexKLMatmulWithScratchFn(OpBuilder &builder, ModuleOp moduleOp) {
 }
 
 /// Declares void *hexagon_runtime_vtcm_alloc(
-/// const hexagon_executable_dispatch_state_t *, size_t nbytes,
+/// const hexagon_executable_workgroup_state_t *, size_t nbytes,
 /// uint64_t alignment).
 static FailureOr<LLVM::LLVMFuncOp>
 getVtcmAllocFn(OpBuilder &builder, ModuleOp moduleOp, Type sizeType) {
@@ -485,7 +485,7 @@ static LogicalResult useRuntimeCoroFrameAllocator(ModuleOp moduleOp) {
 }
 
 /// Allocates |size| bytes aligned to |alignment| from the VTCM partition that
-/// the runtime |state| holds. The runtime pads and aligns the allocation
+/// the workgroup |state| holds. The runtime pads and aligns the allocation
 /// itself
 static Value createVtcmAlloc(OpBuilder &builder, Location loc,
                              LLVM::LLVMFuncOp vtcmAllocFn, Value state,
@@ -508,8 +508,8 @@ static Value createVtcmAlloc(OpBuilder &builder, Location loc,
 constexpr unsigned kVtcmPartitionBenefit = 2;
 
 /// Base of the patterns that route a dispatch's VTCM allocations to the
-/// dispatch's VTCM partition, which the runtime passes via the runtime state.
-/// The partition is released as a whole after the dispatch, so deallocations
+/// dispatch's VTCM partition, which the runtime passes via the workgroup state.
+/// The partition is emptied as a whole after each workgroup, so deallocations
 /// are dropped.
 ///
 /// A failed match falls back to the lower-benefit lowerings, which would
@@ -528,7 +528,7 @@ struct VtcmPartitionPattern : public ConvertOpToLLVMPattern<SourceOp> {
     return diag;
   }
 
-  /// Only dispatch entry points receive the dispatch state, which holds the
+  /// Only dispatch entry points receive the workgroup state, which holds the
   /// partition.
   LogicalResult verifyInDispatch(SourceOp op) const {
     auto funcOp = op->template getParentOfType<LLVM::LLVMFuncOp>();
@@ -537,7 +537,7 @@ struct VtcmPartitionPattern : public ConvertOpToLLVMPattern<SourceOp> {
     return emitFailure(op.emitOpError()
                        << "outside a dispatch function is not supported; VTCM "
                           "is allocated from the dispatch's partition, which "
-                          "requires the dispatch state");
+                          "requires the workgroup state");
   }
 
   /// Declares the partition's allocation function. A conflicting declaration
@@ -596,7 +596,7 @@ struct ConvertAllocOpToVtcmPartition
           memRefType.getElementType()));
     }
 
-    Value state = abi.getRuntimeStateAtEntry(allocOp);
+    Value state = abi.getWorkgroupStateAtEntry(allocOp);
     Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
                                 alignment);
     Type elementPtrType = getElementPtrType(memRefType);
@@ -640,7 +640,7 @@ struct ConvertHexagonMemAllocOpToVtcmPartition
     Value sizeBytes;
     getMemRefDescriptorSizes(loc, memRefType, adaptor.getOperands(), rewriter,
                              sizes, strides, sizeBytes, /*sizeInBytes=*/true);
-    Value state = abi.getRuntimeStateAtEntry(allocOp);
+    Value state = abi.getWorkgroupStateAtEntry(allocOp);
     Value ptr = createVtcmAlloc(rewriter, loc, *vtcmAllocFn, state, sizeBytes,
                                 allocOp.getAlignment());
     Value descriptor = createMemRefDescriptor(loc, memRefType, ptr, ptr, sizes,
@@ -729,7 +729,7 @@ useHexKLMatmulWithScratch(ModuleOp moduleOp, HexagonDispatchABI &abi,
       return callOp.emitOpError()
              << "calls '" << matmulFnName
              << "' outside a dispatch function; VTCM is allocated from the "
-                "dispatch's partition, which requires the dispatch state";
+                "dispatch's partition, which requires the workgroup state";
     }
     // hexkl matmul(n_row, n_col, n_inner, out, lhs, rhs)
     ValueRange operands = callOp.getArgOperands();
@@ -753,7 +753,7 @@ useHexKLMatmulWithScratch(ModuleOp moduleOp, HexagonDispatchABI &abi,
     Value scratch;
     {
       OpBuilder::InsertionGuard guard(builder);
-      Value state = abi.getRuntimeStateAtEntry(callOp);
+      Value state = abi.getWorkgroupStateAtEntry(callOp);
       builder.setInsertionPointAfterValue(state);
       SmallVector<Value> dimValues;
       for (int64_t dim : dims) {

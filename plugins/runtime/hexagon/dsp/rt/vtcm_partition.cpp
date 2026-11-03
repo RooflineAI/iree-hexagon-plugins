@@ -98,6 +98,11 @@ void hexagon_rt_release_vtcm_partition(hexagon_rt_vtcm_partition_t *partition) {
   *partition = hexagon_rt_vtcm_partition_t{};
 }
 
+void hexagon_rt_vtcm_partition_reset(hexagon_rt_vtcm_partition_t *partition) {
+  partition->front = 0;
+  partition->back = 0;
+}
+
 /// Reports a dispatch using more VTCM than it declared and aborts.
 static void partition_overflow(const hexagon_rt_vtcm_partition_t *partition,
                                size_t nbytes) {
@@ -168,8 +173,8 @@ void *hexagon_rt_vtcm_partition_alloc(hexagon_rt_vtcm_partition_t *partition,
 }
 
 void *hexagon_runtime_vtcm_alloc(
-    const hexagon_executable_dispatch_state_t *dispatch_state, size_t nbytes,
+    const hexagon_executable_workgroup_state_t *workgroup_state, size_t nbytes,
     uint64_t alignment) {
-  return hexagon_rt_vtcm_partition_alloc(dispatch_state->vtcm_partition, nbytes,
-                                         alignment);
+  return hexagon_rt_vtcm_partition_alloc(workgroup_state->vtcm_partition,
+                                         nbytes, alignment);
 }

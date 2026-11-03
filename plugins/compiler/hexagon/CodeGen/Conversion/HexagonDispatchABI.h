@@ -59,7 +59,6 @@ public:
     /*intptr_t*/ binding_ptrs,
     /*intptr_t*/ binding_lengths,
     /*intptr_t*/ prof_context,
-    /*intptr_t*/ vtcm_partition,
   };
   friend DispatchStateField operator+(DispatchStateField lhs, int32_t rhs) {
     return static_cast<DispatchStateField>(static_cast<int32_t>(lhs) + rhs);
@@ -73,6 +72,7 @@ public:
     /*uint32_t*/ workgroup_id_y,
     /*uint16_t*/ workgroup_id_z,
     /*uint32_t*/ processor_id,
+    /*intptr_t*/ vtcm_partition,
   };
   friend WorkgroupStateField operator+(WorkgroupStateField lhs, int32_t rhs) {
     return static_cast<WorkgroupStateField>(static_cast<int32_t>(lhs) + rhs);
@@ -103,6 +103,10 @@ public:
 
   // Returns the runtime-state handle (argument)
   Value getRuntimeStateAtEntry(Operation *forOp);
+
+  // Returns the workgroup-state handle (argument), which holds the VTCM
+  // partition.
+  Value getWorkgroupStateAtEntry(Operation *forOp);
 
   // Loads the workgroup_id[dim] value (XYZ) and casts it to |resultType|.
   Value loadWorkgroupID(Operation *forOp, int32_t dim, Type resultType,

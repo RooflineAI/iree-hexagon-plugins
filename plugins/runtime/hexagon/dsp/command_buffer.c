@@ -430,7 +430,7 @@ typedef struct hexa_cmd_buf_task_s {
   /// bytes, because dispatch function declarations assume that alignment
   HEXAGON_ALIGNAS(16)
   hexagon_executable_dispatch_state_t dispatch_state;
-  /// VTCM partition the dispatch state points to, acquired by the master
+  /// VTCM partition the workgroup states point to, acquired by the master
   hexagon_rt_vtcm_partition_t vtcm_partition;
   hexagon_executable_dispatch_fn_t dispatch_func;
   const hexagon_executable_environment_t *environment;
@@ -559,8 +559,9 @@ static int hexa_cmd_buf_prepare_dispatch(
   int *mapped_fds = (int *)(dispatch_arrays + mapped_fds_offset);
 
   // Build dispatch state.
-  // It also carries the runtime state (profiler context, VTCM partition), which
-  // some dispatches access via the dispatch state argument.
+  // It also carries the runtime state (profiler context), which some
+  // dispatches access via the dispatch state argument. The VTCM partition is
+  // passed in the workgroup state.
   task->vtcm_partition = (hexagon_rt_vtcm_partition_t){};
   task->dispatch_state = (hexagon_executable_dispatch_state_t){
       .workgroup_size_x = cmd_dispatch->workgroup_size_x,
@@ -573,7 +574,6 @@ static int hexa_cmd_buf_prepare_dispatch(
       .binding_ptrs = binding_ptrs,
       .binding_lengths = binding_lengths,
       .prof_context = prof_context,
-      .vtcm_partition = &task->vtcm_partition,
   };
   task->dispatch_func = dispatch_func;
   task->environment = environment;
@@ -634,13 +634,14 @@ static int hexa_cmd_buf_prepare_dispatch(
 /**
  * @brief Execute all workgroups of a prepared dispatch. Stops at the first
  *        workgroup that fails.
- * @param[in] task prepared task with acquired VTCM partition
+ * @param[in,out] task prepared task with acquired VTCM partition, which is
+ *                     emptied before each workgroup
  * @return HEXA_CMD_BUF_TASK_SUCCEEDED or HEXA_CMD_BUF_TASK_FAILED
  *
  * Runs on the master or on a worker thread.
  */
 static hexa_cmd_buf_task_state_t
-hexa_cmd_buf_run_dispatch(const hexa_cmd_buf_task_t *task) {
+hexa_cmd_buf_run_dispatch(hexa_cmd_buf_task_t *task) {
   const hexagon_executable_dispatch_state_t *dispatch_state =
       &task->dispatch_state;
 
@@ -655,6 +656,10 @@ hexa_cmd_buf_run_dispatch(const hexa_cmd_buf_task_t *task) {
       for (uint32_t wg_id_x = 0; wg_id_x < dispatch_state->workgroup_count_x;
            ++wg_id_x) {
 
+        // The dispatch declares the VTCM of one workgroup.
+        // Each workgroup starts with an empty partition.
+        hexagon_rt_vtcm_partition_reset(&task->vtcm_partition);
+
         // build workgroup state - must be aligned at 16 bytes, because dispatch
         // function declarations assumes that alignment
         HEXAGON_ALIGNAS(16)
@@ -663,6 +668,7 @@ hexa_cmd_buf_run_dispatch(const hexa_cmd_buf_task_t *task) {
             .workgroup_id_y = wg_id_y,
             .workgroup_id_z = wg_id_z,
             .processor_id = 0,
+            .vtcm_partition = &task->vtcm_partition,
         };
 
         // call dispatch function, non-zero return means failure

@@ -2,7 +2,7 @@
 // diagnostics instead of crashing: runtime-state access requires dispatch ABI
 // arguments, existing profiler helper declarations must be compatible,
 // unexpanded HMX operations are rejected, and VTCM allocations require the
-// dispatch state to reach the dispatch's VTCM partition.
+// workgroup state to reach the dispatch's VTCM partition.
 // RUN: iree-opt --verify-diagnostics --split-input-file \
 // RUN:   --pass-pipeline='builtin.module(iree-hexagon-convert-to-llvm)' %s
 
@@ -67,7 +67,7 @@ func.func private @reject_unexpanded_hmx_matmul(
 // -----
 
 // VTCM comes from the dispatch's partition, which is only reachable through the
-// dispatch state, so an allocation outside a dispatch entry point is rejected.
+// workgroup state, so an allocation outside a dispatch entry point is rejected.
 func.func private @reject_alloc_outside_dispatch() {
   // expected-error @+1 {{'memref.alloc' op outside a dispatch function is not supported}}
   %buf = memref.alloc() : memref<4xf32>

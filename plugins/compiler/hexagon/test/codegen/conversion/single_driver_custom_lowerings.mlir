@@ -3,7 +3,7 @@
 // VTCM memrefs must be converted directly to default-address-space pointers; no
 // collapse pass or materialization-cast cleanup is expected after this pass.
 // Every VTCM allocation, including HexKL's matmul scratch, is taken from the
-// dispatch's VTCM partition through the runtime state, and frees are dropped.
+// dispatch's VTCM partition through the workgroup state, and frees are dropped.
 // The HexKL scratch is allocated at the dispatch entry.
 
 // RUN: iree-opt --pass-pipeline='builtin.module(iree-hexagon-convert-to-llvm)' \
@@ -68,42 +68,42 @@ module {
 // CHECK-DAG: llvm.func @hexkl_matmul_f16f16_f32_with_scratch(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32 attributes {hal.import.static}
 
 // CHECK-LABEL: llvm.func @memory_and_dma(
-// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[DISPATCH:[A-Za-z0-9_]+]]: !llvm.ptr
+// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr
 // CHECK:         llvm.ptrtoint
 // CHECK-NEXT:    %[[NO_ALIGN:.+]] = llvm.mlir.constant(0 : i64) : i64
-// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[DISPATCH]], %{{.+}}, %[[NO_ALIGN]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
+// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[NO_ALIGN]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
 // CHECK:         %[[ALIGN_128:.+]] = llvm.mlir.constant(128 : i64) : i64
-// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[DISPATCH]], %{{.+}}, %[[ALIGN_128]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
+// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[ALIGN_128]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
 // CHECK:         llvm.call @hexagon_runtime_dma_start
 // CHECK:         llvm.call @hexagon_runtime_dma_wait
 // CHECK-NOT:     llvm.call
 // CHECK:         llvm.return
 
 // CHECK-LABEL: llvm.func @aligned_allocs(
-// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[DISPATCH:[A-Za-z0-9_]+]]: !llvm.ptr
+// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr
 // CHECK:         %[[BYTES:.+]] = llvm.ptrtoint
 // CHECK-NOT:     llvm.add
 // CHECK:         %[[ALIGN_2K:.+]] = llvm.mlir.constant(2048 : i64) : i64
-// CHECK:         %[[ALIGNED:.+]] = llvm.call @hexagon_runtime_vtcm_alloc(%[[DISPATCH]], %[[BYTES]], %[[ALIGN_2K]])
+// CHECK:         %[[ALIGNED:.+]] = llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %[[BYTES]], %[[ALIGN_2K]])
 // CHECK-NOT:     llvm.urem
 // CHECK:         %[[DESC:.+]] = llvm.insertvalue %[[ALIGNED]], %{{.+}}[0]
 // CHECK:         llvm.insertvalue %[[ALIGNED]], %[[DESC]][1]
 // CHECK:         %[[ALIGN_2K_VTCM:.+]] = llvm.mlir.constant(2048 : i64) : i64
-// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[DISPATCH]], %{{.+}}, %[[ALIGN_2K_VTCM]])
+// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[ALIGN_2K_VTCM]])
 // CHECK:         llvm.ptrtoint
 // CHECK-NEXT:    %[[NO_ALIGN_DDR:.+]] = llvm.mlir.constant(0 : i64) : i64
-// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[DISPATCH]], %{{.+}}, %[[NO_ALIGN_DDR]])
+// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[NO_ALIGN_DDR]])
 // CHECK-NOT:     llvm.call
 // CHECK:         llvm.return
 
 // CHECK-LABEL: llvm.func @hexkl_matmul(
-// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[DISPATCH:[A-Za-z0-9_]+]]: !llvm.ptr
+// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr
 // CHECK-DAG:     %[[ROWS:.+]] = llvm.mlir.constant(2 : i64) : i64
 // CHECK-DAG:     %[[COLS:.+]] = llvm.mlir.constant(3 : i64) : i64
 // CHECK-DAG:     %[[INNER:.+]] = llvm.mlir.constant(4 : i64) : i64
 // CHECK:         %[[BYTES:.+]] = llvm.call @hexkl_matmul_f16f16_f32_scratch_bytes(%[[ROWS]], %[[COLS]], %[[INNER]]) : (i64, i64, i64) -> i32
 // CHECK-DAG:     %[[BYTES_IDX:.+]] = llvm.zext %[[BYTES]] : i32 to i64
 // CHECK-DAG:     %[[ALIGN_2K:.+]] = llvm.mlir.constant(2048 : i64) : i64
-// CHECK:         %[[SCRATCH:.+]] = llvm.call @hexagon_runtime_vtcm_alloc(%[[DISPATCH]], %[[BYTES_IDX]], %[[ALIGN_2K]])
+// CHECK:         %[[SCRATCH:.+]] = llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %[[BYTES_IDX]], %[[ALIGN_2K]])
 // CHECK:         llvm.alloca
 // CHECK:         llvm.call @hexkl_matmul_f16f16_f32_with_scratch(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %[[SCRATCH]])

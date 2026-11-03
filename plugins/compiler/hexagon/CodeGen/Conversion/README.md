@@ -88,18 +88,28 @@ The three arguments are non-null, no-alias, no-undef, and 16-byte aligned. A
 successful dispatch currently returns zero.
 
 The dispatch state addressed by the second argument
-(`hexagon_executable_dispatch_state_t`) includes the Hexagon runtime state:
+(`hexagon_executable_dispatch_state_t`) and the workgroup state addressed by
+the third argument (`hexagon_executable_workgroup_state_t`) include the
+Hexagon runtime state:
 
 ```text
+dispatch state:
   ...
   const size_t *binding_lengths;
   hexagon_rt_prof_context_t *prof_context;     // may be NULL
+
+workgroup state:
+  ...
+  uint32_t processor_id;
   hexagon_rt_vtcm_partition_t *vtcm_partition; // never NULL in a dispatch
 ```
 
-The C layout is defined in
+The runtime empties the VTCM partition before each workgroup, so VTCM
+allocations last for one workgroup.
+
+The C layouts are defined in
 `plugins/runtime/hexagon/dsp/rt/executable_library.h` and must match
-`getDispatchStateType`.
+`getDispatchStateType` and `getWorkgroupStateType`.
 
 Changing any entry argument, structure member, field width, or
 instrumentation record is an ABI change. Compiler and runtime

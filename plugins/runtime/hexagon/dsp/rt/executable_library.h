@@ -124,8 +124,6 @@ typedef struct hexagon_executable_dispatch_state_t {
   // forward declared so this header stays standalone.
   // Profiler context of the running dispatch, may be NULL.
   struct hexagon_rt_prof_context_s *prof_context;
-  // VTCM partition of the running dispatch, never NULL inside a dispatch.
-  struct hexagon_rt_vtcm_partition_s *vtcm_partition;
 } hexagon_executable_dispatch_state_t;
 static_assert(sizeof(hexagon_executable_dispatch_state_t) <= 64,
               "try keeping dispatch state small enough to fit in a cache line");
@@ -150,6 +148,13 @@ typedef struct hexagon_executable_workgroup_state_t {
   // is the global ID but it really only needs to be within the current node
   // (8-bits, or 16-bit for single-node thousand-core future proofing).
   uint32_t processor_id;
+
+  // Hexagon runtime state accessed from inside workgroups. The type is only
+  // forward declared so this header stays standalone.
+  // VTCM partition of the running workgroup of the dispatch, never NULL inside
+  // a workgroup, i.e., inside the dispatch function. The partition is empty
+  // when a workgroup starts, so VTCM allocations last for one workgroup.
+  struct hexagon_rt_vtcm_partition_s *vtcm_partition;
 } hexagon_executable_workgroup_state_t;
 static_assert(
     sizeof(hexagon_executable_workgroup_state_t) <= 64,

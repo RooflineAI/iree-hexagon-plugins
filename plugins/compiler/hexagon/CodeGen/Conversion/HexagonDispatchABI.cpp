@@ -85,8 +85,6 @@ HexagonDispatchABI::getDispatchStateType(MLIRContext *context) {
   fieldTypes.push_back(opaquePtrType);
 
   // hexagon_rt_prof_context_t * prof_context;
-  // hexagon_rt_vtcm_partition_t * vtcm_partition;
-  fieldTypes.push_back(opaquePtrType);
   fieldTypes.push_back(opaquePtrType);
 
   LogicalResult bodySet = structType.setBody(fieldTypes, /*isPacked=*/false);
@@ -109,6 +107,7 @@ HexagonDispatchABI::getWorkgroupStateType(MLIRContext *context) {
 
   auto uint16Type = IntegerType::get(context, 16);
   auto uint32Type = IntegerType::get(context, 32);
+  auto opaquePtrType = LLVM::LLVMPointerType::get(context);
   SmallVector<Type> fieldTypes;
 
   // uint32_t workgroup_id_x;
@@ -120,6 +119,9 @@ HexagonDispatchABI::getWorkgroupStateType(MLIRContext *context) {
 
   // uint32_t processor_id;
   fieldTypes.push_back(uint32Type);
+
+  // hexagon_rt_vtcm_partition_t * vtcm_partition;
+  fieldTypes.push_back(opaquePtrType);
 
   LogicalResult bodySet = structType.setBody(fieldTypes, /*isPacked=*/false);
   assert(succeeded(bodySet) &&
@@ -400,6 +402,10 @@ Value HexagonDispatchABI::castValueToType(Location loc, Value value,
 
 Value HexagonDispatchABI::getRuntimeStateAtEntry(Operation *forOp) {
   return getLocalArgument(forOp, /*argIndex=*/1);
+}
+
+Value HexagonDispatchABI::getWorkgroupStateAtEntry(Operation *forOp) {
+  return getLocalArgument(forOp, /*argIndex=*/2);
 }
 
 Value HexagonDispatchABI::loadFieldValue(Operation *forOp,

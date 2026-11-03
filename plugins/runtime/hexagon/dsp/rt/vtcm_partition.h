@@ -23,9 +23,10 @@ extern "C" {
  *
  * A dispatch only allocates VTCM from its own partition, so dispatches never
  * share (and fragment) the global pool. Allocations are bumped from the two
- * ends of the partition and never freed individually: the runtime returns the
- * whole partition to the global pool once the dispatch is done. Running out of
- * space means the dispatch declared less VTCM than it uses, which aborts.
+ * ends of the partition and never freed individually: the runtime empties the
+ * partition before each workgroup and returns it to the global pool once the
+ * dispatch is done. Running out of space means a workgroup uses more VTCM than
+ * the dispatch declared, which aborts.
  */
 typedef struct hexagon_rt_vtcm_partition_s {
   /// start of the partition, NULL if size is 0
@@ -94,6 +95,14 @@ size_t hexagon_rt_vtcm_pool_size(void);
 void hexagon_rt_release_vtcm_partition(hexagon_rt_vtcm_partition_t *partition);
 
 /**
+ * @brief Free all allocations of a partition at once.
+ *
+ * The partition keeps its VTCM, but has nothing allocated afterwards.
+ * @param[in,out] partition partition to empty
+ */
+void hexagon_rt_vtcm_partition_reset(hexagon_rt_vtcm_partition_t *partition);
+
+/**
  * @brief Allocate VTCM from a partition.
  *
  * Requests aligned to at least 2 KiB are rounded up to 2 KiB and taken from
@@ -114,12 +123,12 @@ void *hexagon_rt_vtcm_partition_alloc(hexagon_rt_vtcm_partition_t *partition,
 
 /**
  * @brief Runtime entry point for VTCM allocations issued by generated code.
- * Overload of hexagon_rt_vtcm_partition_alloc, takes the dispatch state
+ * Overload of hexagon_rt_vtcm_partition_alloc, takes the workgroup state
  * instead of the hexagon_rt_vtcm_partition_t* directly. Results in easier
  * codegen
  */
 void *hexagon_runtime_vtcm_alloc(
-    const hexagon_executable_dispatch_state_t *dispatch_state, size_t nbytes,
+    const hexagon_executable_workgroup_state_t *workgroup_state, size_t nbytes,
     uint64_t alignment);
 
 #ifdef __cplusplus

@@ -50,6 +50,13 @@ typedef struct iree_hal_hexagon_command_buffer_t {
   /// owned resources, that's buffers used in direct buffer references (actual
   /// buffers being referenced at recording time) in transfers and dispatches
   iree_hal_resource_set_t *resource_set;
+  /// buffers mapped to the DSP for direct buffer references, one retained
+  /// entry per mapping, unmapped and released on destruction
+  //@{
+  iree_hal_buffer_t **mapped_buffers;
+  iree_host_size_t mapped_buffer_count;
+  iree_host_size_t mapped_buffer_capacity;
+  //@}
   /// command buffer on DSP side (valid if finalized, otherwise 0)
   rpc_command_buffer_handle_t rpc_command_buffer_handle;
   // Profiler record capacity reserved for this command buffer execution.

@@ -148,7 +148,6 @@ static llvm::StructType *makeLibraryType(llvm::StructType *libraryHeaderType) {
 static llvm::Constant *createStringConstant(StringRef value,
                                             llvm::Module *module) {
   auto i8Type = llvm::IntegerType::getInt8Ty(module->getContext());
-  auto i32Type = llvm::IntegerType::getInt32Ty(module->getContext());
   auto *stringType = llvm::ArrayType::get(i8Type, value.size() + /*NUL*/ 1);
   auto *literal =
       llvm::ConstantDataArray::getString(module->getContext(), value);
@@ -157,9 +156,7 @@ static llvm::Constant *createStringConstant(StringRef value,
                                           llvm::GlobalVariable::PrivateLinkage,
                                           literal, /*Name=*/"");
   global->setAlignment(llvm::MaybeAlign(1));
-  llvm::Constant *zero = llvm::ConstantInt::get(i32Type, 0);
-  return llvm::ConstantExpr::getInBoundsGetElementPtr(
-      stringType, global, ArrayRef<llvm::Constant *>{zero, zero});
+  return global;
 }
 
 // Creates a global constant with the given elements.
@@ -167,15 +164,12 @@ static llvm::Constant *createArrayConstant(StringRef name,
                                            llvm::Type *elementType,
                                            ArrayRef<llvm::Constant *> elements,
                                            llvm::Module *module) {
-  auto *i32Type = llvm::IntegerType::getInt32Ty(module->getContext());
-  llvm::Constant *zero = llvm::ConstantInt::get(i32Type, 0);
   auto *arrayType = llvm::ArrayType::get(elementType, elements.size());
   auto *global = new llvm::GlobalVariable(
       *module, arrayType, /*isConstant=*/true,
       llvm::GlobalVariable::PrivateLinkage,
       llvm::ConstantArray::get(arrayType, elements), name);
-  return llvm::ConstantExpr::getInBoundsGetElementPtr(
-      arrayType, global, ArrayRef<llvm::Constant *>{zero, zero});
+  return global;
 }
 
 //===----------------------------------------------------------------------===//

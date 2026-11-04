@@ -26,6 +26,8 @@ cc_binary(
         "executable.h",
         "power_mode.c",
         "power_mode.h",
+        "residency.c",
+        "residency.h",
         "//plugins/runtime/hexagon/interface:hexagon_dsp_skel_c",
     ],
     copts = [

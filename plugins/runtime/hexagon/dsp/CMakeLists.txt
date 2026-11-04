@@ -25,6 +25,8 @@ iree_cc_library(
     "executable.h"
     "power_mode.c"
     "power_mode.h"
+    "residency.c"
+    "residency.h"
   COPTS
     "-Wswitch-enum"
   DEPS

@@ -93,6 +93,7 @@ TEST(BindingsSerializeTest, MultipleBindings) {
     EXPECT_EQ(expected_fds[i], binding->fd);
     EXPECT_EQ(bindings[i].offset, binding->offset);
     EXPECT_EQ(bindings[i].length, binding->length);
+    EXPECT_EQ(HEXAGON_TEST_ALLOC_SIZE(expected_fds[i]), binding->alloc_size);
   }
 
   // Test the test: Generated data needs to end at end of buffer.

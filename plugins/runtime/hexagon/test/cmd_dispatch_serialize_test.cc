@@ -102,6 +102,8 @@ TEST(CmdDispatchSerializeTest, Serialize) {
                   binding_values[i].offset,
               binding->offset);
     EXPECT_EQ(binding_values[i].length, binding->length);
+    EXPECT_EQ(binding->fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(binding->fd),
+              binding->alloc_size);
   }
 
   // Ensure we consumed exactly the serialized buffer.

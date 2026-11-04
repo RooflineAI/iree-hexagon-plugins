@@ -34,9 +34,12 @@ iree_status_t iree_hal_buffer_ref_normalize(iree_hal_buffer_ref_t *buffer_ref);
 iree_status_t
 iree_hal_buffer_binding_normalize(iree_hal_buffer_binding_t *binding);
 
+/// allocation size the test fd callback reports for a buffer with this fd
+#define HEXAGON_TEST_ALLOC_SIZE(fd) ((uint64_t)(fd) * 0x10000)
+
 // Returns deterministic fake DSP file descriptor and fake subspan buffer
 // offsets for known buffers.
-iree_status_t hexagon_test_get_buffer_fd(iree_hal_buffer_t *buffer,
-                                         int *out_fd);
+iree_status_t hexagon_test_get_buffer_fd(iree_hal_buffer_t *buffer, int *out_fd,
+                                         uint64_t *out_alloc_size);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_TEST_SERIALIZE_TEST_UTILS_H_

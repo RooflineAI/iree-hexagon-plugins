@@ -22,7 +22,8 @@ IREE_FLAG(int32_t, hexagon_max_concurrent_dispatches, 0,
           "time. 0 selects the number of HVX contexts, 1 executes\n"
           "sequentially. Must not exceed the number of HVX contexts.");
 
-IREE_FLAG(int32_t, hexagon_dsp_residency_budget_mib, 3072,
+IREE_FLAG(int32_t, hexagon_dsp_residency_budget_mib,
+          IREE_HAL_HEXAGON_DEFAULT_DSP_RESIDENCY_BUDGET_MIB,
           "Max. MiB of buffers the Hexagon DSP keeps mapped. Unused ones are\n"
           "unmapped, least recently used first.");
 

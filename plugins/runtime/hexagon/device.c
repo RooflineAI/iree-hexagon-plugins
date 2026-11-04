@@ -57,7 +57,8 @@ IREE_API_EXPORT void iree_hal_hexagon_device_options_initialize(
   // hosting application may be authored in python/etc that does not use a flags
   // mechanism accessible here.
   out_options->profiler_extra_records_per_dispatch = 256;
-  out_options->dsp_residency_budget_mib = 3072;
+  out_options->dsp_residency_budget_mib =
+      IREE_HAL_HEXAGON_DEFAULT_DSP_RESIDENCY_BUDGET_MIB;
 }
 
 static iree_status_t iree_hal_hexagon_device_options_verify(

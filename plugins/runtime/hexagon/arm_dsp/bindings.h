@@ -14,6 +14,7 @@ typedef struct hexagon_rt_arm_dsp_binding_s {
   int32_t fd; ///< file descriptor of RPCmem allocation
   uint64_t offset;
   uint64_t length;
+  uint64_t alloc_size; ///< size of the whole RPCmem allocation
 } __attribute__((packed)) hexagon_rt_arm_dsp_binding_t;
 
 /// header of serialized binding table

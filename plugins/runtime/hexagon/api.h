@@ -46,6 +46,10 @@ typedef struct iree_hal_hexagon_device_options_t {
   /// selects the number of HVX contexts, 1 executes sequentially. Must not
   /// exceed the number of HVX contexts.
   int32_t max_concurrent_dispatches;
+  /// Max. MiB of buffers the DSP keeps mapped. The DSP maps buffers itself
+  /// when commands use them and unmaps unused ones, least recently used
+  /// first, to stay below it.
+  uint32_t dsp_residency_budget_mib;
   // note: This sdata structure is copied into the device data in
   // iree_hal_hexagon_device_create()
   // TODO(hexagon): options for initializing a device such as hardware

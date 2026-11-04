@@ -22,6 +22,10 @@ IREE_FLAG(int32_t, hexagon_max_concurrent_dispatches, 0,
           "time. 0 selects the number of HVX contexts, 1 executes\n"
           "sequentially. Must not exceed the number of HVX contexts.");
 
+IREE_FLAG(int32_t, hexagon_dsp_residency_budget_mib, 3072,
+          "Max. MiB of buffers the Hexagon DSP keeps mapped. Unused ones are\n"
+          "unmapped, least recently used first.");
+
 static iree_status_t iree_hal_hexagon_apply_pmu_event_flags(
     iree_hal_hexagon_device_options_t *options) {
   const iree_flag_string_list_t list = FLAG_hexagon_pmu_events_list();
@@ -90,6 +94,13 @@ static iree_status_t iree_hal_hexagon_driver_factory_try_create(
     return status;
   options.default_device_options.max_concurrent_dispatches =
       FLAG_hexagon_max_concurrent_dispatches;
+  if (FLAG_hexagon_dsp_residency_budget_mib <= 0) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "hexagon_dsp_residency_budget_mib must be positive");
+  }
+  options.default_device_options.dsp_residency_budget_mib =
+      (uint32_t)FLAG_hexagon_dsp_residency_budget_mib;
 
   status = iree_hal_hexagon_driver_create(driver_name, &options, host_allocator,
                                           out_driver);

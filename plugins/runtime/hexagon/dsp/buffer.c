@@ -8,35 +8,22 @@
 #include <stdlib.h>
 
 #include "AEEStdErr.h"
-#include "HAP_mem.h"
+#include "hexagon/dsp/residency.h"
 #include "hexagon_dsp.h"
 
 /**
- * @brief Map shared RPC memory to DSP virtual address.
+ * @brief Unmap shared RPC memory the host is about to free, if the residency
+ *        cache has mapped it.
  * @param[in] rpc_handle handle of DSP RPC session
  * @param[in] fd file descriptor of shared RPC memory
- * @param[out] vaddr virtual address on DSP
+ * @param[out] in_use set to 1 if a command still uses the memory, it is not
+ *             unmapped then and the host must not free it
  * @retval AEE_SUCCESS for success
  */
-int hexagon_dsp_buffer_rpcmem_mmap(remote_handle64 rpc_handle, int fd,
-                                   int64 *vaddr) {
+int hexagon_dsp_buffer_forget(remote_handle64 rpc_handle, int fd, int *in_use) {
   (void)rpc_handle;
-  void *virt_addr = NULL;
-  uint64 phys_addr = 0;
-  int err = HAP_mmap_get(fd, &virt_addr, &phys_addr);
-  if (err == AEE_SUCCESS) {
-    *vaddr = (int64)virt_addr;
-  }
-  return err;
-}
-
-/**
- * @brief Unmap shared DSP memory.
- * @param[in] rpc_handle handle of DSP RPC session
- * @param[in] fd file descriptor of shared RPC memory
- * @retval AEE_SUCCESS for success
- */
-int hexagon_dsp_buffer_rpcmem_munmap(remote_handle64 rpc_handle, int fd) {
-  (void)rpc_handle;
-  return HAP_mmap_put(fd);
+  bool is_in_use = false;
+  hexagon_dsp_residency_forget(fd, &is_in_use);
+  *in_use = is_in_use ? 1 : 0;
+  return AEE_SUCCESS;
 }

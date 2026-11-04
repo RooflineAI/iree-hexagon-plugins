@@ -40,23 +40,29 @@ iree_status_t iree_hal_hexagon_cmd_copy_serialize_exec(
 
   // fill in source buffer
   int src_fd = -1; // stays at -1 if no buffer, means to use slot
+  uint64_t src_alloc_size = 0;
   if (normalized_source_ref.buffer) {
-    IREE_RETURN_IF_ERROR(get_buffer_fd(normalized_source_ref.buffer, &src_fd));
+    IREE_RETURN_IF_ERROR(
+        get_buffer_fd(normalized_source_ref.buffer, &src_fd, &src_alloc_size));
   }
   copy->src.slot = normalized_source_ref.buffer_slot;
   copy->src.fd = src_fd;
   copy->src.offset = normalized_source_ref.offset;
   copy->src.length = normalized_source_ref.length;
+  copy->src.alloc_size = src_alloc_size;
 
   // fill in target buffer
   int trgt_fd = -1; // stays at -1 if no buffer, means to use slot
+  uint64_t trgt_alloc_size = 0;
   if (normalized_target_ref.buffer) {
-    IREE_RETURN_IF_ERROR(get_buffer_fd(normalized_target_ref.buffer, &trgt_fd));
+    IREE_RETURN_IF_ERROR(get_buffer_fd(normalized_target_ref.buffer, &trgt_fd,
+                                       &trgt_alloc_size));
   }
   copy->trgt.slot = normalized_target_ref.buffer_slot;
   copy->trgt.fd = trgt_fd;
   copy->trgt.offset = normalized_target_ref.offset;
   copy->trgt.length = normalized_target_ref.length;
+  copy->trgt.alloc_size = trgt_alloc_size;
 
   return iree_ok_status();
 }

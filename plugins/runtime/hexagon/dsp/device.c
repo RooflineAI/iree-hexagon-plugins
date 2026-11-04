@@ -11,6 +11,7 @@
 #include "HAP_farf.h"
 #include "hexagon/dsp/device.h"
 #include "hexagon/dsp/power_mode.h"
+#include "hexagon/dsp/residency.h"
 #include "hexagon/dsp/rt/async_runtime.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"
@@ -66,6 +67,9 @@ int hexagon_dsp_close(remote_handle64 rpc_handle) {
 
   hexagon_dsp_power_state_cleanup(priv->power_context);
 
+  // the host frees its buffers when the session is gone, unmap them now
+  hexagon_dsp_residency_clear();
+
   // free management data structure
   free(priv);
   return AEE_SUCCESS;
@@ -110,4 +114,20 @@ int hexagon_dsp_set_max_concurrent_dispatches(remote_handle64 rpc_handle,
 
 uint32_t hexagon_dsp_get_max_concurrent_dispatches(remote_handle64 rpc_handle) {
   return hexagon_dsp_get_priv(rpc_handle)->max_concurrent_dispatches;
+}
+
+/**
+ * @brief Let the DSP map buffers itself when commands use them (residency
+ *        cache), keeping at most budget_bytes mapped.
+ * @param[in] rpc_handle RPC handle, the value returned by hexagon_dsp_open
+ * @param[in] budget_bytes max. bytes kept mapped, > 0
+ * @return AEE_SUCCESS for success, AEE_EBADPARM for a budget of 0
+ */
+int hexagon_dsp_set_residency_budget(remote_handle64 rpc_handle,
+                                     int64 budget_bytes) {
+  (void)rpc_handle;
+  if (budget_bytes <= 0) {
+    return AEE_EBADPARM;
+  }
+  return hexagon_dsp_residency_set_budget((uint64_t)budget_bytes);
 }

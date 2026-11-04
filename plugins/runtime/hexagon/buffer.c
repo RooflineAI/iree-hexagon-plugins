@@ -92,20 +92,9 @@ void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer) {
   return iree_hal_hexagon_mem_alloc_impl_ptr(buffer->alloc);
 }
 
-iree_status_t iree_hal_hexagon_buffer_map_to_dsp(iree_hal_buffer_t *base_buffer,
-                                                 int *out_fd) {
-  if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
-    *out_fd = -1;
-    return iree_make_status(IREE_STATUS_INCOMPATIBLE,
-                            "non-Hexagon buffers cannot be mapped to DSP");
-  }
-  return iree_hal_hexagon_mem_alloc_map(
-      iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_fd);
-}
-
 iree_status_t
 iree_hal_hexagon_buffer_get_fd_for_dsp(iree_hal_buffer_t *base_buffer,
-                                       int *out_fd) {
+                                       int *out_fd, uint64_t *out_alloc_size) {
   if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
     *out_fd = -1;
     return iree_make_status(
@@ -113,17 +102,7 @@ iree_hal_hexagon_buffer_get_fd_for_dsp(iree_hal_buffer_t *base_buffer,
         "non-Hexagon buffers do not have a file descriptor for the DSP");
   }
   return iree_hal_hexagon_mem_alloc_get_fd(
-      iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_fd);
-}
-
-iree_status_t
-iree_hal_hexagon_buffer_unmap_from_dsp(iree_hal_buffer_t *base_buffer) {
-  if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
-    return iree_make_status(IREE_STATUS_INCOMPATIBLE,
-                            "non-Hexagon buffers cannot be unmapped from DSP");
-  }
-  return iree_hal_hexagon_mem_alloc_unmap(
-      iree_hal_hexagon_buffer_cast(base_buffer)->alloc);
+      iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_fd, out_alloc_size);
 }
 
 static void iree_hal_hexagon_buffer_destroy(iree_hal_buffer_t *base_buffer) {

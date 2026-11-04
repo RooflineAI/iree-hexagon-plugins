@@ -667,9 +667,9 @@ static iree_status_t iree_hal_hexagon_command_buffer_dispatch(
 
   // append dispatch command to command buffer
   iree_hal_hexagon_command_buffer_append(command_buffer, cmd_dispatch_entry);
-  // One for the dispatch, one for the kernel
+  // One for the dispatch, one for the kernel, one for mapping its buffers
   command_buffer->profiler_record_capacity +=
-      2 + command_buffer->profiler_extra_records_per_dispatch;
+      3 + command_buffer->profiler_extra_records_per_dispatch;
 
   return iree_ok_status();
 }

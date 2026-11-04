@@ -603,7 +603,10 @@ static int hexa_cmd_buf_prepare_dispatch(
   }
 
   // Resolve buffer references and fill buffer pointers and lengths in
-  // dispatch state.
+  // dispatch state. This maps the buffers, which may unmap others first
+  // (including their cache maintenance).
+  hexagon_rt_prof_record_t *prof_map_record =
+      profiler_measurement_start(prof_context, MEMORY_MANAGEMENT, NULL);
   for (uint32_t idx_buf_ref = 0; idx_buf_ref < num_buf_refs; ++idx_buf_ref) {
     READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_buf_ref_t,
                     buf_ref)
@@ -611,6 +614,7 @@ static int hexa_cmd_buf_prepare_dispatch(
     err = hexa_cmd_buf_resolve_and_map(buf_ref, bind_tab, bind_tab_num_ent,
                                        &res_buf);
     if (err != AEE_SUCCESS) {
+      profiler_measurement_finish_and_record(prof_map_record);
       hexa_cmd_buf_unmap(mapped_fds, idx_buf_ref);
       HAP_free(dispatch_arrays);
       return err;
@@ -620,6 +624,7 @@ static int hexa_cmd_buf_prepare_dispatch(
     mapped_fds[idx_buf_ref] = res_buf.fd;
     ++task->num_buf_refs;
   }
+  profiler_measurement_finish_and_record(prof_map_record);
 
   task->func_name = hexagon_dsp_function_get_name(function);
 

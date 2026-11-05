@@ -1,0 +1,28 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+inputs:
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: 255999
+    # The config has no top-level vocab_size (it is multimodal). Token ids from
+    # 255999 up are the image/audio special tokens; keep the prompt text-only.
+    seed: 0
+  - shape: [1, 128]
+    dtype: int64
+    generator: ones
+# Measured 2026-11-05: max abs 0.21, relative L2 0.43%.
+# Matches the tolerance for gemma-3-1b-it
+tolerances:
+  atol: 1.5
+  rtol: 5.0e-2
+  relative_l2_percent: 3.0
+# A ~4B-parameter prefill needs longer than the default to push and run.
+run_timeout: 3600
+compile_cases: [hexagon-vtcm-hmx]

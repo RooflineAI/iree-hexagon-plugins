@@ -23,6 +23,3 @@ tolerances:
   relative_l2_percent: 0.3
 run_timeout: 3600
 compile_cases: [hexagon-vtcm-hmx]
-# f16 weights over 2 GiB
-extra_compile_flags:
-  - "--iree-stream-resource-max-allocation-size=1073741824"

@@ -1,0 +1,25 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+# The vision encoder's four outputs, synthetic: the merged image embeddings and
+# the three deepstack features, [64, 2560] each. N(0, 1), as for
+# Qwen/Qwen3-VL-2B-Instruct. The 81-token prompt they are scattered into is
+# baked into model.py.
+inputs:
+  - {shape: [64, 2560], dtype: float16, generator: normal, seed: 0}
+  - {shape: [64, 2560], dtype: float16, generator: normal, seed: 1}
+  - {shape: [64, 2560], dtype: float16, generator: normal, seed: 2}
+  - {shape: [64, 2560], dtype: float16, generator: normal, seed: 3}
+# Measured 2026-11-05 (hexagon-vtcm-hmx): max abs 0.35, relative L2 0.61%.
+# About twice the 2B model's 0.32%, from the same synthetic N(0, 1) inputs.
+tolerances:
+  atol: 5.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 1.0
+# A ~4B-parameter prefill needs longer than the default to push and run.
+run_timeout: 3600
+compile_cases: [hexagon-vtcm-hmx]

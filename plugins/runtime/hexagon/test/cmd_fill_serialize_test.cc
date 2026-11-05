@@ -46,6 +46,9 @@ TEST(CmdFillSerializeTest, SerializeDirectBufferWithFourBytePattern) {
   EXPECT_EQ(HEXAGON_TEST_DIRECT_BUFFER1_FD, cmd_fill->trgt.fd);
   EXPECT_EQ(dest.offset, cmd_fill->trgt.offset);
   EXPECT_EQ(dest.length, cmd_fill->trgt.length);
+  EXPECT_EQ(
+      cmd_fill->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_fill->trgt.fd),
+      cmd_fill->trgt.alloc_size);
 }
 
 TEST(CmdFillSerializeTest, SerializeDirectSubspanBufferWithTwoBytePattern) {
@@ -75,6 +78,9 @@ TEST(CmdFillSerializeTest, SerializeDirectSubspanBufferWithTwoBytePattern) {
   EXPECT_EQ(HEXAGON_TEST_DIRECT_SUBSPAN_BUFFER0_OFFSET + dest.offset,
             cmd_fill->trgt.offset);
   EXPECT_EQ(dest.length, cmd_fill->trgt.length);
+  EXPECT_EQ(
+      cmd_fill->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_fill->trgt.fd),
+      cmd_fill->trgt.alloc_size);
 }
 
 TEST(CmdFillSerializeTest, SerializeIndirectBufferWithSingleBytePattern) {
@@ -101,6 +107,9 @@ TEST(CmdFillSerializeTest, SerializeIndirectBufferWithSingleBytePattern) {
   EXPECT_EQ(-1, cmd_fill->trgt.fd);
   EXPECT_EQ(dest.offset, cmd_fill->trgt.offset);
   EXPECT_EQ(dest.length, cmd_fill->trgt.length);
+  EXPECT_EQ(
+      cmd_fill->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_fill->trgt.fd),
+      cmd_fill->trgt.alloc_size);
 }
 
 } // namespace

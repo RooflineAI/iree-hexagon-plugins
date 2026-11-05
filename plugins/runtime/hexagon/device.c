@@ -57,6 +57,8 @@ IREE_API_EXPORT void iree_hal_hexagon_device_options_initialize(
   // hosting application may be authored in python/etc that does not use a flags
   // mechanism accessible here.
   out_options->profiler_extra_records_per_dispatch = 256;
+  out_options->dsp_residency_budget_mib =
+      IREE_HAL_HEXAGON_DEFAULT_DSP_RESIDENCY_BUDGET_MIB;
 }
 
 static iree_status_t iree_hal_hexagon_device_options_verify(
@@ -456,6 +458,15 @@ iree_hal_hexagon_device_set_up(iree_hal_hexagon_domain_id_t domain_id,
         "DSP rejected max concurrent dispatches %d (must not exceed the "
         "number of HVX contexts; 0 selects that number)",
         (int)device->options.max_concurrent_dispatches);
+  }
+
+  // The DSP maps buffers itself and keeps at most this much mapped.
+  dsp_set_ret = hexagon_dsp_set_residency_budget(
+      device->rpc_session_handle,
+      (int64_t)device->options.dsp_residency_budget_mib * 1024 * 1024);
+  if (dsp_set_ret != AEE_SUCCESS) {
+    return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(
+        dsp_set_ret, "DSP rejected residency budget");
   }
 
   return iree_ok_status();
@@ -969,17 +980,6 @@ static iree_status_t iree_hal_hexagon_device_queue_dispatch(
       executable, function, config, constants, bindings, flags);
 }
 
-static void
-iree_hal_hexagon_device_helper_unmap(const iree_hal_buffer_binding_t *bindings,
-                                     iree_host_size_t binding_cnt) {
-  for (iree_host_size_t idx = 0; idx < binding_cnt; ++idx) {
-    iree_hal_buffer_binding_t binding = bindings[idx];
-    if (iree_status_is_ok(iree_hal_buffer_binding_normalize(&binding))) {
-      iree_hal_hexagon_buffer_unmap_from_dsp(binding.buffer);
-    }
-  }
-}
-
 static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
     iree_hal_hexagon_device_t *device,
     iree_hal_command_buffer_t *command_buffer,
@@ -989,47 +989,22 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
   IREE_RETURN_IF_ERROR(iree_hal_hexagon_command_buffer_get_rpc_handle(
       command_buffer, &rpc_command_buffer_handle));
 
-  // Note: We cannot normalize buffer bindings in-place up-front here, because
-  // the bindings passed to us here are const. So we have to normalize on the
-  // fly where we use each binding.
-
-  // Map all buffers in the binding table to the DSP.
-  for (iree_host_size_t idx = 0; idx < binding_table.count; ++idx) {
-    int fd = -1;
-    iree_hal_buffer_binding_t binding = binding_table.bindings[idx];
-    iree_status_t status = iree_hal_buffer_binding_normalize(&binding);
-    if (iree_status_is_ok(status)) {
-      status = iree_hal_hexagon_buffer_map_to_dsp(binding.buffer, &fd);
-    }
-    if (!iree_status_is_ok(status)) {
-      // went wrong for one buffer, unmap the ones already mapped
-      iree_hal_hexagon_device_helper_unmap(binding_table.bindings, idx);
-      return status;
-    }
-  }
-
   // Get size of serialized binding data.
   iree_host_size_t bind_tab_size = 0;
   iree_status_t status =
       iree_hal_hexagon_bindings_serialize_prep(&binding_table, &bind_tab_size);
   if (!iree_status_is_ok(status)) {
-    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                         binding_table.count);
     return status;
   }
 
   // Allocate RPC memory buffer for serialized binding data.
   if (bind_tab_size > INT_MAX /* max size supported by rpcmem_alloc() */) {
-    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                         binding_table.count);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "serialized binding table too big");
   }
   uint8_t *bind_tab_data = rpcmem_alloc(
       RPCMEM_HEAP_ID_SYSTEM, RPCMEM_DEFAULT_FLAGS, (int)bind_tab_size);
   if (!bind_tab_data) {
-    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                         binding_table.count);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "out of RPC memory");
   }
@@ -1042,8 +1017,6 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
 
   if (!iree_status_is_ok(status_serialize_exec)) {
     rpcmem_free(bind_tab_data);
-    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                         binding_table.count);
     return status_serialize_exec;
   }
 
@@ -1054,8 +1027,6 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       command_buffer, &device->options, &profiler_data, &profiler_data_size);
   if (!iree_status_is_ok(status_profiler)) {
     rpcmem_free(bind_tab_data);
-    iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                         binding_table.count);
     return status_profiler;
   }
 #endif
@@ -1067,8 +1038,6 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       device->rpc_session_handle, rpc_command_buffer_handle, bind_tab_data,
       bind_tab_size, profiler_data, profiler_data_size);
   rpcmem_free(bind_tab_data);
-  iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                       binding_table.count);
 
   if (dsp_err != AEE_SUCCESS) {
     rpcmem_free(profiler_data);
@@ -1084,8 +1053,6 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
       bind_tab_size);
 
   rpcmem_free(bind_tab_data);
-  iree_hal_hexagon_device_helper_unmap(binding_table.bindings,
-                                       binding_table.count);
 
   if (dsp_err != AEE_SUCCESS) {
     return IREE_HAL_HEXAGON_MAKE_STATUS_FROM_DSP_ERR(

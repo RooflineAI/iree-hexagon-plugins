@@ -11,6 +11,7 @@
 #include "HAP_farf.h"
 #include "hexagon/dsp/device.h"
 #include "hexagon/dsp/power_mode.h"
+#include "hexagon/dsp/residency.h"
 #include "hexagon/dsp/rt/async_runtime.h"
 #include "hexagon_dsp.h"
 #include "qurt.h"
@@ -20,6 +21,8 @@ typedef struct hexagon_dsp_private_s {
   void *power_context;
   /// max. number of dispatches executing at the same time, >= 1
   uint32_t max_concurrent_dispatches;
+  /// buffers mapped into the DSP address space for this session
+  hexagon_dsp_residency_t *residency;
 } hexagon_dsp_private_t;
 
 static inline hexagon_dsp_private_t *
@@ -42,8 +45,15 @@ int hexagon_dsp_open(const char *uri, remote_handle64 *rpc_handle) {
     return AEE_ENOMEMORY;
   }
 
-  int rc = hexagon_dsp_power_state_apply_max_performance(&priv->power_context);
+  int rc = hexagon_dsp_residency_create(&priv->residency);
   if (rc != AEE_SUCCESS) {
+    free(priv);
+    return rc;
+  }
+
+  rc = hexagon_dsp_power_state_apply_max_performance(&priv->power_context);
+  if (rc != AEE_SUCCESS) {
+    hexagon_dsp_residency_destroy(priv->residency);
     free(priv);
     return rc;
   }
@@ -65,6 +75,9 @@ int hexagon_dsp_close(remote_handle64 rpc_handle) {
   hexagon_dsp_private_t *priv = hexagon_dsp_get_priv(rpc_handle);
 
   hexagon_dsp_power_state_cleanup(priv->power_context);
+
+  // the host frees its buffers when the session is gone, unmap them now
+  hexagon_dsp_residency_destroy(priv->residency);
 
   // free management data structure
   free(priv);
@@ -110,4 +123,24 @@ int hexagon_dsp_set_max_concurrent_dispatches(remote_handle64 rpc_handle,
 
 uint32_t hexagon_dsp_get_max_concurrent_dispatches(remote_handle64 rpc_handle) {
   return hexagon_dsp_get_priv(rpc_handle)->max_concurrent_dispatches;
+}
+
+/**
+ * @brief Let the DSP map buffers itself when commands use them (residency
+ *        cache), keeping at most budget_bytes mapped.
+ * @param[in] rpc_handle RPC handle, the value returned by hexagon_dsp_open
+ * @param[in] budget_bytes max. bytes kept mapped, > 0
+ * @return AEE_SUCCESS for success, AEE_EBADPARM for a budget of 0
+ */
+int hexagon_dsp_set_residency_budget(remote_handle64 rpc_handle,
+                                     int64 budget_bytes) {
+  if (budget_bytes <= 0) {
+    return AEE_EBADPARM;
+  }
+  return hexagon_dsp_residency_set_budget(
+      hexagon_dsp_get_priv(rpc_handle)->residency, (uint64_t)budget_bytes);
+}
+
+hexagon_dsp_residency_t *hexagon_dsp_get_residency(remote_handle64 rpc_handle) {
+  return hexagon_dsp_get_priv(rpc_handle)->residency;
 }

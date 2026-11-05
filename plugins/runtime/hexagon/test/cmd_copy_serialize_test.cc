@@ -42,11 +42,17 @@ TEST(CmdCopySerializeTest, Serialize) {
   EXPECT_EQ(HEXAGON_TEST_DIRECT_BUFFER0_FD, cmd_copy->src.fd);
   EXPECT_EQ(src.offset, cmd_copy->src.offset);
   EXPECT_EQ(src.length, cmd_copy->src.length);
+  EXPECT_EQ(cmd_copy->src.fd == -1 ? 0
+                                   : HEXAGON_TEST_ALLOC_SIZE(cmd_copy->src.fd),
+            cmd_copy->src.alloc_size);
 
   EXPECT_EQ(dest.buffer_slot, cmd_copy->trgt.slot);
   EXPECT_EQ(-1, cmd_copy->trgt.fd);
   EXPECT_EQ(dest.offset, cmd_copy->trgt.offset);
   EXPECT_EQ(dest.length, cmd_copy->trgt.length);
+  EXPECT_EQ(
+      cmd_copy->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_copy->trgt.fd),
+      cmd_copy->trgt.alloc_size);
 }
 
 TEST(CmdCopySerializeTest, SerializeWithSubspanBuffer) {
@@ -72,12 +78,18 @@ TEST(CmdCopySerializeTest, SerializeWithSubspanBuffer) {
   EXPECT_EQ(-1, cmd_copy->src.fd);
   EXPECT_EQ(src.offset, cmd_copy->src.offset);
   EXPECT_EQ(src.length, cmd_copy->src.length);
+  EXPECT_EQ(cmd_copy->src.fd == -1 ? 0
+                                   : HEXAGON_TEST_ALLOC_SIZE(cmd_copy->src.fd),
+            cmd_copy->src.alloc_size);
 
   EXPECT_EQ(dest.buffer_slot, cmd_copy->trgt.slot);
   EXPECT_EQ(HEXAGON_TEST_DIRECT_SUBSPAN_BUFFER0_FD, cmd_copy->trgt.fd);
   EXPECT_EQ(HEXAGON_TEST_DIRECT_SUBSPAN_BUFFER0_OFFSET + dest.offset,
             cmd_copy->trgt.offset);
   EXPECT_EQ(dest.length, cmd_copy->trgt.length);
+  EXPECT_EQ(
+      cmd_copy->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_copy->trgt.fd),
+      cmd_copy->trgt.alloc_size);
 }
 
 } // namespace

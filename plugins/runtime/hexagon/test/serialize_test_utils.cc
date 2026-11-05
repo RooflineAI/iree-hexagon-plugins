@@ -38,7 +38,7 @@ iree_hal_buffer_binding_normalize(iree_hal_buffer_binding_t *binding) {
   return iree_ok_status();
 }
 
-iree_status_t hexagon_test_get_buffer_fd(iree_hal_buffer_t *buffer,
+static iree_status_t hexagon_test_get_fd(iree_hal_buffer_t *buffer,
                                          int *out_fd) {
   if (buffer == &hexagon_test_direct_buffer0) {
     *out_fd = HEXAGON_TEST_DIRECT_BUFFER0_FD;
@@ -57,4 +57,11 @@ iree_status_t hexagon_test_get_buffer_fd(iree_hal_buffer_t *buffer,
     return iree_ok_status();
   }
   return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "unknown buffer");
+}
+
+iree_status_t hexagon_test_get_buffer_fd(iree_hal_buffer_t *buffer, int *out_fd,
+                                         uint64_t *out_alloc_size) {
+  IREE_RETURN_IF_ERROR(hexagon_test_get_fd(buffer, out_fd));
+  *out_alloc_size = HEXAGON_TEST_ALLOC_SIZE(*out_fd);
+  return iree_ok_status();
 }

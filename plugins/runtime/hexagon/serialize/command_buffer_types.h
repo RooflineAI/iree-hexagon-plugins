@@ -26,7 +26,7 @@
 /// @param[out] out_fd filled with file descriptor of RPCmem for use on DSP
 /// @return IREE status
 typedef iree_status_t (*iree_hal_hexagon_get_buffer_fd_t)(
-    iree_hal_buffer_t *buffer, int *out_fd);
+    iree_hal_buffer_t *buffer, int *out_fd, uint64_t *out_alloc_size);
 
 /// an entry in the command buffer
 typedef struct iree_hal_hexagon_command_buffer_entry_s {

@@ -32,6 +32,8 @@ typedef struct hexagon_rt_arm_dsp_buf_ref_s {
   int32_t fd;    ///< file descriptor of RPCmem allocation, -1 if unused
   uint64_t offset;
   uint64_t length;
+  /// size of the whole RPCmem allocation, 0 if fd is -1
+  uint64_t alloc_size;
 } __attribute__((packed)) hexagon_rt_arm_dsp_buf_ref_t;
 
 /// type of command buffer entry

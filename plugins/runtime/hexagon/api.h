@@ -23,6 +23,10 @@ extern "C" {
 // Number of PMU counters available on Hexagon.
 #define IREE_HAL_HEXAGON_PMU_COUNTERS 8
 
+// Default max. MiB of buffers the DSP keeps mapped, below the ~3.5-3.75 GiB
+// the DSP can map at once.
+#define IREE_HAL_HEXAGON_DEFAULT_DSP_RESIDENCY_BUDGET_MIB 3584
+
 // DSP domain ID used by Hexagon SDK
 typedef int iree_hal_hexagon_domain_id_t;
 
@@ -46,6 +50,11 @@ typedef struct iree_hal_hexagon_device_options_t {
   /// selects the number of HVX contexts, 1 executes sequentially. Must not
   /// exceed the number of HVX contexts.
   int32_t max_concurrent_dispatches;
+  /// Max. MiB of buffers the DSP keeps mapped. The DSP maps buffers itself
+  /// when commands use them and unmaps unused ones, least recently used
+  /// first, to stay below it. IREE_HAL_HEXAGON_DEFAULT_DSP_RESIDENCY_BUDGET_MIB
+  /// by default.
+  uint32_t dsp_residency_budget_mib;
   // note: This sdata structure is copied into the device data in
   // iree_hal_hexagon_device_create()
   // TODO(hexagon): options for initializing a device such as hardware

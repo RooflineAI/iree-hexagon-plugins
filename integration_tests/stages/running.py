@@ -287,6 +287,7 @@ def run_module_on_device(
         deployment.limit_lifetime,
         deployment.run_module,
         "--module=module.vmfb",
+        "--module_mode=mmap",
         f"--function={function}",
         "--device=hexagon",
     ]

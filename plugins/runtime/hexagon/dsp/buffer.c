@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #include "AEEStdErr.h"
+#include "hexagon/dsp/device.h"
 #include "hexagon/dsp/residency.h"
 #include "hexagon_dsp.h"
 
@@ -21,9 +22,9 @@
  * @retval AEE_SUCCESS for success
  */
 int hexagon_dsp_buffer_forget(remote_handle64 rpc_handle, int fd, int *in_use) {
-  (void)rpc_handle;
   bool is_in_use = false;
-  hexagon_dsp_residency_forget(fd, &is_in_use);
+  hexagon_dsp_residency_forget(hexagon_dsp_get_residency(rpc_handle), fd,
+                               &is_in_use);
   *in_use = is_in_use ? 1 : 0;
   return AEE_SUCCESS;
 }

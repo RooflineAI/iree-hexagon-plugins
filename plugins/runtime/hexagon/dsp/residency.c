@@ -25,7 +25,7 @@ typedef struct hexa_residency_entry_s {
 } hexa_residency_entry_t;
 
 /// cache state, guarded by mutex
-static struct {
+struct hexagon_dsp_residency_s {
   qurt_mutex_t mutex;
   /// set by the host when it opens a session
   uint64_t budget;
@@ -38,12 +38,13 @@ static struct {
   hexa_residency_entry_t *entries;
   uint32_t num_entries;
   uint32_t capacity;
-} g_residency = {.mutex = QURT_MUTEX_INIT};
+};
 
-static hexa_residency_entry_t *hexa_residency_find(int fd) {
-  for (uint32_t idx = 0; idx < g_residency.num_entries; ++idx) {
-    if (g_residency.entries[idx].fd == fd) {
-      return &g_residency.entries[idx];
+static hexa_residency_entry_t *
+hexa_residency_find(hexagon_dsp_residency_t *residency, int fd) {
+  for (uint32_t idx = 0; idx < residency->num_entries; ++idx) {
+    if (residency->entries[idx].fd == fd) {
+      return &residency->entries[idx];
     }
   }
   return NULL;
@@ -61,7 +62,8 @@ static int hexa_residency_cache_op(const hexa_residency_entry_t *entry,
 
 /// Unmap an entry (ref_count must be 0) and remove it from the cache.
 /// need to hold the mutex
-static void hexa_residency_unmap_entry(hexa_residency_entry_t *entry) {
+static void hexa_residency_unmap_entry(hexagon_dsp_residency_t *residency,
+                                       hexa_residency_entry_t *entry) {
   // Publish what was written, and leave no cache line at the addresses another
   // allocation may be mapped at next.
   hexa_residency_cache_op(entry, QURT_MEM_CACHE_FLUSH_INVALIDATE);
@@ -70,18 +72,20 @@ static void hexa_residency_unmap_entry(hexa_residency_entry_t *entry) {
     FARF(ERROR, "HEXAGON-RUNTIME-ERROR: HAP_munmap2 of fd %d failed: 0x%x",
          entry->fd, err);
   }
-  g_residency.mapped_bytes -= entry->size;
+  residency->mapped_bytes -= entry->size;
   // remove, by moving the last entry in its place
-  *entry = g_residency.entries[--g_residency.num_entries];
+  *entry = residency->entries[--residency->num_entries];
 }
 
 /// Unmap the least recently used entry not in use.
 /// @return false if there is none
 /// need to hold the mutex
-static bool hexa_residency_evict_one(void) {
+static bool hexa_residency_evict_one(hexagon_dsp_residency_t *residency) {
   hexa_residency_entry_t *lru = NULL;
-  for (uint32_t idx = 0; idx < g_residency.num_entries; ++idx) {
-    hexa_residency_entry_t *entry = &g_residency.entries[idx];
+  for (uint32_t idx = 0; idx < residency->num_entries; ++idx) {
+    hexa_residency_entry_t *entry = &residency->entries[idx];
+    // no overflow check necessary, even at 1 increment per nanosecond, we would
+    // have 580 years before overflow
     if (entry->ref_count == 0 && (!lru || entry->last_use < lru->last_use)) {
       lru = entry;
     }
@@ -90,30 +94,65 @@ static bool hexa_residency_evict_one(void) {
   if (!lru) {
     return false;
   }
-  hexa_residency_unmap_entry(lru);
+  hexa_residency_unmap_entry(residency, lru);
   return true;
 }
 
-int hexagon_dsp_residency_set_budget(uint64_t budget_bytes) {
+int hexagon_dsp_residency_create(hexagon_dsp_residency_t **out_residency) {
+  hexagon_dsp_residency_t *residency =
+      (hexagon_dsp_residency_t *)calloc(1, sizeof(*residency));
+  if (!residency) {
+    return AEE_ENOMEMORY;
+  }
+  qurt_mutex_init(&residency->mutex);
+  *out_residency = residency;
+  return AEE_SUCCESS;
+}
+
+void hexagon_dsp_residency_destroy(hexagon_dsp_residency_t *residency) {
+  if (!residency) {
+    return;
+  }
+  qurt_mutex_lock(&residency->mutex);
+  while (hexa_residency_evict_one(residency)) {
+  }
+  // Only entries in use are left: an acquire was never released. Leave them
+  // mapped, unmapping could crash a command still using them.
+  if (residency->in_use_bytes > 0) {
+    FARF(ERROR,
+         "HEXAGON-RUNTIME-ERROR: %u buffers (%llu bytes) still in use when "
+         "destroying the residency cache",
+         (unsigned)residency->num_entries,
+         (unsigned long long)residency->in_use_bytes);
+  }
+  qurt_mutex_unlock(&residency->mutex);
+  qurt_mutex_destroy(&residency->mutex);
+  free(residency->entries);
+  free(residency);
+}
+
+int hexagon_dsp_residency_set_budget(hexagon_dsp_residency_t *residency,
+                                     uint64_t budget_bytes) {
   if (budget_bytes == 0) {
     return AEE_EBADPARM;
   }
-  qurt_mutex_lock(&g_residency.mutex);
-  g_residency.budget = budget_bytes;
-  qurt_mutex_unlock(&g_residency.mutex);
+  qurt_mutex_lock(&residency->mutex);
+  residency->budget = budget_bytes;
+  qurt_mutex_unlock(&residency->mutex);
   return AEE_SUCCESS;
 }
 
 /// hexagon_dsp_residency_acquire with the mutex held
-static int hexa_residency_acquire_locked(int fd, uint64_t alloc_size,
+static int hexa_residency_acquire_locked(hexagon_dsp_residency_t *residency,
+                                         int fd, uint64_t alloc_size,
                                          uint8_t **out_vaddr) {
-  hexa_residency_entry_t *entry = hexa_residency_find(fd);
+  hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
   if (entry) {
     if (entry->ref_count++ == 0) {
       // re-use existing entry
-      g_residency.in_use_bytes += entry->size;
+      residency->in_use_bytes += entry->size;
     }
-    entry->last_use = ++g_residency.use_counter;
+    entry->last_use = ++residency->use_counter;
     *out_vaddr = entry->vaddr;
     return AEE_SUCCESS;
   }
@@ -122,10 +161,10 @@ static int hexa_residency_acquire_locked(int fd, uint64_t alloc_size,
   }
 
   // Make room within the budget.
-  while (g_residency.mapped_bytes + alloc_size > g_residency.budget) {
-    if (!hexa_residency_evict_one()) {
+  while (residency->mapped_bytes + alloc_size > residency->budget) {
+    if (!hexa_residency_evict_one(residency)) {
       // cant evict more: everything is in use
-      if (g_residency.in_use_bytes > 0) {
+      if (residency->in_use_bytes > 0) {
         // might fit the budget if we could release more
         return AEE_EWOULDBLOCK;
       } else {
@@ -136,15 +175,15 @@ static int hexa_residency_acquire_locked(int fd, uint64_t alloc_size,
   }
 
   // make room for another entry in the list if list is full
-  if (g_residency.num_entries == g_residency.capacity) {
-    uint32_t capacity = g_residency.capacity ? 2 * g_residency.capacity : 64;
+  if (residency->num_entries == residency->capacity) {
+    uint32_t capacity = residency->capacity ? 2 * residency->capacity : 64;
     hexa_residency_entry_t *entries = (hexa_residency_entry_t *)realloc(
-        g_residency.entries, capacity * sizeof(*entries));
+        residency->entries, capacity * sizeof(*entries));
     if (!entries) {
       return AEE_ENOMEMORY;
     }
-    g_residency.entries = entries;
-    g_residency.capacity = capacity;
+    residency->entries = entries;
+    residency->capacity = capacity;
   }
 
   // The budget is an estimate, the address space may still be exhausted (or
@@ -158,56 +197,57 @@ static int hexa_residency_acquire_locked(int fd, uint64_t alloc_size,
       break;
     }
     // try evicting more due to fragmentation
-    if (!hexa_residency_evict_one()) {
+    if (!hexa_residency_evict_one(residency)) {
       FARF(ERROR,
            "HEXAGON-RUNTIME-ERROR: HAP_mmap2 of fd %d (%llu bytes) failed "
            "with %llu bytes mapped, %llu bytes in use",
            fd, (unsigned long long)alloc_size,
-           (unsigned long long)g_residency.mapped_bytes,
-           (unsigned long long)g_residency.in_use_bytes);
-      return g_residency.in_use_bytes > 0 ? AEE_EWOULDBLOCK : AEE_ENOMEMORY;
+           (unsigned long long)residency->mapped_bytes,
+           (unsigned long long)residency->in_use_bytes);
+      return residency->in_use_bytes > 0 ? AEE_EWOULDBLOCK : AEE_ENOMEMORY;
     }
   }
 
-  entry = &g_residency.entries[g_residency.num_entries++];
+  entry = &residency->entries[residency->num_entries++];
   *entry = (hexa_residency_entry_t){
       .fd = fd,
       .size = alloc_size,
       .vaddr = (uint8_t *)vaddr,
       .ref_count = 1,
-      .last_use = ++g_residency.use_counter,
+      .last_use = ++residency->use_counter,
   };
-  g_residency.mapped_bytes += alloc_size;
-  g_residency.in_use_bytes += alloc_size;
+  residency->mapped_bytes += alloc_size;
+  residency->in_use_bytes += alloc_size;
   *out_vaddr = entry->vaddr;
   return AEE_SUCCESS;
 }
 
-int hexagon_dsp_residency_acquire(int fd, uint64_t alloc_size,
-                                  uint8_t **out_vaddr) {
-  qurt_mutex_lock(&g_residency.mutex);
-  int err = hexa_residency_acquire_locked(fd, alloc_size, out_vaddr);
-  qurt_mutex_unlock(&g_residency.mutex);
+int hexagon_dsp_residency_acquire(hexagon_dsp_residency_t *residency, int fd,
+                                  uint64_t alloc_size, uint8_t **out_vaddr) {
+  qurt_mutex_lock(&residency->mutex);
+  int err = hexa_residency_acquire_locked(residency, fd, alloc_size, out_vaddr);
+  qurt_mutex_unlock(&residency->mutex);
   return err;
 }
 
-void hexagon_dsp_residency_release(int fd) {
-  qurt_mutex_lock(&g_residency.mutex);
-  hexa_residency_entry_t *entry = hexa_residency_find(fd);
+void hexagon_dsp_residency_release(hexagon_dsp_residency_t *residency, int fd) {
+  qurt_mutex_lock(&residency->mutex);
+  hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
   if (entry && entry->ref_count > 0 && --entry->ref_count == 0) {
-    g_residency.in_use_bytes -= entry->size;
+    residency->in_use_bytes -= entry->size;
     // no unmap
   }
   // else entry->ref_count was decreased
   // or no-op on releasing an unknown buf
-  qurt_mutex_unlock(&g_residency.mutex);
+  qurt_mutex_unlock(&residency->mutex);
 }
 
-int hexagon_dsp_residency_invalidate_if_mapped(int fd, uint64_t offset,
-                                               uint64_t length, bool flush) {
+int hexagon_dsp_residency_invalidate_if_mapped(
+    hexagon_dsp_residency_t *residency, int fd, uint64_t offset,
+    uint64_t length, bool flush) {
   int err = AEE_SUCCESS;
-  qurt_mutex_lock(&g_residency.mutex);
-  hexa_residency_entry_t *entry = hexa_residency_find(fd);
+  qurt_mutex_lock(&residency->mutex);
+  hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
   if (entry && length > 0) {
     // according to doc, the only error is QURT_EVAL - invalid cache type
     err = qurt_mem_cache_clean((qurt_addr_t)(entry->vaddr + offset), length,
@@ -217,37 +257,22 @@ int hexagon_dsp_residency_invalidate_if_mapped(int fd, uint64_t offset,
               ? AEE_SUCCESS
               : AEE_EFAILED;
   }
-  qurt_mutex_unlock(&g_residency.mutex);
+  qurt_mutex_unlock(&residency->mutex);
   return err;
 }
 
-void hexagon_dsp_residency_forget(int fd, bool *out_in_use) {
+void hexagon_dsp_residency_forget(hexagon_dsp_residency_t *residency, int fd,
+                                  bool *out_in_use) {
   *out_in_use = false;
-  qurt_mutex_lock(&g_residency.mutex);
-  hexa_residency_entry_t *entry = hexa_residency_find(fd);
+  qurt_mutex_lock(&residency->mutex);
+  hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
   if (entry && entry->ref_count > 0) {
     FARF(ERROR,
          "HEXAGON-RUNTIME-ERROR: host frees fd %d while %u commands use it", fd,
          (unsigned)entry->ref_count);
     *out_in_use = true;
   } else if (entry) {
-    hexa_residency_unmap_entry(entry);
+    hexa_residency_unmap_entry(residency, entry);
   }
-  qurt_mutex_unlock(&g_residency.mutex);
-}
-
-void hexagon_dsp_residency_clear(void) {
-  qurt_mutex_lock(&g_residency.mutex);
-  while (hexa_residency_evict_one()) {
-  }
-  // Only entries in use are left. Another session may still use them, but with
-  // a single session this means an acquire was never released.
-  if (g_residency.in_use_bytes > 0) {
-    FARF(ERROR,
-         "HEXAGON-RUNTIME-ERROR: %u buffers (%llu bytes) still in use when "
-         "clearing the residency cache",
-         (unsigned)g_residency.num_entries,
-         (unsigned long long)g_residency.in_use_bytes);
-  }
-  qurt_mutex_unlock(&g_residency.mutex);
+  qurt_mutex_unlock(&residency->mutex);
 }

@@ -26,9 +26,9 @@ struct iree_hal_hexagon_mem_alloc_s {
   iree_hal_hexagon_domain_id_t domain_id;
   rpc_session_handle_t rpc_session_handle;
   iree_device_size_t size;
-  iree_device_size_t rpc_size; // size passed to rpcmem_alloc(), incl. padding
-  unsigned int ref_count;      // reference count for allocation, for "host"
-  void *ptr_host;              // host pointer as returned by rpcmem_alloc()
+  iree_device_size_t alloc_size; // size passed to rpcmem_alloc(), incl. padding
+  unsigned int ref_count;        // reference count for allocation, for "host"
+  void *ptr_host;                // host pointer as returned by rpcmem_alloc()
   // file descriptor returned by rpcmem_to_fd(), registered with the DSP
   int fd;
   // the fd has been handed to the DSP, which may have mapped it
@@ -49,6 +49,7 @@ iree_status_t iree_hal_hexagon_mem_alloc_create(
   alloc->domain_id = domain_id;
   alloc->rpc_session_handle = rpc_session_handle;
   alloc->size = size;
+  alloc->alloc_size = 0;
   alloc->ref_count = 1;
   alloc->ptr_host = NULL;
   alloc->fd = -1;
@@ -131,7 +132,7 @@ iree_status_t iree_hal_hexagon_mem_alloc_create(
               "RPC memory pointer is not aligned as expected");
 
   alloc->ptr_host = ptr_host;
-  alloc->rpc_size = alloc_size;
+  alloc->alloc_size = alloc_size;
 
   // Register the allocation with the DSP without mapping it.
   int fd = rpcmem_to_fd(ptr_host);
@@ -176,7 +177,7 @@ void iree_hal_hexagon_mem_alloc_release(iree_hal_hexagon_mem_alloc_t *alloc) {
     iree_allocator_free(alloc->host_allocator, alloc);
     return;
   }
-  fastrpc_munmap(alloc->domain_id, alloc->fd, NULL, alloc->rpc_size);
+  fastrpc_munmap(alloc->domain_id, alloc->fd, NULL, alloc->alloc_size);
 
   rpcmem_free(alloc->ptr_host);
   alloc->ptr_host = NULL;
@@ -210,6 +211,6 @@ iree_hal_hexagon_mem_alloc_get_fd(iree_hal_hexagon_mem_alloc_t *alloc,
 
   alloc->dsp_used = true;
   *out_fd = alloc->fd;
-  *out_alloc_size = alloc->rpc_size;
+  *out_alloc_size = alloc->alloc_size;
   return iree_ok_status();
 }

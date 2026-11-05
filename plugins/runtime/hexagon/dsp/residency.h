@@ -26,13 +26,26 @@
  * is flushed and invalidated from the data cache before it is unmapped
  * Therefore, no cache invalidation on mapping is needed
  *
- * The address space belongs to the DSP process, so there is one cache per
- * process, in principle shared by all RPC sessions.
+ * Each RPC session owns one cache. The address space belongs to the DSP
+ * process, which all sessions of a host process share, so the budgets of all
+ * sessions together have to stay below what the DSP can map.
  */
+
+/// A residency cache, see above.
+typedef struct hexagon_dsp_residency_s hexagon_dsp_residency_t;
+
+/// Create an empty cache. Its budget is 0 until set.
+/// @retval AEE_SUCCESS for success, AEE_ENOMEMORY if out of memory
+int hexagon_dsp_residency_create(hexagon_dsp_residency_t **out_residency);
+
+/// Unmap all allocations and free the cache, e.g. when an RPC session closes.
+/// Allocations still in use stay mapped (and are reported as an error).
+void hexagon_dsp_residency_destroy(hexagon_dsp_residency_t *residency);
 
 /// Set the max. bytes kept mapped.
 /// @retval AEE_SUCCESS for success, AEE_EBADPARM for a budget of 0
-int hexagon_dsp_residency_set_budget(uint64_t budget_bytes);
+int hexagon_dsp_residency_set_budget(hexagon_dsp_residency_t *residency,
+                                     uint64_t budget_bytes);
 
 /**
  * @brief Map an allocation if not mapped yet and hold it mapped until
@@ -44,12 +57,12 @@ int hexagon_dsp_residency_set_budget(uint64_t budget_bytes);
  * @retval AEE_EWOULDBLOCK if it does not fit, even after unmapping all unused
  *         allocations; releasing allocations in use may make it fit
  */
-int hexagon_dsp_residency_acquire(int fd, uint64_t alloc_size,
-                                  uint8_t **out_vaddr);
+int hexagon_dsp_residency_acquire(hexagon_dsp_residency_t *residency, int fd,
+                                  uint64_t alloc_size, uint8_t **out_vaddr);
 
 /// Stop holding an allocation acquired with hexagon_dsp_residency_acquire. It
 /// stays mapped until its address space is needed.
-void hexagon_dsp_residency_release(int fd);
+void hexagon_dsp_residency_release(hexagon_dsp_residency_t *residency, int fd);
 
 /**
  * @brief Invalidate [offset, offset + length) of an allocation in the data
@@ -61,8 +74,9 @@ void hexagon_dsp_residency_release(int fd);
  * @param[in] flush flush the range before invalidating it
  * @retval AEE_SUCCESS for success
  */
-int hexagon_dsp_residency_invalidate_if_mapped(int fd, uint64_t offset,
-                                               uint64_t length, bool flush);
+int hexagon_dsp_residency_invalidate_if_mapped(
+    hexagon_dsp_residency_t *residency, int fd, uint64_t offset,
+    uint64_t length, bool flush);
 
 /**
  * @brief Unmap an allocation the host is about to free (and deregister).
@@ -70,9 +84,7 @@ int hexagon_dsp_residency_invalidate_if_mapped(int fd, uint64_t offset,
  * @param[out] out_in_use set if the allocation is still in use and was not
  *             unmapped; the host must not deregister it then
  */
-void hexagon_dsp_residency_forget(int fd, bool *out_in_use);
-
-/// Unmap all allocations not in use, e.g. when an RPC session closes.
-void hexagon_dsp_residency_clear(void);
+void hexagon_dsp_residency_forget(hexagon_dsp_residency_t *residency, int fd,
+                                  bool *out_in_use);
 
 #endif // #ifndef HEXAGON_DSP_RESIDENCY_H

@@ -1,5 +1,5 @@
 diff --git a/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp b/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
-index 945ee8ff49..23a73d94c0 100644
+index 945ee8ff49..0c7560a7a9 100644
 --- a/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
 +++ b/compiler/src/iree/compiler/Codegen/Common/IREEComprehensiveBufferize.cpp
 @@ -80,6 +80,8 @@ namespace {
@@ -48,13 +48,13 @@ index 945ee8ff49..23a73d94c0 100644
    // Disable parallel-region conflict checks to avoid conservative copies.
    options.mayHaveParallelRegions = false;
 
-@@ -339,15 +346,16 @@ void IREEBufferizeConstantsPass::runOnOperation() {
+@@ -339,15 +346,17 @@ void IREEBufferizeConstantsPass::runOnOperation() {
  std::unique_ptr<InterfacePass<mlir::FunctionOpInterface>>
  createIREEComprehensiveBufferizePass(
      std::optional<BufferizationOptions::AllocationFn> allocationFn,
 -    std::optional<BufferizationOptions::MemCpyFn> memCpyFn) {
 +    std::optional<BufferizationOptions::MemCpyFn> memCpyFn,
-+    bool allowReturnAllocsFromLoops) {
++    LoopAllocationMode loopAllocationMode) {
    if (!allocationFn) {
      allocationFn = defaultAllocationFn;
    }
@@ -64,18 +64,21 @@ index 945ee8ff49..23a73d94c0 100644
 -  return std::make_unique<IREEComprehensiveBufferizePass>(allocationFn.value(),
 -                                                          memCpyFn.value());
 +  return std::make_unique<IREEComprehensiveBufferizePass>(
-+      allocationFn.value(), memCpyFn.value(), allowReturnAllocsFromLoops);
++      allocationFn.value(), memCpyFn.value(),
++      loopAllocationMode == LoopAllocationMode::CallerManagesLifetime);
  }
 
  void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
-@@ -365,11 +373,14 @@ void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
+@@ -365,11 +374,16 @@ void addIREEPostBufferizationPasses(OpPassManager &funcPassManager) {
  void addIREEComprehensiveBufferizePasses(
      OpPassManager &funcPassManager,
      std::optional<BufferizationOptions::AllocationFn> allocationFn,
 -    std::optional<BufferizationOptions::MemCpyFn> memCpyFn) {
 -  funcPassManager.addPass(createEliminateEmptyTensorsPass());
 +    std::optional<BufferizationOptions::MemCpyFn> memCpyFn,
-+    bool allowReturnAllocsFromLoops) {
++    LoopAllocationMode loopAllocationMode) {
++  const bool allowReturnAllocsFromLoops =
++      loopAllocationMode == LoopAllocationMode::CallerManagesLifetime;
 +  EliminateEmptyTensorsPassOptions eliminateOptions;
 +  eliminateOptions.allowReturnAllocsFromLoops = allowReturnAllocsFromLoops;
 +  funcPassManager.addPass(createEliminateEmptyTensorsPass(eliminateOptions));
@@ -83,25 +86,29 @@ index 945ee8ff49..23a73d94c0 100644
 -  funcPassManager.addPass(
 -      createIREEComprehensiveBufferizePass(allocationFn, memCpyFn));
 +  funcPassManager.addPass(createIREEComprehensiveBufferizePass(
-+      allocationFn, memCpyFn, allowReturnAllocsFromLoops));
++      allocationFn, memCpyFn, loopAllocationMode));
    addIREEPostBufferizationPasses(funcPassManager);
  }
 
 diff --git a/compiler/src/iree/compiler/Codegen/Common/Passes.h b/compiler/src/iree/compiler/Codegen/Common/Passes.h
-index f1c9273706..a37904c82e 100644
+index f1c9273706..ca99c4a5a8 100644
 --- a/compiler/src/iree/compiler/Codegen/Common/Passes.h
 +++ b/compiler/src/iree/compiler/Codegen/Common/Passes.h
-@@ -59,7 +59,12 @@ void addIREEComprehensiveBufferizePasses(
+@@ -55,11 +55,16 @@ void buildCodegenTranslationPostProcessingPassPipeline(
+ void addIREEPostBufferizationPasses(OpPassManager &funcPassManager);
+
+ using bufferization::BufferizationOptions;
++enum class LoopAllocationMode { Disallow, CallerManagesLifetime };
++// Apply the loop-allocation policy consistently to empty-tensor analysis and
++// bufferization. CallerManagesLifetime requires callers to arrange
++// deallocation of loop-returned allocations after bufferization.
+ void addIREEComprehensiveBufferizePasses(
      OpPassManager &funcPassManager,
      std::optional<BufferizationOptions::AllocationFn> allocationFn =
          std::nullopt,
 -    std::optional<BufferizationOptions::MemCpyFn> memCpyFn = std::nullopt);
 +    std::optional<BufferizationOptions::MemCpyFn> memCpyFn = std::nullopt,
-+    // Forwarded to mlir::bufferization::OneShotAnalysisState's option of the
-+    // same name (see mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h)
-+    // - restored here after IREE's own wrapper stopped exposing it, since
-+    // some backends still need to opt into it.
-+    bool allowReturnAllocsFromLoops = false);
++    LoopAllocationMode loopAllocationMode = LoopAllocationMode::Disallow);
 
  /// Populate Encoding to Nop pass and canonicalizer pass to the pipeline.
  void addEncodingToNopPasses(FunctionLikeNest &passManager);
@@ -111,12 +118,12 @@ index f1c9273706..a37904c82e 100644
      std::optional<BufferizationOptions::AllocationFn> allocationFn,
 -    std::optional<BufferizationOptions::MemCpyFn> memCpyFn);
 +    std::optional<BufferizationOptions::MemCpyFn> memCpyFn,
-+    bool allowReturnAllocsFromLoops = false);
++    LoopAllocationMode loopAllocationMode = LoopAllocationMode::Disallow);
 
  /// Create an IREE-specific Transform dialect interpreter pass with all
  /// registrations necessary for IREE.
 diff --git a/compiler/src/iree/compiler/Codegen/Common/Passes.td b/compiler/src/iree/compiler/Codegen/Common/Passes.td
-index 65c21c4ec7..5cee7164a2 100644
+index ca0da66012..b156b8473d 100644
 --- a/compiler/src/iree/compiler/Codegen/Common/Passes.td
 +++ b/compiler/src/iree/compiler/Codegen/Common/Passes.td
 @@ -519,6 +519,12 @@ def ReplaceSlowMinMaxOpsPass

@@ -6,7 +6,7 @@
 
 dtype: float16
 # The vision encoder's four outputs, synthetic: the merged image embeddings and
-# the three deepstack features, [64, 2048] each. Real ones (eg: keyboard.png) have a
+# the three deepstack features, [64, 2048] each. Real ones (eg: keyboard_grayscale.png) have a
 # std of 0.3-0.56 and peaks up to 24, so N(0, 1) is in range. The 81-token
 # prompt they are scattered into is baked into model.py.
 inputs:

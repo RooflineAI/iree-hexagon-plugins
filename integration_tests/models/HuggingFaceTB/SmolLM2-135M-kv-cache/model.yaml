@@ -6,9 +6,8 @@
 
 # HuggingFaceTB/SmolLM2-135M exported for token generation (see
 # models/kv_cache.py): `prefill` on the prompt, and `decode` of the next token
-# against prefill's KV cache, both with dynamic sequence lengths. Each function
-# is run and checked on its own. Tolerances are copied from
-# HuggingFaceTB/SmolLM2-135M.
+# against prefill's KV cache, both with dynamic sequence lengths.
+# Tolerances are copied from HuggingFaceTB/SmolLM2-135M.
 dtype: float16
 inputs:
   # The prompt: a multiple of 32 tokens (block_seq_stride), at least two
@@ -25,3 +24,9 @@ tolerances:
   relative_l2_percent: 0.2
 # The configuration the token-generation path is meant to run in.
 compile_cases: [hexagon-vtcm-hmx]
+expected_outcomes:
+  - case: hexagon-vtcm-hmx
+    status: COMPILE_FAILURE
+    reason: "could not bound HMX matmul shapes for packing"
+    comment: >-
+      The dynamic sequence length of the attention matmuls is not bounded for HMX packing and VTCM planning.

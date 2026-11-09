@@ -91,22 +91,26 @@ def _run_pipeline(
         f"compiled {compile_case.name} in {compile_time:.2f}s -> {vmfb} ({vmfb.stat().st_size} bytes)"
     )
 
+    # FIXME:
+    # for the prefill-decode loop, the decode part does start with 0 as cache.
+    # the numerics are tested in the static part pass. for now, the prefill/decode patch only tests the structure
+    # the numerics should still hold up against the reference though, even with an unrealistic cache
     case_dir = (
         f"{model_spec.name.replace('/', '_')}_{compile_case.name}_{run_case.name}"
     )
+    local_output_dir = work_dir / "device_outputs"
     result = run_module_on_device(
         deployment=deployment,
         case_dir_name=case_dir,
         module_vmfb=vmfb,
-        function=imported_model.function,
-        input_files=imported_model.input_files,
-        output_names=imported_model.output_names,
-        local_output_dir=work_dir / "device_outputs",
+        calls=imported_model.calls,
+        local_output_dir=local_output_dir,
         extra_flags=run_case.flags,
         host_rsync=host_rsync,
         timeout=model_spec.run_timeout,
         tracy_port=tracy_port,
         debug_malloc=run_case.debug_malloc,
+        prefill_decode=imported_model.prefill_decode,
     )
     print(result.log)
     print("timings:")
@@ -116,20 +120,22 @@ def _run_pipeline(
         return Outcome(Status.RUNTIME_FAILURE, result.describe())
 
     try:
-        check_output_files(
-            reference_files=imported_model.output_files,
-            actual_files=result.output_files,
-            atol=model_spec.tolerances.atol,
-            rtol=model_spec.tolerances.rtol,
-            max_relative_l2_percent=model_spec.tolerances.relative_l2_percent,
-        )
-        if model_spec.semantic_check is not None:
-            check = model_spec.semantic_check
-            check_predicted_label(
-                output_file=result.output_files[check.output_index],
-                labels=imported_model.labels(),
-                expected_label=check.expected_label,
+        for call in imported_model.calls:
+            actual_files = [local_output_dir / name for name in call.output_names]
+            check_output_files(
+                reference_files=call.output_files,
+                actual_files=actual_files,
+                atol=model_spec.tolerances.atol,
+                rtol=model_spec.tolerances.rtol,
+                max_relative_l2_percent=model_spec.tolerances.relative_l2_percent,
             )
+            if model_spec.semantic_check is not None:
+                check = model_spec.semantic_check
+                check_predicted_label(
+                    output_file=actual_files[check.output_index],
+                    labels=imported_model.labels(),
+                    expected_label=check.expected_label,
+                )
     except AccuracyError as err:
         return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{result.describe()}")
 

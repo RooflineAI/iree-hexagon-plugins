@@ -15,6 +15,9 @@
     `--iree-input-type=auto` does it as part of the compile.
 
 The exported entry point is named `main`, which is iree-turbine's default.
+A model that `get_model()` returns as a `KvCacheLM` (`models/kv_cache.py`) is
+exported as two functions instead, `prefill` and `decode`, each with its own
+inputs and reference.
 """
 
 from __future__ import annotations
@@ -36,8 +39,9 @@ from torch._export.utils import (
     _get_decomp_for_cia,
 )
 
+from integration_tests.models.kv_cache import KvCacheLM
 from integration_tests.modeltree.spec import InputSpec, ModelSpec
-from integration_tests.stages.artifacts import ImportedModel
+from integration_tests.stages.artifacts import ImportedModel, ModuleCall
 
 _aten = torch.ops.aten
 
@@ -283,6 +287,8 @@ def import_model(
     output_dir.mkdir(parents=True, exist_ok=True)
     model = load_model(spec)
     inputs = generate_inputs(spec, model)
+    if isinstance(model, KvCacheLM):
+        return _import_kv_cache(spec, output_dir, model, inputs, decompositions)
 
     # The eager reference is taken before the export, because aot.export can
     # mutate the module.
@@ -329,7 +335,100 @@ def import_model(
 
     return ImportedModel(
         model_mlir=model_mlir,
-        input_files=input_files,
-        output_files=output_files,
+        calls=[ModuleCall("main", input_files, output_files)],
         labels_file=(output_dir / "labels.json") if labels is not None else None,
     )
+
+
+def _save_tensors(
+    output_dir: Path, prefix: str, tensors: tuple[torch.Tensor, ...]
+) -> list[Path]:
+    files = []
+    for index, tensor in enumerate(tensors):
+        path = output_dir / f"{prefix}{index}.npy"
+        np.save(path, tensor.detach().cpu().numpy())
+        files.append(path)
+    return files
+
+
+def _import_kv_cache(
+    spec: ModelSpec,
+    output_dir: Path,
+    model: KvCacheLM,
+    inputs: tuple[torch.Tensor, ...],
+    decompositions: list[Any] | None,
+) -> ImportedModel:
+    """Export `prefill` and `decode` as functions of one module, with references.
+
+    `prefill` runs on the whole prompt (`inputs`), `decode` on the token it
+    picks. The cache becomes module state, initially zero.
+    """
+    (prompt,) = inputs
+    length = prompt.shape[-1]
+    block = torch.export.Dim("block_dim", min=2)
+    seq_len = torch.export.Dim("seq_len", min=1, max=model.max_seq_len)
+    prefill_args = (prompt, torch.arange(length), torch.tensor([length - 1]))
+    prefill_shapes = {
+        "input_ids": {1: model.block_seq_stride * block},
+        "cache_position": {0: model.block_seq_stride * block},
+        "input_length": {},
+    }
+    decode_shapes = {"input_ids": {}, "cache_position": {0: seq_len}}
+
+    # The eager references are taken before the export, which can mutate the
+    # module.
+    with torch.no_grad():
+        model.reset_cache()  # model start with empty cache anyway
+        prefill_outputs = model.prefill(*prefill_args)
+        decode_args = (prefill_outputs[0], torch.arange(length + 1))
+        # FIXME also see comment in test_models.py
+        # prefill and decode run n 2 processes on device, so we need to match that in the reference
+        # alternative would be to bake this cache into the module as starting cache
+        model.reset_cache()
+        decode_outputs = model.decode(*decode_args)
+        model.reset_cache()  # reset again before converting ot mlir
+    functions = {
+        "prefill": (prefill_args, prefill_shapes, prefill_outputs),
+        "decode": (decode_args, decode_shapes, (decode_outputs,)),
+    }
+    calls = [
+        ModuleCall(
+            function=name,
+            input_files=_save_tensors(output_dir, f"{name}_input", args),
+            output_files=_save_tensors(output_dir, f"{name}_output", outputs),
+        )
+        for name, (args, _, outputs) in functions.items()
+    ]
+
+    builder = aot.FxProgramsBuilder(model)
+    for name, (args, dynamic_shapes, _) in functions.items():
+        # Non-strict: dynamo cannot trace through transformers' model code.
+        builder.export_program(
+            getattr(KvCacheLM, name),
+            name=name,
+            args=args,
+            dynamic_shapes=dynamic_shapes,
+            strict=False,
+        )
+    # export_program applies only iree-turbine's default table; apply the
+    # suite's, as the single-function import does.
+    ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
+    table = build_decomposition_table(ops)
+    for program in builder.programs.values():
+        program.target = program.target.run_decompositions(table)
+    exported = aot.export(builder, import_symbolic_shape_expressions=True)
+
+    model_mlir = output_dir / "model.mlir"
+    exported.save_mlir(model_mlir)
+    (output_dir / "import.json").write_text(
+        json.dumps(
+            {
+                **manifest(spec),
+                "functions": list(functions),
+                "model_mlir_bytes": model_mlir.stat().st_size,
+            },
+            indent=2,
+            default=str,
+        )
+    )
+    return ImportedModel(model_mlir=model_mlir, calls=calls, prefill_decode=True)

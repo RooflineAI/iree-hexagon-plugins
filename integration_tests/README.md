@@ -177,6 +177,20 @@ and to run on the device:
 run_timeout: 3600
 ```
 
+### Token generation: prefill and decode
+
+By default the module has one function, `main`: the model's forward on the
+spec's inputs. A `model.py` whose `get_model()` returns a `KvCacheLM`
+(`models/kv_cache.py`) instead gets a causal LM exported for token generation,
+with the KV cache in module state (globals): `prefill` on the prompt, and
+`decode` of the next token, each with its own example arguments, dynamic
+shapes and eager reference. The test compiles once and runs both in one adb
+round trip, each in its own `iree-run-module`: `decode` runs only if prefill's
+token matches the reference, compared on the device. The host then checks every
+output. Both start from an empty cache, in the eager reference as on the
+device, so `decode` checks the compiled function rather than a real
+continuation.
+
 ## Profiling
 
 A profile run case runs the module with the Tracy runtime and

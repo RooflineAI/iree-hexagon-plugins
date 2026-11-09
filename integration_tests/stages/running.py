@@ -15,9 +15,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from integration_tests.device import adb
 from integration_tests.device.adb import AdbError
 from integration_tests.device.deploy import Deployment
+from integration_tests.stages.artifacts import ModuleCall
 
 
 @dataclass(frozen=True)
@@ -229,17 +232,22 @@ def run_module_on_device(
     deployment: Deployment,
     case_dir_name: str,
     module_vmfb: Path,
-    function: str,
-    input_files: list[Path],
-    output_names: list[str],
+    calls: list[ModuleCall],
     local_output_dir: Path,
     host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
     tracy_port: int | None = None,
     debug_malloc: bool = False,
+    prefill_decode: bool = False,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
+
+    Without `prefill_decode`, `calls` is the one function to run. With it,
+    `calls` is `prefill` and `decode`, run in the same adb round trip, each in
+    its own iree-run-module: decode runs only if prefill's first output, the
+    token, is the reference's, compared on the device. Otherwise the run says
+    so in its log and has no decode outputs.
 
     A module of at least `_KEEP_MODULE_MIN_BYTES` is kept on the device across
     runs (see `integration_tests/device/deploy.py`) and goes over with
@@ -279,20 +287,36 @@ def run_module_on_device(
         setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
         timings=timings,
     )
-    if input_files:
-        adb.push(input_files, remote_dir + "/")
+    local_output_dir.mkdir(parents=True, exist_ok=True)
+    push_files = [path for call in calls for path in call.input_files]
+    if prefill_decode:
+        if [call.function for call in calls] != ["prefill", "decode"]:
+            raise ValueError(f"expected prefill and decode calls, got {calls}")
+        if tracy_port is not None:
+            raise ValueError("profiling a prefill/decode run is not supported")
+            # FIXME this would involve attaching 2 tracy-captures  one for prefill and one for decode
+        # The raw bytes of the reference token, to compare with the end of the
+        # .npy prefill writes on device, so that the two .npy headers need not match.
+        token = local_output_dir / _PREFILL_TOKEN
+        token.write_bytes(np.load(calls[0].output_files[0]).tobytes())
+        push_files.append(token)
+    elif len(calls) != 1:
+        raise ValueError(f"expected one call, got {len(calls)}")
+    if push_files:
+        adb.push(push_files, remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start
 
-    argv = [
-        deployment.limit_lifetime,
-        deployment.run_module,
-        "--module=module.vmfb",
-        f"--function={function}",
-        "--device=hexagon",
-    ]
-    argv += [f"--input=@{path.name}" for path in input_files]
-    argv += [f"--output=@{name}" for name in output_names]
-    argv += list(extra_flags)
+    def run_argv(call: ModuleCall) -> list[str]:
+        argv = [
+            deployment.limit_lifetime,
+            deployment.run_module,
+            "--module=module.vmfb",
+            f"--function={call.function}",
+            "--device=hexagon",
+        ]
+        argv += [f"--input=@{path.name}" for path in call.input_files]
+        argv += [f"--output=@{name}" for name in call.output_names]
+        return argv + list(extra_flags)
 
     # adbd runs with oom_score_adj -1000 and its children inherit that, so when
     # memory runs out Android kills system_server, which kills the device instead of the
@@ -309,12 +333,24 @@ def run_module_on_device(
         if debug_malloc
         else ""
     )
-    if tracy_port is None:
-        script += env + shlex.join(argv)
+    # run prefill, compare first token on device, only run decode on match
+    if prefill_decode:
+        prefill, decode = calls
+        token_bytes = (local_output_dir / _PREFILL_TOKEN).stat().st_size
+        script += (
+            f"{env}{shlex.join(run_argv(prefill))} && "
+            f"if tail -c {token_bytes} {prefill.output_names[0]} "
+            f"| cmp -s - {_PREFILL_TOKEN}; "
+            f"then {env}{shlex.join(run_argv(decode))}; "
+            "else echo 'prefill token differs from the reference; decode not run'; fi"
+        )
+    elif tracy_port is None:
+        script += env + shlex.join(run_argv(calls[0]))
     else:
-        script += _capture_script(deployment, env + shlex.join(argv), tracy_port)
+        script += _capture_script(
+            deployment, env + shlex.join(run_argv(calls[0])), tracy_port
+        )
 
-    local_output_dir.mkdir(parents=True, exist_ok=True)
     adb.logcat_clear()
     run_start = time.time()
     exit_code, log = adb.shell_exit_code(script, timeout=timeout)
@@ -322,7 +358,7 @@ def run_module_on_device(
     logcat = adb.logcat_dump()
     pulled: list[Path] = []
     pull_start = time.time()
-    for name in output_names:
+    for name in (name for call in calls for name in call.output_names):
         remote_output = f"{remote_dir}/{name}"
         local_output = local_output_dir / name
         # Outputs are pulled one at a time and a miss is tolerated: when the run
@@ -353,6 +389,9 @@ def run_module_on_device(
         profile_error=profile_error,
     )
 
+
+# The reference token a prefill/decode run compares prefill's with
+_PREFILL_TOKEN = "prefill_reference_token.bin"
 
 # Files the on-device capture and export leave in the case directory.
 _PROFILE_TRACE = "profile.tracy"

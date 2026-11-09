@@ -14,6 +14,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 
+#include <tuple>
+
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 namespace {
 
@@ -130,6 +132,111 @@ determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
       op, budgetBytes, llvm::to_vector_of<int64_t>(parallelDims));
 }
 
+/// Tile candidates for a dimension of static `extent` on an HMX unit with
+/// `hmxTile`-element tiles: every divisor of `extent` that is a multiple of
+/// `hmxTile`, or the whole extent (padded by HMX) if there is none.
+SmallVector<int64_t> getHmxTileCandidates(int64_t extent, int64_t hmxTile) {
+  SmallVector<int64_t> candidates;
+  for (int64_t tile = hmxTile; tile <= extent; tile += hmxTile) {
+    if (extent % tile == 0)
+      candidates.push_back(tile);
+  }
+  if (candidates.empty())
+    candidates.push_back(extent);
+  return candidates;
+}
+
+/// Returns VTCM tile sizes for an HMX matmul root, or std::nullopt if `op` is
+/// not a contraction with one static M, N and K dimension each and no batch
+/// dimension. Batch matmuls keep hexagon-mlir's tiles: with a unit batch tile,
+/// HMX lowering vectorizes the accumulator fill at the whole M x N tile.
+///
+/// M and N tiles are HMX-aligned divisors of their extents and K is staged
+/// whole. The tile with the least DDR <-> VTCM traffic wins:
+/// an operand whose dimensions are all untiled is the same in every iteration,
+/// so it is copied once and not double-buffered (keeping M whole does this for
+/// the LHS). Footprints follow hexagon-mlir's model, per operand the product of
+/// the tile extents its indexing map reads times its element size.
+///
+/// Tiles within the budget win over tiles that overrun it. A deep K can leave
+/// no HMX-aligned tile within the budget, so overrunning it is allowed up to
+/// a fixed factor: the budget is not the VTCM size, and the runtime only runs
+/// a dispatch that declares more with fewer others at the same time.
+std::optional<SmallVector<int64_t>>
+selectHmxTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
+  // collect m and n dims
+  FailureOr<linalg::ContractionDimensions> dimensions =
+      linalg::inferContractionDims(op);
+  if (failed(dimensions) || dimensions->m.size() != 1 ||
+      dimensions->n.size() != 1 || dimensions->k.empty() ||
+      !dimensions->batch.empty())
+    return std::nullopt;
+  SmallVector<int64_t> ranges = op.getStaticLoopRanges();
+  if (llvm::any_of(ranges, ShapedType::isDynamic))
+    return std::nullopt;
+
+  unsigned m = dimensions->m.front();
+  unsigned n = dimensions->n.front();
+  SmallVector<int64_t> tiles(ranges);
+
+  // The planning budget is halved for double buffering; this search counts
+  // the second buffers per operand instead.
+  const bool doubleBuffering = context.options.doubleBuffering;
+  const int64_t budgetBytes =
+      context.options.vtcmTileBudgetBytes * (doubleBuffering ? 2 : 1);
+  // if a double buffered tile does not fit HMX: allow overrun:
+  // "steal" vtcm from other dispatches, since the HMX part is on the critical
+  // path rt will manage vtcm and dont start other dispatches, if they dont fit
+  constexpr int64_t kMaxBudgetOverrun = 2;
+
+  std::optional<SmallVector<int64_t>> best;
+  // to compare against other tiles in order:
+  // in_budget, memory_traffic, num_tiles, N
+  std::tuple<bool, int64_t, int64_t, int64_t> bestRank;
+  for (int64_t mTile : getHmxTileCandidates(ranges[m], context.target.hmxM)) {
+    for (int64_t nTile : getHmxTileCandidates(ranges[n], context.target.hmxN)) {
+      tiles[m] = mTile;
+      tiles[n] = nTile;
+      int64_t numTiles = 1;
+      // collect metrict to compare against other tiles
+      // num tiles
+      for (auto [range, tile] : llvm::zip_equal(ranges, tiles))
+        numTiles *= range / tile;
+      int64_t vtcmBytes = 0, trafficBytes = 0;
+      // memory footprint and traffic
+      for (auto [map, type] :
+           llvm::zip_equal(op.getIndexingMapsArray(), op->getOperandTypes())) {
+        int64_t bytes = *::mlir::hexagon::getElementSizeInBytes(type);
+        for (AffineExpr expression : map.getResults()) {
+          if (auto dim = dyn_cast<AffineDimExpr>(expression))
+            bytes *= tiles[dim.getPosition()];
+        }
+        // The operand's tile is the same in every iteration if every
+        // dimension it reads is untiled.
+        bool invariant =
+            llvm::all_of(map.getResults(), [&](AffineExpr expression) {
+              auto dim = dyn_cast<AffineDimExpr>(expression);
+              return !dim ||
+                     tiles[dim.getPosition()] == ranges[dim.getPosition()];
+            });
+        // count invariant tiles only once
+        vtcmBytes += (doubleBuffering && !invariant) ? 2 * bytes : bytes;
+        trafficBytes += invariant ? bytes : bytes * numTiles;
+      }
+      if (vtcmBytes > kMaxBudgetOverrun * budgetBytes)
+        continue; // too large
+      // Ties in traffic prefer fewer tiles, then the larger N.
+      auto rank = std::make_tuple(vtcmBytes > budgetBytes, trafficBytes,
+                                  numTiles, -nTile);
+      if (best && rank >= bestRank)
+        continue;
+      best = tiles;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
 } // namespace
 
 LogicalResult planVTCMTiling(const PlanningContext &context,
@@ -159,12 +266,16 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
         Twine("failed to derive required VTCM tile sizes: ") + *reason,
         *reason);
   }
-  // The VTCM layout policy remains owned by the Hexagon lowering utility,
-  // searching within the tile budget from the planning options; this planning
-  // stage only restricts it to tiles the VTCM tiling pass can realize, and
-  // records the result in the dispatch plan.
-  std::optional<SmallVector<int64_t>> tileSizes =
-      determineStagedTileSizes(context, linalgOp);
+  // HMX matmuls get HMX-aligned tiles from this stage. Otherwise the VTCM
+  // layout policy remains owned by the Hexagon lowering utility, searching
+  // within the tile budget from the planning options; this planning stage only
+  // restricts it to tiles the VTCM tiling pass can realize, and records the
+  // result in the dispatch plan.
+  std::optional<SmallVector<int64_t>> tileSizes;
+  if (contract.hmx != LoopTilingScope::Unused)
+    tileSizes = selectHmxTileSizes(context, linalgOp);
+  if (!tileSizes)
+    tileSizes = determineStagedTileSizes(context, linalgOp);
   if (!tileSizes) {
     return handleUnavailableVTCM(
         context, dispatchShape, contract,

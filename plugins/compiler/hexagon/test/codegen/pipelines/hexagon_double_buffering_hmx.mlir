@@ -1,5 +1,5 @@
-// Double buffering in the HmxMatmulExpert pipeline. With the VTCM budget
-// halved for the second buffers, the matmul is tiled in M and N: the B tile
+// Double buffering in the HmxMatmulExpert pipeline. The 1 MiB VTCM budget is
+// too small to keep M whole, so the matmul is tiled in M and N: the B tile
 // and the output tile of the inner (N) loop are double-buffered. The A tile of
 // the outer (M) loop is double-buffered too, unless outer tile loops are
 // disabled; then it stays a synchronous copy. The HMX ops take the buffer
@@ -8,7 +8,7 @@
 
 // RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling --iree-hexagon-enable-hmx-matmul \
-// RUN:   --iree-hexagon-enable-double-buffering \
+// RUN:   --iree-hexagon-enable-double-buffering --iree-hexagon-vtcm-tile-budget-bytes=1048576 \
 // RUN:   --iree-hexagon-double-buffer-outer-tile-loops=false \
 // RUN:   --pass-pipeline='builtin.module(hal.executable(hal.executable.variant(builtin.module(iree-hexagon-select-lowering-strategy, func.func(iree-hexagon-lower-executable-target)))))' \
 // RUN:   --mlir-print-ir-after=iree-hexagon-pipeline-vtcm-transfers \
@@ -16,7 +16,7 @@
 
 // RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling --iree-hexagon-enable-hmx-matmul \
-// RUN:   --iree-hexagon-enable-double-buffering \
+// RUN:   --iree-hexagon-enable-double-buffering --iree-hexagon-vtcm-tile-budget-bytes=1048576 \
 // RUN:   --iree-hexagon-double-buffer-outer-tile-loops \
 // RUN:   --pass-pipeline='builtin.module(hal.executable(hal.executable.variant(iree-hexagon-configuration-pipeline, iree-hexagon-translation-pipeline)))' \
 // RUN:   %s | FileCheck %s --check-prefix=LLVM

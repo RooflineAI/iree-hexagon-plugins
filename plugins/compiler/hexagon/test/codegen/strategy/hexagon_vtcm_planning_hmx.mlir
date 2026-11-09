@@ -31,9 +31,9 @@ func.func @hmx_batch_matmul_preserves_batch_tile(%lhs: tensor<4x32x32xf16>, %rhs
 
 #target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
-// VTCM tiling stages K whole. hexagon-mlir's footprint search alone would fit
-// this matmul (Qwen3-ASR's audio projection) by halving K, so planning reruns
-// the search over M and N only and keeps K = 7680.
+// VTCM tiling stages K whole. HMX planning keeps K = 7680 and picks the
+// HMX-aligned M/N tile with the least DDR <-> VTCM traffic within the budget
+// (Qwen3-ASR's audio projection): M = 52 stays whole, so the LHS is copied once.
 func.func @hmx_deep_k_keeps_reduction_whole(%lhs: tensor<52x7680xf16>, %rhs: tensor<896x7680xf16>) -> tensor<52x896xf32> attributes {hal.executable.target = #target} {
   %zero = arith.constant 0.0 : f32
   %empty = tensor.empty() : tensor<52x896xf32>
@@ -41,7 +41,47 @@ func.func @hmx_deep_k_keeps_reduction_whole(%lhs: tensor<52x7680xf16>, %rhs: ten
   %result = linalg.matmul indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>] ins(%lhs, %rhs : tensor<52x7680xf16>, tensor<896x7680xf16>) outs(%init : tensor<52x896xf32>) -> tensor<52x896xf32>
   return %result : tensor<52x896xf32>
 }
-// CHECK-DAG: #[[DEEP_K_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [{{[0-9]+}}, {{[0-9]+}}, 7680]>
+// CHECK-DAG: #[[DEEP_K_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [52, 32, 7680]>
 // CHECK: func.func @hmx_deep_k_keeps_reduction_whole(
 // CHECK: linalg.matmul
 // CHECK-SAME: lowering_config = #[[DEEP_K_ROOT]]
+
+// -----
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+
+// With K = 9728 staged whole (Qwen3-4B's down projection), no HMX-aligned tile
+// fits the VTCM budget, so planning overruns the budget for the HMX-aligned
+// tile with the least DDR <-> VTCM traffic. Keeping M whole makes the LHS
+// loop-invariant: it is copied once and not double-buffered.
+func.func @hmx_deep_k_overruns_budget(%lhs: tensor<128x9728xf16>, %rhs: tensor<2560x9728xf16>) -> tensor<128x2560xf16> attributes {hal.executable.target = #target} {
+  %zero = arith.constant 0.0 : f16
+  %empty = tensor.empty() : tensor<128x2560xf16>
+  %init = linalg.fill ins(%zero : f16) outs(%empty : tensor<128x2560xf16>) -> tensor<128x2560xf16>
+  %result = linalg.matmul indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>] ins(%lhs, %rhs : tensor<128x9728xf16>, tensor<2560x9728xf16>) outs(%init : tensor<128x2560xf16>) -> tensor<128x2560xf16>
+  return %result : tensor<128x2560xf16>
+}
+// CHECK-DAG: #[[OVERRUN_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [128, 32, 9728]>
+// CHECK: func.func @hmx_deep_k_overruns_budget(
+// CHECK: linalg.matmul
+// CHECK-SAME: lowering_config = #[[OVERRUN_ROOT]]
+
+// -----
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+
+// The budget may be overrun by at most 2x. With K = 32768 staged whole, every
+// HMX-aligned tile needs more: [32, 32] takes 8 MiB double-buffered, and
+// keeping M whole takes 4 MiB for the LHS alone. Planning falls back to
+// hexagon-mlir's footprint search instead of overrunning further.
+func.func @hmx_overrun_is_capped(%lhs: tensor<64x32768xf16>, %rhs: tensor<64x32768xf16>) -> tensor<64x64xf16> attributes {hal.executable.target = #target} {
+  %zero = arith.constant 0.0 : f16
+  %empty = tensor.empty() : tensor<64x64xf16>
+  %init = linalg.fill ins(%zero : f16) outs(%empty : tensor<64x64xf16>) -> tensor<64x64xf16>
+  %result = linalg.matmul indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>] ins(%lhs, %rhs : tensor<64x32768xf16>, tensor<64x32768xf16>) outs(%init : tensor<64x64xf16>) -> tensor<64x64xf16>
+  return %result : tensor<64x64xf16>
+}
+// CHECK-DAG: #[[CAPPED_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [4, 8, 32768]>
+// CHECK: func.func @hmx_overrun_is_capped(
+// CHECK: linalg.matmul
+// CHECK-SAME: lowering_config = #[[CAPPED_ROOT]]

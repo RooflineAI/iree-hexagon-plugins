@@ -18,7 +18,8 @@ LogicalResult initHexagonLaunchConfig(FunctionOpInterface funcOp) {
   // Double buffering allocates a second buffer for every staged operand.
   // Halving the budget is conservative: loop-invariant operands are not
   // doubled.
-  if (isHexagonDoubleBufferingEnabled())
+  options.doubleBuffering = isHexagonDoubleBufferingEnabled();
+  if (options.doubleBuffering)
     options.vtcmTileBudgetBytes /= 2;
   options.enableHmxMatmul = isHexagonHmxMatmulEnabled();
   return planning::configureDispatch(funcOp, options);

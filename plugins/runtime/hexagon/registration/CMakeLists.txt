@@ -47,4 +47,24 @@ endif()
 if(IREE_HEXAGON_ANDROID_BUILD)
 endif()
 
+if(IREE_HEXAGON_ANDROID_BUILD)
+iree_cc_library(
+  NAME
+    iree_hal_hexagon
+  DEPS
+    ::DriverModuleLib
+  LINKOPTS
+    "-Wl,-u,iree_hal_hexagon_driver_module_register"
+    "-Wl,--unresolved-symbols=ignore-all"
+  SHARED
+)
+
+iree_package_name(_PACKAGE_NAME)
+if(TARGET ${_PACKAGE_NAME}_iree_hal_hexagon)
+set_target_properties(${_PACKAGE_NAME}_iree_hal_hexagon PROPERTIES
+  OUTPUT_NAME "iree_hal_hexagon"
+)
+endif()
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

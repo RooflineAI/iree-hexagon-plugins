@@ -88,6 +88,7 @@ The zip contains:
 | `bin/iree-benchmark-module` | Same, for benchmarking. |
 | `lib/hexagon/libhexagon_dsp_skel.so` | The DSP-side runtime. |
 | `lib/libc++_shared.so` | NDK C++ runtime, required to match the build. |
+| `lib/libiree_hal_hexagon.so` | The Hexagon HAL driver as a dynamically loadable plugin (`IREE_DYNAMIC_HAL`), for other programs. Not needed by the tools above. |
 
 ### Push the model
 

@@ -79,6 +79,14 @@ no separate runtime plugin `.so` to load:
   Shared C++ library from the Android NDK used for building. The Android NDK
   docs state that the exact C++ library used for building has to be used for
   executing the binary.
+- `lib/libiree_hal_hexagon.so`:
+  The ARM host part of the Hexagon runtime as a dynamically loadable HAL driver,
+  for programs other than the bundled tools:
+  `IREE_DYNAMIC_HAL=hexagon=/path/to/lib/libiree_hal_hexagon.so`.
+  It uses the IREE runtime of the loading program, which has to be linked with
+  `-Wl,--export-dynamic` and built from a compatible IREE version. The driver
+  looks for the DSP part relative to the program, in
+  `<program dir>/../lib/hexagon/`.
 
 ## Deployment
 

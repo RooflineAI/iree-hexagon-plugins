@@ -221,6 +221,8 @@ build_android_tree() {
 }
 build_android_tree "${BUILD_ROOT}/android" 0
 build_android_tree "${BUILD_ROOT}/android-tracy" 1
+DRIVER_SO_REL="runtime/plugins/iree_hexagon_plugins/plugins/runtime/hexagon/registration/libiree_hal_hexagon.so"
+ls -l "${BUILD_ROOT}/android/${DRIVER_SO_REL}" "${BUILD_ROOT}/android-tracy/${DRIVER_SO_REL}"
 
 # --- Android tracy-capture and tracy-csvexport, for the Tracy runtime package
 # (see build_tools/cmake/tracy_tools/CMakeLists.txt) --------------------------
@@ -257,12 +259,14 @@ package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android.zip" \
   "bin/iree-run-module" "${BUILD_ROOT}/android/tools/iree-run-module" \
   "bin/iree-benchmark-module" "${BUILD_ROOT}/android/tools/iree-benchmark-module" \
   "lib/libc++_shared.so" "${LIBCXX_SHARED}" \
+  "lib/libiree_hal_hexagon.so" "${BUILD_ROOT}/android/${DRIVER_SO_REL}" \
   "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO}"
 
 package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android_tracy.zip" \
   "bin/iree-run-module" "${BUILD_ROOT}/android-tracy/tools/iree-run-module" \
   "bin/iree-benchmark-module" "${BUILD_ROOT}/android-tracy/tools/iree-benchmark-module" \
   "lib/libc++_shared.so" "${LIBCXX_SHARED}" \
+  "lib/libiree_hal_hexagon.so" "${BUILD_ROOT}/android-tracy/${DRIVER_SO_REL}" \
   "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO_TRACY}" \
   "bin/tracy-capture" "${TRACY_TOOLS_BUILD_DIR}/tracy-capture" \
   "bin/tracy-csvexport" "${TRACY_TOOLS_BUILD_DIR}/tracy-csvexport"

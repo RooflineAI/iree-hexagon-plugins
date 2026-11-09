@@ -126,8 +126,16 @@ pkg_files(
 
 pkg_files(
     name = "hexagon_runtime_lib_files",
-    srcs = ["@android_ndk_detect//:libcxx_shared"],
+    srcs = [
+        "//plugins/runtime/hexagon/registration:iree_hal_hexagon",
+        "@android_ndk_detect//:libcxx_shared",
+    ],
     prefix = "lib",
+    # The driver as a dynamically loadable HAL plugin (IREE_DYNAMIC_HAL), for
+    # programs other than the bundled tools, which link it statically.
+    renames = {
+        "//plugins/runtime/hexagon/registration:iree_hal_hexagon": "libiree_hal_hexagon.so",
+    },
 )
 
 pkg_files(

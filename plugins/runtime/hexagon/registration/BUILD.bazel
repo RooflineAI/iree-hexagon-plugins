@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
 
@@ -37,4 +38,25 @@ cc_library(
         ":DriverModuleLib",
         "//plugins/runtime/hexagon:iree_runtime_libs",
     ],
+)
+
+# Dynamically loadable HAL driver, packaged as lib/libiree_hal_hexagon.so in
+# the runtime zip (see //plugins/runtime/hexagon:hexagon_runtime_lib_files):
+#   IREE_DYNAMIC_HAL=hexagon=/path/libiree_hal_hexagon.so iree-run-module ...
+# Uses IREE header-only (see :DriverModuleLib); the IREE runtime symbols come
+# from the loading program, which must export them (-Wl,--export-dynamic).
+cc_binary(
+    name = "iree_hal_hexagon",
+    # The IREE runtime symbols stay undefined until the loading program
+    # provides them.
+    features = ["allow_all_undefined_symbols"],
+    # Keep the entry point IREE looks up via dlsym, although nothing in the
+    # shared object references it.
+    linkopts = ["-Wl,-u,iree_hal_hexagon_driver_module_register"],
+    linkshared = True,
+    target_compatible_with = select({
+        "//plugins/runtime/hexagon:hexagon_runtime_enabled": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [":DriverModuleLib"],
 )

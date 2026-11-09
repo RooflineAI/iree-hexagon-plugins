@@ -340,6 +340,11 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             # MLIR runtime dependency contains C++. Keep the C++ driver and
             # its runtime libraries for that production shared object.
             linker_language = "CXX" if needs_interface_gen_dep else None
+            if features and "allow_all_undefined_symbols" in features:
+                # Same flag as the Bazel aarch64_android toolchain feature.
+                linkopts = list(linkopts or []) + [
+                    "-Wl,--unresolved-symbols=ignore-all"
+                ]
             if features and "-default_cpp_link" in features:
                 # CMake emits target_link_options before object files. Static
                 # archives there would be scanned too early and leave their
@@ -804,11 +809,10 @@ class CustomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         # unconditionally true there and irrelevant elsewhere.
         if constraint_label.endswith("android_ndk_detect//:android_ndk_available"):
             return "TRUE"
-        # Gates a packaging-only copy_file() (already a no-op, see
-        # pkg_files/pkg_zip/copy_file above); same rationale as
-        # android_ndk_available.
+        # aarch64 + Android: only the dedicated Android cross-build tree (see
+        # root CMakeLists.txt) builds targets gated on it.
         if constraint_label.endswith("plugins/runtime/hexagon:hexagon_runtime_enabled"):
-            return "TRUE"
+            return "IREE_HEXAGON_ANDROID_BUILD"
         # Bazel --define=hexagon_playground_profiler=true opt-in flag with no
         # CMake equivalent yet; map to a dedicated cache option (declared in
         # plugins/iree_runtime_plugin.cmake), defaulting to the same

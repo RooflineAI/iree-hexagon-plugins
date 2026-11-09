@@ -102,6 +102,9 @@ struct PlanningOptions {
   bool enableVTCM;
   /// VTCM bytes the root VTCM tile search may use.
   int64_t vtcmTileBudgetBytes;
+  /// Whether VTCM tile loops are double-buffered. `vtcmTileBudgetBytes` is
+  /// then already halved.
+  bool doubleBuffering = false;
   bool enableHmxMatmul;
 };
 

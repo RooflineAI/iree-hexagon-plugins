@@ -1,0 +1,751 @@
+diff --git a/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.cpp b/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.cpp
+index 2dcd0b0fe5..bf0f98c601 100644
+--- a/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.cpp
++++ b/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.cpp
+@@ -14,6 +14,7 @@
+ #include "iree/compiler/Dialect/LinalgExt/IR/LinalgExtOps.h"
+ #include "iree/compiler/Dialect/LinalgExt/Utils/Utils.h"
+ #include "iree/compiler/Dialect/TensorExt/IR/TensorExtOps.h"
++#include "iree/compiler/Dialect/Util/IR/UtilOps.h"
+ #include "iree/compiler/Dialect/Util/IR/UtilTypes.h"
+ #include "iree/compiler/Utils/RegionOpUtils.h"
+ #include "llvm/ADT/STLExtras.h"
+@@ -34,6 +35,7 @@
+ #include "mlir/IR/Block.h"
+ #include "mlir/IR/BuiltinTypes.h"
+ #include "mlir/IR/Dominance.h"
++#include "mlir/IR/Matchers.h"
+ #include "mlir/IR/Value.h"
+ #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+ #include "mlir/Transforms/RegionUtils.h"
+@@ -1035,6 +1037,82 @@ hasUnfusableUseInDispatch(Value v, Operation *dispatchOp,
+   return false;
+ }
+ 
++static int64_t getStaticTensorBytes(Type type) {
++  auto tensorType = dyn_cast<RankedTensorType>(type);
++  if (!tensorType || !tensorType.hasStaticShape()) {
++    return 0;
++  }
++  return IREE::Util::getRoundedPhysicalStorageSize(tensorType);
++}
++
++int64_t getDispatchBindingBytes(ArrayRef<Operation *> ops,
++                                ArrayRef<Operation *> clonedOps) {
++  llvm::SmallPtrSet<Operation *, 8> opSet(ops.begin(), ops.end());
++  opSet.insert(clonedOps.begin(), clonedOps.end());
++  auto isInside = [&](Operation *op) {
++    for (; op; op = op->getParentOp()) {
++      if (opSet.contains(op)) {
++        return true;
++      }
++    }
++    return false;
++  };
++
++  // Loads of the same global bind the same storage, so they are keyed by the
++  // global instead of the loaded value.
++  llvm::DenseSet<const void *> countedInputs;
++  int64_t bytes = 0;
++  auto countInput = [&](Value value) {
++    Operation *definingOp = value.getDefiningOp();
++    if (definingOp && isInside(definingOp)) {
++      return;
++    }
++    SplatElementsAttr splatAttr;
++    if (isa_and_nonnull<tensor::EmptyOp, linalg::FillOp>(definingOp) ||
++        matchPattern(value, m_Constant(&splatAttr))) {
++      return;
++    }
++    const void *key = value.getAsOpaquePointer();
++    if (auto loadOp = dyn_cast_if_present<IREE::Util::GlobalLoadOpInterface>(
++            definingOp)) {
++      key = loadOp.getGlobalAttr().getAsOpaquePointer();
++    }
++    if (countedInputs.insert(key).second) {
++      bytes += getStaticTensorBytes(value.getType());
++    }
++  };
++
++  for (Operation *op : llvm::concat<Operation *const>(ops, clonedOps)) {
++    for (Value operand : op->getOperands()) {
++      countInput(operand);
++    }
++    mlir::visitUsedValuesDefinedAbove(
++        op->getRegions(), [&](OpOperand *use) { countInput(use->get()); });
++  }
++  // Cloned ops stay in place for their other users, so only the results of
++  // `ops` are written by the dispatch.
++  for (Operation *op : ops) {
++    for (OpResult result : op->getResults()) {
++      if (llvm::any_of(result.getUsers(),
++                       [&](Operation *user) { return !isInside(user); })) {
++        bytes += getStaticTensorBytes(result.getType());
++      }
++    }
++  }
++  return bytes;
++}
++
++bool wouldExceedDispatchBindingBytes(ArrayRef<Operation *> ops,
++                                     int64_t maxBindingBytes,
++                                     int64_t baselineBytes,
++                                     ArrayRef<Operation *> clonedOps) {
++  if (maxBindingBytes <= 0) {
++    return false;
++  }
++  int64_t bytes = getDispatchBindingBytes(ops, clonedOps);
++  return bytes > maxBindingBytes && bytes > baselineBytes;
++}
++
+ SmallVector<Operation *> getCloneableOps(IREE::Flow::DispatchRegionOp regionOp,
+                                          CloneableIntoDispatchOptions options) {
+   // Find values that are used inside of the dispatch region but defined outside
+@@ -1063,10 +1141,23 @@ SmallVector<Operation *> getCloneableOps(IREE::Flow::DispatchRegionOp regionOp,
+     visited.insert(outsideValue);
+ 
+     Operation *definingOp = outsideValue.getDefiningOp();
++    auto exceedsBindingBytes = [&]() {
++      if (options.maxBindingBytes <= 0) {
++        return false;
++      }
++      SmallVector<Operation *> clonedOps(result);
++      int64_t baselineBytes =
++          getDispatchBindingBytes(regionOp.getOperation(), clonedOps);
++      clonedOps.push_back(definingOp);
++      return wouldExceedDispatchBindingBytes(regionOp.getOperation(),
++                                             options.maxBindingBytes,
++                                             baselineBytes, clonedOps);
++    };
+     if (!definingOp ||
+         !IREE::Flow::isCloneableIntoDispatchOp(definingOp, options) ||
+         hasUnfusableUseInDispatch(outsideValue, regionOp,
+-                                  unfusableInitSources)) {
++                                  unfusableInitSources) ||
++        exceedsBindingBytes()) {
+       valuesDefinedAbove.insert(outsideValue);
+       continue;
+     }
+diff --git a/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.h b/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.h
+index 10a89f41a3..ea68170b36 100644
+--- a/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.h
++++ b/compiler/src/iree/compiler/Dialect/Flow/Transforms/RegionOpUtils.h
+@@ -131,6 +131,9 @@ FailureOr<Flow::DispatchRegionOp> wrapOpInDispatchRegion(RewriterBase &rewriter,
+ /// into a dispatch region.
+ struct CloneableIntoDispatchOptions {
+   bool aggressive = false;
++  // If positive, producers are not cloned into a dispatch region if that would
++  // make it bind more than this many bytes (see getDispatchBindingBytes).
++  int64_t maxBindingBytes = 0;
+ };
+ bool isCloneableIntoDispatchOp(Operation *op,
+                                CloneableIntoDispatchOptions options = {});
+@@ -147,6 +150,27 @@ bool isCloneableIntoDispatchOp(Operation *op,
+ FailureOr<Operation *> hoistOutOfDispatch(RewriterBase &rewriter,
+                                           Operation *op);
+ 
++/// Returns the bytes of the statically shaped tensors that a dispatch formed
++/// from `ops`, with `clonedOps` cloned into it, binds: the tensors that these
++/// ops use, as operands or in their regions, that are defined outside of them,
++/// and the results of `ops` that are used outside of them. Cloned ops remain
++/// for their other users, so their results are never written by the dispatch.
++/// Tensors that do not become bindings (`tensor.empty`, `linalg.fill` and
++/// splat constants) are not counted, loads of the same global are counted
++/// once, and dynamically shaped tensors count as zero bytes.
++int64_t getDispatchBindingBytes(ArrayRef<Operation *> ops,
++                                ArrayRef<Operation *> clonedOps = {});
++
++/// Returns true if `maxBindingBytes` is positive and a dispatch formed from
++/// `ops` and `clonedOps` (see getDispatchBindingBytes) would bind more than
++/// `maxBindingBytes` and more than `baselineBytes`. Fusion sites pass what the
++/// dispatch would bind without the fusion as the baseline, so a fusion that
++/// does not grow a dispatch already over the limit is still allowed.
++bool wouldExceedDispatchBindingBytes(ArrayRef<Operation *> ops,
++                                     int64_t maxBindingBytes,
++                                     int64_t baselineBytes = 0,
++                                     ArrayRef<Operation *> clonedOps = {});
++
+ /// Collect all ops that should be cloned into the given dispatch region op.
+ SmallVector<Operation *>
+ getCloneableOps(Flow::DispatchRegionOp regionOp,
+diff --git a/compiler/src/iree/compiler/DispatchCreation/CloneProducersIntoDispatchRegions.cpp b/compiler/src/iree/compiler/DispatchCreation/CloneProducersIntoDispatchRegions.cpp
+index d0f706dd16..86f9574093 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/CloneProducersIntoDispatchRegions.cpp
++++ b/compiler/src/iree/compiler/DispatchCreation/CloneProducersIntoDispatchRegions.cpp
+@@ -34,6 +34,7 @@ struct CloneProducersIntoDispatchRegionsPass final
+ 
+     IREE::Flow::CloneableIntoDispatchOptions options;
+     options.aggressive = aggressive;
++    options.maxBindingBytes = maxBindingBytes;
+     funcOp->walk([&](IREE::Flow::DispatchRegionOp regionOp) {
+       if (failed(cloneProducersToRegion(rewriter, regionOp, options))) {
+         return signalPassFailure();
+diff --git a/compiler/src/iree/compiler/DispatchCreation/ElementwiseOpFusion.cpp b/compiler/src/iree/compiler/DispatchCreation/ElementwiseOpFusion.cpp
+index 77a85aa939..5f3ecfb6ac 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/ElementwiseOpFusion.cpp
++++ b/compiler/src/iree/compiler/DispatchCreation/ElementwiseOpFusion.cpp
+@@ -228,6 +228,17 @@ void ElementwiseOpFusionPass::runOnOperation() {
+         if (operands.size() >= kIreeMaxOperandCount) {
+           return false;
+         }
++        // Likewise for the bytes a dispatch binds. Fusion within a dispatch
++        // does not change what the dispatch binds.
++        if (!intraDispatch && maxBindingBytes > 0) {
++          int64_t baselineBytes =
++              std::max(IREE::Flow::getDispatchBindingBytes(producer),
++                       IREE::Flow::getDispatchBindingBytes(consumer));
++          if (IREE::Flow::wouldExceedDispatchBindingBytes(
++                  {producer, consumer}, maxBindingBytes, baselineBytes)) {
++            return false;
++          }
++        }
+ 
+         ElementwiseOpsFusabilityOptions options;
+         options.fuseMultiReduction = fuseMultiReduction;
+diff --git a/compiler/src/iree/compiler/DispatchCreation/FormDispatchRegions.cpp b/compiler/src/iree/compiler/DispatchCreation/FormDispatchRegions.cpp
+index fdefa55e9c..17b8a2045e 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/FormDispatchRegions.cpp
++++ b/compiler/src/iree/compiler/DispatchCreation/FormDispatchRegions.cpp
+@@ -81,7 +81,8 @@ namespace {
+ // has no mapping to the root's outer parallel dimensions.
+ class FusionGroup {
+ public:
+-  FusionGroup(Operation *op) : rootOp(op) {
++  FusionGroup(Operation *op, int64_t maxBindingBytes = 0)
++      : rootOp(op), maxBindingBytes(maxBindingBytes) {
+     llvm::SmallBitVector loops = getOuterParallelLoops(op);
+     auto map = AffineMap::getFilteredIdentityMap(
+         op->getContext(), loops.size(), [&](AffineDimExpr dimExpr) {
+@@ -188,11 +189,14 @@ public:
+                         });
+   }
+ 
+-  // Check if adding `op` would exceed the operand limit.
++  // Check if adding `op` would exceed the operand limit, or make the
++  // dispatch bind more than `maxBindingBytes`.
+   bool wouldExceedOperandLimit(Operation *op) const;
+ 
+ private:
+   Operation *rootOp;
++  // If positive, the most bytes the dispatch may bind.
++  int64_t maxBindingBytes;
+   // All operations to be fused with the root op. This does not include
+   // `rootOp`.
+   llvm::MapVector<Operation *, AffineMap> loopMaps;
+@@ -252,7 +256,20 @@ bool FusionGroup::wouldExceedOperandLimit(Operation *newOp) const {
+   for (auto [op, map] : this->loopMaps) {
+     visitOp(op);
+   }
+-  return (dispatchOperands.size() + numResults) > kIreeMaxOperandCount;
++  if ((dispatchOperands.size() + numResults) > kIreeMaxOperandCount) {
++    return true;
++  }
++  if (maxBindingBytes <= 0) {
++    return false;
++  }
++  SmallVector<Operation *> dispatchOps =
++      llvm::to_vector(llvm::make_first_range(loopMaps));
++  int64_t baselineBytes =
++      std::max(IREE::Flow::getDispatchBindingBytes(dispatchOps),
++               IREE::Flow::getDispatchBindingBytes(newOp));
++  dispatchOps.push_back(newOp);
++  return IREE::Flow::wouldExceedDispatchBindingBytes(
++      dispatchOps, maxBindingBytes, baselineBytes);
+ }
+ 
+ FailureOr<AffineMap>
+@@ -266,9 +283,12 @@ namespace {
+ /// Tracks all the FusionGroups for the program.
+ class FusionTracker {
+ public:
++  explicit FusionTracker(int64_t maxBindingBytes = 0)
++      : maxBindingBytes(maxBindingBytes) {}
++
+   /// Create a new fusion group with `op` as the root.
+   FusionGroup &createFusionGroup(MLIRContext *ctx, Operation *op) {
+-    fusionGroups.push_back(std::make_unique<FusionGroup>(op));
++    fusionGroups.push_back(std::make_unique<FusionGroup>(op, maxBindingBytes));
+     opToGroup[op] = fusionGroups.back().get();
+     return *fusionGroups.back();
+   }
+@@ -300,6 +320,7 @@ public:
+   }
+ 
+ private:
++  int64_t maxBindingBytes;
+   SmallVector<std::unique_ptr<FusionGroup>> fusionGroups;
+   DenseMap<Operation *, FusionGroup *> opToGroup;
+ };
+@@ -1200,7 +1221,7 @@ createFusionGroups(TensorDimTrackingRewriter &rewriter,
+                    DominanceInfo &dominanceInfo,
+                    FormDispatchRegionsPassOptions const &options) {
+   // Step 1: Decide fusion groups (heuristic).
+-  FusionTracker tracker;
++  FusionTracker tracker(options.maxBindingBytes);
+   decideFusableLinalgOps(funcOp.getFunctionBody(), dominanceInfo, options,
+                          tracker);
+ 
+@@ -1330,7 +1351,8 @@ void FormDispatchRegionsPass::runOnOperation() {
+                                          fusePadWithConsumers,
+                                          fusePadWithProducers,
+                                          fuseMmt4d,
+-                                         fuseDataTiledConvolution};
++                                         fuseDataTiledConvolution,
++                                         maxBindingBytes};
+   if (failed(createFusionGroups(rewriter, funcOp, dominanceInfo, options))) {
+     funcOp->emitOpError("failed to create fusion groups");
+     return signalPassFailure();
+diff --git a/compiler/src/iree/compiler/DispatchCreation/FuseMultiUseElementwiseProducer.cpp b/compiler/src/iree/compiler/DispatchCreation/FuseMultiUseElementwiseProducer.cpp
+index 0b77919bb9..5edd659291 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/FuseMultiUseElementwiseProducer.cpp
++++ b/compiler/src/iree/compiler/DispatchCreation/FuseMultiUseElementwiseProducer.cpp
+@@ -222,6 +222,22 @@ static FailureOr<unsigned> fuseMultiUseProducers(
+             continue;
+           }
+ 
++          // 10. Do not let the fused ops bind more bytes than allowed.
++          if (!options.intraDispatch && options.maxBindingBytes > 0) {
++            SmallVector<Operation *> dispatchOps = {genericOp};
++            if (auto it = fusedOps.find(genericOp); it != fusedOps.end()) {
++              llvm::append_range(dispatchOps, it->second);
++            }
++            int64_t baselineBytes = std::max(
++                IREE::Flow::getDispatchBindingBytes(dispatchOps),
++                IREE::Flow::getDispatchBindingBytes(producer.getOperation()));
++            dispatchOps.push_back(producer);
++            if (IREE::Flow::wouldExceedDispatchBindingBytes(
++                    dispatchOps, options.maxBindingBytes, baselineBytes)) {
++              continue;
++            }
++          }
++
+           fusableProducer = producer;
+           break;
+         }
+@@ -272,8 +288,8 @@ struct FuseMultiUseElementwiseProducerPass final
+ void FuseMultiUseElementwiseProducerPass::runOnOperation() {
+   Operation *funcOp = getOperation();
+   MLIRContext *context = funcOp->getContext();
+-  FuseMultiUseElementwiseProducerPassOptions options{intraDispatch,
+-                                                     numIterations};
++  FuseMultiUseElementwiseProducerPassOptions options{
++      intraDispatch, numIterations, maxBindingBytes};
+ 
+   // Run fusion of producer with consumer when producer has multiple uses.
+   // For now run this sequence a fixed times (2 by default). Ideally we
+diff --git a/compiler/src/iree/compiler/DispatchCreation/Passes.cpp b/compiler/src/iree/compiler/DispatchCreation/Passes.cpp
+index 3ad0152248..2cb633cbde 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/Passes.cpp
++++ b/compiler/src/iree/compiler/DispatchCreation/Passes.cpp
+@@ -46,6 +46,15 @@ static llvm::cl::opt<bool> clEnableFuseHorizontalContractions(
+         "Enables horizontal fusion of contractions with one common operand"),
+     llvm::cl::init(false));
+ 
++static llvm::cl::opt<int64_t> clMaxDispatchBindingBytes(
++    "iree-dispatch-creation-max-dispatch-binding-bytes",
++    llvm::cl::desc(
++        "If positive, operations are not fused into a dispatch if that would "
++        "make it bind more than this many bytes of statically shaped tensors. "
++        "For targets that must keep all bindings of a dispatch mapped at "
++        "once in a limited address space."),
++    llvm::cl::init(0));
++
+ static llvm::cl::opt<bool> clExperimentalMultiUseEncodingFusion(
+     "iree-dispatch-creation-experimental-multi-use-encoding-fusion",
+     llvm::cl::desc(
+@@ -165,7 +174,8 @@ static void addDispatchRegionCreationPreprocessingPasses(
+                 /*intraDispatch=*/false,
+                 /*fuseMultiReduction=*/clEnableElementWiseFuseMultiReduction,
+                 /*fuseTruncateOps=*/clEnableEarlyTruncFusion,
+-                /*fuseBroadcastOps=*/false});
++                /*fuseBroadcastOps=*/false,
++                /*maxBindingBytes=*/clMaxDispatchBindingBytes});
+       })
+       .addPass(IREE::Flow::createCanonicalizePass)
+       .addPass(mlir::createCSEPass)
+@@ -191,7 +201,8 @@ static void addDispatchRegionCreationPreprocessingPasses(
+                 /*intraDispatch=*/false,
+                 /*fuseMultiReduction=*/clEnableElementWiseFuseMultiReduction,
+                 /*fuseTruncateOps=*/clEnableEarlyTruncFusion,
+-                /*fuseBroadcastOps=*/false});
++                /*fuseBroadcastOps=*/false,
++                /*maxBindingBytes=*/clMaxDispatchBindingBytes});
+       })
+       .addPass(IREE::Flow::createCanonicalizePass)
+       .addPass(mlir::createCSEPass)
+@@ -214,7 +225,12 @@ static void addDispatchRegionCreationPreprocessingPasses(
+       //    even if the producer has multiple uses.
+       .addPredicatedPass(
+           dispatchOptions.enableFuseMultiUse,
+-          DispatchCreation::createFuseMultiUseElementwiseProducerPass)
++          []() {
++            FuseMultiUseElementwiseProducerPassOptions options;
++            options.maxBindingBytes = clMaxDispatchBindingBytes;
++            return DispatchCreation::createFuseMultiUseElementwiseProducerPass(
++                options);
++          })
+ 
+       // 6. Some more "post elementwise fusion passes".
+       .addPass(IREE::Flow::createCanonicalizePass)
+@@ -275,11 +291,12 @@ static void addDispatchRegionCreationPasses(OpPassManager &passManager,
+       // Create `flow.dispatch.region` centered around a root and fuse with
+       // producers and consumers.
+       .addPass([&] {
+-        return DispatchCreation::createFormDispatchRegionsPass(
+-            FormDispatchRegionsPassOptions{
+-                options.enableAggressiveFusion, options.enableFuseMultiUse,
+-                options.enableFusePaddingIntoLinalgConsumerOps,
+-                clEnableFusePaddingIntoLinalgProducerOps});
++        FormDispatchRegionsPassOptions formOptions{
++            options.enableAggressiveFusion, options.enableFuseMultiUse,
++            options.enableFusePaddingIntoLinalgConsumerOps,
++            clEnableFusePaddingIntoLinalgProducerOps};
++        formOptions.maxBindingBytes = clMaxDispatchBindingBytes;
++        return DispatchCreation::createFormDispatchRegionsPass(formOptions);
+       })
+       // Elementwise fuse operations that are iside a dispatch if possible.
+       .addPass([&]() {
+@@ -307,7 +324,8 @@ static void addDispatchRegionCreationPasses(OpPassManager &passManager,
+       .addPass([&] {
+         return DispatchCreation::createCloneProducersIntoDispatchRegionsPass(
+             CloneProducersIntoDispatchRegionsPassOptions{
+-                options.enableAggressiveFusion});
++                options.enableAggressiveFusion,
++                /*maxBindingBytes=*/clMaxDispatchBindingBytes});
+       })
+       // Collapse dimensions of linalg Ops.
+       .addPass(DispatchCreation::createCollapseDimensionsPass)
+diff --git a/compiler/src/iree/compiler/DispatchCreation/Passes.td b/compiler/src/iree/compiler/DispatchCreation/Passes.td
+index 6cd068ed71..a7b98cddd7 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/Passes.td
++++ b/compiler/src/iree/compiler/DispatchCreation/Passes.td
+@@ -113,6 +113,9 @@ def ElementwiseOpFusionPass :
+            "Fuse producer truncate-like operations with consumers">,
+     Option<"fuseBroadcastOps", "fuse-broadcast-ops", "bool",
+            /*default=*/"false", "Fuse broadcast-like ops with producers">,
++    Option<"maxBindingBytes", "max-binding-bytes", "int64_t",
++           /*default=*/"0",
++           "If positive, do not fuse operations into a dispatch that would then bind more than this many bytes of statically shaped tensors">,
+   ];
+   let dependentDialects = [
+     "mlir::affine::AffineDialect",
+@@ -212,7 +215,10 @@ def FuseMultiUseElementwiseProducerPass :
+     Option<"intraDispatch", "intra-dispatch", "bool",
+            /*default=*/"false", "Fuse operations within a dispatch only (default is to fuse only operations outside of a dispatch)">,
+     Option<"numIterations", "num-iterations", "unsigned",
+-           /*default=*/"2", "Number of iterations to fuse multiuse ops">
++           /*default=*/"2", "Number of iterations to fuse multiuse ops">,
++    Option<"maxBindingBytes", "max-binding-bytes", "int64_t",
++           /*default=*/"0",
++           "If positive, do not fuse operations into a dispatch that would then bind more than this many bytes of statically shaped tensors">
+   ];
+   let dependentDialects = [
+     "mlir::affine::AffineDialect",
+@@ -303,6 +309,9 @@ def CloneProducersIntoDispatchRegionsPass :
+     Option<"aggressive", "aggressive", "bool",
+     /*default=*/"false",
+     "Include operations that are cloned only under aggressive fusion mode">,
++    Option<"maxBindingBytes", "max-binding-bytes", "int64_t",
++           /*default=*/"0",
++           "If positive, do not clone producers into a dispatch that would then bind more than this many bytes of statically shaped tensors">,
+   ];
+ }
+ 
+@@ -339,7 +348,10 @@ def FormDispatchRegionsPass :
+     Option<"fuseMmt4d", "fuse-mmt4d", "bool",
+            /*default=*/"false", "Fuse layout-preserving elementwise consumers and the result unpack into mmt4d and batch_mmt4d dispatches">,
+     Option<"fuseDataTiledConvolution", "fuse-data-tiled-convolution", "bool",
+-           /*default=*/"false", "Fuse the result unpack, after layout-preserving elementwise consumers, into data-tiled convolution dispatches">
++           /*default=*/"false", "Fuse the result unpack, after layout-preserving elementwise consumers, into data-tiled convolution dispatches">,
++    Option<"maxBindingBytes", "max-binding-bytes", "int64_t",
++           /*default=*/"0",
++           "If positive, do not fuse operations into a dispatch that would then bind more than this many bytes of statically shaped tensors">
+   ];
+   let description = [{
+     Pass to form dispatch.region ops from Linalg on tensor ops. A dispatch region
+diff --git a/compiler/src/iree/compiler/DispatchCreation/test/BUILD.bazel b/compiler/src/iree/compiler/DispatchCreation/test/BUILD.bazel
+index e612ac9d6b..d42afbdf1a 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/test/BUILD.bazel
++++ b/compiler/src/iree/compiler/DispatchCreation/test/BUILD.bazel
+@@ -22,6 +22,7 @@ iree_lit_test_suite(
+             "bitcast_unsupported_element_types.mlir",
+             "bubble_up_expand_shapes.mlir",
+             "bubble_up_extract_slice.mlir",
++            "clone_producers_binding_byte_limit.mlir",
+             "clone_producers_into_dispatch_regions.mlir",
+             "collapse_contraction_dimensions.mlir",
+             "collapse_contraction_dimensions_scope.mlir",
+@@ -30,6 +31,7 @@ iree_lit_test_suite(
+             "convert_encoding_to_flow.mlir",
+             "convert_region_to_workgroups.mlir",
+             "data_tiled_convolution_fusion.mlir",
++            "dispatch_binding_byte_limit.mlir",
+             "dispatch_block_matmul_producers.mlir",
+             "dispatch_linalg_ext_fusion.mlir",
+             "dispatch_linalg_on_tensors.mlir",
+diff --git a/compiler/src/iree/compiler/DispatchCreation/test/CMakeLists.txt b/compiler/src/iree/compiler/DispatchCreation/test/CMakeLists.txt
+index 4fb08ffa13..cb0374cc52 100644
+--- a/compiler/src/iree/compiler/DispatchCreation/test/CMakeLists.txt
++++ b/compiler/src/iree/compiler/DispatchCreation/test/CMakeLists.txt
+@@ -19,6 +19,7 @@ iree_lit_test_suite(
+     "bitcast_unsupported_element_types.mlir"
+     "bubble_up_expand_shapes.mlir"
+     "bubble_up_extract_slice.mlir"
++    "clone_producers_binding_byte_limit.mlir"
+     "clone_producers_into_dispatch_regions.mlir"
+     "collapse_contraction_dimensions.mlir"
+     "collapse_contraction_dimensions_scope.mlir"
+@@ -27,6 +28,7 @@ iree_lit_test_suite(
+     "convert_encoding_to_flow.mlir"
+     "convert_region_to_workgroups.mlir"
+     "data_tiled_convolution_fusion.mlir"
++    "dispatch_binding_byte_limit.mlir"
+     "dispatch_block_matmul_producers.mlir"
+     "dispatch_linalg_ext_fusion.mlir"
+     "dispatch_linalg_on_tensors.mlir"
+diff --git a/compiler/src/iree/compiler/DispatchCreation/test/clone_producers_binding_byte_limit.mlir b/compiler/src/iree/compiler/DispatchCreation/test/clone_producers_binding_byte_limit.mlir
+new file mode 100644
+index 0000000000..d1cf82cf66
+--- /dev/null
++++ b/compiler/src/iree/compiler/DispatchCreation/test/clone_producers_binding_byte_limit.mlir
+@@ -0,0 +1,46 @@
++// RUN: iree-opt --split-input-file --pass-pipeline="builtin.module(util.func(iree-dispatch-creation-clone-producers-into-dispatch-regions))" %s | FileCheck %s --check-prefix=CLONE
++// RUN: iree-opt --split-input-file --pass-pipeline="builtin.module(util.func(iree-dispatch-creation-clone-producers-into-dispatch-regions{max-binding-bytes=100000}))" %s | FileCheck %s --check-prefix=CLONE-LIMIT
++
++// Each global below is 512x64xf16, 65536 bytes, so a dispatch reading two of
++// them binds more than the 100000 byte limit.
++
++// Cloning the slice into the dispatch would make it bind the whole table
++// instead of the 1 KiB slice, next to the table the dispatch already reads.
++
++#map = affine_map<(d0, d1) -> (d0, d1)>
++util.global private @table0 = dense<1.0> : tensor<512x64xf16>
++util.global private @table1 = dense<2.0> : tensor<512x64xf16>
++util.func public @clone_slice() -> tensor<8x64xf16> {
++  %table0 = util.global.load @table0 : tensor<512x64xf16>
++  %table1 = util.global.load @table1 : tensor<512x64xf16>
++  %slice = tensor.extract_slice %table0[0, 0] [8, 64] [1, 1] : tensor<512x64xf16> to tensor<8x64xf16>
++  %empty = tensor.empty() : tensor<8x64xf16>
++  %0 = flow.dispatch.region -> (tensor<8x64xf16>) {
++    %1 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
++        ins(%slice : tensor<8x64xf16>) outs(%empty : tensor<8x64xf16>) {
++    ^bb0(%in: f16, %out: f16):
++      %i = linalg.index 0 : index
++      %j = linalg.index 1 : index
++      %v = tensor.extract %table1[%i, %j] : tensor<512x64xf16>
++      %add = arith.addf %in, %v : f16
++      linalg.yield %add : f16
++    } -> tensor<8x64xf16>
++    flow.return %1 : tensor<8x64xf16>
++  }
++  util.return %0 : tensor<8x64xf16>
++}
++
++// CLONE-LABEL: util.func public @clone_slice
++//       CLONE:   flow.dispatch.region
++//       CLONE:     tensor.empty
++//       CLONE:     %[[SLICE:.+]] = tensor.extract_slice
++//       CLONE:     linalg.generic
++//  CLONE-SAME:         ins(%[[SLICE]] :
++
++// CLONE-LIMIT-LABEL: util.func public @clone_slice
++//       CLONE-LIMIT:   %[[SLICE:.+]] = tensor.extract_slice
++//       CLONE-LIMIT:   flow.dispatch.region
++//       CLONE-LIMIT:     tensor.empty
++//   CLONE-LIMIT-NOT:     tensor.extract_slice
++//       CLONE-LIMIT:     linalg.generic
++//  CLONE-LIMIT-SAME:         ins(%[[SLICE]] :
+diff --git a/compiler/src/iree/compiler/DispatchCreation/test/dispatch_binding_byte_limit.mlir b/compiler/src/iree/compiler/DispatchCreation/test/dispatch_binding_byte_limit.mlir
+new file mode 100644
+index 0000000000..f2301d28a1
+--- /dev/null
++++ b/compiler/src/iree/compiler/DispatchCreation/test/dispatch_binding_byte_limit.mlir
+@@ -0,0 +1,188 @@
++// RUN: iree-opt --split-input-file --iree-dispatch-creation-elementwise-op-fusion %s | FileCheck %s --check-prefix=FUSE
++// RUN: iree-opt --split-input-file --iree-dispatch-creation-elementwise-op-fusion="max-binding-bytes=100000" %s | FileCheck %s --check-prefix=FUSE-LIMIT
++// RUN: iree-opt --split-input-file --pass-pipeline="builtin.module(util.func(iree-dispatch-creation-fuse-multi-use-elementwise-producer))" %s | FileCheck %s --check-prefix=MULTI
++// RUN: iree-opt --split-input-file --pass-pipeline="builtin.module(util.func(iree-dispatch-creation-fuse-multi-use-elementwise-producer{max-binding-bytes=100000}))" %s | FileCheck %s --check-prefix=MULTI-LIMIT
++// RUN: iree-opt --split-input-file --pass-pipeline="builtin.module(util.func(iree-dispatch-creation-form-dispatch-regions))" %s | FileCheck %s --check-prefix=FORM
++// RUN: iree-opt --split-input-file --pass-pipeline="builtin.module(util.func(iree-dispatch-creation-form-dispatch-regions{max-binding-bytes=100000}))" %s | FileCheck %s --check-prefix=FORM-LIMIT
++
++// Each global below is 512x64xf16, 65536 bytes, so a dispatch reading two of
++// them binds more than the 100000 byte limit.
++
++// An embedding lookup split over two tables (as by
++// iree-global-opt-split-large-constants): elementwise fusion would merge the
++// two lookups into one op reading both tables.
++
++#map = affine_map<(d0, d1) -> (d0)>
++#map1 = affine_map<(d0, d1) -> (d0, d1)>
++util.global private @shard0 = dense<1.0> : tensor<512x64xf16>
++util.global private @shard1 = dense<2.0> : tensor<512x64xf16>
++util.func public @gather_chain(%ids: tensor<8xi64>) -> tensor<8x64xf16> {
++  %c511 = arith.constant 511 : index
++  %c512 = arith.constant 512 : index
++  %shard0 = util.global.load @shard0 : tensor<512x64xf16>
++  %shard1 = util.global.load @shard1 : tensor<512x64xf16>
++  %empty = tensor.empty() : tensor<8x64xf16>
++  %0 = linalg.generic {indexing_maps = [#map, #map1], iterator_types = ["parallel", "parallel"]}
++      ins(%ids : tensor<8xi64>) outs(%empty : tensor<8x64xf16>) {
++  ^bb0(%in: i64, %out: f16):
++    %i = arith.index_cast %in : i64 to index
++    %j = linalg.index 1 : index
++    %clamped = arith.minui %i, %c511 : index
++    %v = tensor.extract %shard0[%clamped, %j] : tensor<512x64xf16>
++    linalg.yield %v : f16
++  } -> tensor<8x64xf16>
++  %1 = linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]}
++      ins(%ids, %0 : tensor<8xi64>, tensor<8x64xf16>) outs(%empty : tensor<8x64xf16>) {
++  ^bb0(%in: i64, %prev: f16, %out: f16):
++    %i0 = arith.index_cast %in : i64 to index
++    %i = arith.subi %i0, %c512 : index
++    %j = linalg.index 1 : index
++    %inShard = arith.cmpi ult, %i, %c512 : index
++    %clamped = arith.minui %i, %c511 : index
++    %v = tensor.extract %shard1[%clamped, %j] : tensor<512x64xf16>
++    %r = arith.select %inShard, %v, %prev : f16
++    linalg.yield %r : f16
++  } -> tensor<8x64xf16>
++  util.return %1 : tensor<8x64xf16>
++}
++
++// FUSE-LABEL: util.func public @gather_chain
++//       FUSE:   linalg.generic
++//       FUSE:     tensor.extract %{{.+}}[
++//       FUSE:     tensor.extract %{{.+}}[
++//   FUSE-NOT:   linalg.generic
++//       FUSE:   util.return
++
++// FUSE-LIMIT-LABEL: util.func public @gather_chain
++//   FUSE-LIMIT-DAG:   %[[SHARD0:.+]] = util.global.load @shard0
++//   FUSE-LIMIT-DAG:   %[[SHARD1:.+]] = util.global.load @shard1
++//       FUSE-LIMIT:   %[[G0:.+]] = linalg.generic
++//       FUSE-LIMIT:     tensor.extract %[[SHARD0]]
++//   FUSE-LIMIT-NOT:     tensor.extract %[[SHARD1]]
++//       FUSE-LIMIT:   %[[G1:.+]] = linalg.generic
++//  FUSE-LIMIT-SAME:       ins(%{{.+}}, %[[G0]] :
++//       FUSE-LIMIT:     tensor.extract %[[SHARD1]]
++//       FUSE-LIMIT:   util.return %[[G1]]
++
++// -----
++
++// A fusion that does not grow a dispatch already over the limit is still
++// done: both ops read the same table, so the fused op binds less than the
++// consumer alone.
++
++#map = affine_map<(d0, d1) -> (d0, d1)>
++util.global private @table = dense<1.0> : tensor<512x64xf16>
++util.func public @shrinking_fusion() -> tensor<512x64xf16> {
++  %table = util.global.load @table : tensor<512x64xf16>
++  %empty = tensor.empty() : tensor<512x64xf16>
++  %0 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
++      ins(%table : tensor<512x64xf16>) outs(%empty : tensor<512x64xf16>) {
++  ^bb0(%in: f16, %out: f16):
++    %neg = arith.negf %in : f16
++    linalg.yield %neg : f16
++  } -> tensor<512x64xf16>
++  %1 = linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]}
++      ins(%0, %table : tensor<512x64xf16>, tensor<512x64xf16>) outs(%empty : tensor<512x64xf16>) {
++  ^bb0(%a: f16, %b: f16, %out: f16):
++    %add = arith.addf %a, %b : f16
++    linalg.yield %add : f16
++  } -> tensor<512x64xf16>
++  util.return %1 : tensor<512x64xf16>
++}
++
++// FUSE-LIMIT-LABEL: util.func public @shrinking_fusion
++//       FUSE-LIMIT:   linalg.generic
++//   FUSE-LIMIT-NOT:   linalg.generic
++//       FUSE-LIMIT:   util.return
++
++// -----
++
++// Multi-use producer fusion would merge two lookups into different tables.
++
++#map = affine_map<(d0, d1) -> (d0)>
++#map1 = affine_map<(d0, d1) -> (d0, d1)>
++util.global private @table0 = dense<1.0> : tensor<512x64xf16>
++util.global private @table1 = dense<2.0> : tensor<512x64xf16>
++util.func public @multi_use(%ids: tensor<8xi64>) -> (tensor<8x64xf16>, tensor<8x64xf16>) {
++  %table0 = util.global.load @table0 : tensor<512x64xf16>
++  %table1 = util.global.load @table1 : tensor<512x64xf16>
++  %empty = tensor.empty() : tensor<8x64xf16>
++  %0 = linalg.generic {indexing_maps = [#map, #map1], iterator_types = ["parallel", "parallel"]}
++      ins(%ids : tensor<8xi64>) outs(%empty : tensor<8x64xf16>) {
++  ^bb0(%in: i64, %out: f16):
++    %i = arith.index_cast %in : i64 to index
++    %j = linalg.index 1 : index
++    %v = tensor.extract %table0[%i, %j] : tensor<512x64xf16>
++    linalg.yield %v : f16
++  } -> tensor<8x64xf16>
++  %1 = linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]}
++      ins(%ids, %0 : tensor<8xi64>, tensor<8x64xf16>) outs(%empty : tensor<8x64xf16>) {
++  ^bb0(%in: i64, %a: f16, %out: f16):
++    %i = arith.index_cast %in : i64 to index
++    %j = linalg.index 1 : index
++    %v = tensor.extract %table1[%i, %j] : tensor<512x64xf16>
++    %add = arith.addf %a, %v : f16
++    linalg.yield %add : f16
++  } -> tensor<8x64xf16>
++  util.return %0, %1 : tensor<8x64xf16>, tensor<8x64xf16>
++}
++
++// MULTI-LABEL: util.func public @multi_use
++//       MULTI:   %[[FUSED:.+]]:2 = linalg.generic
++//   MULTI-NOT:   linalg.generic
++//       MULTI:   util.return %[[FUSED]]#0, %[[FUSED]]#1
++
++// MULTI-LIMIT-LABEL: util.func public @multi_use
++//       MULTI-LIMIT:   %[[G0:.+]] = linalg.generic
++//       MULTI-LIMIT:     tensor.extract %table0
++//       MULTI-LIMIT:   %[[G1:.+]] = linalg.generic
++//  MULTI-LIMIT-SAME:       ins(%{{.+}}, %[[G0]] :
++//       MULTI-LIMIT:     tensor.extract %table1
++//       MULTI-LIMIT:   util.return %[[G0]], %[[G1]]
++
++// -----
++
++// Dispatch region formation would fuse a consumer reading a second table into
++// the dispatch of a matmul with a large weight.
++
++#map = affine_map<(d0, d1) -> (d0, d1)>
++util.global private @weight = dense<1.0> : tensor<64x512xf16>
++util.global private @table = dense<2.0> : tensor<512x64xf16>
++util.func public @consumer_fusion(%lhs: tensor<8x64xf16>) -> tensor<8x512xf32> {
++  %cst = arith.constant 0.0 : f32
++  %weight = util.global.load @weight : tensor<64x512xf16>
++  %table = util.global.load @table : tensor<512x64xf16>
++  %empty = tensor.empty() : tensor<8x512xf32>
++  %fill = linalg.fill ins(%cst : f32) outs(%empty : tensor<8x512xf32>) -> tensor<8x512xf32>
++  %0 = linalg.matmul ins(%lhs, %weight : tensor<8x64xf16>, tensor<64x512xf16>)
++      outs(%fill : tensor<8x512xf32>) -> tensor<8x512xf32>
++  %1 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]}
++      ins(%0 : tensor<8x512xf32>) outs(%empty : tensor<8x512xf32>) {
++  ^bb0(%in: f32, %out: f32):
++    %i = linalg.index 0 : index
++    %j = linalg.index 1 : index
++    %v = tensor.extract %table[%j, %i] : tensor<512x64xf16>
++    %ext = arith.extf %v : f16 to f32
++    %add = arith.addf %in, %ext : f32
++    linalg.yield %add : f32
++  } -> tensor<8x512xf32>
++  util.return %1 : tensor<8x512xf32>
++}
++
++// FORM-LABEL: util.func public @consumer_fusion
++//       FORM:   %[[DISPATCH:.+]] = flow.dispatch.region
++//       FORM:     %[[MATMUL:.+]] = linalg.matmul
++//       FORM:     %[[ADD:.+]] = linalg.generic
++//  FORM-SAME:         ins(%[[MATMUL]] :
++//       FORM:     flow.return %[[ADD]]
++//   FORM-NOT:   flow.dispatch.region
++//       FORM:   util.return %[[DISPATCH]]
++
++// FORM-LIMIT-LABEL: util.func public @consumer_fusion
++//       FORM-LIMIT:   %[[MATMUL_DISPATCH:.+]] = flow.dispatch.region
++//       FORM-LIMIT:     %[[MATMUL:.+]] = linalg.matmul
++//       FORM-LIMIT:     flow.return %[[MATMUL]]
++//       FORM-LIMIT:   %[[ADD_DISPATCH:.+]] = flow.dispatch.region
++//       FORM-LIMIT:     linalg.generic
++//  FORM-LIMIT-SAME:         ins(%[[MATMUL_DISPATCH]] :
++//       FORM-LIMIT:   util.return %[[ADD_DISPATCH]]

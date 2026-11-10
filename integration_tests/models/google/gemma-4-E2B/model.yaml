@@ -29,7 +29,6 @@ compile_cases: [hexagon-vtcm-hmx]
 # Fails before the first dispatch, after ~12 min of import, compile and module
 # push (8.5 min of it the push). Run with --run-skipped when working on the
 # allocation.
-skip: "known RUNTIME_FAILURE: a 4.4 GiB weight exceeds the RPC allocation limit (INT_MAX)"
 expected_outcomes:
   - case: hexagon-vtcm-hmx
     status: RUNTIME_FAILURE

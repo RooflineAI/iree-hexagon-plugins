@@ -1,0 +1,995 @@
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/BUILD.bazel b/compiler/src/iree/compiler/GlobalOptimization/BUILD.bazel
+index 2d6c95fc2d..3f63defe48 100644
+--- a/compiler/src/iree/compiler/GlobalOptimization/BUILD.bazel
++++ b/compiler/src/iree/compiler/GlobalOptimization/BUILD.bazel
+@@ -102,6 +102,7 @@ iree_compiler_cc_library(
+         "RaiseSpecialOps.cpp",
+         "RemoveZeroExtentTensors.cpp",
+         "SimplifyPackUnpack.cpp",
++        "SplitLargeConstants.cpp",
+         "TransposePropagationPatterns.cpp",
+         "Utils.cpp",
+         "WarnOnUninitializedValues.cpp",
+@@ -128,6 +129,7 @@ iree_compiler_cc_library(
+         "//compiler/src/iree/compiler/Dialect/LinalgExt/IR",
+         "//compiler/src/iree/compiler/Dialect/LinalgExt/Transforms",
+         "//compiler/src/iree/compiler/Dialect/LinalgExt/Utils",
++        "//compiler/src/iree/compiler/Dialect/Stream/IR",
+         "//compiler/src/iree/compiler/Dialect/TensorExt/IR",
+         "//compiler/src/iree/compiler/Dialect/Util/Analysis",
+         "//compiler/src/iree/compiler/Dialect/Util/Analysis/Attributes",
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/CMakeLists.txt b/compiler/src/iree/compiler/GlobalOptimization/CMakeLists.txt
+index 3c9ca44661..30b7986b84 100644
+--- a/compiler/src/iree/compiler/GlobalOptimization/CMakeLists.txt
++++ b/compiler/src/iree/compiler/GlobalOptimization/CMakeLists.txt
+@@ -96,6 +96,7 @@ iree_cc_library(
+     "RaiseSpecialOps.cpp"
+     "RemoveZeroExtentTensors.cpp"
+     "SimplifyPackUnpack.cpp"
++    "SplitLargeConstants.cpp"
+     "TransposePropagationPatterns.cpp"
+     "Utils.cpp"
+     "WarnOnUninitializedValues.cpp"
+@@ -138,6 +139,7 @@ iree_cc_library(
+     iree::compiler::Dialect::LinalgExt::IR
+     iree::compiler::Dialect::LinalgExt::Transforms
+     iree::compiler::Dialect::LinalgExt::Utils
++    iree::compiler::Dialect::Stream::IR
+     iree::compiler::Dialect::TensorExt::IR
+     iree::compiler::Dialect::Util::Analysis
+     iree::compiler::Dialect::Util::Analysis::Attributes
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/Passes.cpp b/compiler/src/iree/compiler/GlobalOptimization/Passes.cpp
+index d3bbde20d1..6fcf296969 100644
+--- a/compiler/src/iree/compiler/GlobalOptimization/Passes.cpp
++++ b/compiler/src/iree/compiler/GlobalOptimization/Passes.cpp
+@@ -224,6 +224,10 @@ void buildGlobalOptimizationPassPipeline(
+       .addPass(mlir::createCSEPass);
+   mainPassManager.addPass(
+       GlobalOptimization::createConvertStridedContractionToContractionPass());
++  // After transposes have been folded into their consumers, so an oversized
++  // constant is read by the op that indexes it, and before constant
++  // expressions are hoisted and evaluated into new globals.
++  mainPassManager.addPass(GlobalOptimization::createSplitLargeConstantsPass());
+ 
+   // Enable data tiling after they are in a canonical form.
+   if (transformOptions.dataTiling) {
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/Passes.td b/compiler/src/iree/compiler/GlobalOptimization/Passes.td
+index ebe3025721..d56a189a23 100644
+--- a/compiler/src/iree/compiler/GlobalOptimization/Passes.td
++++ b/compiler/src/iree/compiler/GlobalOptimization/Passes.td
+@@ -236,6 +236,43 @@ def SimplifyPackUnpackPass : Pass<"iree-global-opt-simplify-pack-unpack", ""> {
+   let summary = "Simplifies tensor pack and unpack ops.";
+ }
+ 
++def SplitLargeConstantsPass :
++    Pass<"iree-global-opt-split-large-constants", "mlir::ModuleOp"> {
++  let summary = "Splits constants larger than the max allocation size into shards.";
++  let description = [{
++    A constant global whose storage exceeds the max allocation size of its
++    resource config (`--iree-stream-resource-max-allocation-size` unless the
++    target sets one) cannot be packed into a resource within that limit. This
++    pass splits such a private, immutable global with an inline dense value
++    into shards along its outermost non-unit dimension, so each shard is a
++    contiguous byte range of the original that fits into one allocation, and
++    rewrites the uses of its loads to use the shards:
++
++      * an input of a structured op whose split dimension is indexed by a
++        single loop: the op is split along that loop, one op per shard. The
++        results of a parallel loop are inserted into the destination, the ops
++        of a reduction loop accumulate into the result of the previous one.
++        This covers e.g. matmuls with a large weight such as a tied LM head.
++      * a value read with `tensor.extract` in the body of an elementwise
++        `linalg.generic`, e.g. an embedding lookup: one op per shard reads its
++        shard at the rebased, clamped index and keeps the previous op's
++        element unless the index lies in its shard.
++
++    A constant with any other use is left unchanged with a warning.
++
++    Each shard is its own binding within the allocation limit, even when
++    dispatch region formation fuses the per-shard ops back together. Targets
++    that also limit the bytes one dispatch may bind can keep them apart with
++    `--iree-dispatch-creation-max-dispatch-binding-bytes`.
++  }];
++  let dependentDialects = [
++    "mlir::arith::ArithDialect",
++    "mlir::linalg::LinalgDialect",
++    "mlir::tensor::TensorDialect",
++    "IREE::Util::UtilDialect",
++  ];
++}
++
+ def GlobalLoopInvariantCodeMotionPass : InterfacePass<"iree-global-opt-loop-invariant-code-motion", "mlir::FunctionOpInterface"> {
+   let summary = "Hoist loop invariants out of loops with zero-trip-check.";
+ }
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/SplitLargeConstants.cpp b/compiler/src/iree/compiler/GlobalOptimization/SplitLargeConstants.cpp
+new file mode 100644
+index 0000000000..8e08f81fd3
+--- /dev/null
++++ b/compiler/src/iree/compiler/GlobalOptimization/SplitLargeConstants.cpp
+@@ -0,0 +1,568 @@
++// Copyright 2026 The IREE Authors
++//
++// Licensed under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++
++#include "iree/compiler/Dialect/Stream/IR/StreamTypes.h"
++#include "iree/compiler/Dialect/Util/IR/UtilDialect.h"
++#include "iree/compiler/Dialect/Util/IR/UtilOps.h"
++#include "iree/compiler/Dialect/Util/IR/UtilTypes.h"
++#include "iree/compiler/GlobalOptimization/Passes.h"
++#include "llvm/ADT/DenseMap.h"
++#include "llvm/ADT/STLExtras.h"
++#include "llvm/Support/Debug.h"
++#include "llvm/Support/MathExtras.h"
++#include "mlir/Dialect/Arith/IR/Arith.h"
++#include "mlir/Dialect/Linalg/IR/Linalg.h"
++#include "mlir/Dialect/Tensor/IR/Tensor.h"
++#include "mlir/Dialect/Utils/StaticValueUtils.h"
++#include "mlir/IR/AsmState.h"
++#include "mlir/IR/BuiltinAttributes.h"
++#include "mlir/IR/BuiltinDialect.h"
++#include "mlir/IR/DialectResourceBlobManager.h"
++#include "mlir/IR/IRMapping.h"
++#include "mlir/IR/PatternMatch.h"
++#include "mlir/IR/SymbolTable.h"
++#include "mlir/Interfaces/TilingInterface.h"
++
++#define DEBUG_TYPE "iree-global-opt-split-large-constants"
++
++namespace mlir::iree_compiler::GlobalOptimization {
++
++#define GEN_PASS_DEF_SPLITLARGECONSTANTSPASS
++#include "iree/compiler/GlobalOptimization/Passes.h.inc"
++
++namespace {
++
++/// How an oversized global is cut into shards: consecutive ranges of
++/// `splitDim`. All dimensions before `splitDim` have extent 1, so every shard
++/// is a contiguous byte range of the original value.
++struct SplitPlan {
++  RankedTensorType type;
++  int64_t splitDim = 0;
++  // Bytes covered by one index of `splitDim`.
++  int64_t sliceBytes = 0;
++  // Offset and extent along `splitDim` of each shard.
++  SmallVector<int64_t> offsets;
++  SmallVector<int64_t> sizes;
++
++  int64_t getNumShards() const { return offsets.size(); }
++  RankedTensorType getShardType(int64_t shard) const {
++    SmallVector<int64_t> shape(type.getShape());
++    shape[splitDim] = sizes[shard];
++    return RankedTensorType::get(shape, type.getElementType(),
++                                 type.getEncoding());
++  }
++};
++
++/// A use of the oversized value as an input operand of a structured op. The
++/// op is split along `loopDim`, the loop that indexes `splitDim` of the value.
++struct OperandUse {
++  TilingInterface op;
++  unsigned operandNumber;
++  unsigned loopDim;
++  bool isReduction;
++};
++
++/// A use of the oversized value captured in the body of an elementwise
++/// `linalg.generic` and read with one `tensor.extract`, e.g. an embedding
++/// lookup.
++struct GatherUse {
++  linalg::GenericOp op;
++  tensor::ExtractOp extractOp;
++};
++
++struct UsePlan {
++  SmallVector<OperandUse> operandUses;
++  SmallVector<GatherUse> gatherUses;
++};
++
++/// Returns the bytes of the initial value, or std::nullopt if it is not an
++/// inline dense value whose bytes can be sliced along the outer dimension.
++static std::optional<ArrayRef<char>> getRawBytes(Attribute value) {
++  if (auto resourceAttr = dyn_cast<DenseResourceElementsAttr>(value)) {
++    const AsmResourceBlob *blob = resourceAttr.getRawHandle().getBlob();
++    if (!blob) {
++      return std::nullopt;
++    }
++    return blob->getData();
++  }
++  if (auto denseAttr = dyn_cast<DenseElementsAttr>(value)) {
++    if (denseAttr.isSplat()) {
++      return ArrayRef<char>();
++    }
++    return denseAttr.getRawData();
++  }
++  return std::nullopt;
++}
++
++/// Returns how to split `globalOp`, or std::nullopt when it fits into one
++/// allocation or cannot be split (a warning is emitted for the latter).
++static std::optional<SplitPlan> planSplit(IREE::Util::GlobalOp globalOp) {
++  auto type = dyn_cast<RankedTensorType>(globalOp.getType());
++  if (!type || !type.hasStaticShape()) {
++    return std::nullopt;
++  }
++  int64_t storageSize = IREE::Util::getRoundedPhysicalStorageSize(type);
++  int64_t maxSize =
++      IREE::Stream::ResourceConfigAttr::lookup(globalOp).getMaxAllocationSize();
++  if (storageSize <= maxSize) {
++    return std::nullopt;
++  }
++
++  auto warn = [&]() {
++    InFlightDiagnostic diag = globalOp.emitWarning();
++    diag << "constant of " << storageSize
++         << " bytes exceeds the max allocation size of " << maxSize
++         << " bytes and is not split: ";
++    return diag;
++  };
++  if (globalOp.isGlobalMutable() || !globalOp.isPrivate()) {
++    warn() << "only private immutable globals are split";
++    return std::nullopt;
++  }
++  Attribute initialValue = globalOp.getInitialValueAttr();
++  std::optional<ArrayRef<char>> rawBytes =
++      initialValue ? getRawBytes(initialValue) : std::nullopt;
++  if (!rawBytes) {
++    warn() << "the initial value is not an inline dense constant";
++    return std::nullopt;
++  }
++
++  // Only types stored at their natural width, so storage, raw data and shard
++  // boundaries all agree byte for byte.
++  Type elementType = type.getElementType();
++  unsigned bitWidth =
++      elementType.isIntOrFloat() ? elementType.getIntOrFloatBitWidth() : 0;
++  if (!llvm::is_contained({8u, 16u, 32u, 64u}, bitWidth)) {
++    warn() << "element type " << elementType
++           << " is not stored at a natural width of 8, 16, 32 or 64 bits";
++    return std::nullopt;
++  }
++  int64_t elementBytes = bitWidth / 8;
++  if (!rawBytes->empty() && static_cast<int64_t>(rawBytes->size()) !=
++                                type.getNumElements() * elementBytes) {
++    warn() << "the initial value has " << rawBytes->size()
++           << " bytes, expected " << type.getNumElements() * elementBytes;
++    return std::nullopt;
++  }
++
++  SplitPlan plan;
++  plan.type = type;
++  ArrayRef<int64_t> shape = type.getShape();
++  const auto *it = llvm::find_if(shape, [](int64_t dim) { return dim != 1; });
++  if (it == shape.end()) {
++    warn() << "there is no dimension to split";
++    return std::nullopt;
++  }
++  plan.splitDim = std::distance(shape.begin(), it);
++  int64_t extent = shape[plan.splitDim];
++  plan.sliceBytes = elementBytes;
++  for (int64_t dim : shape.drop_front(plan.splitDim + 1)) {
++    plan.sliceBytes *= dim;
++  }
++  if (plan.sliceBytes > maxSize) {
++    warn() << "one index of dimension " << plan.splitDim << " alone has "
++           << plan.sliceBytes << " bytes";
++    return std::nullopt;
++  }
++
++  // As few shards as possible, of near-equal size.
++  int64_t numShards = llvm::divideCeil(storageSize, maxSize);
++  int64_t shardExtent = llvm::divideCeil(extent, numShards);
++  while (shardExtent * plan.sliceBytes > maxSize) {
++    shardExtent = llvm::divideCeil(extent, ++numShards);
++  }
++  for (int64_t offset = 0; offset < extent; offset += shardExtent) {
++    plan.offsets.push_back(offset);
++    plan.sizes.push_back(std::min(shardExtent, extent - offset));
++  }
++  return plan;
++}
++
++/// Checks that every use of `value` (a load of the global being split) can be
++/// rewritten to use the shards. Emits a warning at the first one that cannot.
++static FailureOr<UsePlan> analyzeUses(Value value, const SplitPlan &plan,
++                                      IREE::Util::GlobalOp globalOp) {
++  UsePlan usePlan;
++  llvm::SmallDenseSet<Operation *> seenOps;
++  auto unsupported = [&](Operation *user, const Twine &reason) {
++    InFlightDiagnostic diag = user->emitWarning();
++    diag << "cannot split the use of oversized constant @"
++         << globalOp.getGlobalName().getValue() << ": " << reason;
++    diag.attachNote(globalOp.getLoc()) << "constant declared here";
++    return failure();
++  };
++
++  for (OpOperand &use : value.getUses()) {
++    Operation *user = use.getOwner();
++
++    if (auto linalgOp = dyn_cast<linalg::LinalgOp>(user)) {
++      if (!seenOps.insert(user).second) {
++        return unsupported(user, "used by more than one operand");
++      }
++      if (!linalgOp.hasPureTensorSemantics() || !linalgOp.isDpsInput(&use) ||
++          !isa<TilingInterface>(user)) {
++        return unsupported(user, "not an input of a tensor op that can tile");
++      }
++      AffineMap map = linalgOp.getMatchingIndexingMap(&use);
++      auto dimExpr = dyn_cast<AffineDimExpr>(map.getResult(plan.splitDim));
++      if (!dimExpr) {
++        return unsupported(user, "the split dimension is not indexed by a "
++                                 "single loop");
++      }
++      unsigned loopDim = dimExpr.getPosition();
++      for (auto [index, expr] : llvm::enumerate(map.getResults())) {
++        if (index != plan.splitDim && expr.isFunctionOfDim(loopDim)) {
++          return unsupported(user, "the split loop indexes more than one "
++                                   "dimension of the constant");
++        }
++      }
++      utils::IteratorType iteratorType =
++          linalgOp.getIteratorTypesArray()[loopDim];
++      bool isReduction = iteratorType == utils::IteratorType::reduction;
++      for (OpOperand &init : linalgOp.getDpsInitsMutable()) {
++        AffineMap initMap = linalgOp.getMatchingIndexingMap(&init);
++        int64_t numUses = llvm::count_if(initMap.getResults(), [&](auto e) {
++          return e.isFunctionOfDim(loopDim);
++        });
++        bool isPlainDim =
++            llvm::is_contained(initMap.getResults(),
++                               getAffineDimExpr(loopDim, user->getContext()));
++        if (isReduction ? numUses != 0 : (numUses != 1 || !isPlainDim)) {
++          return unsupported(user, "the split loop is not a plain dimension "
++                                   "of the results");
++        }
++      }
++      usePlan.operandUses.push_back({cast<TilingInterface>(user),
++                                     use.getOperandNumber(), loopDim,
++                                     isReduction});
++      continue;
++    }
++
++    if (auto extractOp = dyn_cast<tensor::ExtractOp>(user)) {
++      auto genericOp = dyn_cast<linalg::GenericOp>(user->getParentOp());
++      if (!genericOp || user->getBlock() != genericOp.getBody()) {
++        return unsupported(user, "not read directly in a linalg.generic body");
++      }
++      if (!seenOps.insert(genericOp).second) {
++        return unsupported(user, "read more than once in the same op");
++      }
++      if (!genericOp.hasPureTensorSemantics() ||
++          genericOp.getNumDpsInits() != 1 ||
++          genericOp.getNumParallelLoops() != genericOp.getNumLoops() ||
++          llvm::is_contained(genericOp->getOperands(), value)) {
++        return unsupported(user, "the reading op is not an elementwise "
++                                 "linalg.generic with one result");
++      }
++      usePlan.gatherUses.push_back({genericOp, extractOp});
++      continue;
++    }
++
++    return unsupported(user, "unsupported user");
++  }
++  return usePlan;
++}
++
++/// Builds the initial value of one shard.
++static TypedAttr buildShardValue(Attribute value, const SplitPlan &plan,
++                                 int64_t shard, StringRef blobName) {
++  RankedTensorType shardType = plan.getShardType(shard);
++  ArrayRef<char> rawBytes = *getRawBytes(value);
++  if (rawBytes.empty()) {
++    auto splatAttr = cast<DenseElementsAttr>(value);
++    return DenseElementsAttr::get(shardType,
++                                  splatAttr.getSplatValue<Attribute>());
++  }
++  ArrayRef<char> shardBytes =
++      rawBytes.slice(plan.offsets[shard] * plan.sliceBytes,
++                     plan.sizes[shard] * plan.sliceBytes);
++  if (auto resourceAttr = dyn_cast<DenseResourceElementsAttr>(value)) {
++    size_t alignment =
++        resourceAttr.getRawHandle().getBlob()->getDataAlignment();
++    return DenseResourceElementsAttr::get(
++        shardType, blobName,
++        HeapAsmResourceBlob::allocateAndCopyWithAlign(shardBytes, alignment,
++                                                      /*dataIsMutable=*/false));
++  }
++  return DenseElementsAttr::getFromRawBuffer(shardType, shardBytes);
++}
++
++/// Splits an op that reads the constant as an input operand into one op per
++/// shard, iterating over that shard's range of the split loop. For a parallel
++/// loop the results are inserted into the original destination; for a
++/// reduction loop each op accumulates into the result of the previous one.
++static LogicalResult splitOperandUse(RewriterBase &rewriter,
++                                     const OperandUse &use, Value value,
++                                     const SplitPlan &plan,
++                                     ArrayRef<Value> shards) {
++  TilingInterface op = use.op;
++  Location loc = op.getLoc();
++  rewriter.setInsertionPoint(op);
++  SmallVector<Range> domain = op.getIterationDomain(rewriter);
++  auto dpsOp = cast<DestinationStyleOpInterface>(op.getOperation());
++  SmallVector<Value> results = llvm::to_vector(dpsOp.getDpsInits());
++
++  for (int64_t shard = 0; shard < plan.getNumShards(); ++shard) {
++    SmallVector<OpFoldResult> offsets, sizes;
++    for (const Range &range : domain) {
++      offsets.push_back(range.offset);
++      sizes.push_back(range.size);
++    }
++    offsets[use.loopDim] = rewriter.getIndexAttr(plan.offsets[shard]);
++    sizes[use.loopDim] = rewriter.getIndexAttr(plan.sizes[shard]);
++    FailureOr<TilingResult> tiled =
++        op.getTiledImplementation(rewriter, offsets, sizes);
++    if (failed(tiled) || tiled->tiledOps.size() != 1) {
++      return op.emitError("failed to split along loop ") << use.loopDim;
++    }
++    Operation *tiledOp = tiled->tiledOps.front();
++
++    // Read the shard instead of the matching slice of the whole constant.
++    OpOperand &operand = tiledOp->getOpOperand(use.operandNumber);
++    auto sliceOp = operand.get().getDefiningOp<tensor::ExtractSliceOp>();
++    if (!sliceOp || sliceOp.getSource() != value) {
++      return op.emitError("expected the split op to read a slice of the "
++                          "constant");
++    }
++    SmallVector<OpFoldResult> sliceOffsets = sliceOp.getMixedOffsets();
++    OpFoldResult &offset = sliceOffsets[plan.splitDim];
++    if (std::optional<int64_t> constOffset = getConstantIntValue(offset)) {
++      offset = rewriter.getIndexAttr(*constOffset - plan.offsets[shard]);
++    } else {
++      Value base =
++          arith::ConstantIndexOp::create(rewriter, loc, plan.offsets[shard]);
++      offset = arith::SubIOp::create(rewriter, loc, cast<Value>(offset), base)
++                   .getResult();
++    }
++    rewriter.setInsertionPoint(tiledOp);
++    Value shardSlice = shards[shard];
++    bool isWholeShard = sliceOp.getType() == shardSlice.getType() &&
++                        llvm::all_of(sliceOffsets, isZeroInteger) &&
++                        llvm::all_of(sliceOp.getMixedStrides(), isOneInteger);
++    if (!isWholeShard) {
++      shardSlice = tensor::ExtractSliceOp::create(
++          rewriter, loc, sliceOp.getType(), shards[shard], sliceOffsets,
++          sliceOp.getMixedSizes(), sliceOp.getMixedStrides());
++    }
++    rewriter.modifyOpInPlace(tiledOp, [&] { operand.set(shardSlice); });
++    if (sliceOp.use_empty()) {
++      rewriter.eraseOp(sliceOp);
++    }
++    rewriter.setInsertionPointAfter(tiledOp);
++
++    if (use.isReduction) {
++      // The results do not depend on the split loop, so each shard's op takes
++      // the whole destination: chain them.
++      if (shard > 0) {
++        auto tiledDpsOp = cast<DestinationStyleOpInterface>(tiledOp);
++        for (auto [init, result] :
++             llvm::zip_equal(tiledDpsOp.getDpsInitsMutable(), results)) {
++          if (init.get().getType() != result.getType()) {
++            return op.emitError("expected a reduction to keep the whole "
++                                "destination");
++          }
++          Value oldInit = init.get();
++          rewriter.modifyOpInPlace(tiledOp, [&] { init.set(result); });
++          if (auto oldSlice = oldInit.getDefiningOp<tensor::ExtractSliceOp>();
++              oldSlice && oldSlice.use_empty()) {
++            rewriter.eraseOp(oldSlice);
++          }
++        }
++      }
++      results = llvm::to_vector(tiled->tiledValues);
++      continue;
++    }
++    for (auto [index, tiledValue] : llvm::enumerate(tiled->tiledValues)) {
++      SmallVector<OpFoldResult> resultOffsets, resultSizes;
++      if (failed(op.getResultTilePosition(rewriter, index, offsets, sizes,
++                                          resultOffsets, resultSizes))) {
++        return op.emitError("failed to compute the position of result ")
++               << index;
++      }
++      SmallVector<OpFoldResult> strides(resultOffsets.size(),
++                                        rewriter.getIndexAttr(1));
++      results[index] = tensor::InsertSliceOp::create(
++          rewriter, loc, tiledValue, results[index], resultOffsets, resultSizes,
++          strides);
++    }
++  }
++  rewriter.replaceOp(op, results);
++  return success();
++}
++
++/// Rewrites an elementwise op that reads the constant at a computed index (a
++/// gather) into a chain of ops, one per shard. Shard k reads its own shard at
++/// the clamped, rebased index and keeps the previous op's element unless the
++/// index falls into shard k. Elementwise fusion may merge the chain into one
++/// dispatch again; each shard stays a binding within the allocation limit.
++/// Targets that also limit the bytes a single dispatch binds can stop that
++/// with --iree-dispatch-creation-max-dispatch-binding-bytes.
++static void splitGatherUse(RewriterBase &rewriter, GatherUse use,
++                           const SplitPlan &plan, ArrayRef<Value> shards) {
++  linalg::GenericOp op = use.op;
++  Location loc = op.getLoc();
++  unsigned numInputs = op.getNumDpsInputs();
++  SmallVector<AffineMap> maps = op.getIndexingMapsArray();
++  AffineMap initMap = maps[numInputs];
++  Type elementType = getElementTypeOrSelf(op.getResult(0).getType());
++
++  Value previous;
++  for (int64_t shard = 0; shard < plan.getNumShards(); ++shard) {
++    rewriter.setInsertionPoint(op);
++    SmallVector<Value> inputs(op.getDpsInputs());
++    SmallVector<AffineMap> shardMaps(maps.begin(), maps.begin() + numInputs);
++    if (previous) {
++      inputs.push_back(previous);
++      shardMaps.push_back(initMap);
++    }
++    shardMaps.push_back(initMap);
++    auto shardOp = linalg::GenericOp::create(
++        rewriter, loc, op.getResultTypes(), inputs, op.getDpsInits(), shardMaps,
++        op.getIteratorTypesArray());
++    shardOp->setDiscardableAttrs(op->getDiscardableAttrDictionary());
++    IRMapping mapping;
++    rewriter.cloneRegionBefore(op.getRegion(), shardOp.getRegion(),
++                               shardOp.getRegion().end(), mapping);
++    Block *body = shardOp.getBody();
++    BlockArgument previousArg;
++    if (previous) {
++      previousArg = body->insertArgument(numInputs, elementType, loc);
++    }
++
++    auto extractOp = cast<tensor::ExtractOp>(
++        mapping.lookup(use.extractOp.getResult()).getDefiningOp());
++    rewriter.setInsertionPoint(extractOp);
++    SmallVector<Value> indices(extractOp.getIndices());
++    Value index = indices[plan.splitDim];
++    if (plan.offsets[shard] != 0) {
++      Value base =
++          arith::ConstantIndexOp::create(rewriter, loc, plan.offsets[shard]);
++      index = arith::SubIOp::create(rewriter, loc, index, base);
++    }
++    Value last =
++        arith::ConstantIndexOp::create(rewriter, loc, plan.sizes[shard] - 1);
++    indices[plan.splitDim] = arith::MinUIOp::create(rewriter, loc, index, last);
++    Value inShard;
++    if (previous) {
++      Value size =
++          arith::ConstantIndexOp::create(rewriter, loc, plan.sizes[shard]);
++      inShard = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ult,
++                                      index, size);
++    }
++    rewriter.replaceOpWithNewOp<tensor::ExtractOp>(extractOp, shards[shard],
++                                                   indices);
++    if (previous) {
++      auto yieldOp = cast<linalg::YieldOp>(body->getTerminator());
++      rewriter.setInsertionPoint(yieldOp);
++      Value selected = arith::SelectOp::create(
++          rewriter, loc, inShard, yieldOp.getOperand(0), previousArg);
++      rewriter.modifyOpInPlace(yieldOp,
++                               [&] { yieldOp->setOperand(0, selected); });
++    }
++
++    previous = shardOp.getResult(0);
++  }
++  rewriter.replaceOp(op, previous);
++}
++
++struct SplitLargeConstantsPass
++    : impl::SplitLargeConstantsPassBase<SplitLargeConstantsPass> {
++  void runOnOperation() override {
++    ModuleOp moduleOp = getOperation();
++    SymbolTable symbolTable(moduleOp);
++    IRRewriter rewriter(&getContext());
++    for (auto globalOp :
++         llvm::to_vector(moduleOp.getOps<IREE::Util::GlobalOp>())) {
++      if (failed(splitGlobal(rewriter, symbolTable, globalOp))) {
++        return signalPassFailure();
++      }
++    }
++  }
++
++  LogicalResult splitGlobal(RewriterBase &rewriter, SymbolTable &symbolTable,
++                            IREE::Util::GlobalOp globalOp) {
++    std::optional<SplitPlan> plan = planSplit(globalOp);
++    if (!plan) {
++      return success();
++    }
++
++    // Check every use before changing anything, so that a constant is either
++    // fully split or left alone.
++    SmallVector<IREE::Util::GlobalLoadOp> loadOps;
++    if (auto uses = SymbolTable::getSymbolUses(globalOp, getOperation())) {
++      for (const SymbolTable::SymbolUse &use : *uses) {
++        auto loadOp = dyn_cast<IREE::Util::GlobalLoadOp>(use.getUser());
++        if (!loadOp) {
++          use.getUser()->emitWarning("cannot split the use of oversized "
++                                     "constant @")
++              << globalOp.getGlobalName().getValue()
++              << ": only util.global.load is supported";
++          return success();
++        }
++        loadOps.push_back(loadOp);
++      }
++    }
++    SmallVector<UsePlan> usePlans;
++    for (IREE::Util::GlobalLoadOp loadOp : loadOps) {
++      FailureOr<UsePlan> usePlan =
++          analyzeUses(loadOp.getResult(), *plan, globalOp);
++      if (failed(usePlan)) {
++        return success();
++      }
++      usePlans.push_back(std::move(*usePlan));
++    }
++    LLVM_DEBUG(llvm::dbgs()
++               << "splitting @" << globalOp.getGlobalName() << " into "
++               << plan->getNumShards() << " shards along dimension "
++               << plan->splitDim << "\n");
++
++    SmallVector<IREE::Util::GlobalOp> shardOps;
++    rewriter.setInsertionPointAfter(globalOp);
++    for (int64_t shard = 0; shard < plan->getNumShards(); ++shard) {
++      auto shardOp = cast<IREE::Util::GlobalOp>(rewriter.clone(*globalOp));
++      SymbolTable::setSymbolName(shardOp, (globalOp.getGlobalName().getValue() +
++                                           "_shard" + Twine(shard))
++                                              .str());
++      symbolTable.insert(shardOp);
++      shardOp.setType(plan->getShardType(shard));
++      shardOp.setInitialValueAttr(
++          buildShardValue(globalOp.getInitialValueAttr(), *plan, shard,
++                          shardOp.getGlobalName().getValue()));
++      shardOps.push_back(shardOp);
++      rewriter.setInsertionPointAfter(shardOp);
++    }
++
++    for (auto [loadOp, usePlan] : llvm::zip_equal(loadOps, usePlans)) {
++      rewriter.setInsertionPoint(loadOp);
++      SmallVector<Value> shards;
++      for (IREE::Util::GlobalOp shardOp : shardOps) {
++        auto shardLoadOp = IREE::Util::GlobalLoadOp::create(
++            rewriter, loadOp.getLoc(), shardOp);
++        shardLoadOp.setIsImmutable(loadOp.getIsImmutable());
++        shards.push_back(shardLoadOp.getResult());
++      }
++      for (const OperandUse &use : usePlan.operandUses) {
++        if (failed(splitOperandUse(rewriter, use, loadOp.getResult(), *plan,
++                                   shards))) {
++          return failure();
++        }
++      }
++      for (const GatherUse &use : usePlan.gatherUses) {
++        splitGatherUse(rewriter, use, *plan, shards);
++      }
++      for (Value shard : shards) {
++        if (shard.use_empty()) {
++          rewriter.eraseOp(shard.getDefiningOp());
++        }
++      }
++      rewriter.eraseOp(loadOp);
++    }
++    symbolTable.erase(globalOp);
++    return success();
++  }
++};
++
++} // namespace
++} // namespace mlir::iree_compiler::GlobalOptimization
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/test/BUILD.bazel b/compiler/src/iree/compiler/GlobalOptimization/test/BUILD.bazel
+index 31107d5587..546fb51958 100644
+--- a/compiler/src/iree/compiler/GlobalOptimization/test/BUILD.bazel
++++ b/compiler/src/iree/compiler/GlobalOptimization/test/BUILD.bazel
+@@ -41,6 +41,8 @@ iree_lit_test_suite(
+             "propagate_linalg_transpose.mlir",
+             "raise_special_ops.mlir",
+             "remove_zero_extent_tensors.mlir",
++            "split_large_constants.mlir",
++            "split_large_constants_resource.mlir",
+             "strided_contraction_to_contraction.mlir",
+             "transformation_pipeline.mlir",
+             "transpose_and_decompose_concat.mlir",
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/test/CMakeLists.txt b/compiler/src/iree/compiler/GlobalOptimization/test/CMakeLists.txt
+index 8c5654a831..aac6f1ede6 100644
+--- a/compiler/src/iree/compiler/GlobalOptimization/test/CMakeLists.txt
++++ b/compiler/src/iree/compiler/GlobalOptimization/test/CMakeLists.txt
+@@ -38,6 +38,8 @@ iree_lit_test_suite(
+     "propagate_linalg_transpose.mlir"
+     "raise_special_ops.mlir"
+     "remove_zero_extent_tensors.mlir"
++    "split_large_constants.mlir"
++    "split_large_constants_resource.mlir"
+     "strided_contraction_to_contraction.mlir"
+     "transformation_pipeline.mlir"
+     "transpose_and_decompose_concat.mlir"
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/test/split_large_constants.mlir b/compiler/src/iree/compiler/GlobalOptimization/test/split_large_constants.mlir
+new file mode 100644
+index 0000000000..e304f73613
+--- /dev/null
++++ b/compiler/src/iree/compiler/GlobalOptimization/test/split_large_constants.mlir
+@@ -0,0 +1,239 @@
++// RUN: iree-opt --split-input-file --verify-diagnostics --iree-global-opt-split-large-constants %s | FileCheck %s
++
++// 6x4xf16 is 48 bytes; with a 16 byte limit it becomes three 2x4 shards. An
++// embedding lookup becomes a chain of ops, one per shard.
++
++#id = affine_map<(d0, d1) -> (d0)>
++#out = affine_map<(d0, d1) -> (d0, d1)>
++module @gather attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 16}>
++} {
++  util.global private @table = dense<[
++    [0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0],
++    [12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]
++  ]> : tensor<6x4xf16>
++  util.func public @main(%ids: tensor<8xi64>) -> tensor<8x4xf16> {
++    %table = util.global.load immutable @table : tensor<6x4xf16>
++    %empty = tensor.empty() : tensor<8x4xf16>
++    %0 = linalg.generic {
++        indexing_maps = [#id, #out], iterator_types = ["parallel", "parallel"]}
++        ins(%ids : tensor<8xi64>) outs(%empty : tensor<8x4xf16>) {
++    ^bb0(%in: i64, %out: f16):
++      %i = arith.index_cast %in : i64 to index
++      %j = linalg.index 1 : index
++      %v = tensor.extract %table[%i, %j] : tensor<6x4xf16>
++      linalg.yield %v : f16
++    } -> tensor<8x4xf16>
++    util.return %0 : tensor<8x4xf16>
++  }
++}
++
++// CHECK-LABEL: module @gather
++//   CHECK-NOT:   util.global private @table =
++//       CHECK:   util.global private @table_shard0 = dense<{{\[\[}}0.000000e+00, {{.+}}, 7.000000e+00]]> : tensor<2x4xf16>
++//       CHECK:   util.global private @table_shard1 = dense<{{\[\[}}8.000000e+00, {{.+}}, 1.500000e+01]]> : tensor<2x4xf16>
++//       CHECK:   util.global private @table_shard2 = dense<{{\[\[}}1.600000e+01, {{.+}}, 2.300000e+01]]> : tensor<2x4xf16>
++//       CHECK:   util.func public @main(%[[IDS:.+]]: tensor<8xi64>)
++//   CHECK-DAG:     %[[S0:.+]] = util.global.load immutable @table_shard0 : tensor<2x4xf16>
++//   CHECK-DAG:     %[[S1:.+]] = util.global.load immutable @table_shard1 : tensor<2x4xf16>
++//   CHECK-DAG:     %[[S2:.+]] = util.global.load immutable @table_shard2 : tensor<2x4xf16>
++//       CHECK:     %[[G0:.+]] = linalg.generic
++//  CHECK-SAME:         ins(%[[IDS]] : tensor<8xi64>)
++//       CHECK:       %[[I0:.+]] = arith.index_cast
++//       CHECK:       %[[LAST0:.+]] = arith.constant 1 : index
++//       CHECK:       %[[CLAMP0:.+]] = arith.minui %[[I0]], %[[LAST0]]
++//       CHECK:       %[[E0:.+]] = tensor.extract %[[S0]][%[[CLAMP0]], %{{.+}}]
++//       CHECK:       linalg.yield %[[E0]]
++//       CHECK:     %[[G1:.+]] = linalg.generic
++//  CHECK-SAME:         ins(%[[IDS]], %[[G0]] : tensor<8xi64>, tensor<8x4xf16>)
++//       CHECK:     ^bb0(%{{.+}}: i64, %[[PREV1:.+]]: f16, %{{.+}}: f16):
++//       CHECK:       %[[I1:.+]] = arith.index_cast
++//       CHECK:       %[[OFF1:.+]] = arith.constant 2 : index
++//       CHECK:       %[[REL1:.+]] = arith.subi %[[I1]], %[[OFF1]]
++//       CHECK:       %[[CLAMP1:.+]] = arith.minui %[[REL1]]
++//       CHECK:       %[[IN1:.+]] = arith.cmpi ult, %[[REL1]]
++//       CHECK:       %[[E1:.+]] = tensor.extract %[[S1]][%[[CLAMP1]], %{{.+}}]
++//       CHECK:       %[[SEL1:.+]] = arith.select %[[IN1]], %[[E1]], %[[PREV1]]
++//       CHECK:       linalg.yield %[[SEL1]]
++//       CHECK:     %[[G2:.+]] = linalg.generic
++//  CHECK-SAME:         ins(%[[IDS]], %[[G1]] : tensor<8xi64>, tensor<8x4xf16>)
++//       CHECK:       arith.constant 4 : index
++//       CHECK:       tensor.extract %[[S2]]
++//       CHECK:       arith.select
++//       CHECK:     util.return %[[G2]]
++
++// -----
++
++// A tied LM head: the oversized weight is N x K, so the split dimension is
++// the parallel N loop. Each shard's matmul fills its own columns.
++
++module @matmul_parallel attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 16}>
++} {
++  util.global private @weight = dense<1.0> : tensor<6x4xf16>
++  util.func public @main(%lhs: tensor<3x4xf16>) -> tensor<3x6xf32> {
++    %cst = arith.constant 0.0 : f32
++    %weight = util.global.load immutable @weight : tensor<6x4xf16>
++    %empty = tensor.empty() : tensor<3x6xf32>
++    %fill = linalg.fill ins(%cst : f32) outs(%empty : tensor<3x6xf32>) -> tensor<3x6xf32>
++    %0 = linalg.matmul
++        indexing_maps = [affine_map<(m, n, k) -> (m, k)>,
++                         affine_map<(m, n, k) -> (n, k)>,
++                         affine_map<(m, n, k) -> (m, n)>]
++        ins(%lhs, %weight : tensor<3x4xf16>, tensor<6x4xf16>)
++        outs(%fill : tensor<3x6xf32>) -> tensor<3x6xf32>
++    util.return %0 : tensor<3x6xf32>
++  }
++}
++
++// CHECK-LABEL: module @matmul_parallel
++//       CHECK:   util.global private @weight_shard0 = dense<1.000000e+00> : tensor<2x4xf16>
++//       CHECK:   util.global private @weight_shard1 = dense<1.000000e+00> : tensor<2x4xf16>
++//       CHECK:   util.global private @weight_shard2 = dense<1.000000e+00> : tensor<2x4xf16>
++//       CHECK:   util.func public @main
++//   CHECK-DAG:     %[[S0:.+]] = util.global.load immutable @weight_shard0
++//   CHECK-DAG:     %[[S1:.+]] = util.global.load immutable @weight_shard1
++//   CHECK-DAG:     %[[S2:.+]] = util.global.load immutable @weight_shard2
++//       CHECK:     %[[FILL:.+]] = linalg.fill
++//       CHECK:     %[[M0:.+]] = linalg.matmul
++//  CHECK-SAME:         ins(%{{.+}}, %[[S0]] : tensor<3x4xf16>, tensor<2x4xf16>)
++//  CHECK-SAME:         -> tensor<3x2xf32>
++//       CHECK:     %[[R0:.+]] = tensor.insert_slice %[[M0]] into %[[FILL]][0, 0] [3, 2] [1, 1]
++//       CHECK:     %[[M1:.+]] = linalg.matmul
++//  CHECK-SAME:         ins(%{{.+}}, %[[S1]] : tensor<3x4xf16>, tensor<2x4xf16>)
++//       CHECK:     %[[R1:.+]] = tensor.insert_slice %[[M1]] into %[[R0]][0, 2] [3, 2] [1, 1]
++//       CHECK:     %[[M2:.+]] = linalg.matmul
++//  CHECK-SAME:         ins(%{{.+}}, %[[S2]] : tensor<3x4xf16>, tensor<2x4xf16>)
++//       CHECK:     %[[R2:.+]] = tensor.insert_slice %[[M2]] into %[[R1]][0, 4] [3, 2] [1, 1]
++//       CHECK:     util.return %[[R2]]
++
++// -----
++
++// The oversized weight is K x N, so the split dimension is the reduction K
++// loop. Each shard's matmul accumulates into the previous one's result.
++
++module @matmul_reduction attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 16}>
++} {
++  util.global private @weight = dense<1.0> : tensor<6x4xf16>
++  util.func public @main(%lhs: tensor<3x6xf16>) -> tensor<3x4xf32> {
++    %cst = arith.constant 0.0 : f32
++    %weight = util.global.load immutable @weight : tensor<6x4xf16>
++    %empty = tensor.empty() : tensor<3x4xf32>
++    %fill = linalg.fill ins(%cst : f32) outs(%empty : tensor<3x4xf32>) -> tensor<3x4xf32>
++    %0 = linalg.matmul ins(%lhs, %weight : tensor<3x6xf16>, tensor<6x4xf16>)
++        outs(%fill : tensor<3x4xf32>) -> tensor<3x4xf32>
++    util.return %0 : tensor<3x4xf32>
++  }
++}
++
++// CHECK-LABEL: module @matmul_reduction
++//       CHECK:   util.func public @main(%[[LHS:.+]]: tensor<3x6xf16>)
++//   CHECK-DAG:     %[[S0:.+]] = util.global.load immutable @weight_shard0
++//   CHECK-DAG:     %[[S1:.+]] = util.global.load immutable @weight_shard1
++//   CHECK-DAG:     %[[S2:.+]] = util.global.load immutable @weight_shard2
++//       CHECK:     %[[L0:.+]] = tensor.extract_slice %[[LHS]][0, 0] [3, 2] [1, 1]
++//       CHECK:     %[[M0:.+]] = linalg.matmul ins(%[[L0]], %[[S0]] : tensor<3x2xf16>, tensor<2x4xf16>)
++//       CHECK:     %[[L1:.+]] = tensor.extract_slice %[[LHS]][0, 2] [3, 2] [1, 1]
++//       CHECK:     %[[M1:.+]] = linalg.matmul ins(%[[L1]], %[[S1]] : tensor<3x2xf16>, tensor<2x4xf16>) outs(%[[M0]] : tensor<3x4xf32>)
++//       CHECK:     %[[L2:.+]] = tensor.extract_slice %[[LHS]][0, 4] [3, 2] [1, 1]
++//       CHECK:     %[[M2:.+]] = linalg.matmul ins(%[[L2]], %[[S2]] : tensor<3x2xf16>, tensor<2x4xf16>) outs(%[[M1]] : tensor<3x4xf32>)
++//       CHECK:     util.return %[[M2]]
++
++// -----
++
++// A leading unit dimension is skipped: 1x3x4xi16 (24 bytes, 8 per index of
++// dimension 1) is split along dimension 1. The shard bytes are checked in
++// split_large_constants_resource.mlir, as --split-input-file does not print
++// resources.
++
++module @resource attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 16}>
++} {
++  util.global private @table = dense_resource<blob> : tensor<1x3x4xi16>
++  util.func public @main(%lhs: tensor<5x4xi16>) -> tensor<5x1x3xi16> {
++    %table = util.global.load immutable @table : tensor<1x3x4xi16>
++    %empty = tensor.empty() : tensor<5x1x3xi16>
++    %0 = linalg.generic {
++        indexing_maps = [affine_map<(m, b, n, k) -> (m, k)>,
++                         affine_map<(m, b, n, k) -> (b, n, k)>,
++                         affine_map<(m, b, n, k) -> (m, b, n)>],
++        iterator_types = ["parallel", "parallel", "parallel", "reduction"]}
++        ins(%lhs, %table : tensor<5x4xi16>, tensor<1x3x4xi16>)
++        outs(%empty : tensor<5x1x3xi16>) {
++    ^bb0(%a: i16, %b: i16, %acc: i16):
++      %mul = arith.muli %a, %b : i16
++      %add = arith.addi %acc, %mul : i16
++      linalg.yield %add : i16
++    } -> tensor<5x1x3xi16>
++    util.return %0 : tensor<5x1x3xi16>
++  }
++}
++
++
++// CHECK-LABEL: module @resource
++//       CHECK:   util.global private @table_shard0 = dense_resource<table_shard0> : tensor<1x2x4xi16>
++//       CHECK:   util.global private @table_shard1 = dense_resource<table_shard1> : tensor<1x1x4xi16>
++//       CHECK:     %[[G0:.+]] = linalg.generic
++//  CHECK-SAME:         tensor<5x4xi16>, tensor<1x2x4xi16>
++//       CHECK:     %[[R0:.+]] = tensor.insert_slice %[[G0]] into %{{.+}}[0, 0, 0] [5, 1, 2] [1, 1, 1]
++//       CHECK:     %[[G1:.+]] = linalg.generic
++//  CHECK-SAME:         tensor<5x4xi16>, tensor<1x1x4xi16>
++//       CHECK:     tensor.insert_slice %[[G1]] into %[[R0]][0, 0, 2] [5, 1, 1] [1, 1, 1]
++
++{-#
++  dialect_resources: {
++    builtin: {
++      blob: "0x02000000000001000200030004000500060007000800090010001100"
++    }
++  }
++#-}
++
++// -----
++
++// A constant within the limit is left alone.
++
++module @fits attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 64}>
++} {
++  util.global private @table = dense<1.0> : tensor<6x4xf16>
++  util.func public @main() -> tensor<6x4xf16> {
++    %table = util.global.load immutable @table : tensor<6x4xf16>
++    util.return %table : tensor<6x4xf16>
++  }
++}
++
++// CHECK-LABEL: module @fits
++//       CHECK:   util.global private @table = dense<1.000000e+00> : tensor<6x4xf16>
++//   CHECK-NOT:   _shard
++
++// -----
++
++// An oversized constant with a use that cannot be split is left alone.
++
++module @unsupported attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 16}>
++} {
++  // expected-note @below {{constant declared here}}
++  util.global private @table = dense<1.0> : tensor<6x4xf16>
++  util.func public @main() -> tensor<6x4xf16> {
++    %table = util.global.load immutable @table : tensor<6x4xf16>
++    // expected-warning @below {{cannot split the use of oversized constant @table: unsupported user}}
++    util.return %table : tensor<6x4xf16>
++  }
++}
++
++// CHECK-LABEL: module @unsupported
++//       CHECK:   util.global private @table = dense<1.000000e+00> : tensor<6x4xf16>
++//   CHECK-NOT:   _shard
++
++// -----
++
++// A public constant is not split.
++
++module @public_global attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 16}>
++} {
++  // expected-warning @below {{constant of 48 bytes exceeds the max allocation size of 16 bytes and is not split: only private immutable globals are split}}
++  util.global public @table = dense<1.0> : tensor<6x4xf16>
++}
+diff --git a/compiler/src/iree/compiler/GlobalOptimization/test/split_large_constants_resource.mlir b/compiler/src/iree/compiler/GlobalOptimization/test/split_large_constants_resource.mlir
+new file mode 100644
+index 0000000000..a9b284792d
+--- /dev/null
++++ b/compiler/src/iree/compiler/GlobalOptimization/test/split_large_constants_resource.mlir
+@@ -0,0 +1,41 @@
++// RUN: iree-opt --iree-global-opt-split-large-constants %s | FileCheck %s
++
++// Each shard of a resource is a contiguous byte range of the original:
++// 1x3x4xi16 holding 0..9, 16, 17 is split along dimension 1 into rows {0, 1}
++// and {2}.
++
++module attributes {
++  stream.resources = #stream.resource_config<{max_allocation_size = 16}>
++} {
++  util.global private @table = dense_resource<blob> : tensor<1x3x4xi16>
++  util.func public @main(%lhs: tensor<5x4xi16>) -> tensor<5x1x3xi16> {
++    %table = util.global.load immutable @table : tensor<1x3x4xi16>
++    %empty = tensor.empty() : tensor<5x1x3xi16>
++    %0 = linalg.generic {
++        indexing_maps = [affine_map<(m, b, n, k) -> (m, k)>,
++                         affine_map<(m, b, n, k) -> (b, n, k)>,
++                         affine_map<(m, b, n, k) -> (m, b, n)>],
++        iterator_types = ["parallel", "parallel", "parallel", "reduction"]}
++        ins(%lhs, %table : tensor<5x4xi16>, tensor<1x3x4xi16>)
++        outs(%empty : tensor<5x1x3xi16>) {
++    ^bb0(%a: i16, %b: i16, %acc: i16):
++      %mul = arith.muli %a, %b : i16
++      %add = arith.addi %acc, %mul : i16
++      linalg.yield %add : i16
++    } -> tensor<5x1x3xi16>
++    util.return %0 : tensor<5x1x3xi16>
++  }
++}
++
++{-#
++  dialect_resources: {
++    builtin: {
++      blob: "0x02000000000001000200030004000500060007000800090010001100"
++    }
++  }
++#-}
++
++// CHECK: util.global private @table_shard0 = dense_resource<table_shard0> : tensor<1x2x4xi16>
++// CHECK: util.global private @table_shard1 = dense_resource<table_shard1> : tensor<1x1x4xi16>
++// CHECK: table_shard0: "0x0200000000000100020003000400050006000700"
++// CHECK: table_shard1: "0x020000000800090010001100"

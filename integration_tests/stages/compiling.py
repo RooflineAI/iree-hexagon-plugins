@@ -20,6 +20,11 @@ BASE_FLAGS: tuple[str, ...] = (
     "--iree-opt-data-tiling=false",
     "--iree-stream-resource-min-offset-alignment=128",
     "--iree-stream-resource-max-allocation-size=1073741824",
+    # The DSP maps every buffer a dispatch binds at once, whole resources of up
+    # to the 1 GiB above, into about 3.75 GiB of address space. Do not fuse
+    # into dispatches that bind more than 2 GiB of tensors, e.g. all shards of
+    # a split embedding table.
+    "--iree-dispatch-creation-max-dispatch-binding-bytes=2147483648",
 )
 
 

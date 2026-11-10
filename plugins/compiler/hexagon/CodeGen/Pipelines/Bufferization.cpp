@@ -34,11 +34,11 @@ mlir::LogicalResult memrefCopyFn(mlir::OpBuilder &builder, mlir::Location loc,
 void addHexagonBufferizePasses(mlir::OpPassManager &funcPassManager,
                                bool enableDoubleBuffering) {
   // In order to take full advantage of hexagon's VTCM, we need to be able to
-  // return allocations from within tiled loops and therefore it is necessary to
-  // pass the the allowReturnAllocsFromLoops option here
+  // return allocations from within tiled loops. Their lifetime is managed by
+  // the ownership-based deallocation pass below.
   mlir::iree_compiler::addIREEComprehensiveBufferizePasses(
       funcPassManager, /*allocationFn*/ {}, memrefCopyFn,
-      /*allowReturnAllocsFromLoops=*/true);
+      mlir::iree_compiler::LoopAllocationMode::CallerManagesLifetime);
   // Convert dynamic memref.alloc ops to static ones before
   // ConvertToHexagonmemPass, which only accepts fully static VTCM memrefs.
   // Remainder/partial tiles produce dynamic-sized allocs after bufferization;

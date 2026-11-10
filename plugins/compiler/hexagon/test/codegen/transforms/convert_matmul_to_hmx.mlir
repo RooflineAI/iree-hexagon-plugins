@@ -59,16 +59,16 @@ func.func @convert_f16_output(
 // -----
 
 // A unit batch is rank-reduced before conversion. This also covers provenance
-// through collapse_shape and a user-defined transpose-b map.
+// through a rank-reducing extract_slice and a user-defined transpose-b map.
 
 // CHECK-LABEL: func.func @convert_unit_batch_transpose_b(
-// CHECK:       %[[LHS_2D:.+]] = tensor.collapse_shape
-// CHECK:       %[[RHS_2D:.+]] = tensor.collapse_shape
+// CHECK:       %[[LHS_2D:.+]] = tensor.extract_slice {{.*}} to tensor<32x64xf16>
+// CHECK:       %[[RHS_2D:.+]] = tensor.extract_slice {{.*}} to tensor<32x64xf16>
 // CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[LHS_2D]] : tensor<32x64xf16>) {{.*}} <dim = 0>
 // CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[RHS_2D]] : tensor<32x64xf16>) {{.*}} <dim = 1>
 // CHECK-NOT:   linalg.batch_matmul
 // CHECK-NOT:   linalg.matmul
-// CHECK:       tensor.expand_shape
+// CHECK:       tensor.insert_slice {{.*}} into tensor<1x32x32xf32>
 func.func @convert_unit_batch_transpose_b(
     %lhs: tensor<1x32x64xf16>, %rhs: tensor<1x32x64xf16>)
     -> tensor<1x32x32xf32> {

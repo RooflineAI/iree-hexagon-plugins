@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 
@@ -99,6 +100,29 @@ LogicalResult verifyRuntimeBufferPlacementAndAlignment(
   return success();
 }
 
+// An upper bound of dimension `dim` of the memref `value` from the static
+// shapes of the views it is carved from: a view never extends past its source.
+FailureOr<int64_t> getViewExtentBound(Value value, int64_t dim) {
+  auto type = cast<MemRefType>(value.getType());
+  if (!type.isDynamicDim(dim)) {
+    return type.getDimSize(dim);
+  }
+  if (auto castOp = value.getDefiningOp<memref::CastOp>()) {
+    return getViewExtentBound(castOp.getSource(), dim);
+  }
+  if (auto subviewOp = value.getDefiningOp<memref::SubViewOp>()) {
+    llvm::SmallBitVector dropped = subviewOp.getDroppedDims();
+    int64_t sourceDim = 0;
+    for (int64_t resultDim = -1;; ++sourceDim) {
+      if (!dropped.test(sourceDim) && ++resultDim == dim) {
+        break;
+      }
+    }
+    return getViewExtentBound(subviewOp.getSource(), sourceDim);
+  }
+  return failure();
+}
+
 LogicalResult verifyDynamicDimensionFits(Operation *op, Value value,
                                          int64_t dim, int64_t maximum,
                                          StringRef role) {
@@ -110,6 +134,11 @@ LogicalResult verifyDynamicDimensionFits(Operation *op, Value value,
       ValueBoundsConstraintSet::computeConstantBound(
           presburger::BoundType::UB, {value, dim}, /*stopCondition=*/nullptr,
           ValueBoundsOptions{/*closedUB=*/true});
+  FailureOr<int64_t> extent = getViewExtentBound(value, dim);
+  if (succeeded(extent)) {
+    upperBound =
+        succeeded(upperBound) ? std::min(*upperBound, *extent) : *extent;
+  }
   if (failed(upperBound)) {
     return op->emitOpError() << "could not prove an upper bound for " << role
                              << " dimension " << dim;

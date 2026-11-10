@@ -108,6 +108,7 @@ iree_cc_library(
     MLIRSupport
     MLIRTensorDialect
     MLIRTilingInterface
+    MLIRValueBoundsOpInterface
     hexagon_mlir::HexagonLoweringSupport
     iree::compiler::Codegen::Dialect::Codegen::IR::IREECodegenDialect
   ALWAYSLINK

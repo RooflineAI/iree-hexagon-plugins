@@ -21,6 +21,7 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/TilingInterface.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 
 namespace mlir::iree_compiler::IREE::Hexagon {
 

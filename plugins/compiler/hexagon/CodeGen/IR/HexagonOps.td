@@ -14,6 +14,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/TilingInterface.td"
+include "mlir/Interfaces/ValueBoundsOpInterface.td"
 
 //===----------------------------------------------------------------------===//
 // Base op class.
@@ -88,7 +89,9 @@ def IREEHexagon_ProfilerEndOp :
 
 def IREEHexagon_StageToVTCMOp :
     IREEHexagon_Op<"stage_to_vtcm",
-                   [AllTypesMatch<["source", "result"]>, Pure]> {
+                   [AllTypesMatch<["source", "result"]>, Pure,
+                    DeclareOpInterfaceMethods<ValueBoundsOpInterface,
+                        ["populateBoundsForShapedValueDim"]>]> {
   let summary = [{
     Mark a tensor value for later materialization in VTCM.
   }];
@@ -133,7 +136,10 @@ def IREEHexagon_StageToVTCMOp :
 }
 
 def IREEHexagon_VTCMEmptyOp :
-    IREEHexagon_Op<"vtcm_empty", [Pure]> {
+    IREEHexagon_Op<"vtcm_empty",
+                   [Pure,
+                    DeclareOpInterfaceMethods<ValueBoundsOpInterface,
+                        ["populateBoundsForShapedValueDim"]>]> {
   let summary = [{
     Create a tensor-level empty value that should later materialize in VTCM.
   }];

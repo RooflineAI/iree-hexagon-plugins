@@ -35,6 +35,25 @@ void addWriteEffect(
 
 } // namespace
 
+void StageToVTCMOp::populateBoundsForShapedValueDim(
+    Value value, int64_t dim, ValueBoundsConstraintSet &cstr) {
+  assert(value == getResult() && "invalid value");
+  // Staging moves the value, so its shape is the source's.
+  cstr.bound(value)[dim] == cstr.getExpr(getSource(), dim);
+}
+
+void VTCMEmptyOp::populateBoundsForShapedValueDim(
+    Value value, int64_t dim, ValueBoundsConstraintSet &cstr) {
+  assert(value == getResult() && "invalid value");
+  auto resultType = cast<RankedTensorType>(value.getType());
+  if (!resultType.isDynamicDim(dim)) {
+    cstr.bound(value)[dim] == resultType.getDimSize(dim);
+    return;
+  }
+  cstr.bound(value)[dim] ==
+      getDynamicSizes()[resultType.getDynamicDimIndex(dim)];
+}
+
 LogicalResult VTCMEmptyOp::verify() {
   auto resultType = cast<RankedTensorType>(getResult().getType());
   if (getDynamicSizes().size() != resultType.getNumDynamicDims()) {

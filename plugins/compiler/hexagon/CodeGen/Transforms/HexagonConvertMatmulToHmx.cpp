@@ -60,13 +60,6 @@ static int64_t alignToHmxTile(int64_t dim) {
 // upper bound. This is the physical size of the padded tile-major buffer; the
 // runtime only ever fills the valid `value`-sized region of it.
 static FailureOr<int64_t> alignedUpperBound(Value value, int64_t dim) {
-  // Look through VTCM staging markers: `stage_to_vtcm` preserves the operand
-  // shape (AllTypesMatch) but is an opaque op with no ValueBoundsOpInterface,
-  // so the bound analysis cannot see the `affine.min` tile bound on the staged
-  // slice through it. Its source carries the same (analyzable) bound.
-  while (auto stage = value.getDefiningOp<IREE::Hexagon::StageToVTCMOp>()) {
-    value = stage.getSource();
-  }
   FailureOr<int64_t> ub = ValueBoundsConstraintSet::computeConstantBound(
       presburger::BoundType::UB, {value, dim}, /*stopCondition=*/nullptr,
       ValueBoundsOptions{/*closedUB=*/true});

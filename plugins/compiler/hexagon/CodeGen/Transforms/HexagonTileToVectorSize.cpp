@@ -131,7 +131,10 @@ void HexagonTileToVectorSizePass::runOnOperation() {
     // the additional tiling is not needed. Otherwise, it results in an
     // additional loops before converting it to a vector. We may need to fix the
     // lowering config issue, but it is a fair stopgap in practice.
-    if (isa<linalg::FillOp>(op)) {
+    // A dynamic fill is still tiled: vectorization takes the configured vector
+    // sizes as the bounds of its mask, so an untiled fill larger than them
+    // would only be written in its first vector.
+    if (isa<linalg::FillOp>(op) && !op.hasDynamicShape()) {
       return;
     }
     IREE::Codegen::LoweringConfigAttrInterface loweringConfig =

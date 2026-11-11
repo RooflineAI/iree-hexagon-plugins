@@ -24,15 +24,43 @@ namespace {
 constexpr int64_t kCacheTileCap = 64;
 
 std::optional<linalg::ContractionDimensions>
-analyzeSupportedContraction(linalg::LinalgOp op) {
+analyzeSupportedContraction(linalg::LinalgOp op, bool allowOuterM = false) {
   // The current policies model matmul-shaped contractions with exactly one
-  // M, N, and K dimension and at most one batch dimension.
+  // M, N, and K dimension and at most one batch dimension. With `allowOuterM`,
+  // more than one M dimension is accepted: `m` is reordered so that its last
+  // entry is the M dimension innermost in the output, and the others are tiled
+  // to 1 like batch. This covers e.g. 1x1 convolutions whose result is stored
+  // into a padded tensor, where H and W cannot be collapsed.
   auto dimensions = linalg::inferContractionDims(op);
-  if (failed(dimensions) || dimensions->m.size() != 1 ||
+  if (failed(dimensions) || dimensions->m.empty() ||
+      (!allowOuterM && dimensions->m.size() != 1) ||
       dimensions->n.size() != 1 || dimensions->k.size() != 1 ||
       dimensions->batch.size() > 1)
     return std::nullopt;
+  if (dimensions->m.size() > 1) {
+    if (op.getNumDpsInits() != 1)
+      return std::nullopt;
+    AffineMap outputMap = op.getMatchingIndexingMap(op.getDpsInitOperand(0));
+    // Every M dimension appears in the output of a contraction, so the
+    // positions are defined.
+    llvm::stable_sort(dimensions->m, [&](unsigned lhs, unsigned rhs) {
+      return *outputMap.getResultPosition(
+                 getAffineDimExpr(lhs, op.getContext())) <
+             *outputMap.getResultPosition(
+                 getAffineDimExpr(rhs, op.getContext()));
+    });
+  }
   return std::move(*dimensions);
+}
+
+/// Returns the M dimension that is tiled like a matmul M; the others are outer
+/// M dimensions tiled to 1.
+unsigned getPrimaryM(const linalg::ContractionDimensions &dimensions) {
+  return dimensions.m.back();
+}
+
+ArrayRef<unsigned> getOuterMs(const linalg::ContractionDimensions &dimensions) {
+  return ArrayRef<unsigned>(dimensions.m).drop_back();
 }
 
 SmallVector<TileDecision> inferContractionComputeTile(
@@ -41,7 +69,7 @@ SmallVector<TileDecision> inferContractionComputeTile(
   constexpr int64_t kContractionMTile = 8;
   constexpr int64_t kContractionKTile = 8;
   SmallVector<TileDecision> tiles(shape.dimensions.size());
-  unsigned m = dimensions.m.front();
+  unsigned m = getPrimaryM(dimensions);
   unsigned n = dimensions.n.front();
   unsigned k = dimensions.k.front();
   Type accumulatorType = op.getDpsInitOperand(0)->get().getType();
@@ -78,6 +106,8 @@ SmallVector<TileDecision> inferContractionComputeTile(
   }
   for (unsigned batch : dimensions.batch)
     tiles[batch] = TileDecision{1};
+  for (unsigned outerM : getOuterMs(dimensions))
+    tiles[outerM] = TileDecision{1};
   if (useHmx) {
     // M/N are fixed by the HMX hardware tile. K remains untiled here and is
     // handled by the HMX packing and tensor-unit lowering path.
@@ -189,7 +219,7 @@ selectContractionStrategy(const PlanningContext &context,
   if (!linalgOp || !linalg::isaContractionOpInterface(linalgOp))
     return std::optional<DispatchStrategy>{};
   std::optional<linalg::ContractionDimensions> dimensions =
-      analyzeSupportedContraction(linalgOp);
+      analyzeSupportedContraction(linalgOp, /*allowOuterM=*/true);
   if (!dimensions)
     return std::optional<DispatchStrategy>{};
 
@@ -207,7 +237,9 @@ selectContractionStrategy(const PlanningContext &context,
   strategy.rootTiling.computeTile = std::move(compute);
   for (unsigned batch : dimensions->batch)
     strategy.rootTiling.cacheTile[batch] = TileDecision{1};
-  for (unsigned dimension : {dimensions->m.front(), dimensions->n.front()}) {
+  for (unsigned outerM : getOuterMs(*dimensions))
+    strategy.rootTiling.cacheTile[outerM] = TileDecision{1};
+  for (unsigned dimension : {getPrimaryM(*dimensions), dimensions->n.front()}) {
     strategy.rootTiling.cacheTile[dimension] =
         TileDecision{chooseStaticTilingFactor(
             shape.dimensions[dimension].staticExtent, kCacheTileCap)};
@@ -221,7 +253,7 @@ selectUnsupportedContractionFallback(const PlanningContext &,
                                      const DispatchShape &dispatchShape) {
   auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(dispatchShape.root);
   if (!linalgOp || !linalg::isaContractionOpInterface(linalgOp) ||
-      analyzeSupportedContraction(linalgOp))
+      analyzeSupportedContraction(linalgOp, /*allowOuterM=*/true))
     return std::optional<DispatchStrategy>{};
 
   return std::optional<DispatchStrategy>(
@@ -237,7 +269,7 @@ selectContractionComputeTile(const PlanningContext &context,
   if (!linalgOp || !linalg::isaContractionOpInterface(linalgOp))
     return std::optional<OpComputeTilePlan>{};
   std::optional<linalg::ContractionDimensions> dimensions =
-      analyzeSupportedContraction(linalgOp);
+      analyzeSupportedContraction(linalgOp, /*allowOuterM=*/true);
   if (!dimensions)
     return std::optional<OpComputeTilePlan>{};
 

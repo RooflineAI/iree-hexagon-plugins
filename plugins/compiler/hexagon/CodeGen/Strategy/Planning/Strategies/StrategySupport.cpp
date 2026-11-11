@@ -9,6 +9,7 @@
 #include "iree/compiler/Dialect/Util/IR/UtilTypes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -92,6 +93,21 @@ inferInnermostParallelComputeTile(const PlanningContext &context,
       TileDecision{ShapedType::isDynamic(bound) ? vectorWidth
                                                 : std::min(bound, vectorWidth)};
   return tiles;
+}
+
+std::optional<int64_t> getLoopUpperBound(linalg::LinalgOp op, unsigned loop) {
+  SmallVector<std::pair<Value, unsigned>> operandDims;
+  op.mapIterationSpaceDimToAllOperandDims(loop, operandDims);
+  std::optional<int64_t> tightest;
+  for (auto [operand, dim] : operandDims) {
+    FailureOr<int64_t> upperBound =
+        ValueBoundsConstraintSet::computeConstantBound(
+            presburger::BoundType::UB, {operand, int64_t(dim)},
+            /*stopCondition=*/nullptr, ValueBoundsOptions{/*closedUB=*/true});
+    if (succeeded(upperBound) && (!tightest || *upperBound < *tightest))
+      tightest = *upperBound;
+  }
+  return tightest;
 }
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning

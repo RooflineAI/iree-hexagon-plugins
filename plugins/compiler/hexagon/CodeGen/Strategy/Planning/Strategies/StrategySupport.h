@@ -9,7 +9,10 @@
 
 #include "../DispatchPlanTypes.h"
 
+#include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Support/LogicalResult.h"
+
+#include <optional>
 
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 
@@ -27,6 +30,11 @@ int64_t chooseStaticTilingFactor(int64_t staticBound, int64_t preferred,
 SmallVector<TileDecision>
 inferInnermostParallelComputeTile(const PlanningContext &context,
                                   const OpShape &shape, Operation *op);
+
+/// The tightest constant upper bound of loop `loop` of `op` over the operand
+/// dimensions it indexes directly: its static extent, or for a dynamic loop
+/// e.g. the maximum from a `util.assume.int`. std::nullopt if there is none.
+std::optional<int64_t> getLoopUpperBound(linalg::LinalgOp op, unsigned loop);
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning
 

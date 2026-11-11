@@ -7,11 +7,11 @@
 #include "VTCMPlanning.h"
 
 #include "DecisionTrace.h"
+#include "Strategies/StrategySupport.h"
 
 #include "hexagon/Conversion/LinalgToLLVM/Common.h"
 #include "hexagon/Conversion/LinalgToLLVM/VTCMTilingOptions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 
@@ -60,31 +60,13 @@ LogicalResult suppressCacheTiling(const PlanningContext &context,
   return success();
 }
 
-/// The static extent of each loop of `op`, or for a dynamic loop the constant
-/// upper bound of an operand dimension it indexes directly (e.g. the maximum
-/// from a `util.assume.int`), or kDynamic if there is none.
+/// The upper bound of each loop of `op` (see getLoopUpperBound), or kDynamic
+/// if there is none.
 SmallVector<int64_t> getLoopUpperBounds(linalg::LinalgOp op) {
   SmallVector<int64_t> bounds = op.getStaticLoopRanges();
   for (auto [loop, bound] : llvm::enumerate(bounds)) {
-    if (!ShapedType::isDynamic(bound))
-      continue; // already bounded
-    for (OpOperand &operand : op->getOpOperands()) {
-      if (!isa<ShapedType>(operand.get().getType()))
-        continue;
-      AffineMap map = op.getMatchingIndexingMap(&operand);
-      std::optional<unsigned> dim =
-          map.getResultPosition(getAffineDimExpr(loop, op->getContext()));
-      if (!dim)
-        continue;
-      FailureOr<int64_t> upperBound =
-          ValueBoundsConstraintSet::computeConstantBound(
-              presburger::BoundType::UB, {operand.get(), int64_t(*dim)},
-              /*stopCondition=*/nullptr, ValueBoundsOptions{/*closedUB=*/true});
-      if (succeeded(upperBound)) {
-        bound = *upperBound;
-        break;
-      }
-    }
+    if (ShapedType::isDynamic(bound))
+      bound = getLoopUpperBound(op, loop).value_or(ShapedType::kDynamic);
   }
   return bounds;
 }

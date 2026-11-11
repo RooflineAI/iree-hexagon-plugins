@@ -99,12 +99,16 @@ def check_output_files(
         if not actual_file.exists():
             failures.append(f"{actual_file.name}: missing - the run produced no output")
             continue
+        reference = np.load(reference_file)
+        # Integer outputs (e.g. token ids) are labels, not measurements: a
+        # tolerance would accept a wrong one, so they must match exactly.
+        exact = np.issubdtype(reference.dtype, np.integer) or reference.dtype == bool
         comparison = compare_arrays(
             actual_file.name,
-            np.load(reference_file),
+            reference,
             np.load(actual_file),
-            atol=atol,
-            rtol=rtol,
+            atol=0.0 if exact else atol,
+            rtol=0.0 if exact else rtol,
         )
         print(comparison.report)
         if not comparison.elementwise_close:

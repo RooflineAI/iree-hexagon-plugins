@@ -1,0 +1,29 @@
+# Copyright 2025 RooflineAI GmbH
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//build_tools/bazel:defs.bzl", "hexagon_plugin_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+# LLVM IR passes run in the middle-end pipeline before Hexagon codegen.
+hexagon_plugin_library(
+    name = "LLVMPasses",
+    srcs = [
+        "ExpandVectorTruncToI1.cpp",
+    ],
+    hdrs = [
+        "ExpandVectorTruncToI1.h",
+    ],
+    hdr_deps = [
+        "@llvm-project//llvm:Core",
+        "@llvm-project//llvm:Support",
+    ],
+    strip_include_prefix = "/plugins/compiler",
+    deps = [],
+)

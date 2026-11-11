@@ -9,6 +9,7 @@
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
+#include "hexagon/Target/LLVMPasses/ExpandVectorTruncToI1.h"
 #include "hexagon/Target/LibraryBuilder.h"
 #include "hexagon/Target/Linking/HexagonLinker.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
@@ -25,9 +26,6 @@
 #include "llvm/IR/DiagnosticHandler.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/InstIterator.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
@@ -288,38 +286,6 @@ static void buildExecutableMetadata(llvm::Module &llvmModule,
       llvm::GlobalValue::LinkageTypes::ExternalLinkage);
 }
 
-// FIXME: workaround for https://github.com/llvm/llvm-project/issues/237238
-//  The Hexagon backend miscompiles a vector `trunc` to
-//  i1 on HVX when the result selects wider lanes: it tests bit 0 of every byte,
-//  so the `select` mixes bytes of both operands
-
-// Rewrites each vector `trunc` to i1 as `icmp ne (and %x, 1), 0`, which
-// computes the same lanes. This runs after the middle-end pipeline,
-//  whose InstCombine folds the comparison back into a `trunc`.
-static void expandVectorTruncToI1(llvm::Module &llvmModule) {
-  llvm::SmallVector<llvm::TruncInst *> truncs;
-  for (llvm::Function &function : llvmModule) {
-    for (llvm::Instruction &instruction : llvm::instructions(function)) {
-      auto *trunc = llvm::dyn_cast<llvm::TruncInst>(&instruction);
-      if (trunc && trunc->getType()->isVectorTy() &&
-          trunc->getType()->getScalarType()->isIntegerTy(1)) {
-        truncs.push_back(trunc);
-      }
-    }
-  }
-  for (llvm::TruncInst *trunc : truncs) {
-    llvm::IRBuilder<> builder(trunc);
-    llvm::Value *source = trunc->getOperand(0);
-    llvm::Value *lowBit =
-        builder.CreateAnd(source, llvm::ConstantInt::get(source->getType(), 1));
-    llvm::Value *isSet = builder.CreateICmpNE(
-        lowBit, llvm::Constant::getNullValue(source->getType()));
-    trunc->replaceAllUsesWith(isSet);
-    trunc->eraseFromParent();
-  }
-}
-// end workaround for https://github.com/llvm/llvm-project/issues/237238
-
 // Runs the LLVM middle-end optimization pipeline at O2. Loop interleaving,
 // loop vectorization, loop unrolling and SLP vectorization stay disabled,
 // matching the defaults of the LLVMCPU backend this was derived from.
@@ -353,12 +319,17 @@ runLLVMOptimizationPasses(llvm::TargetMachine &targetMachine,
   passBuilder.registerLoopAnalyses(loopAnalysisManager);
   passBuilder.crossRegisterProxies(loopAnalysisManager, functionAnalysisManager,
                                    cgsccAnalysisManager, moduleAnalysisManager);
+  // FIXME: workaround for https://github.com/llvm/llvm-project/issues/237238
+  passBuilder.registerOptimizerLastEPCallback(
+      [](llvm::ModulePassManager &modulePassManager, llvm::OptimizationLevel,
+         llvm::ThinOrFullLTOPhase) {
+        modulePassManager.addPass(llvm::createModuleToFunctionPassAdaptor(
+            ExpandVectorTruncToI1Pass()));
+      });
 
   llvm::ModulePassManager modulePassManager =
       passBuilder.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
   modulePassManager.run(llvmModule, moduleAnalysisManager);
-  // FIXME: workaround for https://github.com/llvm/llvm-project/issues/237238
-  expandVectorTruncToI1(llvmModule);
 
   return failure(llvm::verifyModule(llvmModule, &llvm::errs()));
 }

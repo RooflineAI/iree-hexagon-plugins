@@ -1,0 +1,130 @@
+diff --git a/qcom_hexagon_backend/include/hexagon/Conversion/LinalgToLLVM/VTCMTilingOptions.h b/qcom_hexagon_backend/include/hexagon/Conversion/LinalgToLLVM/VTCMTilingOptions.h
+index 0020d61..411e00e 100644
+--- a/qcom_hexagon_backend/include/hexagon/Conversion/LinalgToLLVM/VTCMTilingOptions.h
++++ b/qcom_hexagon_backend/include/hexagon/Conversion/LinalgToLLVM/VTCMTilingOptions.h
+@@ -27,10 +27,14 @@ getVTCMTilingOptions(linalg::LinalgOp op,
+                      SmallVector<bool> &fullTensorOperands,
+                      int64_t vtcmBudget = 0);
+ 
+-SmallVector<int64_t> getInitialTileSize(linalg::LinalgOp);
++// `loopUpperBounds`, when given, has one entry per loop: a static upper bound
++// for a dynamic loop range, used in place of the default size.
++SmallVector<int64_t> getInitialTileSize(linalg::LinalgOp,
++                                        ArrayRef<int64_t> loopUpperBounds = {});
+ std::optional<SmallVector<int64_t>>
+ determineTileSizes(linalg::LinalgOp, int64_t vtcmBudget = 0,
+-                   SmallVector<int64_t> tilingDims = {});
++                   SmallVector<int64_t> tilingDims = {},
++                   ArrayRef<int64_t> loopUpperBounds = {});
+ } // namespace hexagon
+ } // namespace mlir
+ 
+diff --git a/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/VTCMTilingOptions.cpp b/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/VTCMTilingOptions.cpp
+index e31dea1..f7c6bd0 100644
+--- a/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/VTCMTilingOptions.cpp
++++ b/qcom_hexagon_backend/lib/Conversion/LinalgToLLVM/VTCMTilingOptions.cpp
+@@ -201,14 +201,15 @@ int64_t getReductionFactor(int64_t size, int64_t budget) {
+ SmallVector<int64_t>
+ generateTilingPriorityOrder(linalg::LinalgOp op,
+                             AffineMap memoryFootprintAffineMap,
+-                            SmallVector<int64_t> priorityDims) {
++                            SmallVector<int64_t> priorityDims,
++                            ArrayRef<int64_t> loopUpperBounds) {
+   // If tiling dims are provided
+   if (priorityDims.size()) {
+     return priorityDims;
+   }
+ 
+   SmallVector<int64_t> ordering;
+-  SmallVector<int64_t> loopBounds = getInitialTileSize(op);
++  SmallVector<int64_t> loopBounds = getInitialTileSize(op, loopUpperBounds);
+   for (int i = 0; i < 2; ++i) {
+     SmallVector<unsigned int> dims;
+     if (!i)
+@@ -280,10 +281,12 @@ getCroutonLowerBounds(linalg::LinalgOp op,
+ }
+ 
+ // Calculates the lower bounds to be used while determining tile size.
+-SmallVector<unsigned> calculateTileSizeLowerBounds(linalg::LinalgOp op) {
++SmallVector<unsigned>
++calculateTileSizeLowerBounds(linalg::LinalgOp op,
++                             ArrayRef<int64_t> loopUpperBounds) {
+ 
+   SmallVector<unsigned> lowerBounds(op.getNumLoops(), 1);
+-  auto ranges = getInitialTileSize(op);
++  auto ranges = getInitialTileSize(op, loopUpperBounds);
+ 
+   // Parallelization factor corresponds to the parallelization of the
+   // outermost loop across multiple threads/cores.
+@@ -373,7 +376,8 @@ namespace hexagon {
+ // bounds.
+ std::optional<SmallVector<int64_t>>
+ determineTileSizes(linalg::LinalgOp op, int64_t vtcmBudget,
+-                   SmallVector<int64_t> tilingDims) {
++                   SmallVector<int64_t> tilingDims,
++                   ArrayRef<int64_t> loopUpperBounds) {
+ 
+   // Use default vtcmSizeInBytes when no budget is provided.
+   if (vtcmBudget <= 0)
+@@ -387,14 +391,15 @@ determineTileSizes(linalg::LinalgOp op, int64_t vtcmBudget,
+   }
+ 
+   auto size =
+-      calcMemoryFootprint(op, getInitialTileSize(op), *memoryFootprintMap);
++      calcMemoryFootprint(op, getInitialTileSize(op, loopUpperBounds),
++                          *memoryFootprintMap);
+ 
+   if (size <= vtcmBudget) {
+     DBG("-> Memory footprint of op:"
+         << size
+         << " bytes, is less than or equal to VTCM Memory size: " << vtcmBudget
+         << " bytes. Hence, tile size estimation for vtcm is not required.");
+-    return getInitialTileSize(op);
++    return getInitialTileSize(op, loopUpperBounds);
+   } else {
+     DBG("-> Memory footprint of op:"
+         << size << " bytes, is greater than VTCM Memory size: " << vtcmBudget
+@@ -402,10 +407,12 @@ determineTileSizes(linalg::LinalgOp op, int64_t vtcmBudget,
+   }
+ 
+   auto priorityDims =
+-      generateTilingPriorityOrder(op, *memoryFootprintMap, tilingDims);
+-  SmallVector<unsigned> lowerBounds = calculateTileSizeLowerBounds(op);
++      generateTilingPriorityOrder(op, *memoryFootprintMap, tilingDims,
++                                  loopUpperBounds);
++  SmallVector<unsigned> lowerBounds =
++      calculateTileSizeLowerBounds(op, loopUpperBounds);
+ 
+-  SmallVector<int64_t> tileSizes = getInitialTileSize(op);
++  SmallVector<int64_t> tileSizes = getInitialTileSize(op, loopUpperBounds);
+   int64_t reductionFactor = getReductionFactor(size, vtcmBudget);
+   for (int j = 0; j < 2; ++j) {
+     for (int i = 0; i < priorityDims.size(); ++i) {
+@@ -436,13 +443,23 @@ std::vector<unsigned> getInterchangeVector(linalg::LinalgOp op) {
+ }
+ 
+ // Returns initial tile sizes for the linalgOp, wherein static-shape
+-// dimension is selected as initial size, and a default value for
+-// dynamic loop range dimension.
+-SmallVector<int64_t> getInitialTileSize(linalg::LinalgOp op) {
++// dimension is selected as initial size. A dynamic loop range dimension takes
++// its entry in `loopUpperBounds` when that is static, and a default value
++// otherwise.
++SmallVector<int64_t> getInitialTileSize(linalg::LinalgOp op,
++                                        ArrayRef<int64_t> loopUpperBounds) {
+   const int dynamicShapeDimTileSize = 256;
+   SmallVector<int64_t> initial_tile_size = op.getStaticLoopRanges();
++  assert((loopUpperBounds.empty() ||
++          loopUpperBounds.size() == initial_tile_size.size()) &&
++         "Loop upper bounds size mismatch with the operation.");
+   for (auto [idx, dim] : llvm::enumerate(initial_tile_size)) {
+-    if (ShapedType::isDynamic(dim))
++    if (!ShapedType::isDynamic(dim))
++      continue;
++    if (!loopUpperBounds.empty() &&
++        !ShapedType::isDynamic(loopUpperBounds[idx]))
++      initial_tile_size[idx] = loopUpperBounds[idx];
++    else
+       initial_tile_size[idx] = dynamicShapeDimTileSize;
+   }
+   return initial_tile_size;

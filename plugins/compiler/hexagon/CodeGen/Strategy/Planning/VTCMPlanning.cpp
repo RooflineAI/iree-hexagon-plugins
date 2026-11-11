@@ -165,23 +165,27 @@ SmallVector<int64_t> getHmxTileCandidates(int64_t extent, int64_t hmxTile) {
 }
 
 /// Returns VTCM tile sizes for an HMX matmul root, or std::nullopt if `op` is
-/// not a contraction with one static M, N and K dimension each and no batch
-/// dimension. Batch matmuls keep hexagon-mlir's tiles: with a unit batch tile,
-/// HMX lowering vectorizes the accumulator fill at the whole M x N tile.
+/// not a contraction with one M, N and K dimension each and no batch
+/// dimension, or if a loop has no upper bound in `loopUpperBounds`. Batch
+/// matmuls keep hexagon-mlir's tiles: with a unit batch tile, HMX lowering
+/// vectorizes the accumulator fill at the whole M x N tile.
 ///
-/// M and N tiles are HMX-aligned divisors of their extents and K is staged
-/// whole. The tile with the least DDR <-> VTCM traffic wins:
-/// an operand whose dimensions are all untiled is the same in every iteration,
-/// so it is copied once and not double-buffered (keeping M whole does this for
-/// the LHS). Footprints follow hexagon-mlir's model, per operand the product of
-/// the tile extents its indexing map reads times its element size.
+/// A dynamic loop is sized by its upper bound: M and N tiles are HMX-aligned
+/// divisors of their upper bounds (a dynamic extent leaves a partial last
+/// tile, which HMX pads) and K is staged whole. The tile with the least
+/// DDR <-> VTCM traffic wins: an operand whose dimensions are all untiled is
+/// the same in every iteration, so it is copied once and not double-buffered
+/// (keeping M whole does this for the LHS). Footprints follow hexagon-mlir's
+/// model, per operand the product of the tile extents its indexing map reads
+/// times its element size.
 ///
 /// Tiles within the budget win over tiles that overrun it. A deep K can leave
 /// no HMX-aligned tile within the budget, so overrunning it is allowed up to
 /// a fixed factor: the budget is not the VTCM size, and the runtime only runs
 /// a dispatch that declares more with fewer others at the same time.
 std::optional<SmallVector<int64_t>>
-selectHmxTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
+selectHmxTileSizes(const PlanningContext &context, linalg::LinalgOp op,
+                   ArrayRef<int64_t> loopUpperBounds) {
   // collect m and n dims
   FailureOr<linalg::ContractionDimensions> dimensions =
       linalg::inferContractionDims(op);
@@ -189,7 +193,7 @@ selectHmxTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
       dimensions->n.size() != 1 || dimensions->k.empty() ||
       !dimensions->batch.empty())
     return std::nullopt;
-  SmallVector<int64_t> ranges = op.getStaticLoopRanges();
+  SmallVector<int64_t> ranges(loopUpperBounds);
   if (llvm::any_of(ranges, ShapedType::isDynamic))
     return std::nullopt;
 
@@ -295,7 +299,7 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
   // result in the dispatch plan.
   std::optional<SmallVector<int64_t>> tileSizes;
   if (contract.hmx != LoopTilingScope::Unused)
-    tileSizes = selectHmxTileSizes(context, linalgOp);
+    tileSizes = selectHmxTileSizes(context, linalgOp, loopUpperBounds);
   if (!tileSizes)
     tileSizes = determineStagedTileSizes(context, linalgOp, loopUpperBounds);
   if (!tileSizes) {

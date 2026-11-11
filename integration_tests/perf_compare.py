@@ -147,8 +147,14 @@ def fetch_recent_runs(
         run_id = str(run["id"])
         # fetch jobs of the run
         jobs = json.loads(_gh_api(f"runs/{run_id}/jobs?per_page=100"))["jobs"]
-        # look up the job id. There is only 1 job with matching name
-        job_ids = [entry["id"] for entry in jobs if entry["name"] == job]
+        # look up the job id. There is only 1 job with matching name. Jobs of
+        # the reusable ci.yml are named "<caller job> / <job>"; older runs
+        # name them plainly.
+        job_ids = [
+            entry["id"]
+            for entry in jobs
+            if entry["name"] == job or entry["name"].endswith(f" / {job}")
+        ]
         if len(job_ids) != 1:
             raise LookupError(
                 f"{branch} run {run_id} has {len(job_ids)} jobs named {job}"

@@ -67,8 +67,7 @@ def aarch64_android_platform_alias(*, name, actual, tags = None, target_compatib
 # (profiling enabled), scoped to this subtree via a config transition. Because
 # tracing_provider feeds iree/base (and thus the host IREE compiler), scoping it
 # here keeps the host compiler in the default config and reuses its build cache.
-# TRACY_TIMER_FALLBACK is applied per-file to tracy.cc (required under bazel
-# sandboxing) to avoid re-keying the whole compiler tree.
+# TRACY_TIMER_FALLBACK is required under bazel sandboxing
 # buildifier: disable=unused-variable
 _aarch64_android_tracy_platform_alias, _aarch64_android_tracy_platform_alias_internal = with_cfg(_alias).set(
     "platforms",
@@ -77,8 +76,8 @@ _aarch64_android_tracy_platform_alias, _aarch64_android_tracy_platform_alias_int
     Label("@iree//runtime/src/iree/base/tracing:tracing_provider"),
     "tracy",
 ).extend(
-    "per_file_copt",
-    [".*base/tracing/tracy.cc@-DTRACY_TIMER_FALLBACK"],
+    "copt",
+    ["-DTRACY_TIMER_FALLBACK"],
 ).build()
 
 def aarch64_android_tracy_platform_alias(*, name, actual, tags = None, target_compatible_with = None):

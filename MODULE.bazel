@@ -191,6 +191,14 @@ inject_repo(iree_ext, "llvm-raw")
 
 inject_repo(iree_ext, "torch-mlir-raw")
 
+# Register the Hexagon HAL driver with IREE's runtime (statically linked into
+# iree-run-module/iree-benchmark-module). See
+# third-party/iree/build_tools/bazel/EXTERNAL_DRIVERS.md.
+iree_ext.external_hal_driver(
+    enabled_by = "//plugins/runtime/hexagon:hexagon_runtime_enabled",
+    register_fn = "iree_hal_hexagon_driver_module_register",
+    target = "//plugins/runtime/hexagon/registration:DriverModuleStaticLib",
+)
 use_repo(
     iree_ext,
     "abseil_cpp",
@@ -204,6 +212,9 @@ use_repo(
     "hsa_runtime_headers",
     "iree_amdgpu_device_toolchain",
     "iree_cuda",
+    # Loaded by IREE's runtime/src/iree/hal/drivers/BUILD.bazel. Needed in
+    # this module's repo mapping because "@iree" inherits it (see above).
+    "iree_external_hal_drivers",
     "llvm-project",
     "nccl",
     "rccl",

@@ -303,8 +303,7 @@ runLLVMOptimizationPasses(llvm::TargetMachine &targetMachine,
       llvmModule.getContext(), /*DebugLogging=*/false);
   standardInstrumentations.registerCallbacks(passInstrumentationCallbacks);
 
-  llvm::PipelineTuningOptions tuningOptions(
-      &llvmModule.getContext().getLibraryOptions());
+  llvm::PipelineTuningOptions tuningOptions;
   tuningOptions.LoopInterleaving = false;
   tuningOptions.LoopVectorization = false;
   tuningOptions.LoopUnrolling = false;

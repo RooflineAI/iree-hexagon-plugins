@@ -1,9 +1,9 @@
 diff --git a/build_tools/bazel/extensions.bzl b/build_tools/bazel/extensions.bzl
-index e8c274edbb..5ce738c516 100644
+index 1e1f403f01..7e820a1823 100644
 --- a/build_tools/bazel/extensions.bzl
 +++ b/build_tools/bazel/extensions.bzl
-@@ -11,6 +11,8 @@ load("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository", "new_l
- load("//build_tools/bazel:amdgpu_device_toolchain_repo.bzl", "amdgpu_device_toolchain_repo")
+@@ -13,6 +13,8 @@ load("//build_tools/bazel:amdgpu_device_toolchain_repo.bzl", "amdgpu_device_tool
+ load("//build_tools/bazel:external_hal_drivers.bzl", "external_hal_driver_tag", "iree_external_hal_drivers_repo")
  load("//build_tools/bazel:workspace.bzl", "cuda_auto_configure")
  load("//build_tools/wasm:wasi_sdk_repo.bzl", "wasi_sdk_repo")
 +load("@llvm-raw//utils/bazel:configure.bzl", "llvm_configure")
@@ -11,7 +11,7 @@ index e8c274edbb..5ce738c516 100644
  
  def _iree_extension_impl(module_ctx):
      """Implementation of the IREE module extension."""
-@@ -28,16 +30,47 @@ def _iree_extension_impl(module_ctx):
+@@ -30,16 +32,47 @@ def _iree_extension_impl(module_ctx):
              build_file_content = "# empty",
              path = iree_root + "/third_party/llvm-project",
          )

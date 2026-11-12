@@ -229,7 +229,7 @@ void addHexagonBufferOpsTileAndVectorizePipeline(
 
   {
     HexagonVectorLoweringPassOptions options;
-    options.splitVectorTransfersTo = "linalg-copy";
+    options.splitVectorTransfersTo = "memref-copy";
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }
@@ -377,7 +377,7 @@ void addHexagonMultiTilingExpertPassPipeline(
 
   {
     HexagonVectorLoweringPassOptions options;
-    options.splitVectorTransfersTo = "linalg-copy";
+    options.splitVectorTransfersTo = "memref-copy";
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }
@@ -491,7 +491,7 @@ void addHexagonHmxMatmulExpertPassPipeline(
 
   {
     HexagonVectorLoweringPassOptions options;
-    options.splitVectorTransfersTo = "linalg-copy";
+    options.splitVectorTransfersTo = "memref-copy";
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }
@@ -589,7 +589,7 @@ void addHexagonLinalgExtTileAndVectorizePipeline(
 
   {
     HexagonVectorLoweringPassOptions options;
-    options.splitVectorTransfersTo = "linalg-copy";
+    options.splitVectorTransfersTo = "memref-copy";
     buildHexagonVectorLoweringPipeline(funcPassManager, options);
   }
 }

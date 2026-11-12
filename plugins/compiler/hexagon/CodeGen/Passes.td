@@ -290,7 +290,8 @@ def HexagonVirtualVectorLoweringPass :
       [{Split vector transfers between slow (masked) and fast "
         "(unmasked) variants. Possible options are:\n"
           "\tnone [default]: keep unsplit vector.transfer and pay the price\n"
-          "\tlinalg-copy: use linalg.fill + linalg.generic for the slow path\n"
+          "\tmemref-copy: use memref.copy through a temporary buffer for the"
+          " slow path\n"
           "\tvector-transfers: use extra small unmasked vector.transfers for"
           " the slow path\n}]>,
   ];

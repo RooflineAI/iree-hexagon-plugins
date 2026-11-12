@@ -61,7 +61,7 @@ bazel-bin/plugins/runtime/hexagon/hexagon_runtime_aarch64_android.zip
 
 This zip file contains two binaries and some support files. The Hexagon HAL
 driver is compiled directly into both binaries (a static HAL driver
-registered via `build_tools/bazel/load_external_hal_drivers.bzl`) - there is
+registered via the `iree_ext.external_hal_driver` tag in `MODULE.bazel`) - there is
 no separate runtime plugin `.so` to load:
 
 - `bin/iree-benchmark-module`:

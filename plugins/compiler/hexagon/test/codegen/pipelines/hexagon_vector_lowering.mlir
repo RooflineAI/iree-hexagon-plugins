@@ -9,7 +9,7 @@
 // First four fixed-width cases; exact Hexagon vector stage sequence.
 // Production builder covered by hexagon_lower_executable_target.mlir.
 
-// RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-codegen-drop-vector-unit-dims,iree-hexagon-virtual-vector-lowering{split-transfers=linalg-copy},canonicalize,iree-codegen-vector-transfer-lowering{enable-scalable-lowerings=false},iree-hexagon-vector-transpose-lowering,canonicalize,iree-hexagon-vector-shape-cast-lowering))" --split-input-file %s | FileCheck %s
+// RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-codegen-drop-vector-unit-dims,iree-hexagon-virtual-vector-lowering{split-transfers=memref-copy},canonicalize,iree-codegen-vector-transfer-lowering{enable-scalable-lowerings=false},iree-hexagon-vector-transpose-lowering,canonicalize,iree-hexagon-vector-shape-cast-lowering))" --split-input-file %s | FileCheck %s
 
 #pipeline_layout = #hal.pipeline.layout<bindings = [
   #hal.pipeline.binding<storage_buffer>,
@@ -72,7 +72,8 @@ func.func @matmul_391x384x384_f32() {
 // CHECK:                   scf.if
 // CHECK:                     scf.yield %{{.*}}
 // CHECK:                   } else {
-// CHECK:                     linalg.fill
+// CHECK:                     vector.type_cast
+// CHECK:                     memref.store
 // CHECK:                     memref.copy
 // CHECK:                     scf.yield %{{.*}}
 // CHECK:                   }

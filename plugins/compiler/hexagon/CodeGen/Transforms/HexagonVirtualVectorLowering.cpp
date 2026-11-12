@@ -169,7 +169,7 @@ void HexagonVirtualVectorLoweringPass::runOnOperation() {
       llvm::StringSwitch<vector::VectorTransferSplit>(
           splitVectorTransfersTo.getValue())
           .Case("none", vector::VectorTransferSplit::None)
-          .Case("linalg-copy", vector::VectorTransferSplit::LinalgCopy)
+          .Case("memref-copy", vector::VectorTransferSplit::MemRefCopy)
           .Case("vector-transfers", vector::VectorTransferSplit::VectorTransfer)
           .Default(vector::VectorTransferSplit::None);
 

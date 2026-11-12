@@ -8,7 +8,7 @@
 // the ported virtual_vector_lowering.mlir does not exercise.
 // RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-virtual-vector-lowering))" %s | FileCheck %s --check-prefixes=CHECK,NONE
 // RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-virtual-vector-lowering{split-transfers=shuffle}))" %s | FileCheck %s --check-prefixes=CHECK,NONE
-// RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-virtual-vector-lowering{split-transfers=linalg-copy}))" %s | FileCheck %s --check-prefixes=CHECK,COPY
+// RUN: iree-opt --pass-pipeline="builtin.module(func.func(iree-hexagon-virtual-vector-lowering{split-transfers=memref-copy}))" %s | FileCheck %s --check-prefixes=CHECK,COPY
 
 // NONE-LABEL: func.func @partial_transfer(
 // NONE-NOT: scf.if
@@ -16,7 +16,8 @@
 // NONE: return
 // COPY-LABEL: func.func @partial_transfer(
 // COPY: scf.if
-// COPY: linalg.fill
+// COPY: vector.type_cast
+// COPY: memref.store
 // COPY: memref.copy
 // COPY: vector.transfer_read
 // COPY: return

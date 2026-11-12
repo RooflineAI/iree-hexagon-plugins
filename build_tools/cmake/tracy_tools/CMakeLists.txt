@@ -40,6 +40,13 @@ FetchContent_Declare(
   URL_HASH SHA256=c9d8c346f90e7dca3d38e2c8d053d5073231153cea92d964744f3f65a4e163c1
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
+# zstd v1.5.7, as fetched by Tracy's cmake/vendor.cmake
+FetchContent_Declare(
+  tracy_zstd
+  URL https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
+  URL_HASH SHA256=eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
 # Only the sources are needed: they are built below, as in the Bazel overlays.
 FetchContent_GetProperties(tracy_capstone)
 if(NOT tracy_capstone_POPULATED)
@@ -48,6 +55,10 @@ endif()
 FetchContent_GetProperties(tracy_ppqsort)
 if(NOT tracy_ppqsort_POPULATED)
   FetchContent_Populate(tracy_ppqsort)
+endif()
+FetchContent_GetProperties(tracy_zstd)
+if(NOT tracy_zstd_POPULATED)
+  FetchContent_Populate(tracy_zstd)
 endif()
 
 # Vendored code, warnings are not ours to fix.
@@ -110,15 +121,22 @@ target_include_directories(tracy_capstone PUBLIC
 add_library(tracy_ppqsort INTERFACE)
 target_include_directories(tracy_ppqsort INTERFACE "${tracy_ppqsort_SOURCE_DIR}/include")
 
+set(_ZSTD "${tracy_zstd_SOURCE_DIR}/lib")
 file(GLOB _ZSTD_SOURCES
-  "${TRACY_DIR}/zstd/common/*.c"
-  "${TRACY_DIR}/zstd/compress/*.c"
-  "${TRACY_DIR}/zstd/decompress/*.c"
-  "${TRACY_DIR}/zstd/dictBuilder/*.c"
+  "${_ZSTD}/common/*.c"
+  "${_ZSTD}/compress/*.c"
+  "${_ZSTD}/decompress/*.c"
+  "${_ZSTD}/dictBuilder/*.c"
 )
+# Only the C sources are built, so the x86-64 assembly decoder is disabled.
 add_library(tracy_zstd STATIC ${_ZSTD_SOURCES})
 target_compile_definitions(tracy_zstd PRIVATE ZSTD_DISABLE_ASM)
-target_include_directories(tracy_zstd PUBLIC "${TRACY_DIR}/zstd")
+target_include_directories(tracy_zstd PUBLIC "${_ZSTD}")
+
+# Tracy's cmake/GitRef.cmake fallback when git is unavailable. The tools still
+# print the Tracy version next to it.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gitref/GitRef.hpp"
+  "#pragma once\nnamespace tracy { static inline const char* GitRef = \"unknown\"; }\n")
 
 add_library(tracy_getopt STATIC "${TRACY_DIR}/getopt/getopt.c")
 target_include_directories(tracy_getopt PUBLIC "${TRACY_DIR}/getopt")
@@ -132,6 +150,8 @@ add_library(tracy_server STATIC
   "${TRACY_DIR}/public/common/TracySystem.cpp"
   "${TRACY_DIR}/public/common/tracy_lz4.cpp"
   "${TRACY_DIR}/public/common/tracy_lz4hc.cpp"
+  "${TRACY_DIR}/server/TracyBroadcast.cpp"
+  "${TRACY_DIR}/server/TracyLocks.cpp"
   "${TRACY_DIR}/server/TracyMemory.cpp"
   "${TRACY_DIR}/server/TracyMmap.cpp"
   "${TRACY_DIR}/server/TracyPrint.cpp"
@@ -141,6 +161,11 @@ add_library(tracy_server STATIC
   "${TRACY_DIR}/server/TracyThreadCompress.cpp"
   "${TRACY_DIR}/server/TracyWorker.cpp"
 )
+# As TracyServer's target_include_directories in cmake/server.cmake.
+target_include_directories(tracy_server PUBLIC
+  "${TRACY_DIR}/public/common"
+  "${TRACY_DIR}/server"
+)
 target_link_libraries(tracy_server PUBLIC
   tracy_capstone
   tracy_ppqsort
@@ -148,10 +173,22 @@ target_link_libraries(tracy_server PUBLIC
   Threads::Threads
 )
 
+# Capture helpers shared by tracy-capture and tracy-capture-daemon
+# (cmake/util.cmake).
+add_library(tracy_util STATIC
+  "${TRACY_DIR}/util/CaptureConsole.cpp"
+  "${TRACY_DIR}/util/CaptureFileBackup.cpp"
+  "${TRACY_DIR}/util/CaptureOutput.cpp"
+)
+target_include_directories(tracy_util PUBLIC "${TRACY_DIR}/util")
+target_link_libraries(tracy_util PUBLIC tracy_server)
+
 add_executable(tracy-capture "${TRACY_DIR}/capture/src/capture.cpp")
-target_link_libraries(tracy-capture PRIVATE tracy_getopt tracy_server)
+target_include_directories(tracy-capture PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gitref")
+target_link_libraries(tracy-capture PRIVATE tracy_getopt tracy_server tracy_util)
 
 add_executable(tracy-csvexport "${TRACY_DIR}/csvexport/src/csvexport.cpp")
+target_include_directories(tracy-csvexport PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gitref")
 target_link_libraries(tracy-csvexport PRIVATE tracy_getopt tracy_server)
 
 if(ANDROID)

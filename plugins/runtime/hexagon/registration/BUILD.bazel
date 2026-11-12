@@ -27,8 +27,8 @@ hexagon_plugin_library(
     ],
 )
 
-# Static registration into iree-run-module/iree-benchmark-module (see
-# build_tools/bazel/load_external_hal_drivers.bzl): additionally links the
+# Static registration into iree-run-module/iree-benchmark-module (see the
+# iree_ext.external_hal_driver tag in MODULE.bazel): additionally links the
 # IREE runtime libraries the driver uses header-only. A dynamically loaded
 # HAL plugin links :DriverModuleLib alone instead.
 cc_library(

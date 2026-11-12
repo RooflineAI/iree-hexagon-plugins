@@ -92,6 +92,10 @@ const OpShape &getRootShape(const DispatchShape &shape);
 struct TargetInfo {
   /// Fallback HVX width when the executable target does not provide one.
   int64_t nativeVectorBytes = 128;
+  /// Widest vector lane HVX computes on natively. Wider elements, such as i64,
+  /// are split or lowered lane by lane. (also see
+  /// llvm/lib/Target/Hexagon/HexagonSubtarget.h)
+  int64_t maxNativeLaneBits = 32;
   int64_t architecturalVectorRegisterCount = 32;
   int64_t hmxM = 32;
   int64_t hmxN = 32;

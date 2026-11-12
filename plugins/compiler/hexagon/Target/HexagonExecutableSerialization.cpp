@@ -9,6 +9,7 @@
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
+#include "hexagon/Target/LLVMPasses/ExpandVectorTruncToI1.h"
 #include "hexagon/Target/LibraryBuilder.h"
 #include "hexagon/Target/Linking/HexagonLinker.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
@@ -318,6 +319,13 @@ runLLVMOptimizationPasses(llvm::TargetMachine &targetMachine,
   passBuilder.registerLoopAnalyses(loopAnalysisManager);
   passBuilder.crossRegisterProxies(loopAnalysisManager, functionAnalysisManager,
                                    cgsccAnalysisManager, moduleAnalysisManager);
+  // FIXME: workaround for https://github.com/llvm/llvm-project/issues/237238
+  passBuilder.registerOptimizerLastEPCallback(
+      [](llvm::ModulePassManager &modulePassManager, llvm::OptimizationLevel,
+         llvm::ThinOrFullLTOPhase) {
+        modulePassManager.addPass(llvm::createModuleToFunctionPassAdaptor(
+            ExpandVectorTruncToI1Pass()));
+      });
 
   llvm::ModulePassManager modulePassManager =
       passBuilder.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);

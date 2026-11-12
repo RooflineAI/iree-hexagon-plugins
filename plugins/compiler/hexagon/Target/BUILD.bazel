@@ -122,6 +122,7 @@ hexagon_plugin_library(
         ":LibraryBuilder",
         "//plugins/compiler/hexagon/CodeGen:codegen",
         "//plugins/compiler/hexagon/CodeGen/IR:HexagonIR",
+        "//plugins/compiler/hexagon/Target/LLVMPasses",
         "//plugins/compiler/hexagon/Target/Linking:HexagonLinker",
         "@iree//compiler/src/iree/compiler/Utils",
     ],

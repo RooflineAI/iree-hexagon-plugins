@@ -116,6 +116,7 @@ iree_cc_library(
     iree::compiler::Utils
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::codegen
+    iree_hexagon_plugins::plugins::compiler::hexagon::Target::LLVMPasses
     iree_hexagon_plugins::plugins::compiler::hexagon::Target::Linking::HexagonLinker
     iree_hexagon_plugins::plugins::runtime::hexagon::dsp::rt::executable_library
   ALWAYSLINK

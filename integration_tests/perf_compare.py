@@ -155,7 +155,10 @@ def fetch_recent_runs(
             for entry in jobs
             if entry["name"] == job or entry["name"].endswith(f" / {job}")
         ]
-        if len(job_ids) != 1:
+        if not job_ids:
+            # e.g. a startup_failure run has no jobs
+            continue
+        if len(job_ids) > 1:
             raise LookupError(
                 f"{branch} run {run_id} has {len(job_ids)} jobs named {job}"
             )

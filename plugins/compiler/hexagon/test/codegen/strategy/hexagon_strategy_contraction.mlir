@@ -111,3 +111,36 @@ func.func @batch_matmul_transposed_rhs_dispatch(%lhs: tensor<4x64x128xf32>, %rhs
 // CHECK-SAME: translation_info = #[[TRANSLATION]]
 // CHECK: linalg.fill {lowering_config = #[[FILL]]}
 // CHECK: linalg.batch_matmul {{.*}} {lowering_config = #[[MATMUL]]}
+
+// -----
+
+// 1x1 convolution whose result is stored into the padded input of the next
+// layer: the offset store keeps H and W apart, so the contraction has two M
+// dimensions. The outer M (H) is tiled to 1 like batch, and the inner M (W) is
+// tiled like a matmul M.
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", data_layout = "e-m:e-p:32:32:32-a:0-n16:32-i64:64:64-i32:32:32-i16:16:16-i1:8:8-f32:32:32-f64:64:64-v32:32:32-v64:64:64-v512:512:512-v1024:1024:1024-v2048:2048:2048", hexagon.version = "79", max_stack_allocation_size = 16384 : i64, native_vector_size = 128 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+func.func @multi_m_contraction_dispatch(%lhs: tensor<192x256x128xf32>, %rhs: tensor<128x64xf32>, %padded: tensor<194x258x64xf32>) -> tensor<194x258x64xf32> attributes {hal.executable.target = #target} {
+  %cst = arith.constant 0.0 : f32
+  %empty = tensor.empty() : tensor<192x256x64xf32>
+  %init = linalg.fill ins(%cst : f32) outs(%empty : tensor<192x256x64xf32>) -> tensor<192x256x64xf32>
+  %result = linalg.generic {
+      indexing_maps = [affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)>,
+                       affine_map<(d0, d1, d2, d3) -> (d3, d2)>,
+                       affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>],
+      iterator_types = ["parallel", "parallel", "parallel", "reduction"]}
+      ins(%lhs, %rhs : tensor<192x256x128xf32>, tensor<128x64xf32>)
+      outs(%init : tensor<192x256x64xf32>) {
+  ^bb0(%a: f32, %b: f32, %c: f32):
+    %mul = arith.mulf %a, %b : f32
+    %add = arith.addf %c, %mul : f32
+    linalg.yield %add : f32
+  } -> tensor<192x256x64xf32>
+  %inserted = tensor.insert_slice %result into %padded[1, 1, 0] [192, 256, 64] [1, 1, 1] : tensor<192x256x64xf32> into tensor<194x258x64xf32>
+  return %inserted : tensor<194x258x64xf32>
+}
+// CHECK-DAG: #[[MATMUL:.+]] = #iree_hexagon.lowering_config<cache_parallel = [1, 64, 64, 0], distribution = [0, 0, 0, 0], vector_common_parallel = [1, 8, 32, 0], vector_reduction = [0, 0, 0, 8]>
+// CHECK-DAG: #[[TRANSLATION:.+]] = #iree_codegen.translation_info<pipeline = #iree_hexagon.pipeline<MultiTilingExpert>, {enable_loop_peeling}>
+// CHECK: func.func @multi_m_contraction_dispatch(
+// CHECK-SAME: translation_info = #[[TRANSLATION]]
+// CHECK: linalg.generic
+// CHECK-SAME: lowering_config = #[[MATMUL]]

@@ -1,16 +1,16 @@
 diff --git a/MODULE.bazel b/MODULE.bazel
-index a75ab70435..7b2bd03405 100644
+index fd84fe3973..210ed4fbec 100644
 --- a/MODULE.bazel
 +++ b/MODULE.bazel
-@@ -83,6 +83,7 @@ use_repo(
-     "hsa_runtime_headers",
+@@ -92,6 +92,7 @@ use_repo(
      "iree_amdgpu_device_toolchain",
      "iree_cuda",
+     "iree_external_hal_drivers",
 +    "llvm-project",
      "llvm-raw",
      "nccl",
      "rccl",
-@@ -90,6 +91,7 @@ use_repo(
+@@ -99,6 +100,7 @@ use_repo(
      "spirv_headers",
      "spirv_tools",
      "stablehlo",
@@ -18,7 +18,7 @@ index a75ab70435..7b2bd03405 100644
      "torch-mlir-raw",
      "tracy_client",
      "vulkan_headers",
-@@ -102,29 +104,3 @@ use_repo(
+@@ -111,29 +113,3 @@ use_repo(
  # module here, so inject IREE's @llvm-raw (created by iree_extension) into the
  # overlay extension to satisfy its use_repo("llvm-raw").
  inject_repo(llvm_repos_ext, "llvm-raw")

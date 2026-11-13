@@ -16,9 +16,11 @@ hexagon_plugin_library(
     name = "LLVMPasses",
     srcs = [
         "ExpandVectorTruncToI1.cpp",
+        "SplatSelectConditionToI1Vector.cpp",
     ],
     hdrs = [
         "ExpandVectorTruncToI1.h",
+        "SplatSelectConditionToI1Vector.h",
     ],
     hdr_deps = [
         "@llvm-project//llvm:Core",

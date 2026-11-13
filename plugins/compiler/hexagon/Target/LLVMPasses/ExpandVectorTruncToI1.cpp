@@ -23,8 +23,7 @@ ExpandVectorTruncToI1Pass::run(llvm::Function &function,
        llvm::make_early_inc_range(llvm::instructions(function))) {
     auto *trunc = llvm::dyn_cast<llvm::TruncInst>(&instruction);
     if (!trunc || !trunc->getType()->isVectorTy() ||
-        !trunc->getType()->getScalarType()->isIntegerTy(1) ||
-        trunc->getSrcTy()->getScalarType()->isIntegerTy(8)) {
+        !trunc->getType()->getScalarType()->isIntegerTy(1)) {
       continue;
     }
     llvm::IRBuilder<> builder(trunc);

@@ -77,7 +77,7 @@ adb shell "rm -rf '$REMOTE_DIR/bin' '$REMOTE_DIR/lib'"
 adb shell "mkdir -p '$REMOTE_DIR'"
 adb push "$RUNTIME_ZIP" "$REMOTE_DIR"
 adb shell "unzip -o '$REMOTE_DIR/hexagon_runtime_aarch64_android.zip' -d '$REMOTE_DIR'"
-adb shell "chmod +x '$REMOTE_DIR/bin/iree-run-module'"
+adb shell "chmod +x '$REMOTE_DIR/bin/'*"
 ```
 
 The zip contains:
@@ -86,6 +86,7 @@ The zip contains:
 |---|---|
 | `bin/iree-run-module` | IREE runtime for the ARM host side, with the Hexagon HAL driver linked in. |
 | `bin/iree-benchmark-module` | Same, for benchmarking. |
+| `bin/iree-run-llm` | Token generation loop for LLMs exported with `prefill`/`decode`, see [Run an LLM](#run-an-llm). |
 | `lib/hexagon/libhexagon_dsp_skel.so` | The DSP-side runtime. |
 | `lib/libc++_shared.so` | NDK C++ runtime, required to match the build. |
 
@@ -122,6 +123,35 @@ adb shell "echo 1000 > /proc/self/oom_score_adj && \
     --device=hexagon \
     --output=@$REMOTE_DIR/$EXAMPLE-output0.npy"
 ```
+
+## Run an LLM
+
+`iree-run-llm` runs a model exported as `prefill` and `decode` with the KV
+cache in module state (`KvCacheLM` in
+[integration_tests/models/kv_cache.py](../integration_tests/models/kv_cache.py)),
+in a greedy generation loop: it tokenizes the prompt with the model's
+HuggingFace `tokenizer.json`, prefills it, then calls `decode` once per token
+and prints the text as it is generated. Timings go to stderr.
+
+```sh
+adb push tokenizer.json model.vmfb "$REMOTE_DIR/"
+adb shell "echo 1000 > /proc/self/oom_score_adj && \
+  export DSP_LIBRARY_PATH=$REMOTE_DIR/lib/hexagon && \
+  $REMOTE_DIR/bin/iree-run-llm \
+    --module=$REMOTE_DIR/model.vmfb \
+    --device=hexagon \
+    --tokenizer=$REMOTE_DIR/tokenizer.json \
+    --prompt='The capital of France is' \
+    --max_new_tokens=32"
+```
+
+`--max_seq_len`, `--block_seq_stride` and `--min_prefill_blocks` must match
+the export (defaults: 128, 32 and 2, as in
+`HuggingFaceTB/SmolLM2-135M-kv-cache`). The prompt is used as is, so apply a
+chat template beforehand; `--prompt_file` avoids quoting it through
+`adb shell`. Generation stops at the tokenizer's EOS token, or at the IDs given
+with `--stop_token_id` (repeatable; take them from the model's
+`generation_config.json`). See `iree-run-llm --help` for the rest.
 
 ## DSP-side debug logging
 

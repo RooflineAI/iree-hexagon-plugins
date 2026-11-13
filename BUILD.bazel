@@ -23,6 +23,7 @@ refresh_compile_commands(
         "//plugins/runtime/hexagon/test/...": "",
         "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android": "",
         "//plugins/runtime/hexagon/dsp:hexagon_dsp_skel_cross": "",
+        "//tools:iree-run-llm": "",
         "@iree//tools:iree-compile": "",
         "@iree//tools:iree-opt": "",
     },

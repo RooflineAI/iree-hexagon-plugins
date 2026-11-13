@@ -253,15 +253,20 @@ package_zip() {
   rm -rf "${staging}"
 }
 
+# This repo's own tools/ (iree-run-llm), built as part of the `all` target.
+PLUGIN_TOOLS_DIR=runtime/plugins/iree_hexagon_plugins/tools
+
 package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android.zip" \
   "bin/iree-run-module" "${BUILD_ROOT}/android/tools/iree-run-module" \
   "bin/iree-benchmark-module" "${BUILD_ROOT}/android/tools/iree-benchmark-module" \
+  "bin/iree-run-llm" "${BUILD_ROOT}/android/${PLUGIN_TOOLS_DIR}/iree-run-llm" \
   "lib/libc++_shared.so" "${LIBCXX_SHARED}" \
   "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO}"
 
 package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android_tracy.zip" \
   "bin/iree-run-module" "${BUILD_ROOT}/android-tracy/tools/iree-run-module" \
   "bin/iree-benchmark-module" "${BUILD_ROOT}/android-tracy/tools/iree-benchmark-module" \
+  "bin/iree-run-llm" "${BUILD_ROOT}/android-tracy/${PLUGIN_TOOLS_DIR}/iree-run-llm" \
   "lib/libc++_shared.so" "${LIBCXX_SHARED}" \
   "lib/hexagon/libhexagon_dsp_skel.so" "${DSP_SKEL_SO_TRACY}" \
   "bin/tracy-capture" "${TRACY_TOOLS_BUILD_DIR}/tracy-capture" \

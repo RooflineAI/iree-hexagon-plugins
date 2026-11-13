@@ -1,0 +1,35 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+# Runs an LLM exported as prefill/decode (integration_tests/models/kv_cache.py)
+# in a token generation loop. Links the HAL drivers iree-run-module does, so on
+# Android it includes the Hexagon driver.
+cc_binary(
+    name = "iree-run-llm",
+    srcs = ["iree-run-llm-main.c"],
+    deps = [
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/base/tooling:flags",
+        "@iree//runtime/src/iree/hal",
+        "@iree//runtime/src/iree/hal/replay:recorder",
+        "@iree//runtime/src/iree/io:file_handle",
+        "@iree//runtime/src/iree/modules/hal:types",
+        "@iree//runtime/src/iree/tokenizer",
+        "@iree//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+        "@iree//runtime/src/iree/tokenizer/vocab",
+        "@iree//runtime/src/iree/tooling:context_util",
+        "@iree//runtime/src/iree/tooling:function_util",
+        "@iree//runtime/src/iree/vm",
+    ],
+)

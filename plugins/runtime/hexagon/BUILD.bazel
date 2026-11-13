@@ -108,6 +108,7 @@ cc_library(
 pkg_files(
     name = "hexagon_runtime_bin_files",
     srcs = [
+        "//tools:iree-run-llm",
         "@iree//tools:iree-benchmark-module",
         "@iree//tools:iree-run-module",
     ] + select({

@@ -23,6 +23,3 @@ tolerances:
 # The plain `hexagon` case runs ~10x slower on device for an LLM prefill,
 # so only the VTCM/HMX configuration is exercised.
 compile_cases: [hexagon-vtcm-hmx]
-# f16 weights over 2 GiB
-extra_compile_flags:
-  - "--iree-stream-resource-max-allocation-size=1073741824"

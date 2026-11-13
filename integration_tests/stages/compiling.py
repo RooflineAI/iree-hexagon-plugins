@@ -19,6 +19,7 @@ BASE_FLAGS: tuple[str, ...] = (
     "--iree-hexagon-features=+hvxv79,+hvx-length128b",
     "--iree-opt-data-tiling=false",
     "--iree-stream-resource-min-offset-alignment=128",
+    "--iree-stream-resource-max-allocation-size=1073741824",
 )
 
 

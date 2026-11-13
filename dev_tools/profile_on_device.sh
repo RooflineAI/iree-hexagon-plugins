@@ -117,7 +117,7 @@ REMOTE_DIR=/data/local/tmp/${USER}/profile_on_device/$MODEL_NAME # dir on the ph
 DEVICE_ROOT="${DEVICE_ROOT:-/data/local/tmp/hexagon_it}"
 
 COMPILE_FLAGS=()
-RUN_FLAGS="" # parallel
+RUN_FLAGS="--module_mode=mmap" # parallel
 RUN_CASE=parallel # the integration-test run case with the same runtime flags
 if [[ "$SERIAL" == true ]]; then
   # Without async worker threads inside VTCM-tiled kernels, too. Passed after

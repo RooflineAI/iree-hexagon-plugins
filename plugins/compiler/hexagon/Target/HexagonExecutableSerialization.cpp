@@ -10,6 +10,7 @@
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
 #include "hexagon/Target/LLVMPasses/ExpandVectorTruncToI1.h"
+#include "hexagon/Target/LLVMPasses/SplatSelectConditionToI1Vector.h"
 #include "hexagon/Target/LibraryBuilder.h"
 #include "hexagon/Target/Linking/HexagonLinker.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
@@ -324,6 +325,10 @@ runLLVMOptimizationPasses(llvm::TargetMachine &targetMachine,
          llvm::ThinOrFullLTOPhase) {
         modulePassManager.addPass(llvm::createModuleToFunctionPassAdaptor(
             ExpandVectorTruncToI1Pass()));
+        // FIXME: workaround for
+        // https://github.com/llvm/llvm-project/issues/239550
+        modulePassManager.addPass(llvm::createModuleToFunctionPassAdaptor(
+            SplatSelectConditionToI1VectorPass()));
       });
 
   llvm::ModulePassManager modulePassManager =

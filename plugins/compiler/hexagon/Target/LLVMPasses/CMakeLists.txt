@@ -15,8 +15,10 @@ iree_cc_library(
     LLVMPasses
   HDRS
     "ExpandVectorTruncToI1.h"
+    "SplatSelectConditionToI1Vector.h"
   SRCS
     "ExpandVectorTruncToI1.cpp"
+    "SplatSelectConditionToI1Vector.cpp"
   DEPS
     LLVMCore
     LLVMSupport

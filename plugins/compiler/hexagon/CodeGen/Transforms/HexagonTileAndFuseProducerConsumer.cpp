@@ -24,7 +24,9 @@
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/DebugLog.h"
@@ -283,6 +285,44 @@ static FailureOr<Operation *> tileRootAndFuseProducerConsumer(
 }
 
 namespace {
+/// Replaces a `tensor.insert_slice` that overwrites all of a `tensor.empty`
+/// with its source. Promoting a single-iteration `scf.forall` (a tile that
+/// covers its whole extent) leaves such an insert behind. `InsertSliceOp::fold`
+/// only removes it for static shapes. With dynamic shapes, the insert makes
+/// bufferization allocate a temporary for the whole result instead of
+/// computing in place.
+/// Other destinations are left alone: they already have a buffer, and the
+/// insert lets the source compute into it. Folding would make the source's
+/// own (temporary) buffer flow on instead, e.g. out of a loop.
+struct FoldFullInsertSliceIntoEmpty final
+    : OpRewritePattern<tensor::InsertSliceOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tensor::InsertSliceOp insertOp,
+                                PatternRewriter &rewriter) const override {
+    if (!insertOp.getDest().getDefiningOp<tensor::EmptyOp>() ||
+        insertOp.getSourceType() != insertOp.getType() ||
+        !areAllConstantIntValue(insertOp.getMixedOffsets(), 0) ||
+        !areAllConstantIntValue(insertOp.getMixedStrides(), 1)) {
+      return failure();
+    }
+    // Equal types fix the static sizes. The sizes of the dynamic dims are
+    // often a different SSA value than the destination's, e.g. a duplicate
+    // `tensor.dim` that CSE hasn't merged yet, so compare them by value bounds.
+    Value dest = insertOp.getDest();
+    for (auto [dim, size] : llvm::enumerate(insertOp.getMixedSizes())) {
+      if (!insertOp.getType().isDynamicDim(dim))
+        continue;
+      FailureOr<bool> equal = ValueBoundsConstraintSet::areEqual(
+          size, {dest, static_cast<int64_t>(dim)});
+      if (failed(equal) || !*equal)
+        return failure();
+    }
+    rewriter.replaceOp(insertOp, insertOp.getSource());
+    return success();
+  }
+};
+
 /// This pass starts with the first TilingInterface operation that has
 /// lowering_config attribute, tiles the op and fuses its  consumers and
 /// producers recursively. If the `onlyFuseProducerInputOperands` is set, it
@@ -364,6 +404,7 @@ void HexagonTileAndFuseProducerConsumer::runOnOperation() {
   scf::populateSCFForLoopCanonicalizationPatterns(patterns);
   scf::ForallOp::getCanonicalizationPatterns(patterns, context);
   tensor::populateFoldTensorEmptyPatterns(patterns);
+  patterns.add<FoldFullInsertSliceIntoEmpty>(context);
   memref::populateResolveRankedShapedTypeResultDimsPatterns(patterns);
   // Pull in tensor dialect canonicalization patterns to fold tensor.cast
   // into producers when possible.

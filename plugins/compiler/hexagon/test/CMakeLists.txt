@@ -89,6 +89,7 @@ iree_lit_test_suite(
     "codegen/transforms/synchronize_symbol_visibility.mlir"
     "codegen/transforms/tile.mlir"
     "codegen/transforms/tile_and_fuse_boundaries.mlir"
+    "codegen/transforms/tile_and_fuse_full_insert_slice.mlir"
     "codegen/transforms/tile_and_fuse_producer_consumer_anchoring_non_root_op.mlir"
     "codegen/transforms/tile_and_fuse_producer_consumer_anchoring_root_op.mlir"
     "codegen/transforms/tile_to_vector_size.mlir"

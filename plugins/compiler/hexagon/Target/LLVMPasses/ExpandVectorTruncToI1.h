@@ -20,8 +20,6 @@ namespace mlir::iree_compiler::hexagon::target {
 // This pass rewrites each such `trunc` as `icmp ne (and %x, 1), 0`, which
 // computes the same lanes. It must run after the last InstCombine of the
 // middle-end pipeline, which would fold the comparison back into a `trunc`.
-// Sources with i8 lanes are left alone, as testing bit 0 of each byte is
-// correct for them.
 struct ExpandVectorTruncToI1Pass
     : llvm::RequiredPassInfoMixin<ExpandVectorTruncToI1Pass> {
   llvm::PreservedAnalyses run(llvm::Function &function,

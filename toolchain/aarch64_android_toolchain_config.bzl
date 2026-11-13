@@ -115,7 +115,6 @@ def _aarch64_toolchain_config_impl(ctx):
                     ACTION_NAMES.cpp_compile,
                 ],
                 flag_groups = [flag_group(flags = [
-                    "-DIREE_TIME_NOW_FN={ return 0; }",
                     "-DIREE_CPUINFO_TARGET=\"\"",
                     "-DIREE_TASK_CPUINFO_DISABLED=1",  # FIXME CPU info disabled
                 ])],

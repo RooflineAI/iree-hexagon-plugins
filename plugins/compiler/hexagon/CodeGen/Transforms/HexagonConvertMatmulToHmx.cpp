@@ -60,13 +60,6 @@ static int64_t alignToHmxTile(int64_t dim) {
 // upper bound. This is the physical size of the padded tile-major buffer; the
 // runtime only ever fills the valid `value`-sized region of it.
 static FailureOr<int64_t> alignedUpperBound(Value value, int64_t dim) {
-  // Look through VTCM staging markers: `stage_to_vtcm` preserves the operand
-  // shape (AllTypesMatch) but is an opaque op with no ValueBoundsOpInterface,
-  // so the bound analysis cannot see the `affine.min` tile bound on the staged
-  // slice through it. Its source carries the same (analyzable) bound.
-  while (auto stage = value.getDefiningOp<IREE::Hexagon::StageToVTCMOp>()) {
-    value = stage.getSource();
-  }
   FailureOr<int64_t> ub = ValueBoundsConstraintSet::computeConstantBound(
       presburger::BoundType::UB, {value, dim}, /*stopCondition=*/nullptr,
       ValueBoundsOptions{/*closedUB=*/true});
@@ -385,39 +378,23 @@ getHmxUnpackLoweringConfig(MLIRContext *context) {
   return IREE::Hexagon::LoweringConfigAttr::get(context, items);
 }
 
-// Returns reassociation indices for collapsing/expanding a tensor of rank
-// `rank` at position `pos`.
-static SmallVector<ReassociationIndices>
-getReassociationForReshapeAtDim(int64_t rank, int64_t pos) {
-  SmallVector<ReassociationIndices> reassociation(rank - 1, {0, 1});
-  bool lastDim = pos == rank - 1;
-  if (rank > 2) {
-    for (int64_t i = 0; i < rank - 1; i++) {
-      if (i == pos || (lastDim && i == pos - 1))
-        reassociation[i] = ReassociationIndices{i, i + 1};
-      else if (i < pos)
-        reassociation[i] = ReassociationIndices{i};
-      else
-        reassociation[i] = ReassociationIndices{i + 1};
-    }
-  }
-  return reassociation;
-}
-
-static FailureOr<Value> collapseSingletonDimAt(PatternRewriter &rewriter,
-                                               Value value, int64_t pos) {
+// Drops the unit dimension `pos` of `value` with a rank-reducing extract_slice.
+static FailureOr<Value> dropSingletonDimAt(PatternRewriter &rewriter,
+                                           Value value, int64_t pos) {
   auto type = dyn_cast<RankedTensorType>(value.getType());
   if (!type || pos < 0 || pos >= type.getRank() || type.getDimSize(pos) != 1) {
     return failure();
   }
 
-  SmallVector<int64_t> collapsedShape(type.getShape());
-  collapsedShape.erase(collapsedShape.begin() + pos);
-  auto collapsedType =
-      RankedTensorType::get(collapsedShape, type.getElementType());
-  return tensor::CollapseShapeOp::create(
-             rewriter, value.getLoc(), collapsedType, value,
-             getReassociationForReshapeAtDim(type.getRank(), pos))
+  SmallVector<int64_t> droppedShape(type.getShape());
+  droppedShape.erase(droppedShape.begin() + pos);
+  auto droppedType = RankedTensorType::get(droppedShape, type.getElementType());
+  Location loc = value.getLoc();
+  SmallVector<OpFoldResult> offsets(type.getRank(), rewriter.getIndexAttr(0));
+  SmallVector<OpFoldResult> strides(type.getRank(), rewriter.getIndexAttr(1));
+  return tensor::ExtractSliceOp::create(
+             rewriter, loc, droppedType, value, offsets,
+             tensor::getMixedSizes(rewriter, loc, value), strides)
       .getResult();
 }
 
@@ -513,7 +490,7 @@ struct RankReduceUnitBatchMatmul final
       operandBatchDims.push_back(operandBatchDim);
     }
 
-    // Validate every indexing map before creating reshape operations. Pattern
+    // Validate every indexing map before creating slice operations. Pattern
     // rewrites must not mutate the IR and then return failure: another pattern
     // may continue from the partially rewritten operation.
     SmallVector<AffineMap> collapsedMaps;
@@ -531,9 +508,9 @@ struct RankReduceUnitBatchMatmul final
     collapsedOperands.reserve(operands.size());
     for (auto [operand, dim] : llvm::zip_equal(operands, operandBatchDims)) {
       // Operand types and singleton dimensions were checked above, so these
-      // reshapes cannot fail after mutation begins.
+      // slices cannot fail after mutation begins.
       collapsedOperands.push_back(
-          *collapseSingletonDimAt(rewriter, operand->get(), dim));
+          *dropSingletonDimAt(rewriter, operand->get(), dim));
     }
 
     Location loc = batchMatmulOp.getLoc();
@@ -553,14 +530,16 @@ struct RankReduceUnitBatchMatmul final
       matmulOp->setAttr(attr.getName(), attr.getValue());
     }
 
-    Value result = matmulOp.getResultTensors().front();
-    auto expandedType = cast<RankedTensorType>(
-        batchMatmulOp.getResultTensors().front().getType());
-    Value expanded = tensor::ExpandShapeOp::create(
-        rewriter, loc, expandedType, result,
-        getReassociationForReshapeAtDim(expandedType.getRank(),
-                                        operandBatchDims[2]));
-    rewriter.replaceOp(batchMatmulOp, expanded);
+    // Insert the result back where its init was sliced from, which
+    // bufferizes in place.
+    Value init = accOperand->get();
+    int64_t rank = cast<RankedTensorType>(init.getType()).getRank();
+    Value inserted = tensor::InsertSliceOp::create(
+        rewriter, loc, matmulOp.getResultTensors().front(), init,
+        SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(0)),
+        tensor::getMixedSizes(rewriter, loc, init),
+        SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
+    rewriter.replaceOp(batchMatmulOp, inserted);
     return success();
   }
 };

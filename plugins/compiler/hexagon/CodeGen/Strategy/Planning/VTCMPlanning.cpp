@@ -7,6 +7,7 @@
 #include "VTCMPlanning.h"
 
 #include "DecisionTrace.h"
+#include "Strategies/StrategySupport.h"
 
 #include "hexagon/Conversion/LinalgToLLVM/Common.h"
 #include "hexagon/Conversion/LinalgToLLVM/VTCMTilingOptions.h"
@@ -59,31 +60,45 @@ LogicalResult suppressCacheTiling(const PlanningContext &context,
   return success();
 }
 
+/// The upper bound of each loop of `op` (see getLoopUpperBound), or kDynamic
+/// if there is none.
+SmallVector<int64_t> getLoopUpperBounds(linalg::LinalgOp op) {
+  SmallVector<int64_t> bounds = op.getStaticLoopRanges();
+  for (auto [loop, bound] : llvm::enumerate(bounds)) {
+    if (ShapedType::isDynamic(bound))
+      bound = getLoopUpperBound(op, loop).value_or(ShapedType::kDynamic);
+  }
+  return bounds;
+}
+
 /// Why hexagon-mlir's footprint model cannot bound what HexagonVTCMTilingPass
 /// stages for `op`, or std::nullopt if it can.
-std::optional<StringRef> getUnboundedFootprintReason(linalg::LinalgOp op) {
+std::optional<StringRef>
+getUnboundedFootprintReason(linalg::LinalgOp op,
+                            ArrayRef<int64_t> loopUpperBounds) {
   // The footprint is computed from the operands' element sizes.
   if (!llvm::all_of(op->getOperandTypes(), [](Type type) {
         return ::mlir::hexagon::getElementSizeInBytes(type).has_value();
       }))
     return StringRef("unsupported operand element type");
-  // hexagon-mlir sizes a dynamic dimension as 256. That bounds the tile of a
-  // parallel dimension, but a reduction is staged whole at its runtime extent.
-  for (auto [range, iterator] :
-       llvm::zip_equal(op.getStaticLoopRanges(), op.getIteratorTypesArray())) {
-    if (linalg::isReductionIterator(iterator) && ShapedType::isDynamic(range))
-      return StringRef("dynamic reduction dimensions are staged whole at their "
-                       "runtime extent, which no static plan bounds");
+  // A dynamic parallel dimension is tiled, which bounds what is staged of it,
+  // but a reduction is staged whole at its runtime extent, which only its
+  // upper bound bounds.
+  for (auto [bound, iterator] :
+       llvm::zip_equal(loopUpperBounds, op.getIteratorTypesArray())) {
+    if (linalg::isReductionIterator(iterator) && ShapedType::isDynamic(bound))
+      return StringRef("dynamic reduction dimension has no upper bound");
   }
   return std::nullopt;
 }
 
-/// Whether `tiles` leaves every reduction dimension of `op` at its full static
-/// extent.
-bool keepsReductionsWhole(linalg::LinalgOp op, ArrayRef<int64_t> tiles) {
-  for (auto [tile, range, iterator] : llvm::zip_equal(
-           tiles, op.getStaticLoopRanges(), op.getIteratorTypesArray())) {
-    if (linalg::isReductionIterator(iterator) && tile != range)
+/// Whether `tiles` leaves every reduction dimension of `op` whole, i.e. at
+/// least its upper bound.
+bool keepsReductionsWhole(linalg::LinalgOp op, ArrayRef<int64_t> tiles,
+                          ArrayRef<int64_t> loopUpperBounds) {
+  for (auto [tile, bound, iterator] :
+       llvm::zip_equal(tiles, loopUpperBounds, op.getIteratorTypesArray())) {
+    if (linalg::isReductionIterator(iterator) && tile < bound)
       return false;
   }
   return true;
@@ -113,11 +128,13 @@ bool keepsReductionsWhole(linalg::LinalgOp op, ArrayRef<int64_t> tiles) {
 /// heuristic (it visits each dimension at most twice), so in rare cases it can
 /// miss a fit that unit parallel tiles would give.
 std::optional<SmallVector<int64_t>>
-determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
+determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op,
+                         ArrayRef<int64_t> loopUpperBounds) {
   const int64_t budgetBytes = context.options.vtcmTileBudgetBytes;
   std::optional<SmallVector<int64_t>> tiles =
-      ::mlir::hexagon::determineTileSizes(op, budgetBytes);
-  if (tiles && keepsReductionsWhole(op, *tiles))
+      ::mlir::hexagon::determineTileSizes(op, budgetBytes, /*tilingDims=*/{},
+                                          loopUpperBounds);
+  if (tiles && keepsReductionsWhole(op, *tiles, loopUpperBounds))
     return tiles;
 
   SmallVector<unsigned> parallelDims;
@@ -129,7 +146,8 @@ determineStagedTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
                        "reduction dimensions whole; "
                        "retrying over parallel dimensions only");
   return ::mlir::hexagon::determineTileSizes(
-      op, budgetBytes, llvm::to_vector_of<int64_t>(parallelDims));
+      op, budgetBytes, llvm::to_vector_of<int64_t>(parallelDims),
+      loopUpperBounds);
 }
 
 /// Tile candidates for a dimension of static `extent` on an HMX unit with
@@ -147,23 +165,27 @@ SmallVector<int64_t> getHmxTileCandidates(int64_t extent, int64_t hmxTile) {
 }
 
 /// Returns VTCM tile sizes for an HMX matmul root, or std::nullopt if `op` is
-/// not a contraction with one static M, N and K dimension each and no batch
-/// dimension. Batch matmuls keep hexagon-mlir's tiles: with a unit batch tile,
-/// HMX lowering vectorizes the accumulator fill at the whole M x N tile.
+/// not a contraction with one M, N and K dimension each and no batch
+/// dimension, or if a loop has no upper bound in `loopUpperBounds`. Batch
+/// matmuls keep hexagon-mlir's tiles: with a unit batch tile, HMX lowering
+/// vectorizes the accumulator fill at the whole M x N tile.
 ///
-/// M and N tiles are HMX-aligned divisors of their extents and K is staged
-/// whole. The tile with the least DDR <-> VTCM traffic wins:
-/// an operand whose dimensions are all untiled is the same in every iteration,
-/// so it is copied once and not double-buffered (keeping M whole does this for
-/// the LHS). Footprints follow hexagon-mlir's model, per operand the product of
-/// the tile extents its indexing map reads times its element size.
+/// A dynamic loop is sized by its upper bound: M and N tiles are HMX-aligned
+/// divisors of their upper bounds (a dynamic extent leaves a partial last
+/// tile, which HMX pads) and K is staged whole. The tile with the least
+/// DDR <-> VTCM traffic wins: an operand whose dimensions are all untiled is
+/// the same in every iteration, so it is copied once and not double-buffered
+/// (keeping M whole does this for the LHS). Footprints follow hexagon-mlir's
+/// model, per operand the product of the tile extents its indexing map reads
+/// times its element size.
 ///
 /// Tiles within the budget win over tiles that overrun it. A deep K can leave
 /// no HMX-aligned tile within the budget, so overrunning it is allowed up to
 /// a fixed factor: the budget is not the VTCM size, and the runtime only runs
 /// a dispatch that declares more with fewer others at the same time.
 std::optional<SmallVector<int64_t>>
-selectHmxTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
+selectHmxTileSizes(const PlanningContext &context, linalg::LinalgOp op,
+                   ArrayRef<int64_t> loopUpperBounds) {
   // collect m and n dims
   FailureOr<linalg::ContractionDimensions> dimensions =
       linalg::inferContractionDims(op);
@@ -171,7 +193,7 @@ selectHmxTileSizes(const PlanningContext &context, linalg::LinalgOp op) {
       dimensions->n.size() != 1 || dimensions->k.empty() ||
       !dimensions->batch.empty())
     return std::nullopt;
-  SmallVector<int64_t> ranges = op.getStaticLoopRanges();
+  SmallVector<int64_t> ranges(loopUpperBounds);
   if (llvm::any_of(ranges, ShapedType::isDynamic))
     return std::nullopt;
 
@@ -260,7 +282,11 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
         "tiling",
         "root is not a tensor-semantics Linalg operation");
   }
-  if (std::optional<StringRef> reason = getUnboundedFootprintReason(linalgOp)) {
+  // Dynamic loops are sized by their upper bounds, both to check that a
+  // reduction staged whole fits and to search the tiles of the others.
+  SmallVector<int64_t> loopUpperBounds = getLoopUpperBounds(linalgOp);
+  if (std::optional<StringRef> reason =
+          getUnboundedFootprintReason(linalgOp, loopUpperBounds)) {
     return handleUnavailableVTCM(
         context, dispatchShape, contract,
         Twine("failed to derive required VTCM tile sizes: ") + *reason,
@@ -273,9 +299,9 @@ LogicalResult planVTCMTiling(const PlanningContext &context,
   // result in the dispatch plan.
   std::optional<SmallVector<int64_t>> tileSizes;
   if (contract.hmx != LoopTilingScope::Unused)
-    tileSizes = selectHmxTileSizes(context, linalgOp);
+    tileSizes = selectHmxTileSizes(context, linalgOp, loopUpperBounds);
   if (!tileSizes)
-    tileSizes = determineStagedTileSizes(context, linalgOp);
+    tileSizes = determineStagedTileSizes(context, linalgOp, loopUpperBounds);
   if (!tileSizes) {
     return handleUnavailableVTCM(
         context, dispatchShape, contract,

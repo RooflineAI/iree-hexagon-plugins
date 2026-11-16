@@ -110,7 +110,6 @@ def _run_pipeline(
         timeout=model_spec.run_timeout,
         tracy_port=tracy_port,
         debug_malloc=run_case.debug_malloc,
-        prefill_decode=imported_model.prefill_decode,
     )
     print(result.log)
     print("timings:")

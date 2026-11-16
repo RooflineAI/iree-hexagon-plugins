@@ -431,4 +431,4 @@ def _import_kv_cache(
             default=str,
         )
     )
-    return ImportedModel(model_mlir=model_mlir, calls=calls, prefill_decode=True)
+    return ImportedModel(model_mlir=model_mlir, calls=calls)

@@ -36,8 +36,6 @@ class ImportedModel:
     calls: list[ModuleCall]
     # Present only when the model carries a config.id2label, i.e. classifiers.
     labels_file: Path | None = None
-    # A `KvCacheLM`: `calls` are `prefill` then `decode`.
-    prefill_decode: bool = False
 
     def labels(self) -> dict[int, str] | None:
         if self.labels_file is None or not self.labels_file.exists():

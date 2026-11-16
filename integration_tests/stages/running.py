@@ -16,8 +16,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
-
 from integration_tests.device import adb
 from integration_tests.device.adb import AdbError
 from integration_tests.device.deploy import Deployment
@@ -229,6 +227,28 @@ def push_module(
         timings["verify_module"] = time.time() - verify_module_start
 
 
+def _run_module_argv(
+    deployment: Deployment, call: ModuleCall, extra_flags: tuple[str, ...]
+) -> list[str]:
+    """The iree-run-module command line for `call`, run in the case directory."""
+    argv = [
+        deployment.limit_lifetime,
+        deployment.run_module,
+        "--module=module.vmfb",
+        "--module_mode=mmap",
+        f"--function={call.function}",
+        "--device=hexagon",
+        # ony needed for iree-benchmark module:
+        "--enable_output_processing",
+        "--benchmark_min_time=1x",
+        "--benchmark_repetitions=1",
+        "--benchmark_format=json",
+    ]
+    argv += [f"--input=@{path.name}" for path in call.input_files]
+    argv += [f"--output=@{name}" for name in call.output_names]
+    return argv + list(extra_flags)
+
+
 def run_module_on_device(
     deployment: Deployment,
     case_dir_name: str,
@@ -240,15 +260,12 @@ def run_module_on_device(
     timeout: float = 900.0,
     tracy_port: int | None = None,
     debug_malloc: bool = False,
-    prefill_decode: bool = False,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
 
-    Without `prefill_decode`, `calls` is the one function to run. With it,
-    `calls` is `prefill` and `decode`, run in the same adb round trip, each in
-    its own iree-run-module: decode runs only if prefill's first output, the
-    token, is the reference's, compared on the device. Otherwise the run says
-    so in its log and has no decode outputs.
+    Each of `calls` runs in its own iree-run-module, in order, in the same adb
+    round trip. A call runs only if the previous one exited successfully. Their
+    outputs are not compared here; that is up to the caller.
 
     A module of at least `_KEEP_MODULE_MIN_BYTES` is kept on the device across
     runs (see `integration_tests/device/deploy.py`) and goes over with
@@ -263,7 +280,8 @@ def run_module_on_device(
     With `debug_malloc`, iree-benchmark-module runs under bionic's malloc debug, see
     `_DEBUG_MALLOC_OPTIONS`.
 
-    With `tracy_port`, the deployment must hold the Tracy runtime.
+    With `tracy_port`, the deployment must hold the Tracy runtime, and `calls`
+    must be a single call.
     The port is then used on device to connect `tracy-capture` to `iree-module-run`.
     It is not used on the host.
 
@@ -272,6 +290,11 @@ def run_module_on_device(
     Without it a timed-out run leaves iree-benchmark-module alive holding the DSP, and
     every subsequent test fails for an unrelated reason.
     """
+    if not calls:
+        raise ValueError("expected at least one call")
+    if tracy_port is not None and len(calls) != 1:
+        # FIXME: this would need one tracy-capture per call.
+        raise ValueError(f"profiling supports one call, got {len(calls)}")
     timings: dict[str, float] = {}
 
     push_total_start = time.time()
@@ -288,21 +311,7 @@ def run_module_on_device(
         setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
         timings=timings,
     )
-    local_output_dir.mkdir(parents=True, exist_ok=True)
     push_files = [path for call in calls for path in call.input_files]
-    if prefill_decode:
-        if [call.function for call in calls] != ["prefill", "decode"]:
-            raise ValueError(f"expected prefill and decode calls, got {calls}")
-        if tracy_port is not None:
-            raise ValueError("profiling a prefill/decode run is not supported")
-            # FIXME this would involve attaching 2 tracy-captures  one for prefill and one for decode
-        # The raw bytes of the reference token, to compare with the end of the
-        # .npy prefill writes on device, so that the two .npy headers need not match.
-        token = local_output_dir / _PREFILL_TOKEN
-        token.write_bytes(np.load(calls[0].output_files[0]).tobytes())
-        push_files.append(token)
-    elif len(calls) != 1:
-        raise ValueError(f"expected one call, got {len(calls)}")
     if push_files:
         adb.push(push_files, remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start
@@ -340,24 +349,17 @@ def run_module_on_device(
         if debug_malloc
         else ""
     )
-    # run prefill, compare first token on device, only run decode on match
-    if prefill_decode:
-        prefill, decode = calls
-        token_bytes = (local_output_dir / _PREFILL_TOKEN).stat().st_size
-        script += (
-            f"{env}{shlex.join(run_argv(prefill))} && "
-            f"if tail -c {token_bytes} {prefill.output_names[0]} "
-            f"| cmp -s - {_PREFILL_TOKEN}; "
-            f"then {env}{shlex.join(run_argv(decode))}; "
-            "else echo 'prefill token differs from the reference; decode not run'; fi"
-        )
-    elif tracy_port is None:
-        script += env + shlex.join(run_argv(calls[0]))
+    run_commands = [
+        env + shlex.join(_run_module_argv(deployment, call, extra_flags))
+        for call in calls
+    ]
+    if tracy_port is None:
+        script += " && ".join(run_commands)
     else:
-        script += _capture_script(
-            deployment, env + shlex.join(run_argv(calls[0])), tracy_port
-        )
+        # FIXME tracy runs are only supported with one function so far
+        script += _capture_script(deployment, run_commands[0], tracy_port)
 
+    local_output_dir.mkdir(parents=True, exist_ok=True)
     adb.logcat_clear()
     run_start = time.time()
     exit_code, log = adb.shell_exit_code(script, timeout=timeout)
@@ -407,9 +409,6 @@ def run_module_on_device(
         profile_error=profile_error,
     )
 
-
-# The reference token a prefill/decode run compares prefill's with
-_PREFILL_TOKEN = "prefill_reference_token.bin"
 
 # Files the on-device capture and export leave in the case directory.
 _PROFILE_TRACE = "profile.tracy"

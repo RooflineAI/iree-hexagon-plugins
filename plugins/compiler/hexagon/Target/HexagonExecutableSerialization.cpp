@@ -18,7 +18,6 @@
 #include "iree/compiler/Utils/StringUtils.h"
 // Hexagon-owned copy of the executable library ABI, shared with the DSP.
 #include "hexagon/dsp/rt/executable_library.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Target/LLVMIR/Export.h"
@@ -513,39 +512,21 @@ mlir::LogicalResult serializeHexagonExecutable(
   auto libraryName =
       variantOp->getParentOfType<HAL::ExecutableOp>().getName().str();
 
-  auto targetMachine =
-      createHexagonTargetMachine(configAttr, context.getLibraryOptions());
-  if (!targetMachine) {
-    return variantOp.emitOpError()
-           << "failed to create Hexagon target machine from " << configAttr;
-  }
-
-  // add the correct data Layout
-  mlir::ModuleOp innerModule = variantOp.getInnerModule();
-  innerModule->setAttr(
-      LLVM::LLVMDialect::getDataLayoutAttrName(),
-      StringAttr::get(
-          innerModule.getContext(),
-          targetMachine->createDataLayout().getStringRepresentation()));
-  innerModule->setAttr(LLVM::LLVMDialect::getTargetTripleAttrName(),
-                       StringAttr::get(innerModule.getContext(),
-                                       targetMachine->getTargetTriple().str()));
-
   // Convert the MLIR LLVM dialect module to an llvm::Module for codegen.
-  auto llvmModule = translateModuleToLLVMIR(innerModule, context, libraryName);
+  auto llvmModule =
+      translateModuleToLLVMIR(variantOp.getInnerModule(), context, libraryName);
   if (!llvmModule)
     return variantOp.emitOpError()
            << "failed to translate module to LLVM IR for Hexagon";
 
   buildExecutableMetadata(*llvmModule, variantOp);
 
-  // This information is embedded into each one of the dispatches. When
-  // linking all dispatches together through the linking pipeline, a new
-  // module is created that does not copy this information, so let's add
-  // it again in case it is needed at some other point. Might be a bug in
-  // the linking pipeline? LLVMCPUTarget also needs this dirty fix
-  llvmModule->setTargetTriple(targetMachine->getTargetTriple());
-  llvmModule->setDataLayout(targetMachine->createDataLayout());
+  auto targetMachine =
+      createHexagonTargetMachine(configAttr, context.getLibraryOptions());
+  if (!targetMachine) {
+    return variantOp.emitOpError()
+           << "failed to create Hexagon target machine from " << configAttr;
+  }
 
   // Note that we are dumping the ll after the fixes above, but LLVMCPUTarget
   // outputs multiple ll's for each stage though. Be careful if you are

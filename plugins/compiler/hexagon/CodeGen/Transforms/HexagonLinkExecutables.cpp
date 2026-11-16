@@ -10,6 +10,7 @@
 #include "hexagon/CodeGen/Passes.h"
 #include "iree/compiler/Codegen/Utils/LinkingUtils.h"
 #include "iree/compiler/Utils/ModuleUtils.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/FormatVariadic.h"
 
@@ -19,6 +20,28 @@ namespace mlir::iree_compiler::hexagon::codegen {
 #include "hexagon/CodeGen/Passes.h.inc"
 
 namespace {
+
+/// Copies the LLVM data layout and target triple from the first source variant
+/// for `targetAttr` onto `linkedInnerModule`.
+static void
+copyLLVMModuleAttrs(ArrayRef<IREE::HAL::ExecutableOp> sourceExecutableOps,
+                    IREE::HAL::ExecutableTargetAttr targetAttr,
+                    mlir::ModuleOp linkedInnerModule) {
+  for (auto executableOp : sourceExecutableOps) {
+    for (auto variantOp :
+         executableOp.getOps<IREE::HAL::ExecutableVariantOp>()) {
+      mlir::ModuleOp innerModule = variantOp.getInnerModule();
+      if (variantOp.getTarget() != targetAttr || !innerModule)
+        continue;
+      for (StringRef name : {LLVM::LLVMDialect::getDataLayoutAttrName(),
+                             LLVM::LLVMDialect::getTargetTripleAttrName()}) {
+        if (Attribute attr = innerModule->getAttr(name))
+          linkedInnerModule->setAttr(name, attr);
+      }
+      return;
+    }
+  }
+}
 
 static LogicalResult linkAllTargetExecutables(StringRef target, bool lazy,
                                               ModuleOp moduleOp,
@@ -57,7 +80,12 @@ static LogicalResult linkAllTargetExecutables(StringRef target, bool lazy,
     auto linkedTargetOp = IREE::HAL::ExecutableVariantOp::create(
         executableBuilder, moduleOp.getLoc(), linkedVariantName, targetAttr);
     auto targetBuilder = OpBuilder::atBlockBegin(&linkedTargetOp.getBlock());
-    mlir::ModuleOp::create(targetBuilder, moduleOp.getLoc());
+    auto linkedInnerModule =
+        mlir::ModuleOp::create(targetBuilder, moduleOp.getLoc());
+
+    // The new inner module starts without the LLVM data layout and target
+    // triple, so copy them over.
+    copyLLVMModuleAttrs(sourceExecutableOps, targetAttr, linkedInnerModule);
 
     auto mergeModuleFn = [](mlir::ModuleOp sourceInnerModule,
                             mlir::ModuleOp linkedInnerModule,

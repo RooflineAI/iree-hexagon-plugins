@@ -164,6 +164,7 @@ hexagon_plugin_library(
     hdr_deps = [
         "@iree//compiler/src/iree/compiler/Dialect/HAL/Target",
         "@iree//compiler/src/iree/compiler/PluginAPI",
+        "@iree//compiler/src/iree/compiler/Preprocessing/Common:Transforms",
         "@iree//compiler/src/iree/compiler/Utils",
     ],
     strip_include_prefix = "/plugins/compiler",

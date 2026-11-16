@@ -323,6 +323,9 @@ void addHexagonMultiTilingExpertPassPipeline(
     options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
     options.enableVectorMasking = pipelineOpt.enableVectorMasking;
     funcPassManager.addPass(createGenericVectorizationPass(options));
+    // Implicit-GEMM convolutions leave an im2col producer; decompose the ones
+    // the vectorizer did not handle.
+    funcPassManager.addPass(IREE::LinalgExt::createDecomposeIm2colPass());
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
@@ -454,6 +457,9 @@ void addHexagonHmxMatmulExpertPassPipeline(
     options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
     options.enableVectorMasking = pipelineOpt.enableVectorMasking;
     funcPassManager.addPass(createGenericVectorizationPass(options));
+    // Implicit-GEMM convolutions leave an im2col producer; decompose the ones
+    // the vectorizer did not handle.
+    funcPassManager.addPass(IREE::LinalgExt::createDecomposeIm2colPass());
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());
@@ -531,6 +537,9 @@ void addHexagonConvTileAndDecomposeExpertPassPipeline(
     options.useConfiguredVectorSizes = pipelineOpt.useConfiguredVectorSizes;
     options.enableVectorMasking = pipelineOpt.enableVectorMasking;
     funcPassManager.addPass(createGenericVectorizationPass(options));
+    // Implicit-GEMM convolutions leave an im2col producer; decompose the ones
+    // the vectorizer did not handle.
+    funcPassManager.addPass(IREE::LinalgExt::createDecomposeIm2colPass());
     funcPassManager.addPass(createOptimizeTensorInsertExtractSlicesPass());
     funcPassManager.addPass(createCanonicalizerPass());
     funcPassManager.addPass(createCSEPass());

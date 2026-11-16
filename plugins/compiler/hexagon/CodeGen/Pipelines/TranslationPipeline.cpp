@@ -56,6 +56,16 @@ static llvm::cl::opt<bool> clHexagonEnableHmxMatmul(
                    "the HMX (tensor unit) expert pipeline."),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> clHexagonExperimentalConvIGEMM(
+    "iree-hexagon-experimental-conv-igemm",
+    llvm::cl::desc(
+        "Experimental: convert convolutions to channels-last (NHWC) during "
+        "preprocessing, and rewrite them into an im2col and a matmul "
+        "(implicit GEMM) before strategy selection. The channels-last "
+        "conversion applies to the whole program, whichever devices it "
+        "targets."),
+    llvm::cl::init(false));
+
 bool isHexagonVTCMTilingEnabled() { return clHexagonEnableVTCMTiling; }
 
 int64_t getHexagonVTCMTileBudgetBytes() { return clHexagonVTCMTileBudgetBytes; }
@@ -69,6 +79,10 @@ bool isHexagonDoubleBufferingOfOuterTileLoopsEnabled() {
 }
 
 bool isHexagonHmxMatmulEnabled() { return clHexagonEnableHmxMatmul; }
+
+bool isHexagonExperimentalConvIGEMMEnabled() {
+  return clHexagonExperimentalConvIGEMM;
+}
 
 void buildHexagonTranslationPassPipeline(
     OpPassManager &variantPassManager,

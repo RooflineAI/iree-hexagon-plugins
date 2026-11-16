@@ -9,6 +9,7 @@
 #include "hexagon/CodeGen/Bufferization/HexagonBufferizableOpInterfaceImpl.h"
 #include "hexagon/CodeGen/IR/HexagonDialect.h"
 #include "hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Pipelines/TranslationPipeline.h"
 #include "hexagon/Target/HexagonOptions.h"
 #include "hexagon/Target/HexagonTargetBackend.h"
 #include "hexagon/Target/HexagonTargetDevice.h"
@@ -17,12 +18,14 @@
 #include "hexagon/Dialect/HexKL/Transforms/BufferizableOpInterfaceImpl.h"
 #include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "iree/compiler/Dialect/HAL/Target/TargetRegistry.h"
+#include "iree/compiler/Preprocessing/Common/Passes.h"
 #include "iree/compiler/Utils/OptionUtils.h"
 #include "mlir/Dialect/Arith/Transforms/BufferDeallocationOpInterfaceImpl.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/MemRef/Transforms/AllocationOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferDeallocationOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Pass/PassManager.h"
 
 namespace mlir::iree_compiler::hexagon::target {
 namespace {
@@ -53,6 +56,16 @@ struct HexagonSession
     arith::registerBufferDeallocationOpInterfaceExternalModels(registry);
     scf::registerBufferizableOpInterfaceExternalModels(registry);
     scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
+  }
+
+  void extendPreprocessingPassPipeline(OpPassManager &passManager) override {
+    if (codegen::isHexagonExperimentalConvIGEMMEnabled()) {
+      // FIXME: This rewrites the convolutions for every device, not only for
+      // Hexagon: the preprocessing hook does not know which devices the
+      // program targets. Restrict it to Hexagon devices before enabling it
+      // by default.
+      passManager.addPass(Preprocessing::createConvertConvToChannelsLastPass());
+    }
   }
 
   void populateHALTargetDevices(HAL::TargetDeviceList &targets) override {

@@ -51,6 +51,12 @@ buildHexagonCodegenConfigurationPassPipeline(OpPassManager &modulePassManager) {
       .addPass(createConvertAccGEMMToGEMMPass)
       .addPass(createEraseHALDescriptorTypeFromMemRefPass);
 
+  // Rewrite convolutions into an im2col and a matmul (implicit GEMM), so that
+  // they are planned and lowered like the other contractions.
+  if (isHexagonExperimentalConvIGEMMEnabled()) {
+    FunctionLikeNest(modulePassManager).addPass(createConvolutionToIGEMMPass);
+  }
+
   // Strategy selection uses the operation kind to choose HMX or vector
   // lowering. Specialize eligible generics first, so that HMX lowering will be
   // considered.

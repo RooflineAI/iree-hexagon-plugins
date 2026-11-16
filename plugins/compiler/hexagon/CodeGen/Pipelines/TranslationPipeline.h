@@ -23,6 +23,7 @@ int64_t getHexagonVTCMTileBudgetBytes();
 bool isHexagonDoubleBufferingEnabled();
 bool isHexagonDoubleBufferingOfOuterTileLoopsEnabled();
 bool isHexagonHmxMatmulEnabled();
+bool isHexagonExperimentalConvIGEMMEnabled();
 
 } // namespace mlir::iree_compiler::hexagon::codegen
 

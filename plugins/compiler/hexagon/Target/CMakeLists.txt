@@ -169,6 +169,7 @@ iree_cc_library(
     hexagon_mlir::HexagonDialectLibs
     iree::compiler::Dialect::HAL::Target
     iree::compiler::PluginAPI
+    iree::compiler::Preprocessing::Common::Transforms
     iree::compiler::Utils
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::HexagonBufferizationExternalModels
     iree_hexagon_plugins::plugins::compiler::hexagon::CodeGen::IR::HexagonIR

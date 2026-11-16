@@ -124,3 +124,22 @@ func.func @hmx_dynamic_m_bounded(%lhs: tensor<4096x2048xf16>, %rhs: tensor<2048x
 // CHECK: func.func @hmx_dynamic_m_bounded(
 // CHECK: linalg.matmul
 // CHECK-SAME: lowering_config = #[[DYNAMIC_M_ROOT]]
+
+// -----
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+
+// A dynamic N is sized by its upper bound, so it still gets an HMX-aligned tile.
+func.func @hmx_dynamic_n_bounded(%lhs: tensor<1024x2048xf16>, %rhs: tensor<2048x4096xf16>, %n_arg: index) -> tensor<1024x?xf32> attributes {hal.executable.target = #target} {
+  %zero = arith.constant 0.0 : f32
+  %n = util.assume.int %n_arg<umin = 1, umax = 1024> : index
+  %rhs_n = tensor.extract_slice %rhs[0, 0] [2048, %n] [1, 1] : tensor<2048x4096xf16> to tensor<2048x?xf16>
+  %empty = tensor.empty(%n) : tensor<1024x?xf32>
+  %init = linalg.fill ins(%zero : f32) outs(%empty : tensor<1024x?xf32>) -> tensor<1024x?xf32>
+  %result = linalg.matmul ins(%lhs, %rhs_n : tensor<1024x2048xf16>, tensor<2048x?xf16>) outs(%init : tensor<1024x?xf32>) -> tensor<1024x?xf32>
+  return %result : tensor<1024x?xf32>
+}
+// CHECK-DAG: #[[DYNAMIC_N_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [64, 128, 2048]>
+// CHECK: func.func @hmx_dynamic_n_bounded(
+// CHECK: linalg.matmul
+// CHECK-SAME: lowering_config = #[[DYNAMIC_N_ROOT]]

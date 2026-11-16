@@ -23,11 +23,11 @@ namespace {
 // register-pressure model.
 constexpr int64_t kCacheTileCap = 64;
 
-// HVX has no 64-bit lanes, so LLVM lowers 64-bit operations lane by lane.
-// gather ops can only be used in VTCM
-// All lanes of a vector tile are live at once, so
-// wide tiles of such bodies spill far beyond the DSP stack frame limit. These
-// caps bound the vector tile of the affected generics.
+// HVX has no 64-bit lanes, and its vgather needs both source and destination
+// in VTCM, which LLVM does not use for generic gathers by default. So LLVM
+// lowers gathers and 64-bit operations lane by lane. All lanes of a vector tile
+// are live at once, so wide tiles of such bodies spill far beyond the DSP stack
+// frame limit. These caps bound the vector tile of the affected generics.
 //
 // Gathers: at most kMaxGatherLanes lanes, and at most kGatherLaneBudget lanes
 // summed over all gathers of the body.
@@ -94,7 +94,7 @@ int64_t capBodyVectorWidth(const PlanningContext &context, linalg::GenericOp op,
   });
   // fix planner assumption, that the ops are native, even for larger types:
   int64_t cap = std::max<int64_t>(1, vectorWidth * nativeLaneBits / widestBits);
-  // gather ops are not vectorized efficiently: cap them
+  // Gathers are lowered lane by lane: cap their lanes.
   if (numGathers > 0) {
     int64_t gatherLanes =
         std::min(kMaxGatherLanes,

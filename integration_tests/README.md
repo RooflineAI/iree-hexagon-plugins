@@ -133,7 +133,7 @@ Use `--compile-case=hexagon-vtcm-hmx` to filter a test invocation to one of a
 model's configured cases.
 
 Each compile case is run on the device once per run case, a runtime
-configuration passed as flags to `iree-run-module`. With no `run_cases`, a model
+configuration passed as flags to `iree-benchmark-module`. With no `run_cases`, a model
 runs only `parallel`:
 
 * `parallel`: the runtime default, executing **up to** one dispatch per HVX context
@@ -148,9 +148,9 @@ runs only `parallel`:
   bionic's [malloc debug](https://android.googlesource.com/platform/bionic/+/main/libc/malloc_debug/README.md)
   (`verify_pointers abort_on_error`), so a free of an invalid pointer aborts
   the run. Only for smaller models: malloc debug fails every single allocation
-  of 2 GiB or more, which crashes iree-run-module on a module that large.
+  of 2 GiB or more, which crashes iree-benchmark-module on a module that large.
   `parallel-profile-debug-malloc` and `sequential-profile-debug-malloc` are
-  the profile run cases under malloc debug; it applies to iree-run-module only,
+  the profile run cases under malloc debug; it applies to iree-benchmark-module only,
   not to the Tracy tools.
 
 ```yaml
@@ -242,12 +242,14 @@ job of the latest completed main runs, in a step of its own after the tests:
 `perf_compare.py` parses the `-rA` output of the session, the `run:` line under `timings:` of each passed test, and reads the earlier main runs' output from their GitHub logs with `gh`.
 When no time can be found for any passed test, the check fails.
 
-The time is the device's wall clock around `iree-run-module`.
-The cost of opening adb shell is printed as `adb_overhead:`, the host's wall clock around the adb
-command minus the device time. When there is no plausible device time, the
-host's is printed as `run_host:` instead, and the test is not compared. The micro
-models are mostly that fixed overhead (~1.75 s), so a regression in their
-kernels does not show. Profile and debug-malloc run cases are not compared.
+The time is one invocation of the function, as `iree-benchmark-module` measures
+it on the device (`--benchmark_min_time=1x`), without starting the process or
+loading the module. The rest is printed as `adb_setup:`, but not compared: the
+host's wall clock around the adb command minus the invocation, so the adb
+round trip, starting the process, opening the DSP session and loading the
+module. When there is no plausible device time, the
+host's is printed as `run_host:` instead, and the test is not compared.
+Profile and debug-malloc run cases are not compared.
 
 The thresholds when a warning is raised are command-line arguments.
 To compare a local session:

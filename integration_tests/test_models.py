@@ -111,7 +111,7 @@ def _run_pipeline(
     print(result.log)
     print("timings:")
     for key, value in result.timings.items():
-        print(f"  {key}: {value:.2f}s")
+        print(f"  {key}: {value:.3f}s")
     if result.exit_code != 0:
         return Outcome(Status.RUNTIME_FAILURE, result.describe())
 

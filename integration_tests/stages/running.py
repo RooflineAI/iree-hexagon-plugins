@@ -4,13 +4,13 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Running a compiled module on a device with iree-run-module."""
+"""Running a compiled module on a device with iree-benchmark-module."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import posixpath
-import re
 import shlex
 import time
 from dataclasses import dataclass, field
@@ -23,13 +23,13 @@ from integration_tests.device.deploy import Deployment
 
 @dataclass(frozen=True)
 class RunCase:
-    """A runtime configuration: extra flags for iree-run-module."""
+    """A runtime configuration: extra flags for iree-benchmark-module."""
 
     name: str
     flags: tuple[str, ...] = ()
     # Run with the Tracy runtime and capture a profile, exported as CSV.
     profile: bool = False
-    # Run iree-run-module under bionic's malloc debug, see _DEBUG_MALLOC_OPTIONS.
+    # Run iree-benchmark-module under bionic's malloc debug, see _DEBUG_MALLOC_OPTIONS.
     debug_malloc: bool = False
 
 
@@ -55,7 +55,7 @@ RUN_CASES: tuple[RunCase, ...] = (
 # Bionic's malloc debug: abort on a free/realloc of a pointer that is not a live
 # allocation. It refuses any single allocation above 2^31 - 1 bytes with a
 # silent ENOMEM (PointerInfoType::MaxSize() in libc/malloc_debug/PointerData.h),
-# and iree-run-module reads the whole module into one, so a model whose .vmfb
+# and iree-benchmark-module reads the whole module into one, so a model whose .vmfb
 # is 2 GiB or larger crashes under it. Only for smaller models.
 _DEBUG_MALLOC_OPTIONS = "verify_pointers abort_on_error"
 
@@ -81,7 +81,7 @@ class RunModuleResult:
 
     def describe(self) -> str:
         return (
-            f"iree-run-module exited {self.exit_code} in {self.remote_dir}\n"
+            f"iree-benchmark-module exited {self.exit_code} in {self.remote_dir}\n"
             f"--- stdout/stderr ---\n{self.log}\n"
             f"--- logcat (adsprpc) ---\n{self.logcat}"
         )
@@ -252,7 +252,7 @@ def run_module_on_device(
 
     `timeout` bounds both the module push and the run.
 
-    With `debug_malloc`, iree-run-module runs under bionic's malloc debug, see
+    With `debug_malloc`, iree-benchmark-module runs under bionic's malloc debug, see
     `_DEBUG_MALLOC_OPTIONS`.
 
     With `tracy_port`, the deployment must hold the Tracy runtime.
@@ -261,7 +261,7 @@ def run_module_on_device(
 
     The command runs under `limit_lifetime`, so that when `timeout` fires and
     Python SIGKILLs the adb client, the on-device process group is killed too.
-    Without it a timed-out run leaves iree-run-module alive holding the DSP, and
+    Without it a timed-out run leaves iree-benchmark-module alive holding the DSP, and
     every subsequent test fails for an unrelated reason.
     """
     timings: dict[str, float] = {}
@@ -286,12 +286,16 @@ def run_module_on_device(
 
     argv = [
         deployment.limit_lifetime,
-        *_TIME_ARGV,
-        deployment.run_module,
+        deployment.benchmark_module,
         "--module=module.vmfb",
         "--module_mode=mmap",
         f"--function={function}",
         "--device=hexagon",
+        # ony needed for iree-benchmark module:
+        "--enable_output_processing",
+        "--benchmark_min_time=1x",
+        "--benchmark_repetitions=1",
+        "--benchmark_format=json",
     ]
     argv += [f"--input=@{path.name}" for path in input_files]
     argv += [f"--output=@{name}" for name in output_names]
@@ -322,14 +326,17 @@ def run_module_on_device(
     run_start = time.time()
     exit_code, log = adb.shell_exit_code(script, timeout=timeout)
     host_run = time.time() - run_start
-    log, device_run = _take_device_run_time(log, host_run)
-    if device_run is None:
+    invocation = _invocation_time(log, host_run)
+    if invocation is None:
         # No usable device time, e.g. the run never started: keep the host
         # time under its own name, so it is not compared with device times.
         timings["run_host"] = host_run
     else:
-        timings["run"] = device_run
-        timings["adb_overhead"] = host_run - device_run
+        # One invocation of the function, without loading the module.
+        timings["run"] = invocation
+        # The rest: the adb round trip, starting the process, opening the DSP
+        # session and loading the module.
+        timings["adb_setup"] = host_run - invocation
     logcat = adb.logcat_dump()
     pulled: list[Path] = []
     pull_start = time.time()
@@ -380,7 +387,7 @@ def _capture_script(deployment: Deployment, run_command: str, port: int) -> str:
     tracy-csvexport exporting the recording.
 
     tracy-capture starts first and keeps retrying to connect until
-    iree-run-module listens. TRACY_NO_EXIT keeps iree-run-module alive until the
+    iree-benchmark-module listens. TRACY_NO_EXIT keeps iree-benchmark-module alive until the
     capture has all data, so after a successful run the capture finishes on its
     own. A failed run may never have listened, so then the capture is stopped.
     Everything runs under `limit_lifetime`, so a timeout kills it all.
@@ -427,31 +434,29 @@ def _capture_script(deployment: Deployment, run_command: str, port: int) -> str:
     }}"""
 
 
-# Times iree-run-module on the device, so the adb round trip between host and
-# device is not part of the time. `time -p` (POSIX format) prints the report
-# below to stderr once the command exits, and passes on its exit code.
-_TIME_ARGV = ("time", "-p")
-_TIME_REPORT = re.compile(r"real\s+(\S+)\nuser\s+\S+\nsys\s+\S+\n?\Z")
+_SECONDS_PER_TIME_UNIT = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
 
 
-def _take_device_run_time(log: str, host_run: float) -> tuple[str, float | None]:
-    """Removes the report of `time -p` from the end of `log`, returning the log
-    and the device time in seconds, or None if there is no plausible device
-    time. The time is rounded to the millisecond.
+def _invocation_time(log: str, host_run: float) -> float | None:
+    """The time of the invocation in seconds from the JSON report of
+    iree-benchmark-module in `log`, rounded to the millisecond, or None if
+    there is no plausible one: none, negative or longer than the host measured
+    around the whole run.
     """
-    match = _TIME_REPORT.search(log)
-    if match is None:
-        return log, None
-    log = log[: match.start()]
+    start = log.find("{")
+    if start < 0:
+        return None
     try:
-        # round real time
-        device_run = round(float(match.group(1)), 3)
-    except ValueError:
-        return log, None
-    if not 0 <= device_run <= host_run:
-        # implausible timing: negative or longer than host observed time
-        return log, None
-    return log, device_run
+        report, _ = json.JSONDecoder().raw_decode(log, start)
+        (benchmark,) = report["benchmarks"]
+        invocation = round(
+            benchmark["real_time"] * _SECONDS_PER_TIME_UNIT[benchmark["time_unit"]], 3
+        )
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not 0 <= invocation <= host_run:
+        return None
+    return invocation
 
 
 def _pull_profile(remote_dir: str, local_output_dir: Path) -> str | None:

@@ -23,7 +23,11 @@ builtin.module @link_two_executables {
 
 // Expect one LLVM module with all globals and functions.
 // Shared external declarations are coalesced; private scratch symbols are renamed.
-// CHECK: builtin.module
+// The LLVM data layout and target triple of the sources stay on the linked
+// module.
+// CHECK: builtin.module attributes
+// CHECK-SAME: llvm.data_layout = "e-m:e-p:32:32:32-a:0-n16:32"
+// CHECK-SAME: llvm.target_triple = "hexagon-unknown-unknown-elf"
 // CHECK: llvm.mlir.global external @external_data
 // CHECK: llvm.mlir.global private @scratch{{.+}} : !llvm.array<2 x array<64 x i32>>
 // ORDINAL: llvm.mlir.global internal constant @ordinal_foo(0 : i32)
@@ -46,7 +50,7 @@ hal.executable private @executable0 {
       %c0 = arith.constant 0 : i32
       hal.return %c0 : i32
     }
-    builtin.module {
+    builtin.module attributes {llvm.data_layout = "e-m:e-p:32:32:32-a:0-n16:32", llvm.target_triple = "hexagon-unknown-unknown-elf"} {
       llvm.mlir.global external @external_data() {addr_space = 0 : i32, alignment = 16 : i64} : !llvm.array<0 x i8>
       llvm.mlir.global private @scratch() {addr_space = 0 : i32, alignment = 4 : i64, sym_visibility = "private"} : !llvm.array<2 x array<64 x i32>>
       llvm.mlir.global internal @ordinal_foo() {hal.executable.constant.key = "foo", sym_visibility = "private"} : i32
@@ -75,7 +79,7 @@ hal.executable private @executable1 {
       %c0 = arith.constant 0 : i32
       hal.return %c0 : i32
     }
-    builtin.module {
+    builtin.module attributes {llvm.data_layout = "e-m:e-p:32:32:32-a:0-n16:32", llvm.target_triple = "hexagon-unknown-unknown-elf"} {
       llvm.mlir.global external @external_data() {addr_space = 0 : i32, alignment = 16 : i64} : !llvm.array<0 x i8>
       llvm.mlir.global private @scratch() {addr_space = 0 : i32, alignment = 4 : i64, sym_visibility = "private"} : !llvm.array<2 x array<128 x i32>>
       llvm.mlir.global internal @ordinal_bar() {hal.executable.constant.key = "bar", sym_visibility = "private"} : i32

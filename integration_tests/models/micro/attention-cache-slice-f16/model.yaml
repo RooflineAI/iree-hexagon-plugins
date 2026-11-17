@@ -1,0 +1,21 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# The attention of SmolLM2-135M-kv-cache-static's c64 entries: 9 query heads
+# over 3 KV heads, attending to the first 64 of 128 cache rows. The strided K
+# slice is staged into VTCM through memrefCopy, whose descriptor stores were
+# once miscompiled because the linked module was translated to LLVM IR without
+# the Hexagon data layout (pointer loads claimed 8-byte alignment).
+dtype: float16
+inputs:
+  - {shape: [1, 9, 64, 64], dtype: float16, generator: normal, seed: 0}
+  - {shape: [1, 3, 128, 64], dtype: float16, generator: normal, seed: 1}
+  - {shape: [1, 3, 128, 64], dtype: float16, generator: normal, seed: 2}
+tolerances:
+  atol: 5.0e-2
+  rtol: 5.0e-2
+  relative_l2_percent: 1.0
+compile_cases: [hexagon-vtcm-hmx]

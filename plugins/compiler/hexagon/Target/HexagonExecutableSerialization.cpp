@@ -528,14 +528,6 @@ mlir::LogicalResult serializeHexagonExecutable(
            << "failed to create Hexagon target machine from " << configAttr;
   }
 
-  // This information is embedded into each one of the dispatches. When
-  // linking all dispatches together through the linking pipeline, a new
-  // module is created that does not copy this information, so let's add
-  // it again in case it is needed at some other point. Might be a bug in
-  // the linking pipeline? LLVMCPUTarget also needs this dirty fix
-  llvmModule->setTargetTriple(targetMachine->getTargetTriple());
-  llvmModule->setDataLayout(targetMachine->createDataLayout());
-
   // Note that we are dumping the ll after the fixes above, but LLVMCPUTarget
   // outputs multiple ll's for each stage though. Be careful if you are
   // comparing them to each other.

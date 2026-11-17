@@ -418,6 +418,9 @@ class RunLlmResult:
 # newline.
 _PROMPT_IDS = re.compile(r"prompt token ids:([0-9, ]*)")
 _GENERATED_IDS = re.compile(r"generated token ids:([0-9, ]*)")
+# iree-run-llm's own times, from its stats on stderr.
+_PREFILL_MS = re.compile(r"^prefill: ([0-9.]+) ms", re.MULTILINE)
+_DECODE_MS_PER_TOKEN = re.compile(r"^decode: .*\(([0-9.]+) ms/token", re.MULTILINE)
 
 
 def _parse_ids(pattern: re.Pattern[str], log: str) -> tuple[int, ...] | None:
@@ -479,6 +482,12 @@ def run_llm_on_device(
     exit_code, log = adb.shell_exit_code(script, timeout=timeout)
     timings["generate"] = time.time() - run_start
     logcat = adb.logcat_dump()
+    for key, pattern in (
+        ("prefill", _PREFILL_MS),
+        ("decode_per_token", _DECODE_MS_PER_TOKEN),
+    ):
+        if match := pattern.search(log):
+            timings[key] = float(match.group(1)) / 1e3
     return RunLlmResult(
         remote_dir=remote_dir,
         exit_code=exit_code,

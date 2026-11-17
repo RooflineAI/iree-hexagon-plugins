@@ -29,6 +29,7 @@ from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.stages.artifacts import ImportedModel
 from integration_tests.stages.checking import (
     AccuracyError,
+    check_generation,
     check_output_files,
     check_predicted_label,
 )
@@ -153,6 +154,16 @@ def _run_pipeline(
             print(f"  {key}: {value:.2f}s")
         if generation.exit_code != 0:
             return Outcome(Status.RUNTIME_FAILURE, generation.describe())
+        assert model_spec.generation is not None
+        try:
+            check_generation(
+                reference=imported_model.generation,
+                prompt_ids=generation.prompt_ids,
+                tokens=generation.tokens,
+                max_tie_margin=model_spec.generation.max_tie_margin,
+            )
+        except AccuracyError as err:
+            return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{generation.describe()}")
 
     if tracy_port is not None:
         if result.profile_error is not None:

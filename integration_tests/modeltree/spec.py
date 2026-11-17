@@ -104,6 +104,31 @@ class SemanticCheck:
     output_index: int = 0
 
 
+@dataclasses.dataclass(frozen=True)
+class GenerationSpec:
+    """Token generation with `iree-run-llm`, for a `KvCacheLM` model.
+
+    The device generates `max_new_tokens` greedily from `prompt`, ignoring
+    stop tokens, and has to produce the tokens of the eager reference. At the
+    first token that differs, the reference's two most likely tokens have to be
+    within `max_tie_margin` of each other (in logits): a near-tie that rounding
+    may tip either way. Tokens after that are not compared, as both sides then
+    continue from different text.
+    """
+
+    prompt: str
+    max_new_tokens: int = 32
+    max_tie_margin: float = 0.25
+
+    def __post_init__(self) -> None:
+        if not self.prompt.strip():
+            raise SpecError("generation: 'prompt' must not be empty")
+        if self.max_new_tokens <= 0:
+            raise SpecError("generation: 'max_new_tokens' must be positive")
+        if self.max_tie_margin < 0:
+            raise SpecError("generation: 'max_tie_margin' must not be negative")
+
+
 # eq=False keeps it hashable (by identity) despite the dict, so ModelSpec is too.
 @dataclasses.dataclass(frozen=True, eq=False)
 class ProfileCheckSpec:
@@ -146,6 +171,9 @@ class ModelSpec:
     # Checks on the profile of the profile run cases (e.g. parallel-profile).
     profile_checks: tuple[ProfileCheckSpec, ...] = ()
     semantic_check: SemanticCheck | None = None
+    # Only for a model.py whose get_model() returns a KvCacheLM; checked at
+    # import, which is where that is known.
+    generation: GenerationSpec | None = None
     extra_compile_flags: tuple[str, ...] = ()
     # Seconds the module push, and separately iree-run-module on the device,
     # may take before they are killed.

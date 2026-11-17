@@ -13,6 +13,7 @@ Two packages are unpacked into one directory per run:
 
         bin/iree-run-module          ARM host side, Hexagon HAL driver linked in
         bin/iree-benchmark-module    same, for benchmarking
+        bin/iree-run-llm             same, an LLM's prefill/decode loop
         bin/tracy-capture            only in the Tracy runtime, records the
                                      trace on the device
         bin/tracy-csvexport          only in the Tracy runtime, exports it
@@ -54,7 +55,7 @@ from integration_tests.device import adb
 # also where the skel lives.
 _FARF_MASK = "0x1f"
 
-_ENTRY_BINARIES = ("iree-run-module", "iree-benchmark-module")
+_ENTRY_BINARIES = ("iree-run-module", "iree-benchmark-module", "iree-run-llm")
 
 DEFAULT_DEVICE_ROOT = "/data/local/tmp/hexagon_it"
 
@@ -82,6 +83,10 @@ class Deployment:
     @property
     def benchmark_module(self) -> str:
         return f"{self.run_dir}/bin/iree-benchmark-module"
+
+    @property
+    def run_llm(self) -> str:
+        return f"{self.run_dir}/bin/iree-run-llm"
 
     @property
     def tracy_capture(self) -> str:

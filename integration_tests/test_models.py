@@ -40,6 +40,7 @@ from integration_tests.stages.compiling import (
 from integration_tests.stages.profile_checks import Profile, ProfileError, run_check
 from integration_tests.stages.running import (
     RunCase,
+    run_llm_on_device,
     run_module_on_device,
 )
 
@@ -137,6 +138,21 @@ def _run_pipeline(
                 )
     except AccuracyError as err:
         return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{result.describe()}")
+
+    if imported_model.generation is not None:
+        generation = run_llm_on_device(
+            deployment=deployment,
+            case_dir_name=case_dir,
+            generation=imported_model.generation,
+            extra_flags=run_case.flags,
+            timeout=model_spec.run_timeout,
+        )
+        print(generation.log)
+        print("generation timings:")
+        for key, value in generation.timings.items():
+            print(f"  {key}: {value:.2f}s")
+        if generation.exit_code != 0:
+            return Outcome(Status.RUNTIME_FAILURE, generation.describe())
 
     if tracy_port is not None:
         if result.profile_error is not None:

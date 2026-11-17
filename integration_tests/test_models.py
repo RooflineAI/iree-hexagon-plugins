@@ -151,7 +151,7 @@ def _run_pipeline(
         print(generation.log)
         print("generation timings:")
         for key, value in generation.timings.items():
-            print(f"  {key}: {value:.2f}s")
+            print(f"  {key}: {value:.3f}s")
         if generation.exit_code != 0:
             return Outcome(Status.RUNTIME_FAILURE, generation.describe())
         assert model_spec.generation is not None

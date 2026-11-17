@@ -242,8 +242,10 @@ job of the latest completed main runs, in a step of its own after the tests:
 `perf_compare.py` parses the `-rA` output of the session, the `run:` line under `timings:` of each passed test, and reads the earlier main runs' output from their GitHub logs with `gh`.
 When no time can be found for any passed test, the check fails.
 
-The time is the host wall-clock of `iree-run-module` over adb, so it includes
-the adb round trip, opening the DSP session and loading the module. The micro
+The time is the device's wall clock around `iree-run-module`.
+The cost of opening adb shell is printed as `adb_overhead:`, the host's wall clock around the adb
+command minus the device time. When there is no plausible device time, the
+host's is printed as `run_host:` instead, and the test is not compared. The micro
 models are mostly that fixed overhead (~1.75 s), so a regression in their
 kernels does not show. Profile and debug-malloc run cases are not compared.
 

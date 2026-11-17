@@ -293,7 +293,7 @@ def _format_table(rows: Sequence[Row], recent_runs: Sequence[CIRun]) -> str:
     title = (
         f"Performance against the average of the last {len(recent_runs)} main "
         f"run(s), {', '.join(run.label for run in recent_runs)} "
-        f"(host wall-clock of iree-run-module)"
+        f"(device wall-clock of iree-run-module)"
     )
     # The cells are formatted already; tabulate must not reparse them.
     table = tabulate(cells, _TABLE_HEADER, colalign=_TABLE_ALIGN, disable_numparse=True)

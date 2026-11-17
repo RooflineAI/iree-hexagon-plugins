@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import posixpath
+import re
 import shlex
 import time
 from dataclasses import dataclass, field
@@ -285,6 +286,7 @@ def run_module_on_device(
 
     argv = [
         deployment.limit_lifetime,
+        *_TIME_ARGV,
         deployment.run_module,
         "--module=module.vmfb",
         "--module_mode=mmap",
@@ -319,7 +321,15 @@ def run_module_on_device(
     adb.logcat_clear()
     run_start = time.time()
     exit_code, log = adb.shell_exit_code(script, timeout=timeout)
-    timings["run"] = time.time() - run_start
+    host_run = time.time() - run_start
+    log, device_run = _take_device_run_time(log, host_run)
+    if device_run is None:
+        # No usable device time, e.g. the run never started: keep the host
+        # time under its own name, so it is not compared with device times.
+        timings["run_host"] = host_run
+    else:
+        timings["run"] = device_run
+        timings["adb_overhead"] = host_run - device_run
     logcat = adb.logcat_dump()
     pulled: list[Path] = []
     pull_start = time.time()
@@ -415,6 +425,33 @@ def _capture_script(deployment: Deployment, run_command: str, port: int) -> str:
     echo $capture_exit_code $csvexport_exit_code > {_PROFILE_EXIT_CODES}
     exit $run_exit_code
     }}"""
+
+
+# Times iree-run-module on the device, so the adb round trip between host and
+# device is not part of the time. `time -p` (POSIX format) prints the report
+# below to stderr once the command exits, and passes on its exit code.
+_TIME_ARGV = ("time", "-p")
+_TIME_REPORT = re.compile(r"real\s+(\S+)\nuser\s+\S+\nsys\s+\S+\n?\Z")
+
+
+def _take_device_run_time(log: str, host_run: float) -> tuple[str, float | None]:
+    """Removes the report of `time -p` from the end of `log`, returning the log
+    and the device time in seconds, or None if there is no plausible device
+    time. The time is rounded to the millisecond.
+    """
+    match = _TIME_REPORT.search(log)
+    if match is None:
+        return log, None
+    log = log[: match.start()]
+    try:
+        # round real time
+        device_run = round(float(match.group(1)), 3)
+    except ValueError:
+        return log, None
+    if not 0 <= device_run <= host_run:
+        # implausible timing: negative or longer than host observed time
+        return log, None
+    return log, device_run
 
 
 def _pull_profile(remote_dir: str, local_output_dir: Path) -> str | None:

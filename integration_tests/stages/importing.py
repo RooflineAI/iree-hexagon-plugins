@@ -17,7 +17,9 @@
 The exported entry point is named `main`, which is iree-turbine's default.
 A model that `get_model()` returns as a `KvCacheLM` (`models/kv_cache.py`) is
 exported as two functions instead, `prefill` and `decode`, each with its own
-inputs and reference.
+inputs and reference. With a `generation` block in its model.yaml, the import
+also records the model's tokenizer and the tokens an eager greedy loop
+generates from the prompt, for iree-run-llm on the device to reproduce.
 """
 
 from __future__ import annotations
@@ -41,7 +43,11 @@ from torch._export.utils import (
 
 from integration_tests.models.kv_cache import KvCacheLM
 from integration_tests.modeltree.spec import InputSpec, ModelSpec
-from integration_tests.stages.artifacts import ImportedModel, ModuleCall
+from integration_tests.stages.artifacts import (
+    GenerationReference,
+    ImportedModel,
+    ModuleCall,
+)
 
 _aten = torch.ops.aten
 
@@ -151,8 +157,8 @@ def build_decomposition_table(ops: list[Any]) -> dict[Any, Any]:
     return table
 
 
-def load_model(spec: ModelSpec) -> torch.nn.Module:
-    """Call `get_model()` from the spec's `model.py`."""
+def _load_model_source(spec: ModelSpec) -> Any:
+    """The spec's `model.py`, as a Python module."""
     source = spec.model_source
     module_spec = importlib.util.spec_from_file_location(
         f"hexagon_it_model_{spec.name.replace('/', '_').replace('-', '_')}", source
@@ -161,6 +167,13 @@ def load_model(spec: ModelSpec) -> torch.nn.Module:
         raise ImportError(f"cannot load {source}")
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
+    return module
+
+
+def load_model(spec: ModelSpec) -> torch.nn.Module:
+    """Call `get_model()` from the spec's `model.py`."""
+    source = spec.model_source
+    module = _load_model_source(spec)
     if not hasattr(module, "get_model"):
         raise ImportError(f"{source} does not define get_model()")
     model = module.get_model()
@@ -289,6 +302,11 @@ def import_model(
     inputs = generate_inputs(spec, model)
     if isinstance(model, KvCacheLM):
         return _import_kv_cache(spec, output_dir, model, inputs, decompositions)
+    if spec.generation is not None:
+        raise ValueError(
+            f"{spec.name}: 'generation' needs a get_model() that returns a "
+            f"KvCacheLM, not a {type(model).__name__}"
+        )
 
     # The eager reference is taken before the export, because aot.export can
     # mutate the module.
@@ -387,6 +405,11 @@ def _import_kv_cache(
         model.reset_cache()
         decode_outputs = model.decode(*decode_args)
         model.reset_cache()  # reset again before converting ot mlir
+    generation = (
+        _generation_reference(spec, output_dir, model)
+        if spec.generation is not None
+        else None
+    )
     functions = {
         "prefill": (prefill_args, prefill_shapes, prefill_outputs),
         "decode": (decode_args, decode_shapes, (decode_outputs,)),
@@ -431,4 +454,71 @@ def _import_kv_cache(
             default=str,
         )
     )
-    return ImportedModel(model_mlir=model_mlir, calls=calls)
+    return ImportedModel(
+        model_mlir=model_mlir,
+        calls=calls,
+        generation=generation,
+    )
+
+
+# iree-run-llm's defaults for padding the prompt: at least two blocks, padded
+# with token 0. Passed to it explicitly, so that the two cannot drift apart.
+_MIN_PREFILL_BLOCKS = 2
+_PAD_TOKEN_ID = 0
+
+
+def _generation_reference(
+    spec: ModelSpec, output_dir: Path, model: KvCacheLM
+) -> GenerationReference:
+    """The files iree-run-llm needs, and the tokens it has to generate.
+
+    The prompt is tokenized with the HuggingFace `tokenizers` library from the
+    same tokenizer.json the device gets, so the device's prompt tokens check its
+    own tokenizer too. The reference is `KvCacheLM.generate_greedy`: the
+    exported functions run eagerly, padded as on the device.
+    """
+    from tokenizers import Tokenizer
+
+    generation = spec.generation
+    assert generation is not None
+    module = _load_model_source(spec)
+    if not hasattr(module, "get_tokenizer_json"):
+        raise ImportError(
+            f"{spec.model_source} does not define get_tokenizer_json(), which "
+            "'generation' needs"
+        )
+    tokenizer_json = output_dir / "tokenizer.json"
+    tokenizer_json.write_bytes(Path(module.get_tokenizer_json()).read_bytes())
+    prompt_file = output_dir / "prompt.txt"
+    prompt_file.write_text(generation.prompt)
+
+    prompt_ids = Tokenizer.from_file(str(tokenizer_json)).encode(generation.prompt).ids
+    tokens, margins = model.generate_greedy(
+        prompt_ids,
+        generation.max_new_tokens,
+        min_prefill_blocks=_MIN_PREFILL_BLOCKS,
+        pad_token_id=_PAD_TOKEN_ID,
+    )
+    reference = GenerationReference(
+        prompt_file=prompt_file,
+        tokenizer_json=tokenizer_json,
+        max_new_tokens=generation.max_new_tokens,
+        max_seq_len=model.max_seq_len,
+        block_seq_stride=model.block_seq_stride,
+        min_prefill_blocks=_MIN_PREFILL_BLOCKS,
+        pad_token_id=_PAD_TOKEN_ID,
+        prompt_ids=tuple(prompt_ids),
+        tokens=tuple(tokens),
+        margins=tuple(margins),
+    )
+    (output_dir / "generation_reference.json").write_text(
+        json.dumps(
+            {
+                key: value
+                for key, value in dataclasses.asdict(reference).items()
+                if key not in ("prompt_file", "tokenizer_json")
+            },
+            indent=2,
+        )
+    )
+    return reference

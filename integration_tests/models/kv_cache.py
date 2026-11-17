@@ -190,6 +190,58 @@ class KvCacheLM(torch.nn.Module):
         logits = self._logits(input_ids, cache_position, mask)
         return torch.argmax(logits[0, 0])[None, None]
 
+    @torch.no_grad()
+    def generate_greedy(
+        self,
+        prompt: list[int],
+        max_new_tokens: int,
+        min_prefill_blocks: int = 2,
+        pad_token_id: int = 0,
+    ) -> tuple[list[int], list[float]]:
+        """Greedy generation as iree-run-llm runs it, from an empty cache.
+
+        The prompt is padded to a multiple of `block_seq_stride` of at least
+        `min_prefill_blocks` blocks for `prefill`, then `decode` runs once per
+        further token. Stop tokens are ignored, as with iree-run-llm's
+        --ignore_eos, and generation ends early only at `max_seq_len`.
+
+        Returns the tokens and, for each, the margin between the two most
+        likely tokens in its logits.
+        """
+        stride = self.block_seq_stride
+        blocks = max(-(-len(prompt) // stride), min_prefill_blocks)
+        padded_length = blocks * stride
+        if padded_length > self.max_seq_len:
+            raise ValueError(
+                f"the prompt has {len(prompt)} tokens, {padded_length} padded, "
+                f"more than max_seq_len={self.max_seq_len}"
+            )
+        input_ids = torch.full((1, padded_length), pad_token_id, dtype=torch.int64)
+        input_ids[0, : len(prompt)] = torch.tensor(prompt, dtype=torch.int64)
+        input_length = torch.tensor([len(prompt) - 1])
+        self.reset_cache()
+        try:
+            positions = torch.arange(padded_length)
+            mask = positions[None, :] <= input_length[:, None]
+            logits = self._logits(input_ids, positions, mask)[0, len(prompt) - 1]
+            tokens: list[int] = []
+            margins: list[float] = []
+            position = len(prompt)
+            while True:
+                top2 = torch.topk(logits.float(), 2).values
+                tokens.append(int(torch.argmax(logits)))
+                margins.append(float(top2[0] - top2[1]))
+                if len(tokens) == max_new_tokens or position >= self.max_seq_len:
+                    break
+                mask = torch.zeros((1, 1, 1, 1), dtype=self.model.dtype)
+                logits = self._logits(
+                    torch.tensor([[tokens[-1]]]), torch.arange(position + 1), mask
+                )[0, 0]
+                position += 1
+        finally:
+            self.reset_cache()
+        return tokens, margins
+
     def reset_cache(self) -> None:
         """Zero the cache, the state each function starts from on the device."""
         for buffer in self.kv_cache.buffers():

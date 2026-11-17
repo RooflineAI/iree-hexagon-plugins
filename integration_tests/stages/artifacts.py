@@ -27,6 +27,25 @@ class ModuleCall:
 
 
 @dataclass(frozen=True)
+class GenerationReference:
+    """What iree-run-llm gets, and the eager tokens it has to generate."""
+
+    prompt_file: Path
+    tokenizer_json: Path
+    max_new_tokens: int
+    # KvCacheLM's shape parameters, which iree-run-llm cannot read from the
+    # module and has to be told.
+    max_seq_len: int
+    block_seq_stride: int
+    min_prefill_blocks: int
+    pad_token_id: int
+    prompt_ids: tuple[int, ...]
+    tokens: tuple[int, ...]
+    # For each token, how far its logit is ahead of the runner-up's.
+    margins: tuple[float, ...]
+
+
+@dataclass(frozen=True)
 class ImportedModel:
     """An imported model and the data needed to run and check it."""
 
@@ -36,6 +55,8 @@ class ImportedModel:
     calls: list[ModuleCall]
     # Present only when the model carries a config.id2label, i.e. classifiers.
     labels_file: Path | None = None
+    # Only for a `KvCacheLM` whose model.yaml has a `generation` block.
+    generation: GenerationReference | None = None
 
     def labels(self) -> dict[int, str] | None:
         if self.labels_file is None or not self.labels_file.exists():

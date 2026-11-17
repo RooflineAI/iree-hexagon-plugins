@@ -120,7 +120,6 @@ struct iree_hal_hexagon_device_t {
   // Cached tracy GPU contexts, one per DSP thread. Zeroed by
   // iree_allocator_malloc, i.e. no lanes yet.
   iree_hal_hexagon_tracy_lanes_t tracy_lanes;
-  iree_tracing_context_t *tracy_plot_context;
 #endif
 
   // + trailing identifier string storage
@@ -507,10 +506,6 @@ iree_status_t iree_hal_hexagon_device_create(
   device->proactor_pool = create_params->proactor_pool;
   iree_async_proactor_pool_retain(device->proactor_pool);
 
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
-  device->tracy_plot_context = NULL;
-#endif
-
   iree_status_t status =
       iree_async_proactor_pool_get(device->proactor_pool, 0, &device->proactor);
 
@@ -543,10 +538,6 @@ static void iree_hal_hexagon_device_destroy(iree_hal_device_t *base_device) {
   if (device->rpc_session_handle) {
     hexagon_dsp_close(device->rpc_session_handle);
   }
-
-#if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
-  iree_tracing_context_free(device->tracy_plot_context);
-#endif
 
   iree_async_proactor_pool_release(device->proactor_pool);
   iree_arena_block_pool_deinitialize(&device->block_pool);
@@ -1062,8 +1053,7 @@ static iree_status_t iree_hal_hexagon_device_queue_execute_cmd_buf(
 
 #if defined(IREE_HAL_HEXAGON_ENABLE_PROFILER)
   iree_status_t status_exporting = iree_hal_hexagon_export_profiler_data(
-      device->host_allocator, profiler_data, &device->tracy_lanes,
-      &device->tracy_plot_context);
+      device->host_allocator, profiler_data, &device->tracy_lanes);
 
   rpcmem_free(profiler_data);
 

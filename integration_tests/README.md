@@ -193,8 +193,8 @@ device, so `decode` checks the compiled function rather than a real
 continuation.
 
 A `generation` block adds a real continuation: after those two checks pass,
-`iree-run-llm` (`tools/iree-run-llm-main.c`) runs the same module on the
-device as an inference loop. It tokenizes the prompt itself, runs `prefill`,
+`iree-run-llm` (`tools/iree-run-llm-main.c`, on the inference engine in
+`tools/llm/`) runs the same module on the device as an inference loop. It tokenizes the prompt itself, runs `prefill`,
 then `decode` once per further token, and generates `max_new_tokens` tokens
 greedily, ignoring stop tokens:
 

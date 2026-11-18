@@ -18,16 +18,11 @@ iree_cc_binary(
   DEPS
     iree::base
     iree::base::tooling::flags
-    iree::hal
-    iree::hal::replay::recorder
     iree::io::file_handle
-    iree::modules::hal::types
     iree::tokenizer
-    iree::tokenizer::format::huggingface::tokenizer_json
-    iree::tokenizer::vocab
     iree::tooling::context_util
-    iree::tooling::function_util
     iree::vm
+    iree_hexagon_plugins::tools::llm::engine
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

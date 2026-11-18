@@ -239,9 +239,9 @@ jobs:
           # Reads the logs of this job in earlier main runs.
           GH_TOKEN: ${{ github.token }}
         # A case is flagged when slower by both the percentage and
-        # --min-delta-s. The time is host wall-clock over adb and moves in
-        # ~0.1 s steps (the 100 ms poll of limit_lifetime), so smaller
-        # differences are noise. The baseline is the average of each case over
+        # --min-delta-s. The time is one invocation as iree-benchmark-module
+        # measures it on the device, without the adb round trip or loading the
+        # module; smaller differences are noise. The baseline is the average of each case over
         # the last --num-recent-runs main runs, which also give the spread.
         run: |
           .venv/bin/python -m integration_tests.perf_compare \

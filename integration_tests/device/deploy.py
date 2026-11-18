@@ -80,6 +80,10 @@ class Deployment:
         return f"{self.run_dir}/bin/iree-run-module"
 
     @property
+    def benchmark_module(self) -> str:
+        return f"{self.run_dir}/bin/iree-benchmark-module"
+
+    @property
     def tracy_capture(self) -> str:
         """Only present in a deployment of the Tracy runtime."""
         if not self.has_tracy:

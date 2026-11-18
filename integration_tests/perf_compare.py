@@ -220,7 +220,8 @@ class Row:
 
     @property
     def percent(self) -> float | None:
-        if self.baseline is None or self.current is None:
+        # A baseline of 0 is an invocation below the millisecond resolution.
+        if not self.baseline or self.current is None:
             return None
         return 100.0 * (self.current - self.baseline) / self.baseline
 
@@ -233,9 +234,11 @@ def _verdict(
     if baseline is None:
         return Verdict.NEW
     delta = current - baseline
-    percent = 100.0 * delta / baseline
     if abs(delta) < thresholds.min_delta_s:
         return Verdict.OK
+    if baseline == 0:
+        return Verdict.FAIL if delta > 0 else Verdict.OK
+    percent = 100.0 * delta / baseline
     if percent >= thresholds.fail_percent:
         return Verdict.FAIL
     if percent >= thresholds.warn_percent:
@@ -293,7 +296,7 @@ def _format_table(rows: Sequence[Row], recent_runs: Sequence[CIRun]) -> str:
     title = (
         f"Performance against the average of the last {len(recent_runs)} main "
         f"run(s), {', '.join(run.label for run in recent_runs)} "
-        f"(host wall-clock of iree-run-module)"
+        f"(one invocation, timed on the device by iree-benchmark-module)"
     )
     # The cells are formatted already; tabulate must not reparse them.
     table = tabulate(cells, _TABLE_HEADER, colalign=_TABLE_ALIGN, disable_numparse=True)

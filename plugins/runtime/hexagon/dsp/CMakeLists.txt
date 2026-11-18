@@ -23,6 +23,8 @@ iree_cc_library(
     "device.h"
     "executable.c"
     "executable.h"
+    "next_use.c"
+    "next_use.h"
     "power_mode.c"
     "power_mode.h"
     "residency.c"

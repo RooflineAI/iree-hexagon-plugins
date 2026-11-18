@@ -67,6 +67,7 @@ jobs:
     concurrency: &phone_lock
       group: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'phone-1' || format('no-phone-{0}-{1}', github.run_id, github.job) }}
       cancel-in-progress: false
+      queue: max
     # actions: read lets the performance check read earlier main runs' logs.
     permissions: &test_permissions
       contents: read

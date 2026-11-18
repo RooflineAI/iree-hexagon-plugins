@@ -36,6 +36,10 @@ repos:
     hooks:
       - id: actionlint
         additional_dependencies: [shellcheck-py]
+        # actionlint does not yet know GitHub's concurrency `queue` key (added
+        # 2026-05-07). Drop once https://github.com/rhysd/actionlint/issues/654
+        # is fixed in a release.
+        args: [-ignore, 'unexpected key "queue" for "concurrency" section']
   - repo: https://github.com/keith/pre-commit-buildifier
     rev: 8.0.3
     hooks:

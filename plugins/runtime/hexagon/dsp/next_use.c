@@ -51,11 +51,12 @@ uint64_t hexagon_dsp_next_use_distance(const hexagon_dsp_use_t *sorted_uses,
   if (idx < num_uses && sorted_uses[idx].fd == fd) {
     return sorted_uses[idx].position - position;
   }
-  // FIXME: wrap around possibly not desired
-  //  first use in the next execution
+#if HEXAGON_DSP_NEXT_USE_WRAP_AROUND
+  // first use in the next execution
   idx = hexa_uses_lower_bound(sorted_uses, num_uses, fd, 0);
   if (idx < num_uses && sorted_uses[idx].fd == fd) {
     return (uint64_t)period - position + sorted_uses[idx].position;
   }
+#endif
   return HEXAGON_DSP_NEXT_USE_NEVER;
 }

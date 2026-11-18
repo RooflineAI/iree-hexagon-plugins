@@ -19,7 +19,15 @@
  * allocation (fd).
  */
 
-/// distance returned by hexagon_dsp_next_use_distance for an unused fd
+/// Whether the next use of an allocation can be in the next execution of the
+/// command buffer (wrapping around), useful if it executes repeatedly (e.g.
+/// decoding several tokens). Off: only uses in the current execution count.
+#ifndef HEXAGON_DSP_NEXT_USE_WRAP_AROUND
+#define HEXAGON_DSP_NEXT_USE_WRAP_AROUND 0
+#endif
+
+/// distance returned by hexagon_dsp_next_use_distance for an fd without a
+/// (known) next use
 #define HEXAGON_DSP_NEXT_USE_NEVER UINT64_MAX
 
 /// use of an allocation (fd) at a position of the command order
@@ -33,16 +41,16 @@ void hexagon_dsp_uses_sort(hexagon_dsp_use_t *uses, uint32_t num_uses);
 
 /**
  * @brief Distance from a position to the next use of an allocation after it,
- *        wrapping around to the next execution.
+ *        wrapping around to the next execution if
+ *        HEXAGON_DSP_NEXT_USE_WRAP_AROUND.
  * @param[in] sorted_uses uses sorted with hexagon_dsp_uses_sort, each position
  *            below period
  * @param[in] num_uses number of entries in sorted_uses
  * @param[in] period number of positions of one execution
  * @param[in] fd allocation to look up
  * @param[in] position current position, below period
- * @return number of positions until the next use of fd (period if its only
- *         use is at position itself), HEXAGON_DSP_NEXT_USE_NEVER if it is not
- *         used at all
+ * @return number of positions until the next use of fd
+ * HEXAGON_DSP_NEXT_USE_NEVER if unknown
  */
 uint64_t hexagon_dsp_next_use_distance(const hexagon_dsp_use_t *sorted_uses,
                                        uint32_t num_uses, uint32_t period,

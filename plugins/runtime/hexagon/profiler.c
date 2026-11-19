@@ -249,11 +249,21 @@ static iree_status_t iree_hal_hexagon_collect_and_sort_prof_views(
       lanes->next_query_ids[lane] += 2;
       if (lanes->next_query_ids[lane] == 0 && !lanes->query_ids_wrapped[lane]) {
         lanes->query_ids_wrapped[lane] = true;
-        fprintf(stderr,
-                "WARNING: Tracy query ids of DSP thread lane %u wrapped "
-                "around after %u zones; PMU counters shown on earlier zones "
-                "of this lane may belong to later zones.\n",
-                (unsigned int)lane, 0x8000u);
+        // Reported on stderr and in the trace itself, where the affected
+        // counters are read.
+        char message[256];
+        const int message_length = snprintf(
+            message, sizeof(message),
+            "WARNING: Tracy query ids of DSP thread lane %u wrapped around "
+            "after %u zones; PMU counters shown on earlier zones of this lane "
+            "may belong to later zones.",
+            (unsigned int)lane, 0x8000u);
+        fprintf(stderr, "%s\n", message);
+        if (message_length > 0) {
+          IREE_TRACE_MESSAGE_DYNAMIC(
+              WARNING, message,
+              iree_min((size_t)message_length, sizeof(message) - 1));
+        }
       }
     }
   }

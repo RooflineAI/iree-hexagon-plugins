@@ -1,0 +1,38 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+inputs:
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: 255999
+    # The config has no top-level vocab_size (it is multimodal). Token ids from
+    # 255999 up are the image/audio special tokens; keep the prompt text-only.
+    seed: 0
+  - shape: [1, 128]
+    dtype: int64
+    generator: ones
+# Copied from gemma-3-1b-it; not measured on device, the run fails before
+# any output (see expected_outcomes). On the host, torch f16 is 0.35% from f32.
+tolerances:
+  atol: 1.5
+  rtol: 5.0e-2
+  relative_l2_percent: 3.0
+# A ~4B-parameter prefill needs longer than the default to push and run.
+run_timeout: 3600
+compile_cases: [hexagon-vtcm-hmx]
+# Fails before the first dispatch, after ~12 min of import, compile and module
+# push (8.5 min of it the push). Run with --run-skipped when working on the
+# allocation.
+skip: "known RUNTIME_FAILURE: a 4.4 GiB weight exceeds the RPC allocation limit (INT_MAX)"
+expected_outcomes:
+  - case: hexagon-vtcm-hmx
+    status: RUNTIME_FAILURE
+    reason: "cannot allocate RPC memory bigger than INT_MAX"
+    comment: >-
+      Measured 2026-11-05: iree-run-module fails while creating the VM context with "failed to allocate buffer of length 4697620480". That is exactly one tensor, the per-layer-embedding table embed_tokens_per_layer (262144 x (35 x 256) x f16). --iree-stream-resource-max-allocation-size=1073741824 splits constant storage into 1 GiB resources but cannot split a single tensor, and plugins/runtime/hexagon/mem_alloc.c rejects RPC allocations over INT_MAX. The table is only gathered (one row per token), so it need not be a single DSP-visible buffer.

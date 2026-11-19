@@ -13,6 +13,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace mlir::iree_compiler::hexagon::codegen::planning {
 namespace {
@@ -107,6 +108,10 @@ std::optional<int64_t> getLoopUpperBound(linalg::LinalgOp op, unsigned loop) {
     if (succeeded(upperBound) && (!tightest || *upperBound < *tightest))
       tightest = *upperBound;
   }
+  // Hexagon addresses 32 bits
+  // A larger bound, such as the 2^53 - 1 IREE assumes says nothing
+  if (tightest && *tightest > std::numeric_limits<uint32_t>::max())
+    return std::nullopt;
   return tightest;
 }
 

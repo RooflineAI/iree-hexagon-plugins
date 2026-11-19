@@ -33,7 +33,7 @@ inferInnermostParallelComputeTile(const PlanningContext &context,
 
 /// The tightest constant upper bound of loop `loop` of `op` over the operand
 /// dimensions it indexes directly: its static extent, or for a dynamic loop
-/// e.g. the maximum from a `util.assume.int`. std::nullopt if there is none.
+/// e.g. the maximum from a `util.assume.int`. std::nullopt if there is none
 std::optional<int64_t> getLoopUpperBound(linalg::LinalgOp op, unsigned loop);
 
 } // namespace mlir::iree_compiler::hexagon::codegen::planning

@@ -105,9 +105,10 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
     IREE_RETURN_IF_ERROR(iree_hal_buffer_ref_normalize(&normalized_binding));
     int fd = -1; // stays at -1 if no buffer, means to use slot
     uint64_t alloc_size = 0;
+    uint32_t flags = 0;
     if (normalized_binding.buffer) {
       IREE_RETURN_IF_ERROR(
-          get_buffer_fd(normalized_binding.buffer, &fd, &alloc_size));
+          get_buffer_fd(normalized_binding.buffer, &fd, &alloc_size, &flags));
     }
     SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_buf_ref_t, bndg)
     bndg->slot = normalized_binding.buffer_slot;
@@ -115,6 +116,7 @@ iree_status_t iree_hal_hexagon_cmd_dispatch_serialize_exec(
     bndg->offset = normalized_binding.offset;
     bndg->length = normalized_binding.length;
     bndg->alloc_size = alloc_size;
+    bndg->flags = flags;
   }
 
   return iree_ok_status();

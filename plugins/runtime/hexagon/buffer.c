@@ -11,6 +11,7 @@
 #include <iree/hal/buffer.h>
 
 #include "hexagon/api.h"
+#include "hexagon/arm_dsp/buf_flags.h"
 #include "hexagon/mem_alloc.h"
 #include "hexagon/serialize/rpc_types.h"
 
@@ -92,15 +93,41 @@ void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer) {
   return iree_hal_hexagon_mem_alloc_impl_ptr(buffer->alloc);
 }
 
+/// What the host may do with the buffer between executions, as
+/// HEXAGON_RT_ARM_DSP_BUF_FLAG_*: it only accesses what it can map (see
+/// iree_hal_hexagon_buffer_map_range) and never writes immutable contents.
+/// TODO: FIXME: for the VK-cache example, the flags may nee to be derived more
+/// dynamically This way is save nevertheless
+static uint32_t iree_hal_hexagon_buffer_host_flags(iree_hal_buffer_t *buffer) {
+  iree_hal_buffer_usage_t usage = iree_hal_buffer_allowed_usage(buffer);
+  bool host_maps =
+      iree_all_bits_set(iree_hal_buffer_memory_type(buffer),
+                        IREE_HAL_MEMORY_TYPE_HOST_VISIBLE) &&
+      iree_any_bit_set(usage, IREE_HAL_BUFFER_USAGE_MAPPING_SCOPED |
+                                  IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT);
+  if (!host_maps) {
+    return HEXAGON_RT_ARM_DSP_BUF_FLAG_HOST_NO_READ |
+           HEXAGON_RT_ARM_DSP_BUF_FLAG_HOST_NO_WRITE;
+  }
+  if (iree_all_bits_set(usage, IREE_HAL_BUFFER_USAGE_SHARING_IMMUTABLE) ||
+      !iree_all_bits_set(iree_hal_buffer_allowed_access(buffer),
+                         IREE_HAL_MEMORY_ACCESS_WRITE)) {
+    return HEXAGON_RT_ARM_DSP_BUF_FLAG_HOST_NO_WRITE;
+  }
+  return 0;
+}
+
 iree_status_t
 iree_hal_hexagon_buffer_get_fd_for_dsp(iree_hal_buffer_t *base_buffer,
-                                       int *out_fd, uint64_t *out_alloc_size) {
+                                       int *out_fd, uint64_t *out_alloc_size,
+                                       uint32_t *out_flags) {
   if (!iree_hal_hexagon_buffer_isa(base_buffer)) {
     *out_fd = -1;
     return iree_make_status(
         IREE_STATUS_INCOMPATIBLE,
         "non-Hexagon buffers do not have a file descriptor for the DSP");
   }
+  *out_flags = iree_hal_hexagon_buffer_host_flags(base_buffer);
   return iree_hal_hexagon_mem_alloc_get_fd(
       iree_hal_hexagon_buffer_cast(base_buffer)->alloc, out_fd, out_alloc_size);
 }

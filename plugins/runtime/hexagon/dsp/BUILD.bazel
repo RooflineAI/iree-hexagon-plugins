@@ -19,6 +19,8 @@ cc_binary(
     srcs = [
         "align.h",
         "buffer.c",
+        "cache_state.c",
+        "cache_state.h",
         "command_buffer.c",
         "device.c",
         "device.h",

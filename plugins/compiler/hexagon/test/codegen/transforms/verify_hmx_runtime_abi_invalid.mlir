@@ -55,11 +55,13 @@ func.func @reject_arbitrary_dynamic_subview_offset(%col: index) {
 
 // -----
 
-// This has currently not been considered, so just reject such a case
-func.func @reject_unbounded_dynamic_pack_grid(%rows: index) {
-  %source_storage = hexagonmem.alloc() : memref<128x64xf16, 1>
-  %source = memref.subview %source_storage[0, 0] [%rows, 64] [1, 1]
-      : memref<128x64xf16, 1>
+// This has currently not been considered, so just reject such a case as unbounded
+func.func @reject_unbounded_dynamic_pack_grid(
+    %source_storage: memref<?x64xf16, 1>, %rows: index) {
+  %source_aligned = memref.assume_alignment %source_storage, 128
+      : memref<?x64xf16, 1>
+  %source = memref.subview %source_aligned[0, 0] [%rows, 64] [1, 1]
+      : memref<?x64xf16, 1>
       to memref<?x64xf16, strided<[64, 1]>, 1>
   %packed = hexagonmem.alloc() <alignment = 2048>
       : memref<2x2x16x32x2xf16, 1>
@@ -72,16 +74,35 @@ func.func @reject_unbounded_dynamic_pack_grid(%rows: index) {
 // -----
 
 // Same observation as for the test reject_unbounded_dynamic_pack_grid
-func.func @reject_unbounded_dynamic_rank3_unpack(%cols: index) {
+func.func @reject_unbounded_dynamic_rank3_unpack(
+    %dest_storage: memref<32x?xf32, strided<[64, 1]>, 1>, %cols: index) {
   %source = hexagonmem.alloc() <alignment = 2048>
       : memref<16x32x2xf16, 1>
-  %dest_storage = hexagonmem.alloc() : memref<32x64xf32, 1>
-  %dest = memref.subview %dest_storage[0, 0] [32, %cols] [1, 1]
-      : memref<32x64xf32, 1>
+  %dest_aligned = memref.assume_alignment %dest_storage, 128
+      : memref<32x?xf32, strided<[64, 1]>, 1>
+  %dest = memref.subview %dest_aligned[0, 0] [32, %cols] [1, 1]
+      : memref<32x?xf32, strided<[64, 1]>, 1>
       to memref<32x?xf32, strided<[64, 1]>, 1>
   // expected-error @+1 {{could not prove an upper bound for rank-3 unpack destination dimension 1}}
   iree_hexagon.hmx.unpack ins(%source : memref<16x32x2xf16, 1>)
       outs(%dest : memref<32x?xf32, strided<[64, 1]>, 1>) <dim = 0>
+  return
+}
+
+// -----
+
+// A dynamic size is bounded by the static allocation it views, also through a
+// rank-reducing subview
+func.func @accept_dynamic_pack_bounded_by_view(%batch: index, %rows: index) {
+  %storage = hexagonmem.alloc() <alignment = 2048> : memref<3x64x64xf16, 1>
+  %source = memref.subview %storage[%batch, 0, 0] [1, %rows, 64] [1, 1, 1]
+      : memref<3x64x64xf16, 1>
+      to memref<?x64xf16, strided<[64, 1], offset: ?>, 1>
+  %packed = hexagonmem.alloc() <alignment = 2048>
+      : memref<2x2x16x32x2xf16, 1>
+  iree_hexagon.hmx.pack
+      ins(%source : memref<?x64xf16, strided<[64, 1], offset: ?>, 1>)
+      outs(%packed : memref<2x2x16x32x2xf16, 1>) <dim = 0>
   return
 }
 

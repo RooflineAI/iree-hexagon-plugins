@@ -8,6 +8,7 @@
 // a45adeaa6115e446c898e6eb21fb6edc0e65ddc4.
 
 #include "hexagon/CodeGen/Passes.h"
+#include "hexagon/CodeGen/Strategy/Planning/Strategies/StrategySupport.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Utils/Utils.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -93,18 +94,7 @@ getTileSizesForEachDims(linalg::LinalgOp op) {
     }
 
     // Use ValueBounds analysis to infer `dim` size upper bound.
-    std::optional<int64_t> maybeDimSize;
-    FailureOr<DimBoundSize> maybeDimBound;
-    for (auto [operand, operandDim] : operandDimPairs) {
-      FailureOr<int64_t> maybeDimBoundSize =
-          ValueBoundsConstraintSet::computeConstantBound(
-              presburger::BoundType::UB, {operand, operandDim},
-              /*stopCondition=*/nullptr, ValueBoundsOptions{/*closedUB=*/true});
-      if (succeeded(maybeDimBoundSize)) {
-        maybeDimSize = maybeDimBoundSize.value();
-        break;
-      }
-    }
+    std::optional<int64_t> maybeDimSize = planning::getLoopUpperBound(op, dim);
     // Assume that the unknown dimension size implies the dimension is already
     // tiled. It means that the dimension is definitely tiled, but it is hard to
     // infer the tile size. It usually happens in fusion case, so the pass
@@ -131,7 +121,10 @@ void HexagonTileToVectorSizePass::runOnOperation() {
     // the additional tiling is not needed. Otherwise, it results in an
     // additional loops before converting it to a vector. We may need to fix the
     // lowering config issue, but it is a fair stopgap in practice.
-    if (isa<linalg::FillOp>(op)) {
+    // A dynamic fill is still tiled: vectorization takes the configured vector
+    // sizes as the bounds of its mask, so an untiled fill larger than them
+    // would only be written in its first vector.
+    if (isa<linalg::FillOp>(op) && !op.hasDynamicShape()) {
       return;
     }
     IREE::Codegen::LoweringConfigAttrInterface loweringConfig =

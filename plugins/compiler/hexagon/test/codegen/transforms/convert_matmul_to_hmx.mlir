@@ -59,16 +59,16 @@ func.func @convert_f16_output(
 // -----
 
 // A unit batch is rank-reduced before conversion. This also covers provenance
-// through collapse_shape and a user-defined transpose-b map.
+// through a rank-reducing extract_slice and a user-defined transpose-b map.
 
 // CHECK-LABEL: func.func @convert_unit_batch_transpose_b(
-// CHECK:       %[[LHS_2D:.+]] = tensor.collapse_shape
-// CHECK:       %[[RHS_2D:.+]] = tensor.collapse_shape
+// CHECK:       %[[LHS_2D:.+]] = tensor.extract_slice {{.*}} to tensor<32x64xf16>
+// CHECK:       %[[RHS_2D:.+]] = tensor.extract_slice {{.*}} to tensor<32x64xf16>
 // CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[LHS_2D]] : tensor<32x64xf16>) {{.*}} <dim = 0>
 // CHECK:       iree_hexagon.hmx.tensor_pack ins(%[[RHS_2D]] : tensor<32x64xf16>) {{.*}} <dim = 1>
 // CHECK-NOT:   linalg.batch_matmul
 // CHECK-NOT:   linalg.matmul
-// CHECK:       tensor.expand_shape
+// CHECK:       tensor.insert_slice {{.*}} into tensor<1x32x32xf32>
 func.func @convert_unit_batch_transpose_b(
     %lhs: tensor<1x32x64xf16>, %rhs: tensor<1x32x64xf16>)
     -> tensor<1x32x32xf32> {
@@ -166,6 +166,48 @@ func.func @convert_bounded_dynamic_boundary(
       ins(%lhs_vtcm, %rhs_vtcm : tensor<1537x257xf16>, tensor<257x?xf16>)
       outs(%filled : tensor<1537x?xf32>) -> tensor<1537x?xf32>
   return %result : tensor<1537x?xf32>
+}
+
+// -----
+
+// The bound of a staged boundary tile is also found below the staging op:
+// here the batch slice takes its sizes from `tensor.dim` of the staged value,
+// as after VTCM tiling and batch tiling.
+
+// CHECK-LABEL: func.func @convert_bounded_through_staged_dim(
+// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} tensor<8x2x16x32x2xf16>
+// CHECK:       iree_hexagon.hmx.tensor_pack {{.*}} tensor<2x8x16x32x2xf16>
+// CHECK:       iree_hexagon.hmx.tensor_matmul {{.*}} tensor<8x8x16x32x2xf16>
+func.func @convert_bounded_through_staged_dim(
+    %lhs: tensor<3x480x64xf16>, %rhs: tensor<3x64x480xf16>, %offset: index,
+    %batch: index) -> tensor<?x?xf32> {
+  %c0 = arith.constant 0.0 : f32
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  // The bound originates here: %m <= 256.
+  %m = affine.min affine_map<(d0) -> (-d0 + 480, 256)>(%offset)
+  %lhs_tile = tensor.extract_slice %lhs[0, %offset, 0] [3, %m, 64] [1, 1, 1]
+      : tensor<3x480x64xf16> to tensor<3x?x64xf16>
+  %rhs_tile = tensor.extract_slice %rhs[0, 0, %offset] [3, 64, %m] [1, 1, 1]
+      : tensor<3x64x480xf16> to tensor<3x64x?xf16>
+  // Staging keeps each dim equal to the source's, so dims of %*_vtcm <= 256.
+  %lhs_vtcm = iree_hexagon.stage_to_vtcm %lhs_tile : tensor<3x?x64xf16>
+  %rhs_vtcm = iree_hexagon.stage_to_vtcm %rhs_tile : tensor<3x64x?xf16>
+  // Read back below the staging op: %lhs_rows, %rhs_columns <= 256.
+  %lhs_rows = tensor.dim %lhs_vtcm, %c1 : tensor<3x?x64xf16>
+  %rhs_columns = tensor.dim %rhs_vtcm, %c2 : tensor<3x64x?xf16>
+  %lhs_batch = tensor.extract_slice %lhs_vtcm[%batch, 0, 0] [1, %lhs_rows, 64]
+      [1, 1, 1] : tensor<3x?x64xf16> to tensor<?x64xf16>
+  %rhs_batch = tensor.extract_slice %rhs_vtcm[%batch, 0, 0]
+      [1, 64, %rhs_columns] [1, 1, 1] : tensor<3x64x?xf16> to tensor<64x?xf16>
+  // vtcm_empty's dims are its operands, so the output is bounded too.
+  %init = iree_hexagon.vtcm_empty(%lhs_rows, %rhs_columns) : tensor<?x?xf32>
+  %filled = linalg.fill ins(%c0 : f32) outs(%init : tensor<?x?xf32>)
+      -> tensor<?x?xf32>
+  %result = linalg.matmul
+      ins(%lhs_batch, %rhs_batch : tensor<?x64xf16>, tensor<64x?xf16>)
+      outs(%filled : tensor<?x?xf32>) -> tensor<?x?xf32>
+  return %result : tensor<?x?xf32>
 }
 
 // -----

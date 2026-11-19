@@ -19,6 +19,7 @@ from pathlib import Path
 from integration_tests.device import adb
 from integration_tests.device.adb import AdbError
 from integration_tests.device.deploy import Deployment
+from integration_tests.stages.artifacts import ModuleCall
 
 
 @dataclass(frozen=True)
@@ -226,13 +227,33 @@ def push_module(
         timings["verify_module"] = time.time() - verify_module_start
 
 
+def _run_module_argv(
+    deployment: Deployment, call: ModuleCall, extra_flags: tuple[str, ...]
+) -> list[str]:
+    """The iree-run-module command line for `call`, run in the case directory."""
+    argv = [
+        deployment.limit_lifetime,
+        deployment.benchmark_module,
+        "--module=module.vmfb",
+        "--module_mode=mmap",
+        f"--function={call.function}",
+        "--device=hexagon",
+        # ony needed for iree-benchmark module:
+        "--enable_output_processing",
+        "--benchmark_min_time=1x",
+        "--benchmark_repetitions=1",
+        "--benchmark_format=json",
+    ]
+    argv += [f"--input=@{path.name}" for path in call.input_files]
+    argv += [f"--output=@{name}" for name in call.output_names]
+    return argv + list(extra_flags)
+
+
 def run_module_on_device(
     deployment: Deployment,
     case_dir_name: str,
     module_vmfb: Path,
-    function: str,
-    input_files: list[Path],
-    output_names: list[str],
+    calls: list[ModuleCall],
     local_output_dir: Path,
     host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
@@ -241,6 +262,10 @@ def run_module_on_device(
     debug_malloc: bool = False,
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
+
+    Each of `calls` runs in its own iree-run-module, in order, in the same adb
+    round trip. A call runs only if the previous one exited successfully. Their
+    outputs are not compared here; that is up to the caller.
 
     A module of at least `_KEEP_MODULE_MIN_BYTES` is kept on the device across
     runs (see `integration_tests/device/deploy.py`) and goes over with
@@ -255,7 +280,8 @@ def run_module_on_device(
     With `debug_malloc`, iree-benchmark-module runs under bionic's malloc debug, see
     `_DEBUG_MALLOC_OPTIONS`.
 
-    With `tracy_port`, the deployment must hold the Tracy runtime.
+    With `tracy_port`, the deployment must hold the Tracy runtime, and `calls`
+    must be a single call.
     The port is then used on device to connect `tracy-capture` to `iree-module-run`.
     It is not used on the host.
 
@@ -264,6 +290,11 @@ def run_module_on_device(
     Without it a timed-out run leaves iree-benchmark-module alive holding the DSP, and
     every subsequent test fails for an unrelated reason.
     """
+    if not calls:
+        raise ValueError("expected at least one call")
+    if tracy_port is not None and len(calls) != 1:
+        # FIXME: this would need one tracy-capture per call.
+        raise ValueError(f"profiling supports one call, got {len(calls)}")
     timings: dict[str, float] = {}
 
     push_total_start = time.time()
@@ -280,26 +311,10 @@ def run_module_on_device(
         setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
         timings=timings,
     )
-    if input_files:
-        adb.push(input_files, remote_dir + "/")
+    push_files = [path for call in calls for path in call.input_files]
+    if push_files:
+        adb.push(push_files, remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start
-
-    argv = [
-        deployment.limit_lifetime,
-        deployment.benchmark_module,
-        "--module=module.vmfb",
-        "--module_mode=mmap",
-        f"--function={function}",
-        "--device=hexagon",
-        # ony needed for iree-benchmark module:
-        "--enable_output_processing",
-        "--benchmark_min_time=1x",
-        "--benchmark_repetitions=1",
-        "--benchmark_format=json",
-    ]
-    argv += [f"--input=@{path.name}" for path in input_files]
-    argv += [f"--output=@{name}" for name in output_names]
-    argv += list(extra_flags)
 
     # adbd runs with oom_score_adj -1000 and its children inherit that, so when
     # memory runs out Android kills system_server, which kills the device instead of the
@@ -316,10 +331,15 @@ def run_module_on_device(
         if debug_malloc
         else ""
     )
+    run_commands = [
+        env + shlex.join(_run_module_argv(deployment, call, extra_flags))
+        for call in calls
+    ]
     if tracy_port is None:
-        script += env + shlex.join(argv)
+        script += " && ".join(run_commands)
     else:
-        script += _capture_script(deployment, env + shlex.join(argv), tracy_port)
+        # FIXME tracy runs are only supported with one function so far
+        script += _capture_script(deployment, run_commands[0], tracy_port)
 
     local_output_dir.mkdir(parents=True, exist_ok=True)
     adb.logcat_clear()
@@ -340,7 +360,7 @@ def run_module_on_device(
     logcat = adb.logcat_dump()
     pulled: list[Path] = []
     pull_start = time.time()
-    for name in output_names:
+    for name in (name for call in calls for name in call.output_names):
         remote_output = f"{remote_dir}/{name}"
         local_output = local_output_dir / name
         # Outputs are pulled one at a time and a miss is tolerated: when the run

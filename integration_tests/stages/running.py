@@ -233,7 +233,7 @@ def _run_module_argv(
     """The iree-run-module command line for `call`, run in the case directory."""
     argv = [
         deployment.limit_lifetime,
-        deployment.run_module,
+        deployment.benchmark_module,
         "--module=module.vmfb",
         "--module_mode=mmap",
         f"--function={call.function}",
@@ -315,24 +315,6 @@ def run_module_on_device(
     if push_files:
         adb.push(push_files, remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start
-
-    def run_argv(call: ModuleCall) -> list[str]:
-        argv = [
-            deployment.limit_lifetime,
-            deployment.run_module,
-            "--module=module.vmfb",
-            "--module_mode=mmap",
-            f"--function={call.function}",
-            "--device=hexagon",
-            # ony needed for iree-benchmark module:
-            "--enable_output_processing",
-            "--benchmark_min_time=1x",
-            "--benchmark_repetitions=1",
-            "--benchmark_format=json",
-        ]
-        argv += [f"--input=@{path.name}" for path in call.input_files]
-        argv += [f"--output=@{name}" for name in call.output_names]
-        return argv + list(extra_flags)
 
     # adbd runs with oom_score_adj -1000 and its children inherit that, so when
     # memory runs out Android kills system_server, which kills the device instead of the

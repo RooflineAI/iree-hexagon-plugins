@@ -19,17 +19,24 @@
 //       -> next_token: i64[1, 1]
 //     Runs one token at position pos against the cache.
 //
-// Both run in one VM context, so the cache prefill writes is the one decode
-// reads. Sampling is greedy, inside the module.
+// Both run in one VM context, so prefill writes to a cache and the same one
+// is used by decode uses. Sampling is greedy and is performed inside the
+// module.
 //
-// The engine reads no flags of its own: everything is passed in, so the CLI
-// tool (iree-run-llm) and other frontends (e.g. a server) can share it. The HAL
-// device is still created by IREE's tooling from its --device= family of flags.
+// The engine is supposed to be re-usable in different tools (iree-run-llm
+// and e.g. some server). This means for instance that it does not parse any
+// command line flags. Instead, everything the engine needs is passed in form
+// of C data structures.
+// That includes the VM context and its HAL device(s): the caller creates them,
+// e.g. iree-run-llm with IREE's tooling from the --device= family of flags, and
+// the engine only runs the module's functions in them.
 //
-// Thread safety: an iree_llm_model_t holds one KV cache and so runs one
-// sequence at a time; a prefill starts a new sequence and discards the
-// previous one. Callers that share a model across threads must serialize all
-// calls on it. Separate models (separate contexts) are independent.
+// Thread safety: the KV cache lives in the module globals of the VM context,
+// so a context holds one cache and runs one sequence at a time; a prefill
+// starts a new sequence and discards the previous one. Callers that share a
+// model across threads must serialize all calls on it, and must not create two
+// models on one context or invoke its prefill/decode functions themselves.
+// Models on separate contexts are independent.
 
 #ifndef IREE_HEXAGON_PLUGINS_TOOLS_LLM_ENGINE_H_
 #define IREE_HEXAGON_PLUGINS_TOOLS_LLM_ENGINE_H_
@@ -38,6 +45,7 @@
 #include <stdint.h>
 
 #include "iree/base/api.h"
+#include "iree/hal/api.h"
 #include "iree/tokenizer/tokenizer.h"
 #include "iree/vm/api.h"
 
@@ -67,18 +75,25 @@ void iree_llm_model_options_initialize(iree_llm_model_options_t *out_options);
 
 typedef struct iree_llm_model_t iree_llm_model_t;
 
-// Creates one VM context for |modules| on the device IREE's tooling flags
-// select, and looks up the prefill and decode functions in the last module.
-// The context retains the modules; the caller keeps its own references.
-iree_status_t iree_llm_model_create(iree_vm_instance_t *instance,
-                                    iree_host_size_t module_count,
-                                    iree_vm_module_t **modules,
+// Creates a model that runs the prefill and decode functions of |main_module|
+// in |context|, which must contain |main_module| and the modules it depends
+// on (e.g. the HAL module).
+//
+// |lead_device| is the device the engine stages inputs on, with its
+// allocator, and reads the generated tokens back from; it must be one of the
+// context's HAL devices, and the module's functions must accept buffers from
+// its allocator. With one device, that is simply the device.
+//
+// The model retains |context|, |lead_device| and |main_module|; the caller
+// keeps its own references.
+iree_status_t iree_llm_model_create(iree_vm_context_t *context,
+                                    iree_hal_device_t *lead_device,
+                                    iree_vm_module_t *main_module,
                                     const iree_llm_model_options_t *options,
                                     iree_allocator_t host_allocator,
                                     iree_llm_model_t **out_model);
 
-// Frees |model|, closing a HAL replay capture if one was requested. NULL is
-// a no-op.
+// Frees |model|. NULL is a no-op.
 void iree_llm_model_free(iree_llm_model_t *model);
 
 const iree_llm_model_options_t *

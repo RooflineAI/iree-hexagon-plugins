@@ -20,13 +20,11 @@ iree_cc_library(
   DEPS
     iree::base
     iree::hal
-    iree::hal::replay::recorder
     iree::io::file_handle
     iree::modules::hal::types
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
     iree::tokenizer::vocab
-    iree::tooling::context_util
     iree::tooling::function_util
     iree::vm
   INCLUDES

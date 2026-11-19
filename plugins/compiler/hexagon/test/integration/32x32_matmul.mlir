@@ -2,7 +2,7 @@
 // TODO: Once vector/tensor instructions are generated, they can be added here.
 
 // RUN: rm -f %t.vmfb
-// RUN: iree-compile %s --iree-hal-target-device=hexagon \
+// RUN: iree-compile %s --iree-hal-target-device=hexagon --iree-stream-resource-min-offset-alignment=128 \
 // RUN: --iree-hexagon-v=79 \
 // RUN: --iree-hexagon-features=+hvxv79,+hvx-length128b \
 // RUN: -o %t.vmfb

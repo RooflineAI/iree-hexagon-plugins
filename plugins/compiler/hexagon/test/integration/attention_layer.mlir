@@ -5,7 +5,7 @@
 // Currently, some vector instructions are generated (vadd, vsplat, even a few vmem), but they are not related to the tiling.
 // TODO: Update this test once vector instructions are working to check for their generation
 
-// RUN: iree-compile %s \
+// RUN: iree-compile %s --iree-stream-resource-min-offset-alignment=128 \
 // RUN:   --iree-hal-target-device=hexagon \
 // RUN:   --iree-hexagon-v=79 \
 // RUN:   --iree-hexagon-features=+hvxv79,+hvx-length128b \

@@ -21,6 +21,7 @@ cc_binary(
     srcs = ["iree-run-llm-main.c"],
     deps = [
         "//tools/llm:engine",
+        "//tools/llm:tokenizer",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/base/tooling:flags",
         "@iree//runtime/src/iree/hal",

@@ -196,12 +196,13 @@ def check_generation(
             f"  device:    {list(tokens)}\n"
             f"  reference: {list(reference.tokens)}"
         )
-    for step, (actual, expected) in enumerate(zip(tokens, reference.tokens)):
-        if actual != expected:
+    for step, (actual, expected) in enumerate(zip(tokens, reference.generated)):
+        if actual != expected.selected_id:
             raise AccuracyError(
                 f"generated tokens differ from the reference: token {step} is "
-                f"{actual}, the reference's {expected}, whose logit leads the "
-                f"runner-up's by {reference.margins[step]:.3f}\n"
+                f"{actual}, the reference's {expected.selected_id}, whose logit "
+                f"leads the runner-up's ({expected.runner_up_id}) by "
+                f"{expected.margin:.3f}\n"
                 f"  device:    {list(tokens)}\n"
                 f"  reference: {list(reference.tokens)}"
             )

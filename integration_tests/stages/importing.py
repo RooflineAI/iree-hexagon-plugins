@@ -503,7 +503,7 @@ def _generation_reference(
 
     tokenizer = Tokenizer.from_file(str(tokenizer_json))
     prompt_ids = tokenizer.encode(generation.prompt).ids
-    tokens, margins, runner_ups = model.generate_greedy(
+    generated = model.generate_greedy(
         prompt_ids,
         generation.max_new_tokens,
         min_prefill_blocks=_MIN_PREFILL_BLOCKS,
@@ -518,8 +518,7 @@ def _generation_reference(
         min_prefill_blocks=_MIN_PREFILL_BLOCKS,
         pad_token_id=_PAD_TOKEN_ID,
         prompt_ids=tuple(prompt_ids),
-        tokens=tuple(tokens),
-        margins=tuple(margins),
+        generated=tuple(generated),
     )
     (output_dir / "generation_reference.json").write_text(
         json.dumps(
@@ -531,16 +530,16 @@ def _generation_reference(
             indent=2,
         )
     )
-    for step, margin in enumerate(margins):
-        if margin >= generation.min_margin:
+    for step, info in enumerate(generated):
+        if info.margin >= generation.min_margin:
             continue
         shorten = f" or set max_new_tokens to at most {step}" if step > 0 else ""
         raise NearTieError(
             f"{spec.name}: near-tie in the reference generation, please change "
-            f"the prompt{shorten}. At step {step}, token {tokens[step]} "
-            f"({tokenizer.decode([tokens[step]])!r}) leads token "
-            f"{runner_ups[step]} ({tokenizer.decode([runner_ups[step]])!r}) "
-            f"by {margin:.3f}, less than min_margin={generation.min_margin:g}. "
+            f"the prompt{shorten}. At step {step}, token {info.selected_id} "
+            f"({tokenizer.decode([info.selected_id])!r}) leads token "
+            f"{info.runner_up_id} ({tokenizer.decode([info.runner_up_id])!r}) "
+            f"by {info.margin:.3f}, less than min_margin={generation.min_margin:g}. "
             f"The margins are in {output_dir / 'generation_reference.json'}."
         )
     return reference

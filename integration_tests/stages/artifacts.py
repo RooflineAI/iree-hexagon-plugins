@@ -27,6 +27,18 @@ class ModuleCall:
 
 
 @dataclass(frozen=True)
+class GeneratedTokenInfo:
+    """One step of `KvCacheLM.generate_greedy`."""
+
+    # The token generated: the argmax of the step's logits.
+    selected_id: int
+    # The second most likely token, which a near-tie could have tipped to.
+    runner_up_id: int
+    # How far the selected token's logit leads the runner-up's, in float32.
+    margin: float
+
+
+@dataclass(frozen=True)
 class GenerationReference:
     """What iree-run-llm gets, and the eager tokens it has to generate."""
 
@@ -40,9 +52,13 @@ class GenerationReference:
     min_prefill_blocks: int
     pad_token_id: int
     prompt_ids: tuple[int, ...]
-    tokens: tuple[int, ...]
-    # For each token, how far its logit is ahead of the runner-up's.
-    margins: tuple[float, ...]
+    # One per generated token, in order.
+    generated: tuple[GeneratedTokenInfo, ...]
+
+    @property
+    def tokens(self) -> tuple[int, ...]:
+        """The generated token ids."""
+        return tuple(info.selected_id for info in self.generated)
 
 
 @dataclass(frozen=True)

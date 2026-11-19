@@ -8,8 +8,8 @@
 //
 // The command line frontend of the LLM inference engine in llm/engine.h, which
 // documents the prefill/decode functions the module must export. The prompt is
-// tokenized with a HuggingFace tokenizer.json, and each generated token is
-// detokenized and printed to stdout as it is produced.
+// tokenized with a HuggingFace tokenizer.json (llm/tokenizer.h), and each
+// generated token is detokenized and printed to stdout as it is produced.
 //
 // Example:
 //   iree-run-llm --device=hexagon --module=model.vmfb \
@@ -30,6 +30,7 @@
 #include "iree/tooling/context_util.h"
 #include "iree/vm/api.h"
 #include "llm/engine.h"
+#include "llm/tokenizer.h"
 
 //===----------------------------------------------------------------------===//
 // Flags

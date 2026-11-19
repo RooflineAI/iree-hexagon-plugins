@@ -24,12 +24,25 @@ cc_library(
     deps = [
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/hal",
-        "@iree//runtime/src/iree/io:file_handle",
         "@iree//runtime/src/iree/modules/hal:types",
+        "@iree//runtime/src/iree/tooling:function_util",
+        "@iree//runtime/src/iree/vm",
+    ],
+)
+
+# Text side of the engine: tokenizes the prompt and detokenizes the generated
+# tokens with IREE's tokenizer, from a HuggingFace tokenizer.json. Separate so
+# that frontends that only exchange token IDs do not link a tokenizer.
+cc_library(
+    name = "tokenizer",
+    srcs = ["tokenizer.c"],
+    hdrs = ["tokenizer.h"],
+    strip_include_prefix = "/tools",
+    deps = [
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/io:file_handle",
         "@iree//runtime/src/iree/tokenizer",
         "@iree//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
         "@iree//runtime/src/iree/tokenizer/vocab",
-        "@iree//runtime/src/iree/tooling:function_util",
-        "@iree//runtime/src/iree/vm",
     ],
 )

@@ -20,13 +20,28 @@ iree_cc_library(
   DEPS
     iree::base
     iree::hal
-    iree::io::file_handle
     iree::modules::hal::types
+    iree::tooling::function_util
+    iree::vm
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    tokenizer
+  HDRS
+    "tokenizer.h"
+  SRCS
+    "tokenizer.c"
+  DEPS
+    iree::base
+    iree::io::file_handle
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
     iree::tokenizer::vocab
-    iree::tooling::function_util
-    iree::vm
   INCLUDES
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"

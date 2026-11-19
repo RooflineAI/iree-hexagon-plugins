@@ -10,12 +10,10 @@
 #include <string.h>
 
 #include "iree/hal/api.h"
-#include "iree/hal/replay/recorder.h"
 #include "iree/io/file_contents.h"
 #include "iree/modules/hal/types.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tokenizer/vocab/vocab.h"
-#include "iree/tooling/context_util.h"
 #include "iree/tooling/function_util.h"
 
 //===----------------------------------------------------------------------===//
@@ -27,10 +25,10 @@ struct iree_llm_model_t {
   // The function names are not kept: they are only valid during creation.
   iree_llm_model_options_t options;
   iree_vm_context_t *context;
-  iree_hal_device_list_t *device_list;
-  iree_hal_device_t *device; // Unretained; the first of device_list.
-  iree_hal_allocator_t *device_allocator;
-  iree_hal_replay_recorder_t *replay_recorder;
+  iree_hal_device_t *lead_device;
+  iree_hal_allocator_t *device_allocator; // Unretained; lead_device's.
+  // Retained, as prefill and decode point into it.
+  iree_vm_module_t *main_module;
   iree_vm_function_t prefill;
   iree_vm_function_t decode;
   // The position the next decode runs at; 0 until the first prefill.
@@ -53,13 +51,9 @@ void iree_llm_model_options_initialize(iree_llm_model_options_t *out_options) {
 void iree_llm_model_free(iree_llm_model_t *model) {
   if (!model)
     return;
+  iree_vm_module_release(model->main_module);
   iree_vm_context_release(model->context);
-  if (model->replay_recorder) {
-    iree_status_ignore(iree_hal_replay_recorder_close(model->replay_recorder));
-    iree_hal_replay_recorder_release(model->replay_recorder);
-  }
-  iree_hal_allocator_release(model->device_allocator);
-  iree_hal_device_list_free(model->device_list);
+  iree_hal_device_release(model->lead_device);
   iree_allocator_t host_allocator = model->host_allocator;
   iree_allocator_free(host_allocator, model->input_ids);
   iree_allocator_free(host_allocator, model->positions);
@@ -75,15 +69,17 @@ static iree_status_t iree_llm_lookup_function(iree_vm_module_t *module,
       "looking up function '%.*s'", (int)name.size, name.data);
 }
 
-iree_status_t iree_llm_model_create(iree_vm_instance_t *instance,
-                                    iree_host_size_t module_count,
-                                    iree_vm_module_t **modules,
+iree_status_t iree_llm_model_create(iree_vm_context_t *context,
+                                    iree_hal_device_t *lead_device,
+                                    iree_vm_module_t *main_module,
                                     const iree_llm_model_options_t *options,
                                     iree_allocator_t host_allocator,
                                     iree_llm_model_t **out_model) {
   *out_model = NULL;
-  if (module_count == 0) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "no module given");
+  if (!context || !lead_device || !main_module) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "a context, a lead device and a main module are "
+                            "required");
   }
   if (options->max_seq_len == 0 || options->block_seq_stride == 0 ||
       options->min_prefill_blocks == 0) {
@@ -100,6 +96,13 @@ iree_status_t iree_llm_model_create(iree_vm_instance_t *instance,
   model->options = *options;
   model->options.prefill_function = iree_string_view_empty();
   model->options.decode_function = iree_string_view_empty();
+  model->context = context;
+  iree_vm_context_retain(context);
+  model->lead_device = lead_device;
+  iree_hal_device_retain(lead_device);
+  model->device_allocator = iree_hal_device_allocator(lead_device);
+  model->main_module = main_module;
+  iree_vm_module_retain(main_module);
 
   const iree_host_size_t max_seq_len = options->max_seq_len;
   iree_status_t status = iree_allocator_malloc_array(
@@ -111,25 +114,6 @@ iree_status_t iree_llm_model_create(iree_vm_instance_t *instance,
                                          sizeof(int64_t),
                                          (void **)&model->input_ids);
   }
-  if (iree_status_is_ok(status)) {
-    status = iree_status_annotate_f(
-        iree_tooling_create_context_from_flags(
-            instance, module_count, modules,
-            /*default_device_uri=*/iree_string_view_empty(), host_allocator,
-            &model->context, &model->device_list, &model->device_allocator,
-            &model->replay_recorder),
-        "creating VM context");
-  }
-  if (iree_status_is_ok(status)) {
-    model->device = model->device_list
-                        ? iree_hal_device_list_at(model->device_list, 0)
-                        : NULL;
-    if (!model->device) {
-      status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                                "the module does not use a HAL device");
-    }
-  }
-  iree_vm_module_t *main_module = modules[module_count - 1];
   if (iree_status_is_ok(status)) {
     status = iree_llm_lookup_function(main_module, options->prefill_function,
                                       &model->prefill);
@@ -198,7 +182,7 @@ static iree_status_t iree_llm_append_i64(iree_llm_model_t *model,
       iree_make_const_byte_span(values, count * sizeof(values[0]));
   iree_hal_buffer_view_t *buffer_view = NULL;
   IREE_RETURN_IF_ERROR(iree_hal_buffer_view_generate_buffer(
-      model->device, model->device_allocator, rank, shape,
+      model->lead_device, model->device_allocator, rank, shape,
       IREE_HAL_ELEMENT_TYPE_INT_64, IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR,
       params, iree_llm_copy_to_mapping, &data, &buffer_view));
   iree_vm_ref_t ref = iree_hal_buffer_view_move_ref(buffer_view);
@@ -215,8 +199,9 @@ static iree_status_t iree_llm_invoke(iree_llm_model_t *model,
 
   // An async-external function gets fences to wait on; a sync one gets none.
   iree_hal_fence_t *finish_fence = NULL;
-  IREE_RETURN_IF_ERROR(iree_tooling_append_async_fences(
-      inputs, function, model->device, /*wait_fence=*/NULL, &finish_fence));
+  IREE_RETURN_IF_ERROR(
+      iree_tooling_append_async_fences(inputs, function, model->lead_device,
+                                       /*wait_fence=*/NULL, &finish_fence));
 
   iree_vm_list_t *outputs = NULL;
   iree_status_t status = iree_vm_list_create(
@@ -260,8 +245,8 @@ static iree_status_t iree_llm_invoke(iree_llm_model_t *model,
         int64_t i64;
       } value = {0};
       status = iree_hal_device_transfer_d2h(
-          model->device, iree_hal_buffer_view_buffer(token_view), 0, &value,
-          element_size, IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT,
+          model->lead_device, iree_hal_buffer_view_buffer(token_view), 0,
+          &value, element_size, IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT,
           iree_infinite_timeout());
       *out_token = element_size == 4 ? value.i32 : value.i64;
     }

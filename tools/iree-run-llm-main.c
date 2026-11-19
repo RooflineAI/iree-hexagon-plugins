@@ -23,6 +23,8 @@
 
 #include "iree/base/api.h"
 #include "iree/base/tooling/flags.h"
+#include "iree/hal/api.h"
+#include "iree/hal/replay/recorder.h"
 #include "iree/io/file_contents.h"
 #include "iree/tokenizer/tokenizer.h"
 #include "iree/tooling/context_util.h"
@@ -73,10 +75,49 @@ IREE_FLAG(string, decode_function, "decode",
 // Setup from flags
 //===----------------------------------------------------------------------===//
 
-// Loads the --module= modules and creates the model from them, on the
-// --device= device.
+// What IREE's tooling creates from the --module= and --device= flags, and the
+// model runs in. Outlives the model.
+typedef struct iree_run_llm_runtime_t {
+  iree_vm_context_t *context;
+  iree_hal_device_list_t *device_list;
+  // The lead device's allocator, which identifies the lead device.
+  iree_hal_allocator_t *device_allocator;
+  // Set with --device_replay_output.
+  iree_hal_replay_recorder_t *replay_recorder;
+} iree_run_llm_runtime_t;
+
+static void iree_run_llm_runtime_deinitialize(iree_run_llm_runtime_t *runtime) {
+  iree_vm_context_release(runtime->context);
+  if (runtime->replay_recorder) {
+    iree_status_ignore(
+        iree_hal_replay_recorder_close(runtime->replay_recorder));
+    iree_hal_replay_recorder_release(runtime->replay_recorder);
+  }
+  iree_hal_allocator_release(runtime->device_allocator);
+  iree_hal_device_list_free(runtime->device_list);
+  memset(runtime, 0, sizeof(*runtime));
+}
+
+// Returns the device of |runtime| that its allocator belongs to: the one the
+// tooling chose as the lead device (the first unless flags say otherwise).
+static iree_hal_device_t *
+iree_run_llm_lead_device(const iree_run_llm_runtime_t *runtime) {
+  if (!runtime->device_list)
+    return NULL;
+  for (iree_host_size_t i = 0; i < runtime->device_list->count; ++i) {
+    iree_hal_device_t *device =
+        iree_hal_device_list_at(runtime->device_list, i);
+    if (iree_hal_device_allocator(device) == runtime->device_allocator)
+      return device;
+  }
+  return iree_hal_device_list_at(runtime->device_list, 0);
+}
+
+// Loads the --module= modules, creates a context for them on the --device=
+// device(s) in |runtime|, and the model on it. The last module is the model's.
 static iree_status_t iree_run_llm_create_model(iree_vm_instance_t *instance,
                                                iree_allocator_t host_allocator,
+                                               iree_run_llm_runtime_t *runtime,
                                                iree_llm_model_t **out_model) {
   if (FLAG_block_seq_stride <= 0 || FLAG_min_prefill_blocks <= 0 ||
       FLAG_max_seq_len <= 0 || FLAG_max_new_tokens < 0) {
@@ -104,9 +145,26 @@ static iree_status_t iree_run_llm_create_model(iree_vm_instance_t *instance,
                               "no module given; use --module=model.vmfb");
   }
   if (iree_status_is_ok(status)) {
-    status =
-        iree_llm_model_create(instance, module_list.count, module_list.values,
-                              &options, host_allocator, out_model);
+    status = iree_status_annotate_f(
+        iree_tooling_create_context_from_flags(
+            instance, module_list.count, module_list.values,
+            /*default_device_uri=*/iree_string_view_empty(), host_allocator,
+            &runtime->context, &runtime->device_list,
+            &runtime->device_allocator, &runtime->replay_recorder),
+        "creating VM context");
+  }
+  iree_hal_device_t *lead_device = NULL;
+  if (iree_status_is_ok(status)) {
+    lead_device = iree_run_llm_lead_device(runtime);
+    if (!lead_device) {
+      status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                                "the module does not use a HAL device");
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_llm_model_create(runtime->context, lead_device,
+                                   module_list.values[module_list.count - 1],
+                                   &options, host_allocator, out_model);
   }
   iree_tooling_module_list_reset(&module_list);
   return status;
@@ -343,15 +401,19 @@ int main(int argc, char **argv) {
   if (iree_status_is_ok(status)) {
     status = iree_tooling_create_instance(host_allocator, &instance);
   }
+  iree_run_llm_runtime_t runtime;
+  memset(&runtime, 0, sizeof(runtime));
   iree_llm_model_t *model = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_run_llm_create_model(instance, host_allocator, &model);
+    status =
+        iree_run_llm_create_model(instance, host_allocator, &runtime, &model);
   }
   if (iree_status_is_ok(status)) {
     status = iree_run_llm_generate(model, tokenizer, host_allocator);
   }
 
   iree_llm_model_free(model);
+  iree_run_llm_runtime_deinitialize(&runtime);
   iree_vm_instance_release(instance);
   if (tokenizer)
     iree_tokenizer_free(tokenizer);

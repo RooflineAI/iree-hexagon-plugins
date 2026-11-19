@@ -23,6 +23,8 @@ cc_binary(
         "//tools/llm:engine",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/base/tooling:flags",
+        "@iree//runtime/src/iree/hal",
+        "@iree//runtime/src/iree/hal/replay:recorder",
         "@iree//runtime/src/iree/io:file_handle",
         "@iree//runtime/src/iree/tokenizer",
         "@iree//runtime/src/iree/tooling:context_util",

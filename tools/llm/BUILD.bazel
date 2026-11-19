@@ -14,7 +14,8 @@ package(
 
 # LLM inference engine: runs an LLM exported as prefill/decode
 # (integration_tests/models/kv_cache.py) token by token. Shared by
-# iree-run-llm and other frontends; reads no flags of its own.
+# iree-run-llm and other frontends; reads no flags of its own: the caller
+# creates the VM context and HAL device(s).
 cc_library(
     name = "engine",
     srcs = ["engine.c"],
@@ -23,13 +24,11 @@ cc_library(
     deps = [
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/hal",
-        "@iree//runtime/src/iree/hal/replay:recorder",
         "@iree//runtime/src/iree/io:file_handle",
         "@iree//runtime/src/iree/modules/hal:types",
         "@iree//runtime/src/iree/tokenizer",
         "@iree//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
         "@iree//runtime/src/iree/tokenizer/vocab",
-        "@iree//runtime/src/iree/tooling:context_util",
         "@iree//runtime/src/iree/tooling:function_util",
         "@iree//runtime/src/iree/vm",
     ],

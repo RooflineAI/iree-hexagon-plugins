@@ -18,6 +18,8 @@ iree_cc_binary(
   DEPS
     iree::base
     iree::base::tooling::flags
+    iree::hal
+    iree::hal::replay::recorder
     iree::io::file_handle
     iree::tokenizer
     iree::tooling::context_util

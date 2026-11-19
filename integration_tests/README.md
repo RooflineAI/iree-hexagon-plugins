@@ -202,23 +202,26 @@ greedily, ignoring stop tokens:
 generation:
   prompt: "def fibonacci(n):\n"
   max_new_tokens: 32
-  max_tie_margin: 0.25  # the default
+  min_margin: 0.25  # the default
 ```
 
 `model.py` then also defines `get_tokenizer_json()`, the path of the model's
 `tokenizer.json`, which the device gets too. The reference is
 `KvCacheLM.generate_greedy`: the same functions run eagerly, with the prompt
-padded as on the device. The check, in `stages/checking.py`:
+padded as on the device. At every step, its most likely token has to lead the
+runner-up by at least `min_margin` in logits. Otherwise it is a near-tie that
+rounding on the device may tip either way, after which the two sides continue
+from different text, and the import fails with a `NearTieError` naming the step
+and both tokens: change the prompt, or shorten `max_new_tokens` to end before
+the near-tie. The import writes the margins to `generation_reference.json`.
+
+The check, in `stages/checking.py`:
 
 * the prompt's token ids have to match the `tokenizers` library's exactly,
   which checks the device's tokenizer;
-* the generated tokens have to match up to the first that differs, where the
-  reference's two most likely tokens have to be within `max_tie_margin` of each
-  other in logits: a near-tie that rounding may tip either way. The tokens
-  after it are not compared.
+* the generated tokens have to match the reference's exactly.
 
-So pick a prompt whose reference has no near-tie, and any difference fails;
-the import writes the margins to `generation_reference.json`. The log has
+The log has
 the text and, under `generation timings:`, the time of the whole
 `iree-run-llm` run (`generate`) and its own times of `prefill` and of one
 decode step (`decode_per_token`). They are not part of `run:`, the time

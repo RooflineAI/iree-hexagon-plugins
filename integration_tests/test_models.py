@@ -160,7 +160,6 @@ def _run_pipeline(
                 reference=imported_model.generation,
                 prompt_ids=generation.prompt_ids,
                 tokens=generation.tokens,
-                max_tie_margin=model_spec.generation.max_tie_margin,
             )
         except AccuracyError as err:
             return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{generation.describe()}")

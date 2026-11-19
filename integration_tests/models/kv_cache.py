@@ -197,7 +197,7 @@ class KvCacheLM(torch.nn.Module):
         max_new_tokens: int,
         min_prefill_blocks: int = 2,
         pad_token_id: int = 0,
-    ) -> tuple[list[int], list[float]]:
+    ) -> tuple[list[int], list[float], list[int]]:
         """Greedy generation as iree-run-llm runs it, from an empty cache.
 
         The prompt is padded to a multiple of `block_seq_stride` of at least
@@ -206,7 +206,7 @@ class KvCacheLM(torch.nn.Module):
         --ignore_eos, and generation ends early only at `max_seq_len`.
 
         Returns the tokens and, for each, the margin between the two most
-        likely tokens in its logits.
+        likely tokens in its logits and the second most likely token.
         """
         stride = self.block_seq_stride
         blocks = max(-(-len(prompt) // stride), min_prefill_blocks)
@@ -226,11 +226,13 @@ class KvCacheLM(torch.nn.Module):
             logits = self._logits(input_ids, positions, mask)[0, len(prompt) - 1]
             tokens: list[int] = []
             margins: list[float] = []
+            runner_ups: list[int] = []
             position = len(prompt)
             while True:
-                top2 = torch.topk(logits.float(), 2).values
+                top2 = torch.topk(logits.float(), 2)
                 tokens.append(int(torch.argmax(logits)))
-                margins.append(float(top2[0] - top2[1]))
+                margins.append(float(top2.values[0] - top2.values[1]))
+                runner_ups.append(int(top2.indices[1]))
                 if len(tokens) == max_new_tokens or position >= self.max_seq_len:
                     break
                 mask = torch.zeros((1, 1, 1, 1), dtype=self.model.dtype)
@@ -240,7 +242,7 @@ class KvCacheLM(torch.nn.Module):
                 position += 1
         finally:
             self.reset_cache()
-        return tokens, margins
+        return tokens, margins, runner_ups
 
     def reset_cache(self) -> None:
         """Zero the cache, the state each function starts from on the device."""

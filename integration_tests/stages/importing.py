@@ -472,6 +472,10 @@ _MIN_PREFILL_BLOCKS = 2
 _PAD_TOKEN_ID = 0
 
 
+class NearTieError(ValueError):
+    """The reference generation has a near-tie: the prompt is unsuitable."""
+
+
 def _generation_reference(
     spec: ModelSpec, output_dir: Path, model: KvCacheLM
 ) -> GenerationReference:
@@ -481,6 +485,11 @@ def _generation_reference(
     same tokenizer.json the device gets, so the device's prompt tokens check its
     own tokenizer too. The reference is `KvCacheLM.generate_greedy`: the
     exported functions run eagerly, padded as on the device.
+
+    Raises `NearTieError` if at some step the reference's most likely token
+    leads the runner-up by less than the spec's `min_margin`: a rounding
+    difference on the device could tip it, and the tokens after it could not be
+    compared. The reference is written to generation_reference.json first.
     """
     from tokenizers import Tokenizer
 
@@ -497,8 +506,9 @@ def _generation_reference(
     prompt_file = output_dir / "prompt.txt"
     prompt_file.write_text(generation.prompt)
 
-    prompt_ids = Tokenizer.from_file(str(tokenizer_json)).encode(generation.prompt).ids
-    tokens, margins = model.generate_greedy(
+    tokenizer = Tokenizer.from_file(str(tokenizer_json))
+    prompt_ids = tokenizer.encode(generation.prompt).ids
+    tokens, margins, runner_ups = model.generate_greedy(
         prompt_ids,
         generation.max_new_tokens,
         min_prefill_blocks=_MIN_PREFILL_BLOCKS,
@@ -526,4 +536,16 @@ def _generation_reference(
             indent=2,
         )
     )
+    for step, margin in enumerate(margins):
+        if margin >= generation.min_margin:
+            continue
+        shorten = f" or set max_new_tokens to at most {step}" if step > 0 else ""
+        raise NearTieError(
+            f"{spec.name}: near-tie in the reference generation, please change "
+            f"the prompt{shorten}. At step {step}, token {tokens[step]} "
+            f"({tokenizer.decode([tokens[step]])!r}) leads token "
+            f"{runner_ups[step]} ({tokenizer.decode([runner_ups[step]])!r}) "
+            f"by {margin:.3f}, less than min_margin={generation.min_margin:g}. "
+            f"The margins are in {output_dir / 'generation_reference.json'}."
+        )
     return reference

@@ -1,0 +1,26 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float32
+inputs:
+  - {shape: [1, 16, 256, 256], dtype: float32, generator: normal, seed: 0}
+  - {shape: [3, 256, 16, 64], dtype: float16, generator: normal, seed: 1}
+tolerances:
+  atol: 5.0e-2
+  rtol: 5.0e-2
+  relative_l2_percent: 1.0
+expected_outcomes:
+  - case: hexagon
+    status: ACCURACY_FAILURE
+    reason: "relative L2 error nan%"
+    comment: >-
+      LLVM post-RA qfloat handling converts a half of a refilled pair that was already redefined as qf32 (ROO-2035). Fixed by L-roro's 714e65b (patches/llvm-project/0001-hexagon_postra_qfp_partial_pair_refill.patch).
+  - case: hexagon-vtcm-hmx
+    status: ACCURACY_FAILURE
+    reason: "relative L2 error 35.0438%"
+    comment: >-
+      VTCM tiling bug: the first row of each 8-row M tile keeps only the last 5 K terms. Not the qfloat bug.
+run_cases: [parallel, sequential]

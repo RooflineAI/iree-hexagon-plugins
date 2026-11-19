@@ -1,0 +1,21 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float32
+inputs:
+  - {shape: [32], dtype: bool, generator: ones}
+  - {shape: [32], dtype: bool, generator: uniform, seed: 0}
+  - {shape: [8, 128, 32], dtype: float32, generator: normal, seed: 1}
+  - {shape: [8, 128, 32], dtype: float32, generator: normal, seed: 2}
+# Selection performs no floating-point arithmetic: every bit must be preserved.
+tolerances: {atol: 0.0, rtol: 0.0, relative_l2_percent: 0.0}
+run_cases: [parallel, sequential]
+expected_outcomes:
+  - case: "*"
+    status: ACCURACY_FAILURE
+    reason: "relative L2 error 140.7021%"
+    comment: >-
+      Word predicates are truncated byte-wise, so selects mix bytes of both operands. Fixed by L-roro's 4f2e527 (patches/llvm-project/0003-hexagon_trunc_predicate_lane_replication.patch).

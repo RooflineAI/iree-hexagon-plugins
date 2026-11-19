@@ -51,15 +51,17 @@ iree_status_t iree_hal_hexagon_cmd_fill_serialize_exec(
   // fill in target buffer
   int fd = -1; // stays at -1 if no buffer, means to use slot
   uint64_t alloc_size = 0;
+  uint32_t flags = 0;
   if (normalized_target_ref.buffer) {
     IREE_RETURN_IF_ERROR(
-        get_buffer_fd(normalized_target_ref.buffer, &fd, &alloc_size));
+        get_buffer_fd(normalized_target_ref.buffer, &fd, &alloc_size, &flags));
   }
   fill->trgt.slot = normalized_target_ref.buffer_slot;
   fill->trgt.fd = fd;
   fill->trgt.offset = normalized_target_ref.offset;
   fill->trgt.length = normalized_target_ref.length;
   fill->trgt.alloc_size = alloc_size;
+  fill->trgt.flags = flags;
 
   return iree_ok_status();
 }

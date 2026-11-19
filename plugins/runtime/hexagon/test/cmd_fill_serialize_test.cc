@@ -49,6 +49,9 @@ TEST(CmdFillSerializeTest, SerializeDirectBufferWithFourBytePattern) {
   EXPECT_EQ(
       cmd_fill->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_fill->trgt.fd),
       cmd_fill->trgt.alloc_size);
+  EXPECT_EQ(cmd_fill->trgt.fd == -1 ? 0u
+                                    : HEXAGON_TEST_FLAGS(cmd_fill->trgt.fd),
+            cmd_fill->trgt.flags);
 }
 
 TEST(CmdFillSerializeTest, SerializeDirectSubspanBufferWithTwoBytePattern) {
@@ -81,6 +84,9 @@ TEST(CmdFillSerializeTest, SerializeDirectSubspanBufferWithTwoBytePattern) {
   EXPECT_EQ(
       cmd_fill->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_fill->trgt.fd),
       cmd_fill->trgt.alloc_size);
+  EXPECT_EQ(cmd_fill->trgt.fd == -1 ? 0u
+                                    : HEXAGON_TEST_FLAGS(cmd_fill->trgt.fd),
+            cmd_fill->trgt.flags);
 }
 
 TEST(CmdFillSerializeTest, SerializeIndirectBufferWithSingleBytePattern) {
@@ -110,6 +116,9 @@ TEST(CmdFillSerializeTest, SerializeIndirectBufferWithSingleBytePattern) {
   EXPECT_EQ(
       cmd_fill->trgt.fd == -1 ? 0 : HEXAGON_TEST_ALLOC_SIZE(cmd_fill->trgt.fd),
       cmd_fill->trgt.alloc_size);
+  EXPECT_EQ(cmd_fill->trgt.fd == -1 ? 0u
+                                    : HEXAGON_TEST_FLAGS(cmd_fill->trgt.fd),
+            cmd_fill->trgt.flags);
 }
 
 } // namespace

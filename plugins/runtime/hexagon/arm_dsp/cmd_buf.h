@@ -34,6 +34,9 @@ typedef struct hexagon_rt_arm_dsp_buf_ref_s {
   uint64_t length;
   /// size of the whole RPCmem allocation, 0 if fd is -1
   uint64_t alloc_size;
+  /// HEXAGON_RT_ARM_DSP_BUF_FLAG_*, 0 if fd is -1 (the binding table entry's
+  /// flags apply)
+  uint32_t flags;
 } __attribute__((packed)) hexagon_rt_arm_dsp_buf_ref_t;
 
 /// type of command buffer entry

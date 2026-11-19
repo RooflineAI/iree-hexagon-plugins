@@ -45,13 +45,15 @@ iree_status_t iree_hal_hexagon_bindings_serialize_exec(
         iree_hal_buffer_binding_normalize(&normalized_binding));
     int fd = -1;
     uint64_t alloc_size = 0;
+    uint32_t flags = 0;
     IREE_RETURN_IF_ERROR(
-        get_buffer_fd(normalized_binding.buffer, &fd, &alloc_size));
+        get_buffer_fd(normalized_binding.buffer, &fd, &alloc_size, &flags));
     SERIALIZE_TO(ptr, endptr, hexagon_rt_arm_dsp_binding_t, bndg)
     bndg->fd = fd;
     bndg->offset = normalized_binding.offset;
     bndg->length = normalized_binding.length;
     bndg->alloc_size = alloc_size;
+    bndg->flags = flags;
   }
 
   return iree_ok_status();

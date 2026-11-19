@@ -15,6 +15,7 @@ iree_cc_library(
     hexagon_arm_dsp
   HDRS
     "bindings.h"
+    "buf_flags.h"
     "cmd_buf.h"
     "profiler.h"
   DEPS

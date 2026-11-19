@@ -36,6 +36,8 @@ from transformers import Cache
 from transformers.masking_utils import ALL_MASK_ATTENTION_FUNCTIONS, eager_mask
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
+from integration_tests.stages.artifacts import GeneratedTokenInfo
+
 BATCH_SIZE = 1
 # Head room past max_seq_len that the symbolic shapes of the export need.
 _CONTEXT_PADDING = 32
@@ -197,7 +199,7 @@ class KvCacheLM(torch.nn.Module):
         max_new_tokens: int,
         min_prefill_blocks: int = 2,
         pad_token_id: int = 0,
-    ) -> tuple[list[int], list[float], list[int]]:
+    ) -> list[GeneratedTokenInfo]:
         """Greedy generation as iree-run-llm runs it, from an empty cache.
 
         The prompt is padded to a multiple of `block_seq_stride` of at least
@@ -205,8 +207,7 @@ class KvCacheLM(torch.nn.Module):
         further token. Stop tokens are ignored, as with iree-run-llm's
         --ignore_eos, and generation ends early only at `max_seq_len`.
 
-        Returns the tokens and, for each, the margin between the two most
-        likely tokens in its logits and the second most likely token.
+        Returns one `GeneratedTokenInfo` per generated token, in order.
         """
         stride = self.block_seq_stride
         blocks = max(-(-len(prompt) // stride), min_prefill_blocks)
@@ -224,25 +225,29 @@ class KvCacheLM(torch.nn.Module):
             positions = torch.arange(padded_length)
             mask = positions[None, :] <= input_length[:, None]
             logits = self._logits(input_ids, positions, mask)[0, len(prompt) - 1]
-            tokens: list[int] = []
-            margins: list[float] = []
-            runner_ups: list[int] = []
+            generated: list[GeneratedTokenInfo] = []
             position = len(prompt)
             while True:
                 top2 = torch.topk(logits.float(), 2)
-                tokens.append(int(torch.argmax(logits)))
-                margins.append(float(top2.values[0] - top2.values[1]))
-                runner_ups.append(int(top2.indices[1]))
-                if len(tokens) == max_new_tokens or position >= self.max_seq_len:
+                generated.append(
+                    GeneratedTokenInfo(
+                        selected_id=int(torch.argmax(logits)),
+                        runner_up_id=int(top2.indices[1]),
+                        margin=float(top2.values[0] - top2.values[1]),
+                    )
+                )
+                if len(generated) == max_new_tokens or position >= self.max_seq_len:
                     break
                 mask = torch.zeros((1, 1, 1, 1), dtype=self.model.dtype)
                 logits = self._logits(
-                    torch.tensor([[tokens[-1]]]), torch.arange(position + 1), mask
+                    torch.tensor([[generated[-1].selected_id]]),
+                    torch.arange(position + 1),
+                    mask,
                 )[0, 0]
                 position += 1
         finally:
             self.reset_cache()
-        return tokens, margins, runner_ups
+        return generated
 
     def reset_cache(self) -> None:
         """Zero the cache, the state each function starts from on the device."""

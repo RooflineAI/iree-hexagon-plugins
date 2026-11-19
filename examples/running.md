@@ -147,11 +147,12 @@ adb shell "echo 1000 > /proc/self/oom_score_adj && \
 
 `--max_seq_len`, `--block_seq_stride` and `--min_prefill_blocks` must match
 the export (defaults: 128, 32 and 2, as in
-`HuggingFaceTB/SmolLM2-135M-kv-cache`). The prompt is used as is, so apply a
-chat template beforehand; `--prompt_file` avoids quoting it through
+`HuggingFaceTB/SmolLM2-135M-kv-cache`). The prompt is used as is, no chat
+template is automatically applied. `--prompt_file` takes the prompt from a file
+instead of from the command line. This can help to avoid quoting issues with
 `adb shell`. Generation stops at the tokenizer's EOS token, or at the IDs given
-with `--stop_token_id` (repeatable; take them from the model's
-`generation_config.json`). See `iree-run-llm --help` for the rest.
+with `--stop_token_id` (can be specified multiple times, take IDs them from the
+model's `generation_config.json`).
 
 ## DSP-side debug logging
 

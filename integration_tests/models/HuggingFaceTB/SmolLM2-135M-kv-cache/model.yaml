@@ -26,7 +26,7 @@ tolerances:
 compile_cases: [hexagon-vtcm-hmx]
 # Token generation with iree-run-llm on the same module. With this prompt, the
 # reference's most likely token leads the runner-up by at least 0.52 at every
-# step, so any token that differs fails.
+# step, above min_margin (0.25), so the import accepts it.
 generation:
   prompt: "def fibonacci(n):\n"
   max_new_tokens: 32

@@ -109,24 +109,23 @@ class GenerationSpec:
     """Token generation with `iree-run-llm`, for a `KvCacheLM` model.
 
     The device generates `max_new_tokens` greedily from `prompt`, ignoring
-    stop tokens, and has to produce the tokens of the eager reference. At the
-    first token that differs, the reference's two most likely tokens have to be
-    within `max_tie_margin` of each other (in logits): a near-tie that rounding
-    may tip either way. Tokens after that are not compared, as both sides then
-    continue from different text.
+    stop tokens, and has to produce exactly the tokens of the eager reference.
+    At every step, the reference's most likely token has to lead the runner-up
+    by at least `min_margin` (in logits), checked at import: a near-tie, which
+    rounding may tip either way, means the prompt has to change.
     """
 
     prompt: str
     max_new_tokens: int = 32
-    max_tie_margin: float = 0.25
+    min_margin: float = 0.25
 
     def __post_init__(self) -> None:
         if not self.prompt.strip():
             raise SpecError("generation: 'prompt' must not be empty")
         if self.max_new_tokens <= 0:
             raise SpecError("generation: 'max_new_tokens' must be positive")
-        if self.max_tie_margin < 0:
-            raise SpecError("generation: 'max_tie_margin' must not be negative")
+        if self.min_margin < 0:
+            raise SpecError("generation: 'min_margin' must not be negative")
 
 
 # eq=False keeps it hashable (by identity) despite the dict, so ModelSpec is too.

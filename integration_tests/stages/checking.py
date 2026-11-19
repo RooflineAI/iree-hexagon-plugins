@@ -170,16 +170,14 @@ def check_generation(
     reference: GenerationReference,
     prompt_ids: tuple[int, ...] | None,
     tokens: tuple[int, ...] | None,
-    max_tie_margin: float,
 ) -> None:
     """Assert iree-run-llm tokenized the prompt and generated as the reference.
 
     The prompt's token ids must match exactly: they check the device's
-    tokenizer. The generated tokens must match up to the first that differs,
-    and there the reference's top two logits must be within `max_tie_margin`:
-    a near-tie, which a rounding difference may tip either way. The tokens
-    after it are not compared, as the two sides then continue from different
-    text. All `max_new_tokens` tokens must be there, as stop tokens are ignored.
+    tokenizer. The generated tokens must match exactly too: the import made
+    sure the reference has no near-tie that rounding could tip (see the spec's
+    `min_margin`). All `max_new_tokens` tokens must be there, as stop tokens
+    are ignored.
     """
     if prompt_ids is None or tokens is None:
         raise AccuracyError(
@@ -199,24 +197,12 @@ def check_generation(
             f"  reference: {list(reference.tokens)}"
         )
     for step, (actual, expected) in enumerate(zip(tokens, reference.tokens)):
-        if actual == expected:
-            continue
-        margin = reference.margins[step]
-        report = (
-            f"generated token {step} is {actual}, the reference's {expected}, "
-            f"whose logit leads the runner-up's by {margin:.3f}"
-        )
-        if margin > max_tie_margin:
+        if actual != expected:
             raise AccuracyError(
-                f"generated tokens differ from the reference: {report}, more "
-                f"than max_tie_margin={max_tie_margin:g}\n"
+                f"generated tokens differ from the reference: token {step} is "
+                f"{actual}, the reference's {expected}, whose logit leads the "
+                f"runner-up's by {reference.margins[step]:.3f}\n"
                 f"  device:    {list(tokens)}\n"
                 f"  reference: {list(reference.tokens)}"
             )
-        print(
-            f"generation: {report}, a near-tie within "
-            f"max_tie_margin={max_tie_margin:g}; the {len(tokens) - step - 1} "
-            "tokens after it are not compared"
-        )
-        return
     print(f"generation: all {len(tokens)} tokens match the reference")

@@ -17,8 +17,11 @@
  * The host registers every allocation once (FASTRPC_MAP_FD_DELAYED), which
  * does not use any DSP address space. Only about 3.75 GiB can be mapped at
  * once, and a mapping always covers the whole allocation, so the cache maps
- * whole allocations (HAP_mmap2) on first use and unmaps unused ones, least
- * recently used first, to stay below a budget.
+ * whole allocations (HAP_mmap2) on first use and unmaps unused ones to stay
+ * below a budget. A caller that knows which allocations it uses next passes a
+ * future, then the cache unmaps the unused allocation used furthest in the
+ * future (Belady), least recently used first among equals. Without a future,
+ * it unmaps the least recently used one.
  * The eviction mechanism is not aware of fragmentation and will evict more,
  * until it fits
  *
@@ -31,8 +34,29 @@
  * sessions together have to stay below what the DSP can map.
  */
 
+/// File descriptors below this are looked up in a table indexed by the fd
+/// (4 bytes each, per cache); larger ones in the list of mapped allocations,
+/// a linear search.
+#ifndef HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE
+#define HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE 4096
+#endif
+
+/// Log once per cache when a file descriptor does not fit the table.
+#ifndef HEXAGON_DSP_RESIDENCY_WARN_FD_OVERFLOW
+#define HEXAGON_DSP_RESIDENCY_WARN_FD_OVERFLOW 1
+#endif
+
 /// A residency cache, see above.
 typedef struct hexagon_dsp_residency_s hexagon_dsp_residency_t;
+
+/// Which allocations the caller uses next, for choosing what to unmap.
+typedef struct hexagon_dsp_residency_future_s {
+  /// Distance to the next use of fd, in the caller's units (e.g. buffer uses),
+  /// UINT64_MAX if never. Called with the cache's mutex held, on the thread
+  /// that acquires, only when an allocation has to be unmapped.
+  uint64_t (*next_use)(void *user_data, int fd);
+  void *user_data;
+} hexagon_dsp_residency_future_t;
 
 /// Create an empty cache. Its budget is 0 until set.
 /// @retval AEE_SUCCESS for success, AEE_ENOMEMORY if out of memory
@@ -52,13 +76,17 @@ int hexagon_dsp_residency_set_budget(hexagon_dsp_residency_t *residency,
  *        hexagon_dsp_residency_release.
  * @param[in] fd file descriptor of the registered allocation
  * @param[in] alloc_size size of the whole allocation
+ * @param[in] future next uses, to choose which allocation to unmap if there is
+ *            no room; NULL to unmap the least recently used one
  * @param[out] out_vaddr DSP address of the start of the allocation
  * @retval AEE_SUCCESS for success
  * @retval AEE_EWOULDBLOCK if it does not fit, even after unmapping all unused
  *         allocations; releasing allocations in use may make it fit
  */
 int hexagon_dsp_residency_acquire(hexagon_dsp_residency_t *residency, int fd,
-                                  uint64_t alloc_size, uint8_t **out_vaddr);
+                                  uint64_t alloc_size,
+                                  const hexagon_dsp_residency_future_t *future,
+                                  uint8_t **out_vaddr);
 
 /// Stop holding an allocation acquired with hexagon_dsp_residency_acquire. It
 /// stays mapped until its address space is needed.

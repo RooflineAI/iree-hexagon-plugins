@@ -6,12 +6,16 @@
 
 #include "hexagon/dsp/residency.h"
 
+#include <assert.h>
 #include <stdlib.h>
 
 #include "AEEStdErr.h"
 #include "HAP_farf.h"
 #include "HAP_mem.h"
 #include "qurt.h"
+
+/// fd_table value of an fd that is not mapped
+#define HEXA_RESIDENCY_FD_UNMAPPED UINT32_MAX
 
 /// a mapped allocation
 typedef struct hexa_residency_entry_s {
@@ -38,16 +42,45 @@ struct hexagon_dsp_residency_s {
   hexa_residency_entry_t *entries;
   uint32_t num_entries;
   uint32_t capacity;
+  /// index in entries of the mapped allocation of each fd below
+  /// HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE, HEXA_RESIDENCY_FD_UNMAPPED if not
+  /// mapped
+  uint32_t fd_table[HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE];
+  /// an fd did not fit fd_table, and that was logged
+  bool fd_overflow_warned;
 };
 
 static hexa_residency_entry_t *
 hexa_residency_find(hexagon_dsp_residency_t *residency, int fd) {
+  if (fd < HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE) {
+    uint32_t idx = residency->fd_table[fd];
+    return idx != HEXA_RESIDENCY_FD_UNMAPPED ? &residency->entries[idx] : NULL;
+  }
+  // fds that do not fit the table: search the list
   for (uint32_t idx = 0; idx < residency->num_entries; ++idx) {
     if (residency->entries[idx].fd == fd) {
       return &residency->entries[idx];
     }
   }
   return NULL;
+}
+
+/// Record that fd is mapped at entries[idx].
+static void hexa_residency_index_fd(hexagon_dsp_residency_t *residency, int fd,
+                                    uint32_t idx) {
+  if (fd < HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE) {
+    residency->fd_table[fd] = idx;
+    return;
+  }
+#if HEXAGON_DSP_RESIDENCY_WARN_FD_OVERFLOW
+  if (!residency->fd_overflow_warned) {
+    residency->fd_overflow_warned = true;
+    FARF(RUNTIME_HIGH,
+         "HEXAGON-RUNTIME-WARNING: fd %d does not fit the residency cache's fd "
+         "table of %d entries, such fds are searched linearly",
+         fd, HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE);
+  }
+#endif
 }
 
 /// Perform a cache operation on a whole mapped allocation.
@@ -74,27 +107,46 @@ static void hexa_residency_unmap_entry(hexagon_dsp_residency_t *residency,
   }
   residency->mapped_bytes -= entry->size;
   // remove, by moving the last entry in its place
+  if (entry->fd < HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE) {
+    residency->fd_table[entry->fd] = HEXA_RESIDENCY_FD_UNMAPPED;
+  }
+  uint32_t idx = (uint32_t)(entry - residency->entries);
   *entry = residency->entries[--residency->num_entries];
+  if (idx < residency->num_entries) {
+    hexa_residency_index_fd(residency, entry->fd, idx);
+  }
 }
 
-/// Unmap the least recently used entry not in use.
+/// Unmap the entry not in use whose next use is furthest in the future
+/// (Belady), the least recently used one among equals. Without a future (NULL),
+/// all next uses are equal, so the least recently used one.
 /// @return false if there is none
 /// need to hold the mutex
-static bool hexa_residency_evict_one(hexagon_dsp_residency_t *residency) {
-  hexa_residency_entry_t *lru = NULL;
+static bool
+hexa_residency_evict_one(hexagon_dsp_residency_t *residency,
+                         const hexagon_dsp_residency_future_t *future) {
+  hexa_residency_entry_t *victim = NULL;
+  uint64_t victim_next_use = 0;
   for (uint32_t idx = 0; idx < residency->num_entries; ++idx) {
     hexa_residency_entry_t *entry = &residency->entries[idx];
+    if (entry->ref_count != 0) {
+      continue;
+    }
+    uint64_t next_use =
+        future ? future->next_use(future->user_data, entry->fd) : 0;
     // no overflow check necessary, even at 1 increment per nanosecond, we would
     // have 580 years before overflow
-    if (entry->ref_count == 0 && (!lru || entry->last_use < lru->last_use)) {
-      lru = entry;
+    if (!victim || next_use > victim_next_use ||
+        (next_use == victim_next_use && entry->last_use < victim->last_use)) {
+      victim = entry;
+      victim_next_use = next_use;
     }
   }
   // nothing to evict
-  if (!lru) {
+  if (!victim) {
     return false;
   }
-  hexa_residency_unmap_entry(residency, lru);
+  hexa_residency_unmap_entry(residency, victim);
   return true;
 }
 
@@ -103,6 +155,9 @@ int hexagon_dsp_residency_create(hexagon_dsp_residency_t **out_residency) {
       (hexagon_dsp_residency_t *)calloc(1, sizeof(*residency));
   if (!residency) {
     return AEE_ENOMEMORY;
+  }
+  for (uint32_t fd = 0; fd < HEXAGON_DSP_RESIDENCY_FD_TABLE_SIZE; ++fd) {
+    residency->fd_table[fd] = HEXA_RESIDENCY_FD_UNMAPPED;
   }
   qurt_mutex_init(&residency->mutex);
   *out_residency = residency;
@@ -114,7 +169,7 @@ void hexagon_dsp_residency_destroy(hexagon_dsp_residency_t *residency) {
     return;
   }
   qurt_mutex_lock(&residency->mutex);
-  while (hexa_residency_evict_one(residency)) {
+  while (hexa_residency_evict_one(residency, NULL)) {
   }
   // Only entries in use are left: an acquire was never released. Leave them
   // mapped, unmapping could crash a command still using them.
@@ -143,9 +198,9 @@ int hexagon_dsp_residency_set_budget(hexagon_dsp_residency_t *residency,
 }
 
 /// hexagon_dsp_residency_acquire with the mutex held
-static int hexa_residency_acquire_locked(hexagon_dsp_residency_t *residency,
-                                         int fd, uint64_t alloc_size,
-                                         uint8_t **out_vaddr) {
+static int hexa_residency_acquire_locked(
+    hexagon_dsp_residency_t *residency, int fd, uint64_t alloc_size,
+    const hexagon_dsp_residency_future_t *future, uint8_t **out_vaddr) {
   hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
   if (entry) {
     if (entry->ref_count++ == 0) {
@@ -162,7 +217,7 @@ static int hexa_residency_acquire_locked(hexagon_dsp_residency_t *residency,
 
   // Make room within the budget.
   while (residency->mapped_bytes + alloc_size > residency->budget) {
-    if (!hexa_residency_evict_one(residency)) {
+    if (!hexa_residency_evict_one(residency, future)) {
       // cant evict more: everything is in use
       if (residency->in_use_bytes > 0) {
         // might fit the budget if we could release more
@@ -197,7 +252,7 @@ static int hexa_residency_acquire_locked(hexagon_dsp_residency_t *residency,
       break;
     }
     // try evicting more due to fragmentation
-    if (!hexa_residency_evict_one(residency)) {
+    if (!hexa_residency_evict_one(residency, future)) {
       FARF(ERROR,
            "HEXAGON-RUNTIME-ERROR: HAP_mmap2 of fd %d (%llu bytes) failed "
            "with %llu bytes mapped, %llu bytes in use",
@@ -208,6 +263,7 @@ static int hexa_residency_acquire_locked(hexagon_dsp_residency_t *residency,
     }
   }
 
+  hexa_residency_index_fd(residency, fd, residency->num_entries);
   entry = &residency->entries[residency->num_entries++];
   *entry = (hexa_residency_entry_t){
       .fd = fd,
@@ -223,14 +279,19 @@ static int hexa_residency_acquire_locked(hexagon_dsp_residency_t *residency,
 }
 
 int hexagon_dsp_residency_acquire(hexagon_dsp_residency_t *residency, int fd,
-                                  uint64_t alloc_size, uint8_t **out_vaddr) {
+                                  uint64_t alloc_size,
+                                  const hexagon_dsp_residency_future_t *future,
+                                  uint8_t **out_vaddr) {
+  assert(fd >= 0);
   qurt_mutex_lock(&residency->mutex);
-  int err = hexa_residency_acquire_locked(residency, fd, alloc_size, out_vaddr);
+  int err = hexa_residency_acquire_locked(residency, fd, alloc_size, future,
+                                          out_vaddr);
   qurt_mutex_unlock(&residency->mutex);
   return err;
 }
 
 void hexagon_dsp_residency_release(hexagon_dsp_residency_t *residency, int fd) {
+  assert(fd >= 0);
   qurt_mutex_lock(&residency->mutex);
   hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
   if (entry && entry->ref_count > 0 && --entry->ref_count == 0) {
@@ -245,6 +306,7 @@ void hexagon_dsp_residency_release(hexagon_dsp_residency_t *residency, int fd) {
 int hexagon_dsp_residency_invalidate_if_mapped(
     hexagon_dsp_residency_t *residency, int fd, uint64_t offset,
     uint64_t length, bool flush) {
+  assert(fd >= 0);
   int err = AEE_SUCCESS;
   qurt_mutex_lock(&residency->mutex);
   hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
@@ -263,6 +325,7 @@ int hexagon_dsp_residency_invalidate_if_mapped(
 
 void hexagon_dsp_residency_forget(hexagon_dsp_residency_t *residency, int fd,
                                   bool *out_in_use) {
+  assert(fd >= 0);
   *out_in_use = false;
   qurt_mutex_lock(&residency->mutex);
   hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);

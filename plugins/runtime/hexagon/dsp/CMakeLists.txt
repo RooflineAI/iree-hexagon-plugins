@@ -18,6 +18,8 @@ iree_cc_library(
     "${CMAKE_CURRENT_BINARY_DIR}/../interface/hexagon_dsp/hexagon_dsp_skel.c"
     "align.h"
     "buffer.c"
+    "cache_state.c"
+    "cache_state.h"
     "command_buffer.c"
     "device.c"
     "device.h"

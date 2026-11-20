@@ -26,6 +26,8 @@ typedef struct hexa_residency_entry_s {
   uint32_t ref_count;
   /// value of the use counter at the last acquire, for LRU
   uint64_t last_use;
+  /// what the data cache may hold of the allocation
+  hexagon_dsp_cache_state_t cache;
 } hexa_residency_entry_t;
 
 /// cache state, guarded by mutex
@@ -83,12 +85,53 @@ static void hexa_residency_index_fd(hexagon_dsp_residency_t *residency, int fd,
 #endif
 }
 
-/// Perform a cache operation on a whole mapped allocation.
+/// Flush (HEXAGON_DSP_CACHE_OP_FLUSH), or flush and invalidate (any other
+/// kind), the whole data cache. Invalidating alone would discard dirty lines
+/// of other allocations. Their cache states are not updated.
+static int hexa_residency_whole_cache_op(hexagon_dsp_cache_op_kind_t kind) {
+  if (kind != HEXAGON_DSP_CACHE_OP_FLUSH) {
+    kind = HEXAGON_DSP_CACHE_OP_FLUSH_INVALIDATE;
+  }
+  int err = qurt_mem_cache_clean(0, 0,
+                                 kind == HEXAGON_DSP_CACHE_OP_FLUSH
+                                     ? QURT_MEM_CACHE_FLUSH_ALL
+                                     : QURT_MEM_CACHE_FLUSH_INVALIDATE_ALL,
+                                 QURT_MEM_DCACHE);
+  // according to doc, the only error is QURT_EVAL - invalid cache type
+  return err == QURT_EOK ? AEE_SUCCESS : AEE_EFAILED;
+}
+
+/// Perform a cache operation on a range of a mapped allocation, or on the whole
+/// data cache if that is cheaper.
 /// need to hold the mutex, so another cant unmap while this is in progress
 static int hexa_residency_cache_op(const hexa_residency_entry_t *entry,
-                                   qurt_mem_cache_op_t op) {
-  int err = qurt_mem_cache_clean((qurt_addr_t)entry->vaddr, entry->size, op,
-                                 QURT_MEM_DCACHE);
+                                   hexagon_dsp_cache_op_t op) {
+  if (op.kind == HEXAGON_DSP_CACHE_OP_NONE || op.offset >= entry->size) {
+    return AEE_SUCCESS;
+  }
+  if (op.length > entry->size - op.offset) {
+    op.length = entry->size - op.offset;
+  }
+  if (hexagon_dsp_cache_op_uses_whole_cache(&op)) {
+    return hexa_residency_whole_cache_op(op.kind);
+  }
+  qurt_mem_cache_op_t qurt_op = QURT_MEM_CACHE_FLUSH_INVALIDATE;
+  switch (op.kind) {
+  case HEXAGON_DSP_CACHE_OP_FLUSH:
+    qurt_op = QURT_MEM_CACHE_FLUSH;
+    break;
+  case HEXAGON_DSP_CACHE_OP_INVALIDATE:
+    qurt_op = QURT_MEM_CACHE_INVALIDATE;
+    break;
+  case HEXAGON_DSP_CACHE_OP_FLUSH_INVALIDATE:
+    break;
+  case HEXAGON_DSP_CACHE_OP_NONE:
+    assert(false && "not reachable: returned early above");
+    break;
+  }
+  int err =
+      qurt_mem_cache_clean((qurt_addr_t)(entry->vaddr + op.offset),
+                           (qurt_size_t)op.length, qurt_op, QURT_MEM_DCACHE);
   // according to doc, the only error is QURT_EVAL - invalid cache type
   return err == QURT_EOK ? AEE_SUCCESS : AEE_EFAILED;
 }
@@ -99,7 +142,8 @@ static void hexa_residency_unmap_entry(hexagon_dsp_residency_t *residency,
                                        hexa_residency_entry_t *entry) {
   // Publish what was written, and leave no cache line at the addresses another
   // allocation may be mapped at next.
-  hexa_residency_cache_op(entry, QURT_MEM_CACHE_FLUSH_INVALIDATE);
+  hexa_residency_cache_op(
+      entry, hexagon_dsp_cache_state_unmap(&entry->cache, entry->size));
   int err = HAP_munmap2(entry->vaddr, entry->size);
   if (err != AEE_SUCCESS) {
     FARF(ERROR, "HEXAGON-RUNTIME-ERROR: HAP_munmap2 of fd %d failed: 0x%x",
@@ -197,10 +241,24 @@ int hexagon_dsp_residency_set_budget(hexagon_dsp_residency_t *residency,
   return AEE_SUCCESS;
 }
 
-/// hexagon_dsp_residency_acquire with the mutex held
-static int hexa_residency_acquire_locked(
-    hexagon_dsp_residency_t *residency, int fd, uint64_t alloc_size,
-    const hexagon_dsp_residency_future_t *future, uint8_t **out_vaddr) {
+/// Release one hold of an entry.
+/// need to hold the mutex
+static void hexa_residency_release_entry(hexagon_dsp_residency_t *residency,
+                                         hexa_residency_entry_t *entry) {
+  if (entry->ref_count > 0 && --entry->ref_count == 0) {
+    residency->in_use_bytes -= entry->size;
+    // no unmap
+  }
+}
+
+/// Map an allocation if not mapped yet and hold it
+///  no cache maintenance necessary
+/// need to hold the mutex
+static int
+hexa_residency_map_locked(hexagon_dsp_residency_t *residency, int fd,
+                          uint64_t alloc_size,
+                          const hexagon_dsp_residency_future_t *future,
+                          hexa_residency_entry_t **out_entry) {
   hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
   if (entry) {
     if (entry->ref_count++ == 0) {
@@ -208,7 +266,7 @@ static int hexa_residency_acquire_locked(
       residency->in_use_bytes += entry->size;
     }
     entry->last_use = ++residency->use_counter;
-    *out_vaddr = entry->vaddr;
+    *out_entry = entry;
     return AEE_SUCCESS;
   }
   if (alloc_size == 0) {
@@ -272,20 +330,32 @@ static int hexa_residency_acquire_locked(
       .ref_count = 1,
       .last_use = ++residency->use_counter,
   };
+  hexagon_dsp_cache_state_init(&entry->cache);
   residency->mapped_bytes += alloc_size;
   residency->in_use_bytes += alloc_size;
-  *out_vaddr = entry->vaddr;
+  *out_entry = entry;
   return AEE_SUCCESS;
 }
 
 int hexagon_dsp_residency_acquire(hexagon_dsp_residency_t *residency, int fd,
                                   uint64_t alloc_size,
                                   const hexagon_dsp_residency_future_t *future,
+                                  const hexagon_dsp_residency_access_t *access,
                                   uint8_t **out_vaddr) {
   assert(fd >= 0);
   qurt_mutex_lock(&residency->mutex);
-  int err = hexa_residency_acquire_locked(residency, fd, alloc_size, future,
-                                          out_vaddr);
+  hexa_residency_entry_t *entry = NULL;
+  int err =
+      hexa_residency_map_locked(residency, fd, alloc_size, future, &entry);
+  if (err == AEE_SUCCESS) {
+    // perform cache maintainance if necessary
+    [[maybe_unused]] int cache_err = hexa_residency_cache_op(
+        entry, hexagon_dsp_cache_state_access(&entry->cache, access->kind,
+                                              access->offset, access->length));
+    // only fails for an invalid cache type
+    assert(cache_err == AEE_SUCCESS);
+    *out_vaddr = entry->vaddr;
+  }
   qurt_mutex_unlock(&residency->mutex);
   return err;
 }
@@ -294,30 +364,57 @@ void hexagon_dsp_residency_release(hexagon_dsp_residency_t *residency, int fd) {
   assert(fd >= 0);
   qurt_mutex_lock(&residency->mutex);
   hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
-  if (entry && entry->ref_count > 0 && --entry->ref_count == 0) {
-    residency->in_use_bytes -= entry->size;
-    // no unmap
+  // no-op on releasing an unknown buf
+  if (entry) {
+    hexa_residency_release_entry(residency, entry);
   }
-  // else entry->ref_count was decreased
-  // or no-op on releasing an unknown buf
   qurt_mutex_unlock(&residency->mutex);
 }
 
-int hexagon_dsp_residency_invalidate_if_mapped(
-    hexagon_dsp_residency_t *residency, int fd, uint64_t offset,
-    uint64_t length, bool flush) {
+int hexagon_dsp_residency_host_sync(hexagon_dsp_residency_t *residency, int fd,
+                                    uint64_t offset, uint64_t length) {
   assert(fd >= 0);
   int err = AEE_SUCCESS;
   qurt_mutex_lock(&residency->mutex);
   hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
-  if (entry && length > 0) {
-    // according to doc, the only error is QURT_EVAL - invalid cache type
-    err = qurt_mem_cache_clean((qurt_addr_t)(entry->vaddr + offset), length,
-                               flush ? QURT_MEM_CACHE_FLUSH_INVALIDATE
-                                     : QURT_MEM_CACHE_INVALIDATE,
-                               QURT_MEM_DCACHE) == QURT_EOK
-              ? AEE_SUCCESS
-              : AEE_EFAILED;
+  if (entry) {
+    err = hexa_residency_cache_op(entry, hexagon_dsp_cache_state_host_sync(
+                                             &entry->cache, offset, length));
+  } // else: no need for cache op, unmapped mem cant be in cache
+  qurt_mutex_unlock(&residency->mutex);
+  return err;
+}
+
+int hexagon_dsp_residency_after_bypass_write(hexagon_dsp_residency_t *residency,
+                                             int fd, const uint8_t *vaddr,
+                                             uint64_t length) {
+  assert(fd >= 0);
+  int err = AEE_SUCCESS;
+  qurt_mutex_lock(&residency->mutex);
+  hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
+  if (entry && vaddr >= entry->vaddr) {
+    uint64_t offset = (uint64_t)(vaddr - entry->vaddr);
+    err = hexa_residency_cache_op(
+        entry, hexagon_dsp_cache_state_after_bypass_write(&entry->cache, offset,
+                                                          length));
+  }
+  qurt_mutex_unlock(&residency->mutex);
+  return err;
+}
+
+int hexagon_dsp_residency_end_execution(hexagon_dsp_residency_t *residency) {
+  int err = AEE_SUCCESS;
+  qurt_mutex_lock(&residency->mutex);
+  // The host may read anything, and one flush of the whole cache saves
+  // tracking which allocations it reads.
+  bool any_dirty = false;
+  for (uint32_t idx = 0; idx < residency->num_entries; ++idx) {
+    any_dirty =
+        hexagon_dsp_cache_state_end_execution(&residency->entries[idx].cache) ||
+        any_dirty;
+  }
+  if (any_dirty) {
+    err = hexa_residency_whole_cache_op(HEXAGON_DSP_CACHE_OP_FLUSH);
   }
   qurt_mutex_unlock(&residency->mutex);
   return err;

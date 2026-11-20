@@ -26,6 +26,13 @@ def IREEHexagon_Dialect : Dialect {
     void registerAttributes();
     void registerOperations();
     void registerTypes();
+
+    /// Attribute on a `hal.executable.export` with the bit mask of the
+    /// bindings whose DMA transfers bypass the data cache
+    /// (HexagonDMACacheBypassPass).
+    static constexpr StringLiteral getDMABypassBindingsAttrName() {
+      return StringLiteral("iree_hexagon.dma_bypass_bindings");
+    }
   }];
 
   let useDefaultAttributePrinterParser = 1;

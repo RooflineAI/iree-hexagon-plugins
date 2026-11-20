@@ -17,6 +17,7 @@ cc_library(
     srcs = [],
     hdrs = [
         "bindings.h",
+        "buf_flags.h",
         "cmd_buf.h",
         "profiler.h",
     ],

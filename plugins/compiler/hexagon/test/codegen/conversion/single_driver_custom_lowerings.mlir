@@ -33,6 +33,23 @@ module {
     return
   }
 
+  // A DMA transfer bypasses the data cache on the sides its attributes name.
+  // (Generic form: the custom parser of memref.dma_start drops attributes.)
+  func.func @dma_bypass() {
+    %c0 = arith.constant 0 : index
+    %c4 = arith.constant 4 : index
+    %src = memref.alloc() : memref<4xf32>
+    %dst = hexagonmem.alloc() <alignment = 128> : memref<4xf32, 1>
+    %tag = memref.alloca() : memref<1xi32>
+    "memref.dma_start"(%src, %c0, %dst, %c0, %c4, %tag, %c0) {bypass_src}
+        : (memref<4xf32>, index, memref<4xf32, 1>, index, index,
+           memref<1xi32>, index) -> ()
+    memref.dma_wait %tag[%c0], %c4 : memref<1xi32>
+    hexagonmem.dealloc %dst : memref<4xf32, 1>
+    memref.dealloc %src : memref<4xf32>
+    return
+  }
+
   // The partition aligns every allocation itself: neither memref.alloc nor
   // hexagonmem.alloc pad the request or align the pointer by hand. DDR
   // hexagonmem allocations take the memref.alloc path and drop the alignment.
@@ -78,6 +95,13 @@ module {
 // CHECK:         llvm.call @hexagon_runtime_dma_wait
 // CHECK-NOT:     llvm.call
 // CHECK:         llvm.return
+
+// CHECK-LABEL: llvm.func @dma_bypass(
+// CHECK:         %[[SRC_DDR:.+]] = llvm.mlir.constant(0 : i32) : i32
+// CHECK-NEXT:    %[[DST_VTCM:.+]] = llvm.mlir.constant(1 : i32) : i32
+// CHECK-NEXT:    %[[BYPASS_SRC:.+]] = llvm.mlir.constant(1 : i32) : i32
+// CHECK-NEXT:    %[[BYPASS_DST:.+]] = llvm.mlir.constant(0 : i32) : i32
+// CHECK-NEXT:    llvm.call @hexagon_runtime_dma_start(%{{.+}}, %[[SRC_DDR]], %{{.+}}, %[[DST_VTCM]], %{{.+}}, %[[BYPASS_SRC]], %[[BYPASS_DST]], %{{.+}})
 
 // CHECK-LABEL: llvm.func @aligned_allocs(
 // CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr

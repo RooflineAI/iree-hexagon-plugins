@@ -213,6 +213,15 @@ jobs:
             sudo apt-get install -y rsync
           fi
           rsync --version | head -n1
+      - &host_resources
+        name: Host disk and memory
+        # Diagnostic: the large models' imports and modules fill the host. Shows
+        # whether /tmp, where pytest writes them, is on disk or in RAM (tmpfs).
+        if: ${{ !cancelled() && env.PHONE_ACCESS == 'true' }}
+        run: |
+          findmnt -T /tmp || true
+          df -h / /tmp || true
+          free -g || true
       - &integration_tests
         name: Integration tests
         if: env.PHONE_ACCESS == 'true'
@@ -228,6 +237,7 @@ jobs:
           --device-tools-zip=test-tools/device_tools_aarch64_android.zip \
           --lld=build-artifacts/hexagon_compiler_x86_64_linux/bin/ld.lld \
           | tee pytest-output.log
+      - *host_resources
       - &leave_overlay
         name: Leave the overlay
         if: always()
@@ -327,7 +337,9 @@ jobs:
       - *install_uv
       - *setup_test_env
       - *install_rsync
+      - *host_resources
       - *integration_tests
+      - *host_resources
       - *leave_overlay
       - *performance_check
   gatekeeper:

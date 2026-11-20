@@ -20,6 +20,7 @@ BASE_FLAGS: tuple[str, ...] = (
     "--iree-opt-data-tiling=false",
     "--iree-stream-resource-min-offset-alignment=128",
     "--iree-stream-resource-max-allocation-size=1073741824",
+    "--iree-dispatch-creation-max-dispatch-binding-size=3221225472",  # 3GiB
 )
 
 

@@ -1,0 +1,105 @@
+diff --git a/runtime/src/iree/base/tracing/tracy.cc b/runtime/src/iree/base/tracing/tracy.cc
+index 06f59e40fe6f..39419410e7db 100644
+--- a/runtime/src/iree/base/tracing/tracy.cc
++++ b/runtime/src/iree/base/tracing/tracy.cc
+@@ -416,6 +416,16 @@ void iree_tracing_gpu_zone_begin_external(
+     uint8_t context_id, uint16_t query_id, const char* file_name,
+     size_t file_name_length, uint32_t line, const char* function_name,
+     size_t function_name_length, const char* name, size_t name_length) {
++  iree_tracing_gpu_zone_begin_external_colored(
++      context_id, query_id, file_name, file_name_length, line, function_name,
++      function_name_length, name, name_length, /*color_xbgr=*/0);
++}
++
++void iree_tracing_gpu_zone_begin_external_colored(
++    uint8_t context_id, uint16_t query_id, const char* file_name,
++    size_t file_name_length, uint32_t line, const char* function_name,
++    size_t function_name_length, const char* name, size_t name_length,
++    uint32_t color_xbgr) {
+   // If name is NULL or empty, use function_name as the zone name.
+   if (!name || name_length == 0) {
+     name = function_name;
+@@ -424,7 +434,7 @@ void iree_tracing_gpu_zone_begin_external(
+ 
+   const auto src_loc = tracy::Profiler::AllocSourceLocation(
+       line, file_name, file_name_length, function_name, function_name_length,
+-      name, name_length);
++      name, name_length, color_xbgr);
+   auto* item = tracy::Profiler::QueueSerial();
+   tracy::MemWrite(&item->hdr.type,
+                   tracy::QueueType::GpuZoneBeginAllocSrcLocSerial);
+@@ -456,6 +466,36 @@ void iree_tracing_gpu_zone_notify(uint8_t context_id, uint16_t query_id,
+   tracy::Profiler::QueueSerialFinish();
+ }
+ 
++void iree_tracing_gpu_context_annotation_name(uint8_t context_id,
++                                              int64_t annotation_id,
++                                              const char* name,
++                                              size_t name_length) {
++  // NOTE: Tracy will unconditionally free the name so we must clone it here
++  // with its allocator (see iree_tracing_gpu_context_allocate).
++  char* cloned_name = (char*)tracy::tracy_malloc(name_length);
++  memcpy(cloned_name, name, name_length);
++  auto* item = tracy::Profiler::QueueSerial();
++  tracy::MemWrite(&item->hdr.type, tracy::QueueType::GpuAnnotationName);
++  tracy::MemWrite(&item->gpuAnnotationNameFat.noteId, annotation_id);
++  tracy::MemWrite(&item->gpuAnnotationNameFat.context, context_id);
++  tracy::MemWrite(&item->gpuAnnotationNameFat.ptr, (uint64_t)cloned_name);
++  tracy::MemWrite(&item->gpuAnnotationNameFat.size,
++                  static_cast<uint16_t>(name_length));
++  tracy::Profiler::QueueSerialFinish();
++}
++
++void iree_tracing_gpu_zone_annotation(uint8_t context_id, uint16_t query_id,
++                                      int64_t annotation_id, double value) {
++  auto* item = tracy::Profiler::QueueSerial();
++  tracy::MemWrite(&item->hdr.type, tracy::QueueType::GpuZoneAnnotation);
++  tracy::MemWrite(&item->zoneAnnotation.noteId, annotation_id);
++  tracy::MemWrite(&item->zoneAnnotation.value, value);
++  tracy::MemWrite(&item->zoneAnnotation.thread, tracy::GetThreadHandle());
++  tracy::MemWrite(&item->zoneAnnotation.queryId, query_id);
++  tracy::MemWrite(&item->zoneAnnotation.context, context_id);
++  tracy::Profiler::QueueSerialFinish();
++}
++
+ #endif  // IREE_TRACING_FEATURE_INSTRUMENTATION_DEVICE
+ 
+ #if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_ALLOCATION_TRACKING
+diff --git a/runtime/src/iree/base/tracing/tracy.h b/runtime/src/iree/base/tracing/tracy.h
+index 155783ad5bf5..aa2a7bf7afc3 100644
+--- a/runtime/src/iree/base/tracing/tracy.h
++++ b/runtime/src/iree/base/tracing/tracy.h
+@@ -169,10 +169,33 @@ void iree_tracing_gpu_zone_begin_external(
+     uint8_t context_id, uint16_t query_id, const char* file_name,
+     size_t file_name_length, uint32_t line, const char* function_name,
+     size_t function_name_length, const char* name, size_t name_length);
++// Same as iree_tracing_gpu_zone_begin_external, with the zone drawn in
++// |color_xbgr| (0 selects the default color).
++void iree_tracing_gpu_zone_begin_external_colored(
++    uint8_t context_id, uint16_t query_id, const char* file_name,
++    size_t file_name_length, uint32_t line, const char* function_name,
++    size_t function_name_length, const char* name, size_t name_length,
++    uint32_t color_xbgr);
+ void iree_tracing_gpu_zone_end(uint8_t context_id, uint16_t query_id);
+ void iree_tracing_gpu_zone_notify(uint8_t context_id, uint16_t query_id,
+                                   int64_t gpu_timestamp);
+ 
++// Names the annotation |annotation_id| of GPU context |context_id|. Tracy keeps
++// one name per annotation ID and context for the whole capture: the last name
++// sent wins, and it also applies to values attached earlier.
++void iree_tracing_gpu_context_annotation_name(uint8_t context_id,
++                                              int64_t annotation_id,
++                                              const char* name,
++                                              size_t name_length);
++// Attaches |value| as annotation |annotation_id| to the GPU zone that began
++// with |query_id|, e.g. a hardware counter measured over the zone. Tracy keys
++// annotation values by context and query ID for the whole capture, so values
++// are only attributed to a single zone if its query ID is not reused within
++// the context; zones that share a query ID all show the last value attached
++// for each annotation ID.
++void iree_tracing_gpu_zone_annotation(uint8_t context_id, uint16_t query_id,
++                                      int64_t annotation_id, double value);
++
+ #endif  // IREE_TRACING_FEATURE_INSTRUMENTATION_DEVICE
+ 
+ #if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_ALLOCATION_TRACKING

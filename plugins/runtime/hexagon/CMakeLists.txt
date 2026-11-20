@@ -72,7 +72,7 @@ iree_package_name(_PACKAGE_NAME)
 # ALWAYSLINK: ${_PACKAGE_NAME}_hexagon itself is an INTERFACE
 # target; the real compiled objects live in its ".objects" twin.
 if(IREE_ENABLE_RUNTIME_TRACING AND IREE_TRACING_PROVIDER STREQUAL "tracy")
-  target_compile_definitions(${_PACKAGE_NAME}_hexagon.objects PRIVATE IREE_HAL_HEXAGON_ENABLE_PROFILER IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1)
+  target_compile_definitions(${_PACKAGE_NAME}_hexagon.objects PRIVATE IREE_HAL_HEXAGON_ENABLE_PROFILER)
 endif()
 
 endif()

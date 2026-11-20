@@ -174,11 +174,18 @@ flag) of numeric event IDs (decimal or hex, e.g. `0x0003`). Up to 8 events are
 used; if fewer are provided, the remaining counters keep the runtime defaults.
 The numeric event IDs are listed an explained in [hexagon_pmu_events_table.inc](arm_dsp/pmu/hexagon_pmu_events_table.inc).
 
-These pmu events are displayed in a different plot and are only registered for
-`KERNEL` zones and generated-code `MARKER` zones in the DSP.
-Other zones currently do not have any PMU information plotted.
-These values values are extracted at the beginning and end of the zone and are not interpolated,
-therefore they remain constant over the duration of their corresponding zone.
+The PMU counters are attached to the `KERNEL` zones and the generated-code
+`MARKER` zones as Tracy GPU zone annotations: select a zone in the Tracy UI and
+its zone info lists one value per selected event. Each value is the difference
+of the counter between the beginning and the end of the zone. The other, outer
+zones get no PMU values, because the 32 bit counters can wrap around more than
+once over them.
+
+The PMU counters are not per thread, so the values of zones running in
+parallel on different DSP threads include each other's work. Tracy keys the
+annotations by query id, and a DSP thread runs out of query ids after 32768
+zones; from then on, earlier zones of that thread can show the values of later
+ones, and the runtime prints a warning.
 
 ### Some notable PMU events
 

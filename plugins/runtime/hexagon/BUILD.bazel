@@ -79,7 +79,6 @@ hexagon_plugin_library(
     defines = select({
         "@iree//runtime/src/iree/base/tracing:_tracy_enable": [
             "IREE_HAL_HEXAGON_ENABLE_PROFILER",
-            "IREE_TRACING_EXPERIMENTAL_CONTEXT_API=1",
         ],
         "//conditions:default": [],
     }),

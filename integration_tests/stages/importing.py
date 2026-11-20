@@ -333,6 +333,11 @@ def import_model(
         )
     )
 
+    # The strict export traces with Dynamo, whose caches keep the traced module
+    # and with it every model weight. Without a reset, the weights (several GiB
+    # for the larger LLMs) stay in memory for the rest of the process.
+    torch._dynamo.reset()
+
     return ImportedModel(
         model_mlir=model_mlir,
         calls=[ModuleCall("main", input_files, output_files)],

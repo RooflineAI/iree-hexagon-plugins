@@ -18,10 +18,8 @@ together with a reason that has to appear in the log (`modeltree/outcomes.py`).
 
 from __future__ import annotations
 
-import multiprocessing
 import pathlib
 import time
-from concurrent.futures import ProcessPoolExecutor
 
 import pytest
 
@@ -46,27 +44,15 @@ from integration_tests.stages.running import (
 )
 
 
-def _import_model(model_spec: ModelSpec, output_dir: pathlib.Path) -> ImportedModel:
-    from integration_tests.stages.importing import import_model
-
-    return import_model(model_spec, output_dir)
-
-
 @pytest.fixture(scope="session")
 def imported_model(
     model_spec: ModelSpec, tmp_path_factory: pytest.TempPathFactory
 ) -> ImportedModel:
-    """The model's MLIR, inputs and torch reference, imported once per session.
+    """The model's MLIR, inputs and torch reference, imported once per session."""
+    from integration_tests.stages.importing import import_model
 
-    The import runs in a fresh process: after an import, torch and the libraries
-    around it keep several GiB of the model's memory
-    """
     output_dir = tmp_path_factory.mktemp(model_spec.name.replace("/", "_"))
-    # FIXME: find the actual cause of the memory leak
-    with ProcessPoolExecutor(
-        max_workers=1, mp_context=multiprocessing.get_context("spawn")
-    ) as pool:
-        imported = pool.submit(_import_model, model_spec, output_dir).result()
+    imported = import_model(model_spec, output_dir)
     print(
         f"{model_spec.name}: imported to {imported.model_mlir} "
         f"({imported.model_mlir.stat().st_size} bytes of MLIR)"

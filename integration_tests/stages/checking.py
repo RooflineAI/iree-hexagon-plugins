@@ -13,6 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
+from integration_tests.stages.artifacts import GenerationReference
+
 
 class AccuracyError(AssertionError):
     pass
@@ -162,3 +164,46 @@ def check_predicted_label(
             f"{output_file.name}: expected the device to predict "
             f"{expected_label!r}, got {predicted!r} (class {top})"
         )
+
+
+def check_generation(
+    reference: GenerationReference,
+    prompt_ids: tuple[int, ...] | None,
+    tokens: tuple[int, ...] | None,
+) -> None:
+    """Assert iree-run-llm tokenized the prompt and generated as the reference.
+
+    The prompt's token ids must match exactly: they check the device's
+    tokenizer. The generated tokens must match exactly too: the import made
+    sure the reference has no near-tie that rounding could tip (see the spec's
+    `min_margin`). All `max_new_tokens` tokens must be there, as stop tokens
+    are ignored.
+    """
+    if prompt_ids is None or tokens is None:
+        raise AccuracyError(
+            "iree-run-llm printed no prompt or generated token ids; see its log"
+        )
+    if prompt_ids != reference.prompt_ids:
+        raise AccuracyError(
+            "the prompt's token ids differ from the reference tokenizer's:\n"
+            f"  device:    {list(prompt_ids)}\n"
+            f"  reference: {list(reference.prompt_ids)}"
+        )
+    if len(tokens) != len(reference.tokens):
+        raise AccuracyError(
+            f"generated {len(tokens)} tokens, the reference "
+            f"{len(reference.tokens)}:\n"
+            f"  device:    {list(tokens)}\n"
+            f"  reference: {list(reference.tokens)}"
+        )
+    for step, (actual, expected) in enumerate(zip(tokens, reference.generated)):
+        if actual != expected.selected_id:
+            raise AccuracyError(
+                f"generated tokens differ from the reference: token {step} is "
+                f"{actual}, the reference's {expected.selected_id}, whose logit "
+                f"leads the runner-up's ({expected.runner_up_id}) by "
+                f"{expected.margin:.3f}\n"
+                f"  device:    {list(tokens)}\n"
+                f"  reference: {list(reference.tokens)}"
+            )
+    print(f"generation: all {len(tokens)} tokens match the reference")

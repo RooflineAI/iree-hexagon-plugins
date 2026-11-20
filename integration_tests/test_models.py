@@ -29,6 +29,7 @@ from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.stages.artifacts import ImportedModel
 from integration_tests.stages.checking import (
     AccuracyError,
+    check_generation,
     check_output_files,
     check_predicted_label,
 )
@@ -40,6 +41,7 @@ from integration_tests.stages.compiling import (
 from integration_tests.stages.profile_checks import Profile, ProfileError, run_check
 from integration_tests.stages.running import (
     RunCase,
+    run_llm_on_device,
     run_module_on_device,
 )
 
@@ -137,6 +139,30 @@ def _run_pipeline(
                 )
     except AccuracyError as err:
         return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{result.describe()}")
+
+    if imported_model.generation is not None:
+        generation = run_llm_on_device(
+            deployment=deployment,
+            case_dir_name=case_dir,
+            generation=imported_model.generation,
+            extra_flags=run_case.flags,
+            timeout=model_spec.run_timeout,
+        )
+        print(generation.log)
+        print("generation timings:")
+        for key, value in generation.timings.items():
+            print(f"  {key}: {value:.3f}s")
+        if generation.exit_code != 0:
+            return Outcome(Status.RUNTIME_FAILURE, generation.describe())
+        assert model_spec.generation is not None
+        try:
+            check_generation(
+                reference=imported_model.generation,
+                prompt_ids=generation.prompt_ids,
+                tokens=generation.tokens,
+            )
+        except AccuracyError as err:
+            return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{generation.describe()}")
 
     if tracy_port is not None:
         if result.profile_error is not None:

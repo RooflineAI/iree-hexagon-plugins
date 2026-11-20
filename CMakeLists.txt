@@ -46,6 +46,11 @@ if(IREE_BUILD_COMPILER OR IREE_HEXAGON_MLIR_DSP_BUILD)
 endif()
 add_subdirectory(plugins)
 
+# Host-side runtime tools (iree-run-llm); the DSP tree has no use for them.
+if(NOT IREE_HEXAGON_MLIR_DSP_BUILD)
+  add_subdirectory(tools)
+endif()
+
 if(IREE_HEXAGON_ANDROID_BUILD)
   add_subdirectory(integration_tests/device/tools)
 endif()

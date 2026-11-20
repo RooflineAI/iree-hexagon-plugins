@@ -77,7 +77,8 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 ```
 /data/local/tmp/hexagon_it/
     runs/<run-id>/          removed when the run ends
-        bin/    iree-run-module, iree-benchmark-module, limit_lifetime, rsync
+        bin/    iree-run-module, iree-benchmark-module, iree-run-llm,
+                limit_lifetime, rsync
         lib/    the DSP skel and libc++_shared
         cases/  one directory per (model, compile case)
     modules/<case>/module.vmfb   kept across runs
@@ -190,6 +191,41 @@ token matches the reference, compared on the device. The host then checks every
 output. Both start from an empty cache, in the eager reference as on the
 device, so `decode` checks the compiled function rather than a real
 continuation.
+
+A `generation` block adds a real continuation: after those two checks pass,
+`iree-run-llm` (`tools/iree-run-llm-main.c`, on the inference engine in
+`tools/llm/`) runs the same module on the device as an inference loop. It tokenizes the prompt itself, runs `prefill`,
+then `decode` once per further token, and generates `max_new_tokens` tokens
+greedily, ignoring stop tokens:
+
+```yaml
+generation:
+  prompt: "def fibonacci(n):\n"
+  max_new_tokens: 32
+  min_margin: 0.25  # the default
+```
+
+`model.py` then also defines `get_tokenizer_json()`, the path of the model's
+`tokenizer.json`, which the device gets too. The reference is
+`KvCacheLM.generate_greedy`: the same functions run eagerly, with the prompt
+padded as on the device. At every step, its most likely token has to lead the
+runner-up by at least `min_margin` in logits. Otherwise it is a near-tie that
+rounding on the device may tip either way, after which the two sides continue
+from different text, and the import fails with a `NearTieError` naming the step
+and both tokens: change the prompt, or shorten `max_new_tokens` to end before
+the near-tie. The import writes the margins to `generation_reference.json`.
+
+The check, in `stages/checking.py`:
+
+* the prompt's token ids have to match the `tokenizers` library's exactly,
+  which checks the device's tokenizer;
+* the generated tokens have to match the reference's exactly.
+
+The log has
+the text and, under `generation timings:`, the time of the whole
+`iree-run-llm` run (`generate`) and its own times of `prefill` and of one
+decode step (`decode_per_token`). They are not part of `run:`, the time
+`perf_compare.py` tracks.
 
 ## Profiling
 

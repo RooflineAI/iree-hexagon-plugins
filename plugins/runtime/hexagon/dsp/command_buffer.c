@@ -246,8 +246,8 @@ static int hexa_cmd_buf_residency_exceeded(const char *what) {
  * @brief Invalidate the given buffers the host may have written since the last
  *        execution in the data cache, where mapped.
  * @param[in] residency residency cache of the RPC session
- * @param[in] bufs buffers (fd, offset, length, flags), entries with fd -1 and
- *                 the ones the host never writes are skipped
+ * @param[in] bufs buffers; entries with fd -1 or that the host never writes
+ *                 are skipped
  * @param[in] num_bufs number of entries in bufs
  * @retval AEE_SUCCESS for success
  */

@@ -28,13 +28,20 @@ from integration_tests.models.qwen3_vl import (
 _MODEL_ID = "Qwen/Qwen3-VL-2B-Instruct"
 _REVISION = "89644892e4d85e24eaac8bacfd4f463576704203"
 # Context length. Sized for images up to 1024x1024 pixels: 32 x 32 = 1024
-# image tokens (one per 32x32 pixels after the encoder's 2x2 merge), plus 256
+# image tokens (one per 32x32 pixels after the encoder's 2x2 merge), plus 352
 # for the chat template, the question and the answer. The bound is a choice,
 # not a model limit (Qwen3-VL accepts larger images); lower it if the KV cache
-# (28 layers x 2 x 8 heads x (1280 + 32) x 128 x f16 = 150 MB) or the export's
+# (28 layers x 2 x 8 heads x (1376 + 32) x 128 x f16 = 161 MB) or the export's
 # dynamic-shape range becomes a problem on the device. iree-run-llm has to be
 # told the same value (--max_seq_len).
-_MAX_SEQ_LEN = 1280
+#
+# Not 1280: then hexagon-vtcm-hmx fails to compile an attention matmul,
+# whose HMX result rows (1280 + 32 cache positions) are not known to be
+# 128-byte aligned ("iree_hexagon.hmx.unpack op destination must be known to
+# be 128-byte aligned"). 1248 and 1376 (caches of 1280 and 1408, multiples of
+# 128) compile, and so does 256 (measured 2026-11-23, 4-layer model); check
+# the compile before picking another value.
+_MAX_SEQ_LEN = 1376
 
 
 def get_model() -> torch.nn.Module:

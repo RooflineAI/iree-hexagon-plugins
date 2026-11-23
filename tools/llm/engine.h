@@ -57,6 +57,13 @@ extern "C" {
 // Model
 //===----------------------------------------------------------------------===//
 
+// KvCacheLM's defaults, as constants for e.g. command line flag defaults.
+#define IREE_LLM_DEFAULT_MAX_SEQ_LEN 128
+#define IREE_LLM_DEFAULT_BLOCK_SEQ_STRIDE 32
+#define IREE_LLM_DEFAULT_MIN_PREFILL_BLOCKS 2
+#define IREE_LLM_DEFAULT_PREFILL_FUNCTION "prefill"
+#define IREE_LLM_DEFAULT_DECODE_FUNCTION "decode"
+
 // How the module was exported; must match KvCacheLM's parameters.
 typedef struct iree_llm_model_options_t {
   // Context length: the padded prompt and every decode position fit in it.
@@ -70,7 +77,19 @@ typedef struct iree_llm_model_options_t {
   iree_string_view_t decode_function;
 } iree_llm_model_options_t;
 
-// Sets KvCacheLM's defaults: 128 / 32 / 2, "prefill" and "decode".
+// Initializer of iree_llm_model_options_t with KvCacheLM's defaults, also for
+// static storage:
+//   iree_llm_model_options_t options = IREE_LLM_MODEL_OPTIONS_DEFAULTS;
+#define IREE_LLM_MODEL_OPTIONS_DEFAULTS                                        \
+  {                                                                            \
+      .max_seq_len = IREE_LLM_DEFAULT_MAX_SEQ_LEN,                             \
+      .block_seq_stride = IREE_LLM_DEFAULT_BLOCK_SEQ_STRIDE,                   \
+      .min_prefill_blocks = IREE_LLM_DEFAULT_MIN_PREFILL_BLOCKS,               \
+      .prefill_function = IREE_SVL(IREE_LLM_DEFAULT_PREFILL_FUNCTION),         \
+      .decode_function = IREE_SVL(IREE_LLM_DEFAULT_DECODE_FUNCTION),           \
+  }
+
+// Sets |out_options| to IREE_LLM_MODEL_OPTIONS_DEFAULTS.
 void iree_llm_model_options_initialize(iree_llm_model_options_t *out_options);
 
 typedef struct iree_llm_model_t iree_llm_model_t;

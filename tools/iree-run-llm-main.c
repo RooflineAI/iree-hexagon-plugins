@@ -49,14 +49,14 @@ IREE_FLAG(bool, add_special_tokens, true,
           "Add the tokenizer's special tokens (e.g. BOS) to the prompt, as "
           "HuggingFace's tokenizer(prompt) does by default.");
 IREE_FLAG(int32_t, max_new_tokens, 64, "Maximum number of tokens to generate.");
-IREE_FLAG(int32_t, max_seq_len, 128,
+IREE_FLAG(int32_t, max_seq_len, IREE_LLM_DEFAULT_MAX_SEQ_LEN,
           "Context length the module was exported for (KvCacheLM's "
           "max_seq_len): the padded prompt and every decode position must "
           "fit in it.");
-IREE_FLAG(int32_t, block_seq_stride, 32,
+IREE_FLAG(int32_t, block_seq_stride, IREE_LLM_DEFAULT_BLOCK_SEQ_STRIDE,
           "The prefill sequence length must be a multiple of this (KvCacheLM's "
           "block_seq_stride).");
-IREE_FLAG(int32_t, min_prefill_blocks, 2,
+IREE_FLAG(int32_t, min_prefill_blocks, IREE_LLM_DEFAULT_MIN_PREFILL_BLOCKS,
           "Minimum number of --block_seq_stride blocks prefill accepts.");
 IREE_FLAG(int32_t, pad_token_id, -1,
           "Token ID used to pad the prompt. Padding is never attended to, so "
@@ -74,9 +74,9 @@ IREE_FLAG(bool, print_stats, true, "Print timing statistics to stderr.");
 IREE_FLAG(string, prefill_logits_output, "",
           "File to write prefill's logits to, as .npy: [1, P, vocab] for all "
           "P padded prompt positions.");
-IREE_FLAG(string, prefill_function, "prefill",
+IREE_FLAG(string, prefill_function, IREE_LLM_DEFAULT_PREFILL_FUNCTION,
           "Name of the exported prefill function.");
-IREE_FLAG(string, decode_function, "decode",
+IREE_FLAG(string, decode_function, IREE_LLM_DEFAULT_DECODE_FUNCTION,
           "Name of the exported decode function.");
 
 //===----------------------------------------------------------------------===//

@@ -36,12 +36,7 @@ struct iree_llm_model_t {
 };
 
 void iree_llm_model_options_initialize(iree_llm_model_options_t *out_options) {
-  memset(out_options, 0, sizeof(*out_options));
-  out_options->max_seq_len = 128;
-  out_options->block_seq_stride = 32;
-  out_options->min_prefill_blocks = 2;
-  out_options->prefill_function = IREE_SV("prefill");
-  out_options->decode_function = IREE_SV("decode");
+  *out_options = (iree_llm_model_options_t)IREE_LLM_MODEL_OPTIONS_DEFAULTS;
 }
 
 void iree_llm_model_free(iree_llm_model_t *model) {

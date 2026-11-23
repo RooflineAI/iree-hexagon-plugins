@@ -96,7 +96,9 @@ typedef struct hexagon_dsp_cache_state_s {
   /// overlap [dirty_begin, dirty_end); none if equal
   uint64_t dirty_begin;
   uint64_t dirty_end;
-  /// lines may exist anywhere in the allocation
+  /// whether the cache may hold any line of the allocation, clean or dirty,
+  /// also outside [dirty_begin, dirty_end); false only if it was never
+  /// accessed through the cache since it was mapped
   bool has_lines;
 } hexagon_dsp_cache_state_t;
 

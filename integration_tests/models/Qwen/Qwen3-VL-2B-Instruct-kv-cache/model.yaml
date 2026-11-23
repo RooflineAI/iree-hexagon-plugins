@@ -29,6 +29,12 @@ tolerances:
   rtol: 5.0e-2
   relative_l2_percent: 0.5
 compile_cases: [hexagon-vtcm-hmx]
+# Each iree-run-llm run must finish within this. The vision run measured
+# 10m39s on 2026-11-23: the dynamic-shape encoder takes 585 s on this 512x384
+# image (61 s at 256x256, where the static-shape encoder took 10 s), prefill
+# 27 s, decode 1.06 s/token. The default 600 s is too short; the encoder's
+# speed is a known open item, not a requirement of this test.
+run_timeout: 1800
 # The chat template for one image and a question. iree-run-llm expands
 # <|image_pad|> to one token per image embedding (--image_pad_token), from the
 # grid the encoder returns: 12 x 16 = 192 for this 512x384 image, a 210-token

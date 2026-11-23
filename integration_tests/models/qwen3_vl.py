@@ -194,6 +194,12 @@ class VisionEncoder(torch.nn.Module):
         x = x.reshape(c, gh // _MERGE, _MERGE, _PATCH, gw // _MERGE, _MERGE, _PATCH)
         x = x.permute(1, 4, 2, 5, 0, 3, 6).unsqueeze(5)
         x = x.expand(-1, -1, -1, -1, -1, _TEMPORAL, -1, -1)
+        # Two reshapes: collapsing the static trailing dims first, then only
+        # the leading ones. In one step, with both grid dims dynamic, the
+        # lowering groups the dims wrongly ([[0], [1..7]]) and fails to
+        # compile ("tensor.collapse_shape ... expected dimension 1 of
+        # collapsed type to be static value of 0").
+        x = x.reshape(gh // _MERGE, gw // _MERGE, _MERGE, _MERGE, -1)
         pixel_values = x.reshape(gh * gw, c * _TEMPORAL * _PATCH * _PATCH)
         # The patch grid as tensors, the only form the importer takes for
         # arithmetic on it.

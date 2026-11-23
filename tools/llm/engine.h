@@ -194,6 +194,8 @@ typedef struct iree_llm_generate_stats_t {
   iree_host_size_t generated_count;
   // Decode invocations, including one that returned a stop token.
   iree_host_size_t decode_steps;
+  // Time spent in iree_llm_model_prefill, and summed over all decode_steps in
+  // iree_llm_model_decode; the token callback is in neither.
   iree_duration_t prefill_duration;
   iree_duration_t decode_duration;
   iree_llm_stop_reason_t stop_reason;

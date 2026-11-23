@@ -423,9 +423,7 @@ iree_status_t iree_llm_generate(iree_llm_model_t *model, const int64_t *prompt,
   iree_status_t status =
       iree_llm_model_prefill(model, prompt, prompt_length, params->pad_token,
                              &token, out_prefill_logits);
-  const iree_time_t prefill_end = iree_time_now();
-  out_stats->prefill_duration = prefill_end - prefill_start;
-  iree_time_t decode_end = prefill_end;
+  out_stats->prefill_duration = iree_time_now() - prefill_start;
   while (iree_status_is_ok(status)) {
     if (iree_llm_is_stop_token(params, token)) {
       out_stats->stop_reason = IREE_LLM_STOP_REASON_STOP_TOKEN;
@@ -446,10 +444,11 @@ iree_status_t iree_llm_generate(iree_llm_model_t *model, const int64_t *prompt,
       out_stats->stop_reason = IREE_LLM_STOP_REASON_MAX_SEQ_LEN;
       break;
     }
+    // Only the decode itself is timed, not the callback or the checks.
+    const iree_time_t decode_start = iree_time_now();
     status = iree_llm_model_decode(model, token, &token);
-    decode_end = iree_time_now();
+    out_stats->decode_duration += iree_time_now() - decode_start;
     ++out_stats->decode_steps;
   }
-  out_stats->decode_duration = decode_end - prefill_end;
   return status;
 }

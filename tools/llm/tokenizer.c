@@ -125,6 +125,8 @@ iree_status_t iree_llm_detokenizer_feed(iree_llm_detokenizer_t *detokenizer,
   iree_tokenizer_token_id_t id = (iree_tokenizer_token_id_t)token;
   iree_tokenizer_token_id_list_t tokens =
       iree_tokenizer_make_token_id_list(&id, 1);
+  // iree_tokenizer_decode_state_feed() does not promise to take all tokens in
+  // one call. So loop till all tokens have been processed.
   while (tokens.count > 0) {
     iree_host_size_t consumed = 0, length = 0;
     IREE_RETURN_IF_ERROR(iree_tokenizer_decode_state_feed(

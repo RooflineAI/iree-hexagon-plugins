@@ -62,8 +62,9 @@ iree_status_t iree_llm_tokenizer_encode(const iree_tokenizer_t *tokenizer,
                                          (void **)&tokens);
   }
   if (iree_status_is_ok(status)) {
-    for (iree_host_size_t i = 0; i < count; ++i)
-      tokens[i] = ids[i];
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      tokens[i] = ids[i]; // note: widening from 32 to 64 bits
+    }
     *out_tokens = tokens;
     *out_count = count;
   }

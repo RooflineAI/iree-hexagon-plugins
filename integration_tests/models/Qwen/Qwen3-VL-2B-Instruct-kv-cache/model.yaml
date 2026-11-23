@@ -13,7 +13,8 @@ dtype: float16
 inputs:
   # The export's example prompt (random token ids, no image tokens): a multiple
   # of 32 tokens (block_seq_stride), at least two blocks, shorter than
-  # max_seq_len (256). The example image features are model.py's.
+  # max_seq_len (1280, see model.py). The example image features are
+  # model.py's.
   - shape: [1, 128]
     dtype: int64
     generator: uniform

@@ -29,6 +29,14 @@ _MODEL_ID = "Qwen/Qwen3-VL-2B-Instruct"
 _REVISION = "89644892e4d85e24eaac8bacfd4f463576704203"
 # The vision encoder entry's resolution.
 _SIDE = 256
+# Context length. Sized for images up to 1024x1024 pixels: 32 x 32 = 1024
+# image tokens (one per 32x32 pixels after the encoder's 2x2 merge), plus 256
+# for the chat template, the question and the answer. The bound is a choice,
+# not a model limit (Qwen3-VL accepts larger images); lower it if the KV cache
+# (28 layers x 2 x 8 heads x (1280 + 32) x 128 x f16 = 150 MB) or the export's
+# dynamic-shape range becomes a problem on the device. iree-run-llm has to be
+# told the same value (--max_seq_len).
+_MAX_SEQ_LEN = 1280
 
 
 def get_model() -> torch.nn.Module:
@@ -43,12 +51,10 @@ def get_model() -> torch.nn.Module:
     model.config.get_text_config().use_cache = True
     visual = model.model.visual
     patch_vision_tower(visual)
-    # A 256x256 image is 64 tokens of the ~80-token prompt; 256 leaves room for
-    # larger images and for 100+ generated tokens.
     return Qwen3VLKvCacheLM(
         model,
         VisionEncoder(visual, _SIDE),
-        max_seq_len=256,
+        max_seq_len=_MAX_SEQ_LEN,
         block_seq_stride=32,
     )
 

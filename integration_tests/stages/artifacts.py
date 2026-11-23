@@ -75,6 +75,10 @@ class GenerationReference:
     # For a VLM with a `vision_model`: the encoder that computes them on the
     # device instead.
     vision: VisionModule | None = None
+    # For a VLM whose prompt file holds the image placeholder once: the text
+    # iree-run-llm --image_pad_token expands, from the image grid. The
+    # reference's `prompt_ids` are of the expanded prompt.
+    image_pad_token: str | None = None
 
     @property
     def tokens(self) -> tuple[int, ...]:

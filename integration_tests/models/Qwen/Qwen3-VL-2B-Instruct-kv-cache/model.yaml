@@ -29,15 +29,20 @@ tolerances:
   rtol: 5.0e-2
   relative_l2_percent: 0.5
 compile_cases: [hexagon-vtcm-hmx]
-# The chat template for one image and a question. The import expands
-# <|image_pad|> to one token per image embedding (64), giving an 82-token
-# prompt. The reference answers in 18 tokens plus <|im_end|>, all with a margin
-# of at least 0.45 (measured on the host, 2026-11-23): "Describe this image in
-# one sentence." has a near-tie at step 5.
+# The chat template for one image and a question. iree-run-llm expands
+# <|image_pad|> to one token per image embedding (--image_pad_token), from the
+# grid the encoder returns: 12 x 16 = 192 for this 512x384 image, a 210-token
+# prompt. The image is not the encoder entry's 256x256 one, so the encoder runs
+# at a size it was not traced at. shapes-512x384.png is drawn with PIL: white,
+# a red circle (40,112)-(200,272), a blue square (300,100)-(460,260), a green
+# triangle (256,300) (206,370) (306,370). The reference, "A red circle, a blue
+# square, and a green triangle are arranged on a white background.", is 19
+# tokens plus <|im_end|>, every margin at least 2.09, and the same as
+# transformers' own generate (host, 2026-11-23).
 generation:
   prompt: "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image in one short sentence.<|im_end|>\n<|im_start|>assistant\n"
-  max_new_tokens: 19
-  image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
+  max_new_tokens: 20
+  image: shapes-512x384.png
   vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
   # The encoder's own error (0.85% on the image embeddings) carried into the
   # language model: 1.62%, max abs diff 3.57 on logits of magnitude ~30

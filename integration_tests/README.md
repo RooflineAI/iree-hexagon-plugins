@@ -230,13 +230,17 @@ and optionally the model entry of the vision encoder:
 ```yaml
 generation:
   prompt: "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>..."
-  image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
+  image: shapes-512x384.png
   vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
 ```
 
-The import computes the image features with the model's own eager encoder,
-expands the prompt's one image placeholder to one token per image embedding,
-and generates the reference from both. The device then generates twice from
+The image's sides must be multiples of the model's `image_factor` (32 for
+Qwen3-VL; the encoder takes any such size up to 1024). The import computes the
+image features with the model's own eager encoder, expands the prompt's one
+image placeholder to one token per image embedding, and generates the
+reference from both. If the model names an `image_pad_token`, the device gets
+the prompt as written and `iree-run-llm --image_pad_token` expands it from the
+image grid, which the prompt ids check. The device then generates twice from
 one push, and each run is checked as above:
 
 * `features`: from the reference's image features, passed as files

@@ -322,6 +322,10 @@ class Qwen3VLKvCacheLM(KvCacheLM):
         language_model._deepstack_process = static_deepstack.__get__(language_model)
         super().__init__(language_model, max_seq_len, block_seq_stride)
         self.lm_head = model.lm_head
+        # iree-run-llm --image_pad_token: the device expands the prompt's one
+        # placeholder itself, from the image grid.
+        self.image_pad_token = IMAGE_PAD
+        self.image_factor = IMAGE_FACTOR
         self.image_token_id = int(model.config.image_token_id)
         self.hidden_size = int(self.config.hidden_size)
         self.register_buffer("rope_delta", torch.zeros(1, dtype=torch.int64))

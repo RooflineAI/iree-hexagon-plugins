@@ -506,12 +506,17 @@ def _generation_reference(
     prefill_inputs: tuple[torch.Tensor, ...] = ()
     prefill_input_files: list[Path] = []
     vision = None
+    image_pad_token = None
     if generation.image is not None:
         prompt, prefill_inputs, prefill_input_files, vision = _image_inputs(
             spec, output_dir, model
         )
+        image_pad_token = getattr(model, "image_pad_token", None)
     prompt_file = output_dir / "prompt.txt"
-    prompt_file.write_text(prompt)
+    # With an image_pad_token, the device gets the prompt as written and
+    # expands it itself; the reference tokenizes the expanded prompt, so the
+    # device's prompt ids check the expansion too.
+    prompt_file.write_text(generation.prompt if image_pad_token else prompt)
 
     tokenizer = Tokenizer.from_file(str(tokenizer_json))
     prompt_ids = tokenizer.encode(prompt).ids
@@ -537,6 +542,7 @@ def _generation_reference(
         prefill_logits_file=prefill_logits_file,
         prefill_input_files=tuple(prefill_input_files),
         vision=vision,
+        image_pad_token=image_pad_token,
     )
     (output_dir / "generation_reference.json").write_text(
         json.dumps(
@@ -600,6 +606,12 @@ def _image_inputs(
     if not path.exists():
         raise FileNotFoundError(f"{spec.name}: no such image {path}")
     pixels = load_image(path, _TORCH_DTYPES[spec.dtype])
+    factor = getattr(model, "image_factor", 1)
+    if pixels.shape[2] % factor or pixels.shape[3] % factor:
+        raise ValueError(
+            f"{spec.name}: {path} is {pixels.shape[3]}x{pixels.shape[2]}; its "
+            f"sides must be multiples of {factor}, resize it"
+        )
     image_file = output_dir / "image.npy"
     np.save(image_file, pixels.numpy())
     features = model.image_features(pixels)  # type: ignore[operator]

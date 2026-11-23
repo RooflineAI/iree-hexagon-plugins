@@ -588,6 +588,11 @@ def _run_llm(
         "--ignore_eos",
         "--print_token_ids",
         f"--prefill_logits_output={prefill_logits}",
+        *(
+            [f"--image_pad_token={generation.image_pad_token}"]
+            if generation.image_pad_token
+            else []
+        ),
         *extra_flags,
     ]
     # See run_module_on_device for oom_score_adj and DSP_LIBRARY_PATH.

@@ -182,9 +182,17 @@ language model's module comes last; the two need distinct VM module names
     --vision_function=vision.main --vision_input=@image.npy
 ```
 
-`image.npy` is the image as the encoder takes it: for Qwen3-VL `[1, 3, 256,
-256]` f16, RGB in 0..1. The stats then also give the encoder's time
-(`vision:`).
+`image.npy` is the image as the encoder takes it: for Qwen3-VL `[1, 3, H, W]`
+f16, RGB in 0..1, with H and W multiples of 32 up to 1024 (resize the image
+beforehand, as the HF image processor does). The stats then also give the
+encoder's time (`vision:`).
+
+The number of image tokens depends on the image size (H/32 * W/32 for
+Qwen3-VL). With `--image_pad_token='<|image_pad|>'` the prompt holds the
+placeholder once, as the chat template writes it, and `iree-run-llm` repeats it
+once per image token. It takes the count from the image grid `[h, w]`, which
+must be the last value prefill takes (the encoder's last result, or the last
+`--prefill_input`).
 
 ## DSP-side debug logging
 

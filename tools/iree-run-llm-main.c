@@ -22,8 +22,9 @@
 //   iree-run-llm --device=hexagon --module=vision.vmfb --module=model.vmfb \
 //       --vision_function=vision.main --vision_input=@image.npy \
 //       --tokenizer=tokenizer.json --prompt_file=prompt.txt
-// The prompt must already hold the image's tokens (e.g. Qwen3-VL's
-// <|image_pad|> once per image embedding).
+// The prompt holds the image's tokens (e.g. Qwen3-VL's <|image_pad|> once
+// per image embedding), or one placeholder that --image_pad_token expands to
+// as many as the image grid (the last prefill input) says.
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -96,6 +97,12 @@ IREE_FLAG(string, vision_function, "",
 IREE_FLAG_LIST(string, vision_input,
                "Input of --vision_function, as iree-run-module's --input "
                "(e.g. @image.npy); repeatable, in order.");
+IREE_FLAG(string, image_pad_token, "",
+          "Text of an image placeholder token (e.g. Qwen3-VL's "
+          "<|image_pad|>). The prompt must hold it exactly once, and it is "
+          "repeated once per image token before tokenization: h * w times, "
+          "where [h, w] is the last value prefill takes (the image grid, e.g. "
+          "--vision_function's last result).");
 IREE_FLAG_LIST(string, prefill_input,
                "Value prefill takes after input_length (and after the "
                "--vision_function results), as iree-run-module's --input "
@@ -211,10 +218,52 @@ iree_run_llm_load_tokenizer(iree_allocator_t host_allocator,
                                       host_allocator, out_tokenizer);
 }
 
+// Returns |text| with its one occurrence of |token| repeated |count| times,
+// in |out_storage| (freed by the caller with |host_allocator|) and
+// |out_text|.
+static iree_status_t iree_run_llm_expand_image_token(
+    iree_string_view_t text, iree_string_view_t token, iree_host_size_t count,
+    iree_allocator_t host_allocator, char **out_storage,
+    iree_string_view_t *out_text) {
+  *out_storage = NULL;
+  iree_host_size_t position = IREE_STRING_VIEW_NPOS;
+  iree_host_size_t occurrences = 0;
+  for (iree_host_size_t i = 0; i + token.size <= text.size; ++i) {
+    if (memcmp(text.data + i, token.data, token.size) == 0) {
+      if (occurrences++ == 0)
+        position = i;
+      i += token.size - 1;
+    }
+  }
+  if (occurrences != 1) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "--image_pad_token='%.*s' must occur exactly once in the prompt, "
+        "found %zu times",
+        (int)token.size, token.data, occurrences);
+  }
+  const iree_host_size_t size = text.size - token.size + count * token.size;
+  char *storage = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc(host_allocator, size + 1, (void **)&storage));
+  char *cursor = storage;
+  memcpy(cursor, text.data, position);
+  cursor += position;
+  for (iree_host_size_t i = 0; i < count; ++i, cursor += token.size)
+    memcpy(cursor, token.data, token.size);
+  const iree_host_size_t tail = position + token.size;
+  memcpy(cursor, text.data + tail, text.size - tail);
+  storage[size] = '\0';
+  *out_storage = storage;
+  *out_text = iree_make_string_view(storage, size);
+  return iree_ok_status();
+}
+
 // Tokenizes the prompt from --prompt or --prompt_file. The caller frees
 // |out_tokens| with |host_allocator|.
 static iree_status_t
 iree_run_llm_encode_prompt(const iree_tokenizer_t *tokenizer,
+                           iree_host_size_t image_token_count,
                            iree_allocator_t host_allocator,
                            int64_t **out_tokens, iree_host_size_t *out_count) {
   *out_tokens = NULL;
@@ -234,13 +283,22 @@ iree_run_llm_encode_prompt(const iree_tokenizer_t *tokenizer,
     text = iree_make_string_view((const char *)contents->const_buffer.data,
                                  contents->const_buffer.data_length);
   }
-  iree_status_t status =
-      iree_llm_tokenizer_encode(tokenizer, text, FLAG_add_special_tokens,
-                                host_allocator, out_tokens, out_count);
+  char *expanded = NULL;
+  iree_status_t status = iree_ok_status();
+  if (FLAG_image_pad_token[0] != '\0') {
+    status = iree_run_llm_expand_image_token(
+        text, iree_make_cstring_view(FLAG_image_pad_token), image_token_count,
+        host_allocator, &expanded, &text);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_llm_tokenizer_encode(tokenizer, text, FLAG_add_special_tokens,
+                                       host_allocator, out_tokens, out_count);
+  }
   if (iree_status_is_ok(status) && *out_count == 0) {
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "the prompt has no tokens; pass --prompt");
   }
+  iree_allocator_free(host_allocator, expanded);
   iree_io_file_contents_free(contents);
   return status;
 }
@@ -406,6 +464,38 @@ static iree_status_t iree_run_llm_prefill_inputs(
   return status;
 }
 
+// Sets |out_count| to h * w for the image grid [h, w] that is the last value
+// of |prefill_inputs|, read back from |device|. For --image_pad_token.
+static iree_status_t
+iree_run_llm_image_token_count(iree_hal_device_t *device,
+                               iree_vm_list_t *prefill_inputs,
+                               iree_host_size_t *out_count) {
+  *out_count = 0;
+  const iree_host_size_t size =
+      prefill_inputs ? iree_vm_list_size(prefill_inputs) : 0;
+  iree_hal_buffer_view_t *grid =
+      size ? iree_vm_list_get_buffer_view_assign(prefill_inputs, size - 1)
+           : NULL;
+  if (!grid || iree_hal_buffer_view_element_count(grid) != 2 ||
+      iree_hal_buffer_view_element_type(grid) != IREE_HAL_ELEMENT_TYPE_INT_64) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "--image_pad_token needs the image grid, an i64 "
+                            "tensor [h, w], as the last value prefill takes "
+                            "(from --vision_function or --prefill_input)");
+  }
+  int64_t hw[2] = {0, 0};
+  IREE_RETURN_IF_ERROR(iree_hal_device_transfer_d2h(
+      device, iree_hal_buffer_view_buffer(grid), 0, hw, sizeof(hw),
+      IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT, iree_infinite_timeout()));
+  if (hw[0] <= 0 || hw[1] <= 0) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "image grid [%" PRId64 ", %" PRId64 "] is not positive", hw[0], hw[1]);
+  }
+  *out_count = (iree_host_size_t)(hw[0] * hw[1]);
+  return iree_ok_status();
+}
+
 //===----------------------------------------------------------------------===//
 // Generation
 //===----------------------------------------------------------------------===//
@@ -528,12 +618,33 @@ static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
       tokenizer, stop_tokens, &params.stop_token_count));
   params.stop_tokens = stop_tokens;
 
+  // Image features and the like; the vision function runs here, before the
+  // timed generation, and before tokenization, which may need the image's
+  // token count (--image_pad_token).
+  iree_vm_list_t *prefill_inputs = NULL;
+  iree_duration_t vision_duration = -1;
+  IREE_RETURN_IF_ERROR(iree_run_llm_prefill_inputs(
+      runtime, device, host_allocator, &prefill_inputs, &vision_duration));
+  params.prefill_inputs = prefill_inputs;
+
+  iree_host_size_t image_token_count = 0;
+  iree_status_t status = iree_ok_status();
+  if (FLAG_image_pad_token[0] != '\0') {
+    status = iree_run_llm_image_token_count(device, prefill_inputs,
+                                            &image_token_count);
+  }
   const iree_time_t encode_start = iree_time_now();
   int64_t *prompt = NULL;
   iree_host_size_t prompt_length = 0;
-  IREE_RETURN_IF_ERROR(iree_run_llm_encode_prompt(tokenizer, host_allocator,
-                                                  &prompt, &prompt_length));
+  if (iree_status_is_ok(status)) {
+    status = iree_run_llm_encode_prompt(
+        tokenizer, image_token_count, host_allocator, &prompt, &prompt_length);
+  }
   const iree_time_t encode_end = iree_time_now();
+  if (!iree_status_is_ok(status)) {
+    iree_vm_list_release(prefill_inputs);
+    return status;
+  }
   if (FLAG_print_token_ids) {
     iree_run_llm_print_ids("prompt token ids", prompt, prompt_length);
   }
@@ -541,7 +652,7 @@ static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
   iree_run_llm_output_t output;
   memset(&output, 0, sizeof(output));
   output.capacity = params.max_new_tokens;
-  iree_status_t status = iree_allocator_malloc_array(
+  status = iree_allocator_malloc_array(
       host_allocator, iree_max(output.capacity, 1), sizeof(*output.tokens),
       (void **)&output.tokens);
   if (iree_status_is_ok(status)) {
@@ -549,16 +660,6 @@ static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
     status = iree_llm_detokenizer_initialize(
         tokenizer, /*skip_special_tokens=*/!FLAG_print_special_tokens,
         write_text, host_allocator, &output.detokenizer);
-  }
-
-  // Image features and the like; the vision function runs here, before the
-  // timed generation.
-  iree_vm_list_t *prefill_inputs = NULL;
-  iree_duration_t vision_duration = -1;
-  if (iree_status_is_ok(status)) {
-    status = iree_run_llm_prefill_inputs(runtime, device, host_allocator,
-                                         &prefill_inputs, &vision_duration);
-    params.prefill_inputs = prefill_inputs;
   }
 
   iree_llm_generate_stats_t stats;

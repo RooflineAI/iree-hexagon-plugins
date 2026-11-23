@@ -245,15 +245,21 @@ def _run_generation(
         if generation.exit_code != 0:
             return Outcome(Status.RUNTIME_FAILURE, generation.describe())
         print(f"checking the {generation.variant} run")
+        tolerances = model_spec.tolerances
+        vision_tolerances = (
+            model_spec.generation and model_spec.generation.vision_tolerances
+        )
+        if generation.variant == "vision" and vision_tolerances:
+            tolerances = vision_tolerances
         try:
             check_generation(
                 reference=generation_reference,
                 prompt_ids=generation.prompt_ids,
                 tokens=generation.tokens,
                 prefill_logits_file=generation.prefill_logits_file,
-                atol=model_spec.tolerances.atol,
-                rtol=model_spec.tolerances.rtol,
-                max_relative_l2_percent=model_spec.tolerances.relative_l2_percent,
+                atol=tolerances.atol,
+                rtol=tolerances.rtol,
+                max_relative_l2_percent=tolerances.relative_l2_percent,
             )
         except AccuracyError as err:
             return Outcome(

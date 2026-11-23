@@ -244,7 +244,8 @@ one push, and each run is checked as above:
 * `vision`: with a `vision_model`, its entry is imported as VM module `vision`,
   compiled in the same compile case, and run on the device on the image first
   (`iree-run-llm --vision_function`); its results feed `prefill` directly.
-  This adds the encoder's error to the language model's.
+  This adds the encoder's error to the language model's, so its prefill
+  logits may get their own `vision_tolerances` (the tokens must still match).
 
 The log has the text and, under `generation timings:`, the time of the whole
 `iree-run-llm` run (`generate`) and its own times of `prefill` and of one

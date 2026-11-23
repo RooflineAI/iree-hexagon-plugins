@@ -203,6 +203,23 @@ def static_deepstack(self, hidden_states, visual_pos_masks, visual_embeds):
     return hidden_states + torch.where(mask, gathered, torch.zeros_like(gathered))
 
 
+def _select_interleaved_mrope(self, freqs, mrope_section):
+    # Qwen3VLTextRotaryEmbedding.apply_interleaved_mrope, the same values:
+    # column c of the result is freqs[axis[c], ..., c], with axis 1 (h) at
+    # 1, 4, 7, ... and 2 (w) at 2, 5, 8, ... within their sections, 0 (t)
+    # elsewhere. Upstream writes those columns with strided slice
+    # assignments (step 3); the Hexagon build gets those wrong (cos/sin off
+    # in exactly the h/w columns from position 1 on, measured 2026-11-23),
+    # while a constant per-column select compiles correctly. The table is
+    # built in Python, so it exports as a constant.
+    axis = [0] * freqs.shape[-1]
+    for dim, offset in ((1, 1), (2, 2)):
+        for column in range(offset, mrope_section[dim] * 3, 3):
+            axis[column] = dim
+    axis = torch.tensor(axis)
+    return torch.where(axis == 1, freqs[1], torch.where(axis == 2, freqs[2], freqs[0]))
+
+
 def mrope_positions(
     input_ids: torch.Tensor,
     image_token_id: int,
@@ -274,6 +291,8 @@ class Qwen3VLKvCacheLM(KvCacheLM):
         # the cache from its config; the vision tower keeps its own.
         language_model = model.model.language_model
         language_model._deepstack_process = static_deepstack.__get__(language_model)
+        rotary = language_model.rotary_emb
+        rotary.apply_interleaved_mrope = _select_interleaved_mrope.__get__(rotary)
         super().__init__(language_model, max_seq_len, block_seq_stride)
         self.lm_head = model.lm_head
         self.image_token_id = int(model.config.image_token_id)

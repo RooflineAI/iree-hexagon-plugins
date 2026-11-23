@@ -128,12 +128,18 @@ class GenerationSpec:
     # then also generates with it, compiled in the same compile case and run
     # on the image first (iree-run-llm --vision_function).
     vision_model: str | None = None
+    # The prefill logits tolerances of that run, which adds the encoder's
+    # error to the language model's; the model's `tolerances` if absent. The
+    # generated tokens still have to match exactly.
+    vision_tolerances: Tolerances | None = None
 
     def __post_init__(self) -> None:
         if not self.prompt.strip():
             raise SpecError("generation: 'prompt' must not be empty")
         if self.vision_model is not None and self.image is None:
             raise SpecError("generation: 'vision_model' needs an 'image'")
+        if self.vision_tolerances is not None and self.vision_model is None:
+            raise SpecError("generation: 'vision_tolerances' needs a 'vision_model'")
         if self.max_new_tokens <= 0:
             raise SpecError("generation: 'max_new_tokens' must be positive")
         if self.min_margin < 0:

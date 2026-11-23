@@ -21,7 +21,8 @@ inputs:
     high: null
     seed: 0
 # Copied from Qwen/Qwen3-VL-2B-Instruct (the static prefill on random features).
-# The vision run adds the encoder's error (0.85% on its first output).
+# Measured 2026-11-23 (hexagon-vtcm-hmx), from the reference's features: 0.26%,
+# max abs diff 0.125, all 19 tokens match.
 tolerances:
   atol: 2.0e-1
   rtol: 5.0e-2
@@ -37,3 +38,10 @@ generation:
   max_new_tokens: 19
   image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
   vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
+  # The encoder's own error (0.85% on the image embeddings) carried into the
+  # language model: 1.62%, max abs diff 3.57 on logits of magnitude ~30
+  # (2026-11-23), with all 19 tokens still matching.
+  vision_tolerances:
+    atol: 5.0
+    rtol: 5.0e-2
+    relative_l2_percent: 2.5

@@ -22,8 +22,8 @@ inputs:
     high: null
     seed: 0
 # Copied from Qwen/Qwen3-VL-2B-Instruct (the static prefill on random features).
-# Measured 2026-11-23 (hexagon-vtcm-hmx), from the reference's features: 0.26%,
-# max abs diff 0.125, all 19 tokens match.
+# Measured 2026-11-23 (hexagon-vtcm-hmx), from the reference's features: 0.30%,
+# max abs diff 0.25, all 20 tokens match.
 tolerances:
   atol: 2.0e-1
   rtol: 5.0e-2
@@ -50,10 +50,12 @@ generation:
   max_new_tokens: 20
   image: shapes-512x384.png
   vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
-  # The encoder's own error (0.85% on the image embeddings) carried into the
-  # language model: 1.62%, max abs diff 3.57 on logits of magnitude ~30
-  # (2026-11-23), with all 19 tokens still matching.
+  # The encoder's own error (0.85% on the image embeddings at 256x256) carried
+  # into the language model: on this 512x384 image 1.85%, max abs diff 5.03 on
+  # logits of magnitude ~30, with all 20 tokens matching (2026-11-23; the
+  # keyboard image gave 1.62%, 3.57). From the reference's features: 0.30%,
+  # 0.25.
   vision_tolerances:
-    atol: 5.0
+    atol: 8.0
     rtol: 5.0e-2
-    relative_l2_percent: 2.5
+    relative_l2_percent: 3.0

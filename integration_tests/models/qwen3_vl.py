@@ -206,14 +206,13 @@ def static_deepstack(self, hidden_states, visual_pos_masks, visual_embeds):
 def mrope_positions(
     input_ids: torch.Tensor,
     image_token_id: int,
-    num_image_tokens: Any,
     image_grid: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Qwen3-VL's 3-D (t, h, w) positions of a prompt with at most one image.
 
-    `get_rope_index` in closed form, for batch 1 and one image whose
-    `num_image_tokens` (= h * w) tokens are contiguous in `input_ids`, starting
-    at `s`, with merged grid `image_grid = [h, w]`:
+    `get_rope_index` in closed form, for batch 1 and one image with merged
+    grid `image_grid = [h, w]`, whose h * w tokens are contiguous in
+    `input_ids`, starting at `s`:
 
       * text before the image: (i, i, i)
       * image token k:         (s, s + k // w, s + k % w)
@@ -222,7 +221,10 @@ def mrope_positions(
     so decode continues at its cache position plus
     `rope_delta = max(h, w) - h * w`. Without an image token in the prompt,
     every position is (i, i, i) and the delta is 0. Elementwise ops only, so
-    the prompt length and the image size can both be dynamic.
+    the prompt length and the image size can both be dynamic. Everything
+    derives from tensors: arithmetic between a tensor and a symbolic size
+    (e.g. the number of image embeddings) imports as an invalid
+    `torch.aten.sub.Tensor` with a `!torch.int` operand.
 
     Returns `position_ids [3, 1, P]` and `rope_delta [1]`.
     """
@@ -232,6 +234,7 @@ def mrope_positions(
     # argmax returns the first maximal index: where the image starts.
     start = torch.argmax(is_image.to(torch.int32))
     h, w = image_grid[0], image_grid[1]
+    num_image_tokens = h * w
     delta = torch.maximum(h, w) - num_image_tokens
     after = has_image & (index >= start + num_image_tokens)
     text = torch.where(after, index + delta, index)
@@ -311,19 +314,20 @@ class Qwen3VLKvCacheLM(KvCacheLM):
         *prefill_inputs: torch.Tensor,
     ) -> torch.Tensor:
         image_embeds, deepstack0, deepstack1, deepstack2, image_grid = prefill_inputs
-        num_image_tokens = image_embeds.shape[0]
         embeds = self.model.get_input_embeddings()(input_ids)
         is_image = (input_ids == self.image_token_id)[..., None]
         # The i-th image token takes the i-th embedding, as masked_scatter
-        # does, with a static shape. The clamp keeps a prompt with more image
-        # tokens than embeddings in bounds.
-        index = (is_image[0, :, 0].long().cumsum(-1) - 1).clamp(
-            min=0, max=num_image_tokens - 1
+        # does, with a static shape. The bounds keep a prompt with more image
+        # tokens than the grid has in bounds (see mrope_positions on why they
+        # come from a tensor).
+        last = image_grid[0] * image_grid[1] - 1
+        index = torch.minimum(
+            (is_image[0, :, 0].long().cumsum(-1) - 1).clamp(min=0), last
         )
         gathered = image_embeds.to(embeds.dtype).index_select(0, index)[None]
         embeds = torch.where(is_image, gathered, embeds)
         position_ids, rope_delta = mrope_positions(
-            input_ids, self.image_token_id, num_image_tokens, image_grid
+            input_ids, self.image_token_id, image_grid
         )
         # Not copy_: iree-turbine materializes a module global only where a
         # function reads the buffer, and a store to one prefill never reads
@@ -355,8 +359,13 @@ class Qwen3VLKvCacheLM(KvCacheLM):
     ) -> tuple[tuple[torch.Tensor, ...], dict[str, dict[int, Any]]]:
         # 64 tokens, a 256x256 image; any count up to max_seq_len exports.
         tokens = torch.export.Dim("image_tokens", min=2, max=self.max_seq_len)
-        features = torch.zeros(64, self.hidden_size, dtype=self.model.dtype)
-        args = (features, features, features, features, torch.tensor([8, 8]))
+        # One tensor per argument: torch.export treats example inputs that
+        # alias each other as one value, so passing the same tensor four times
+        # makes every feature argument read the same (the last) input.
+        features = [
+            torch.zeros(64, self.hidden_size, dtype=self.model.dtype) for _ in range(4)
+        ]
+        args = (*features, torch.tensor([8, 8]))
         shapes = {
             "image_embeds": {0: tokens},
             "deepstack0": {0: tokens},

@@ -166,8 +166,8 @@ FailureOr<uint64_t> annotateDMABypass(IREE::HAL::ExecutableExportOp exportOp,
   return mask;
 }
 
-/// VTCM is not cached, so every DMA transfer may bypass the cache on its VTCM
-/// side.
+/// VTCM does not have a cache, so it is fine to set the bypass cache flag of
+/// DMA transfers on the VTCM side.
 void annotateVTCMBypass(ModuleOp innerModule) {
   innerModule.walk([](memref::DmaStartOp dmaOp) {
     if (isInVTCM(dmaOp.getSrcMemRef()))

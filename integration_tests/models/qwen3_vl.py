@@ -10,12 +10,12 @@ The whole multimodal forward does not export as one graph (its shapes come
 from the image grid through Python loops), so the halves are separate modules:
 
   * `VisionEncoder`: image in, the four tensors the language model consumes
-    out, plus the merged image grid. One fixed resolution for now: the grid
-    tensors transformers derives from the image size are baked in.
+    out, plus the merged image grid. Any image whose sides are multiples of
+    `IMAGE_FACTOR` (32): the tensors transformers derives from the grid in
+    Python are computed in the graph from the image's shape.
   * `Qwen3VLKvCacheLM`: the language model as a `KvCacheLM` whose `prefill`
-    also takes the encoder's outputs. Unlike the encoder, it is not tied to one
-    image size: the number of image tokens is dynamic and the M-RoPE positions
-    are computed in the graph from the grid.
+    also takes the encoder's outputs: the number of image tokens is dynamic and
+    the M-RoPE positions are computed in the graph from the grid.
 
 iree-run-llm chains the two on the device (`--vision_function`), or takes the
 encoder's outputs from files (`--prefill_input`).
@@ -30,11 +30,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers.models.qwen3_vl import modeling_qwen3_vl as mq
-from transformers.vision_utils import (
-    get_vision_cu_seqlens,
-    get_vision_interpolation_indices_and_weights,
-    get_vision_position_ids,
-)
 
 from integration_tests.models.kv_cache import KvCacheLM
 
@@ -46,6 +41,10 @@ IMAGE_PAD = "<|image_pad|>"
 _PATCH, _MERGE, _TEMPORAL, _MEAN, _STD = 16, 2, 2, 0.5, 0.5
 # Image sides must be a multiple of this: one merged patch.
 IMAGE_FACTOR = _PATCH * _MERGE
+# The largest image side the encoder is exported for, in pixels. 1024x1024 is
+# 1024 image tokens, which Qwen/Qwen3-VL-2B-Instruct-kv-cache's max_seq_len is
+# sized for; a non-square image has to stay within that token count too.
+MAX_IMAGE_SIDE = 1024
 
 # ===----------------------------------------------------------------------=== #
 # Vision encoder
@@ -109,67 +108,114 @@ def patch_vision_tower(visual: torch.nn.Module) -> None:
             module.__class__ = _F32LayerNorm
 
 
+def _grid_tensors(
+    visual: torch.nn.Module,
+    grid_h: torch.Tensor,
+    grid_w: torch.Tensor,
+    num_patches: Any,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """The position-embedding interpolation indices and weights, and the
+    rotary position ids, of one image's `grid_h` x `grid_w` patch grid: what
+    transformers' get_vision_interpolation_indices_and_weights and
+    get_vision_position_ids compute (for one image, bilinear, align_corners)
+    with Python loops over the grid, here as tensor ops so that the grid can
+    be dynamic.
+
+    `grid_h`, `grid_w` are 0-d i64 tensors; `num_patches` (= their product) may
+    be a symbolic size, used only as a shape. Every value is computed from
+    tensors: arithmetic between a tensor and a symbolic size imports as
+    invalid IR (see mrope_positions).
+    """
+    if (
+        visual.interpolation_mode != "bilinear"
+        or not visual.interpolation_align_corners
+    ):
+        raise NotImplementedError("only bilinear, align_corners=True interpolation")
+    m = visual.config.spatial_merge_size
+    side = visual.num_grid_per_side
+    # Patches come in spatial-merge-block order: (block_row, block_col,
+    # in_row, in_col), in_col fastest.
+    index = torch.arange(num_patches)
+    blocks_w = grid_w // m
+    in_col = index % m
+    in_row = (index // m) % m
+    block_col = (index // (m * m)) % blocks_w
+    block_row = index // (m * m) // blocks_w
+    row = block_row * m + in_row
+    col = block_col * m + in_col
+
+    def taps(position: torch.Tensor, size: torch.Tensor):
+        # Bilinear taps into the side x side learned table, align_corners:
+        # position p of `size` maps to p * (side - 1) / (size - 1).
+        source = position.float() * (side - 1) / torch.clamp(size - 1, min=1).float()
+        floor = torch.floor(source)
+        offsets = torch.arange(2)
+        indices = (floor.long()[:, None] + offsets).clamp(0, side - 1)
+        weights = (1 - (source[:, None] - floor[:, None] - offsets).abs()).clamp(min=0)
+        return indices, weights
+
+    h_taps, h_weights = taps(row, grid_h)
+    w_taps, w_weights = taps(col, grid_w)
+    indices = (h_taps[:, :, None] * side + w_taps[:, None, :]).reshape(-1, 4)
+    weights = (h_weights[:, :, None] * w_weights[:, None, :]).reshape(-1, 4)
+    return indices, weights, torch.stack([row, col], dim=-1)
+
+
 class VisionEncoder(torch.nn.Module):
-    """The vision tower on one `side` x `side` image.
+    """The vision tower on one image, [1, 3, H, W] RGB in 0..1, with H and W
+    multiples of `IMAGE_FACTOR` (the caller resizes, as the image processor
+    does).
 
     Outputs the merged image embeddings, the three deepstack features (each
-    [tokens, hidden]) and the merged grid `[h, w]` (i64; tokens = h * w),
-    which `Qwen3VLKvCacheLM.prefill` takes in this order.
+    [tokens, hidden], tokens = H/32 * W/32) and the merged grid
+    `[H/32, W/32]` (i64), which `Qwen3VLKvCacheLM.prefill` takes in this order.
     """
 
-    def __init__(self, visual: torch.nn.Module, side: int) -> None:
+    def __init__(self, visual: torch.nn.Module) -> None:
         super().__init__()
-        if side % IMAGE_FACTOR:
-            raise ValueError(
-                f"the image side {side} is not a multiple of {IMAGE_FACTOR}"
-            )
         self.visual = visual
-        self.side = side
-        grid = torch.tensor([[1, side // _PATCH, side // _PATCH]])
-        indices, weights = get_vision_interpolation_indices_and_weights(
-            grid,
-            num_grid_per_side=visual.num_grid_per_side,
-            mode=visual.interpolation_mode,
-            align_corners=visual.interpolation_align_corners,
-            spatial_merge_size=visual.config.spatial_merge_size,
-        )
-        self.register_buffer("grid", grid, persistent=False)
-        self.register_buffer("interp_indices", indices, persistent=False)
-        self.register_buffer("interp_weights", weights, persistent=False)
-        self.register_buffer(
-            "position_ids",
-            get_vision_position_ids(grid, visual.spatial_merge_size),
-            persistent=False,
-        )
-        self.register_buffer(
-            "cu_seqlens", get_vision_cu_seqlens(grid), persistent=False
-        )
-        merged = side // IMAGE_FACTOR
-        self.register_buffer(
-            "merged_grid", torch.tensor([merged, merged]), persistent=False
-        )
+
+    @staticmethod
+    def export_dynamic_shapes() -> dict[str, dict[int, Any]]:
+        """The export's dynamic dims: H and W, multiples of IMAGE_FACTOR, from
+        2 * IMAGE_FACTOR up to MAX_IMAGE_SIDE."""
+        blocks = MAX_IMAGE_SIDE // IMAGE_FACTOR
+        height = torch.export.Dim("image_height_blocks", min=2, max=blocks)
+        width = torch.export.Dim("image_width_blocks", min=2, max=blocks)
+        return {"image": {2: IMAGE_FACTOR * height, 3: IMAGE_FACTOR * width}}
 
     def forward(self, image: torch.Tensor):
-        # image: [1, 3, H, W] in 0..1. The image processor's rescale is the
-        # suite's /255; normalize and patchify follow
-        # Qwen2VLImageProcessorPil.patchify: (gh, gw, mh, mw, C, t, ph, pw).
+        # The image processor's rescale is the suite's /255; normalize and
+        # patchify follow Qwen2VLImageProcessorPil.patchify:
+        # (gh, gw, mh, mw, C, t, ph, pw).
+        _, c, height, width = image.shape
+        gh, gw = height // _PATCH, width // _PATCH
         x = (image[0] - _MEAN) / _STD
-        c, g = x.shape[0], self.side // _PATCH
-        x = x.reshape(c, g // _MERGE, _MERGE, _PATCH, g // _MERGE, _MERGE, _PATCH)
+        x = x.reshape(c, gh // _MERGE, _MERGE, _PATCH, gw // _MERGE, _MERGE, _PATCH)
         x = x.permute(1, 4, 2, 5, 0, 3, 6).unsqueeze(5)
         x = x.expand(-1, -1, -1, -1, -1, _TEMPORAL, -1, -1)
-        pixel_values = x.reshape(g * g, c * _TEMPORAL * _PATCH * _PATCH)
+        pixel_values = x.reshape(gh * gw, c * _TEMPORAL * _PATCH * _PATCH)
+        # The patch grid as tensors, the only form the importer takes for
+        # arithmetic on it.
+        grid_h = torch.ops.aten.scalar_tensor(gh, dtype=torch.int64)
+        grid_w = torch.ops.aten.scalar_tensor(gw, dtype=torch.int64)
+        indices, weights, position_ids = _grid_tensors(
+            self.visual, grid_h, grid_w, gh * gw
+        )
+        one = torch.ones((), dtype=torch.int64)
         out = self.visual(
             pixel_values,
-            grid_thw=self.grid,
-            interp_indices=self.interp_indices,
-            interp_weights=self.interp_weights,
-            position_ids=self.position_ids,
-            cu_seqlens=self.cu_seqlens,
+            grid_thw=torch.stack([one, grid_h, grid_w])[None],
+            interp_indices=indices,
+            interp_weights=weights,
+            position_ids=position_ids,
+            # One image: a single attention segment (the patched attention
+            # ignores it; transformers still reads it).
+            cu_seqlens=torch.stack([one - 1, grid_h * grid_w]).to(torch.int32),
             return_dict=True,
         )
-        # A copy, so that the export returns a value rather than a buffer.
-        return (*(out.pooler_output, *out.deepstack_features), self.merged_grid + 0)
+        merged_grid = torch.stack([grid_h // _MERGE, grid_w // _MERGE])
+        return (out.pooler_output, *out.deepstack_features, merged_grid)
 
 
 def load_image(path: Path, dtype: torch.dtype) -> torch.Tensor:

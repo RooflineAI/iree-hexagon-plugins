@@ -329,14 +329,25 @@ def import_model(
         input_files.append(input_file)
 
     ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
-    exported_program = torch.export.export(model, args=inputs, strict=True)
+    # A model may declare dynamic dims (e.g. a vision encoder's image size);
+    # the spec's inputs are then just one example of the shapes it accepts.
+    dynamic_shapes = None
+    if hasattr(model, "export_dynamic_shapes"):
+        dynamic_shapes = model.export_dynamic_shapes()
+    exported_program = torch.export.export(
+        model, args=inputs, dynamic_shapes=dynamic_shapes, strict=dynamic_shapes is None
+    )
     exported_program = exported_program.run_decompositions(
         build_decomposition_table(ops)
     )
     # aot.export takes the decomposed program from here; iree-turbine still
     # applies its own default table on top, which is where the batch-norm and
     # _to_copy decompositions a conv net needs come from.
-    exported = aot.export(exported_program, module_name=module_name)
+    exported = aot.export(
+        exported_program,
+        module_name=module_name,
+        import_symbolic_shape_expressions=dynamic_shapes is not None,
+    )
 
     model_mlir = output_dir / "model.mlir"
     exported.save_mlir(model_mlir)

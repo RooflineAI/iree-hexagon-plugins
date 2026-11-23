@@ -27,8 +27,6 @@ from integration_tests.models.qwen3_vl import (
 
 _MODEL_ID = "Qwen/Qwen3-VL-2B-Instruct"
 _REVISION = "89644892e4d85e24eaac8bacfd4f463576704203"
-# The vision encoder entry's resolution.
-_SIDE = 256
 # Context length. Sized for images up to 1024x1024 pixels: 32 x 32 = 1024
 # image tokens (one per 32x32 pixels after the encoder's 2x2 merge), plus 256
 # for the chat template, the question and the answer. The bound is a choice,
@@ -53,7 +51,7 @@ def get_model() -> torch.nn.Module:
     patch_vision_tower(visual)
     return Qwen3VLKvCacheLM(
         model,
-        VisionEncoder(visual, _SIDE),
+        VisionEncoder(visual),
         max_seq_len=_MAX_SEQ_LEN,
         block_seq_stride=32,
     )

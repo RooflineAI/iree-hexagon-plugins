@@ -96,8 +96,8 @@ void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer) {
 /// What the host may do with the buffer between executions, as
 /// HEXAGON_RT_ARM_DSP_BUF_FLAG_*: it only accesses what it can map (see
 /// iree_hal_hexagon_buffer_map_range) and never writes immutable contents.
-/// TODO: FIXME: for the VK-cache example, the flags may nee to be derived more
-/// dynamically This way is save nevertheless
+/// TODO: FIXME: for the KV-cache example, the flags may need to be derived more
+/// dynamically This way is safe nevertheless
 static uint32_t iree_hal_hexagon_buffer_host_flags(iree_hal_buffer_t *buffer) {
   iree_hal_buffer_usage_t usage = iree_hal_buffer_allowed_usage(buffer);
   bool host_maps =

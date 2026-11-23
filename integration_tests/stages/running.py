@@ -423,6 +423,8 @@ class RunLlmResult:
     exit_code: int
     log: str
     logcat: str
+    # Where prefill's extra inputs came from, see `run_llm_on_device`.
+    variant: str = "text"
     # As iree-run-llm printed them; None when it did not get that far.
     prompt_ids: tuple[int, ...] | None = None
     tokens: tuple[int, ...] | None = None
@@ -432,7 +434,8 @@ class RunLlmResult:
 
     def describe(self) -> str:
         return (
-            f"iree-run-llm exited {self.exit_code} in {self.remote_dir}\n"
+            f"iree-run-llm ({self.variant}) exited {self.exit_code} in "
+            f"{self.remote_dir}\n"
             f"--- stdout/stderr ---\n{self.log}\n"
             f"--- logcat (adsprpc) ---\n{self.logcat}"
         )
@@ -444,10 +447,14 @@ class RunLlmResult:
 _PROMPT_IDS = re.compile(r"prompt token ids:([0-9, ]*)")
 _GENERATED_IDS = re.compile(r"generated token ids:([0-9, ]*)")
 # iree-run-llm's own times, from its stats on stderr.
+_VISION_MS = re.compile(r"^vision: +([0-9.]+) ms", re.MULTILINE)
 _PREFILL_MS = re.compile(r"^prefill: ([0-9.]+) ms", re.MULTILINE)
 _DECODE_MS_PER_TOKEN = re.compile(r"^decode: .*\(([0-9.]+) ms/token", re.MULTILINE)
-# Where iree-run-llm writes prefill's logits, in the case directory.
-_PREFILL_LOGITS = "generation_prefill_logits.npy"
+# Where iree-run-llm writes prefill's logits, in the case directory; one file
+# per variant, `{}` being its name.
+_PREFILL_LOGITS = "generation_prefill_logits_{}.npy"
+# The vision module's name in the case directory.
+_VISION_MODULE = "vision.vmfb"
 
 
 def _parse_ids(pattern: re.Pattern[str], log: str) -> tuple[int, ...] | None:
@@ -468,7 +475,8 @@ def run_llm_on_device(
     host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
-) -> RunLlmResult:
+    vision_vmfb: Path | None = None,
+) -> list[RunLlmResult]:
     """Push a module exported from a `KvCacheLM` and generate tokens with it
     with iree-run-llm on the device.
 
@@ -477,7 +485,13 @@ def run_llm_on_device(
     the prompt and generated token ids from the log. Prefill's logits are
     pulled to `local_output_dir`.
 
-    `timeout` bounds both the module push and the run, which runs under
+    One run, one result, per variant, i.e. where prefill's extra inputs come
+    from: none for a text model (`text`). For a VLM, the reference's image
+    features as files (`features`), and with `vision_vmfb` (the
+    generation's vision module, compiled) also that module run on the image
+    first, in the same context (`vision`). The modules are pushed once.
+
+    `timeout` bounds the module push, and each run, which runs under
     `limit_lifetime`, see `run_module_on_device`.
     """
     timings: dict[str, float] = {}
@@ -485,13 +499,89 @@ def run_llm_on_device(
     remote_dir = _push_case(
         deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
     )
-    adb.push([generation.tokenizer_json, generation.prompt_file], remote_dir + "/")
+    files = [generation.tokenizer_json, generation.prompt_file]
+    files += generation.prefill_input_files
+    variants: list[tuple[str, list[str]]] = []
+    if not generation.prefill_input_files:
+        variants.append(("text", ["--module=module.vmfb"]))
+    else:
+        variants.append(
+            (
+                "features",
+                [
+                    "--module=module.vmfb",
+                    *(
+                        f"--prefill_input=@{f.name}"
+                        for f in generation.prefill_input_files
+                    ),
+                ],
+            )
+        )
+    if vision_vmfb is not None:
+        vision = generation.vision
+        assert vision is not None
+        files.append(vision.input_file)
+        vision_timings: dict[str, float] = {}
+        push_module(
+            module_vmfb=vision_vmfb,
+            remote_module=f"{remote_dir}/{_VISION_MODULE}",
+            kept_module=deployment.kept_module(f"{case_dir_name}_vision"),
+            host_rsync=host_rsync,
+            device_rsync=f"{deployment.limit_lifetime} {deployment.rsync}",
+            timeout=timeout,
+            timings=vision_timings,
+        )
+        timings.update({f"vision_{k}": v for k, v in vision_timings.items()})
+        variants.append(
+            (
+                "vision",
+                [
+                    # The model's module last: iree-run-llm runs its prefill.
+                    f"--module={_VISION_MODULE}",
+                    "--module=module.vmfb",
+                    f"--vision_function={vision.function}",
+                    f"--vision_input=@{vision.input_file.name}",
+                ],
+            )
+        )
+    adb.push(files, remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start
 
+    results = []
+    for variant, module_flags in variants:
+        result = _run_llm(
+            deployment,
+            remote_dir,
+            generation,
+            variant,
+            module_flags,
+            local_output_dir,
+            extra_flags,
+            timeout,
+        )
+        if not results:
+            result.timings = {**timings, **result.timings}
+        results.append(result)
+    return results
+
+
+def _run_llm(
+    deployment: Deployment,
+    remote_dir: str,
+    generation: GenerationReference,
+    variant: str,
+    module_flags: list[str],
+    local_output_dir: Path,
+    extra_flags: tuple[str, ...],
+    timeout: float,
+) -> RunLlmResult:
+    """One iree-run-llm run in the pushed `remote_dir`, see `run_llm_on_device`."""
+    timings: dict[str, float] = {}
+    prefill_logits = _PREFILL_LOGITS.format(variant)
     argv = [
         deployment.limit_lifetime,
         deployment.run_llm,
-        "--module=module.vmfb",
+        *module_flags,
         "--module_mode=mmap",
         "--device=hexagon",
         f"--tokenizer={generation.tokenizer_json.name}",
@@ -503,7 +593,7 @@ def run_llm_on_device(
         f"--pad_token_id={generation.pad_token_id}",
         "--ignore_eos",
         "--print_token_ids",
-        f"--prefill_logits_output={_PREFILL_LOGITS}",
+        f"--prefill_logits_output={prefill_logits}",
         *extra_flags,
     ]
     # See run_module_on_device for oom_score_adj and DSP_LIBRARY_PATH.
@@ -523,18 +613,19 @@ def run_llm_on_device(
         logcat = _dump_logcat()
     log = stdout + stderr
     local_output_dir.mkdir(parents=True, exist_ok=True)
-    prefill_logits_file: Path | None = local_output_dir / _PREFILL_LOGITS
+    prefill_logits_file: Path | None = local_output_dir / prefill_logits
     # A remnant of an earlier run must not pass for this run's logits.
     prefill_logits_file.unlink(missing_ok=True)
     pull_start = time.time()
     try:
-        adb.pull([f"{remote_dir}/{_PREFILL_LOGITS}"], local_output_dir)
+        adb.pull([f"{remote_dir}/{prefill_logits}"], local_output_dir)
     except AdbError:
         # As in run_module_on_device: a failed run's exit code and log matter,
         # not a pull error on top of them.
         prefill_logits_file = None
     timings["pull_prefill_logits"] = time.time() - pull_start
     for key, pattern in (
+        ("vision", _VISION_MS),
         ("prefill", _PREFILL_MS),
         ("decode_per_token", _DECODE_MS_PER_TOKEN),
     ):
@@ -545,6 +636,7 @@ def run_llm_on_device(
         exit_code=exit_code,
         log=log,
         logcat=_filter_logcat_lines(logcat),
+        variant=variant,
         prompt_ids=_parse_ids(_PROMPT_IDS, log),
         tokens=_parse_ids(_GENERATED_IDS, log),
         prefill_logits_file=prefill_logits_file,

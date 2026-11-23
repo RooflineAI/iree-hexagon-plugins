@@ -93,11 +93,18 @@ def _run_pipeline(
     )
     local_output_dir = work_dir / "device_outputs"
     if imported_model.generation is not None:
+        vision_vmfb = compiled.vision_vmfb
+        if vision_vmfb is not None:
+            print(
+                f"compiled the vision module -> {vision_vmfb} "
+                f"({vision_vmfb.stat().st_size} bytes)"
+            )
         return _run_generation(
             model_spec=model_spec,
             run_case=run_case,
             imported_model=imported_model,
             vmfb=vmfb,
+            vision_vmfb=vision_vmfb,
             host_rsync=host_rsync,
             deployment=deployment,
             case_dir=case_dir,
@@ -173,18 +180,24 @@ def _run_generation(
     run_case: RunCase,
     imported_model: ImportedModel,
     vmfb: pathlib.Path,
+    vision_vmfb: pathlib.Path | None,
     host_rsync: pathlib.Path,
     deployment: Deployment,
     case_dir: str,
     local_output_dir: pathlib.Path,
     tracy_port: int | None,
 ) -> Outcome:
-    """Run and check a `KvCacheLM` module: token generation with iree-run-llm."""
+    """Run and check a `KvCacheLM` module: token generation with iree-run-llm.
+
+    A VLM generates once from the reference's image features, and, with a
+    vision module, once more from that module's: each run has to match the
+    reference. The first failure is the outcome.
+    """
     generation_reference = imported_model.generation
     assert generation_reference is not None
     if tracy_port is not None:
         raise ValueError("profiling does not support token generation")
-    generation = run_llm_on_device(
+    generations = run_llm_on_device(
         deployment=deployment,
         case_dir_name=case_dir,
         module_vmfb=vmfb,
@@ -193,28 +206,45 @@ def _run_generation(
         host_rsync=host_rsync,
         extra_flags=run_case.flags,
         timeout=model_spec.run_timeout,
+        vision_vmfb=vision_vmfb,
     )
-    print(generation.log)
+    for generation in generations:
+        print(f"--- iree-run-llm ({generation.variant}) ---")
+        print(generation.log)
     # perf_compare.py compares prefill and decode_per_token from here,
-    # instead of the `run:` under "timings:" a plain run has.
+    # instead of the `run:` under "timings:" a plain run has: the first run's.
+    # Later runs' keys carry their variant's name, which it ignores.
     print("generation timings:")
-    for key, value in generation.timings.items():
-        print(f"  {key}: {value:.3f}s")
-    if generation.exit_code != 0:
-        return Outcome(Status.RUNTIME_FAILURE, generation.describe())
-    try:
-        check_generation(
-            reference=generation_reference,
-            prompt_ids=generation.prompt_ids,
-            tokens=generation.tokens,
-            prefill_logits_file=generation.prefill_logits_file,
-            atol=model_spec.tolerances.atol,
-            rtol=model_spec.tolerances.rtol,
-            max_relative_l2_percent=model_spec.tolerances.relative_l2_percent,
+    for index, generation in enumerate(generations):
+        prefix = "" if index == 0 else f"{generation.variant}_"
+        for key, value in generation.timings.items():
+            print(f"  {prefix}{key}: {value:.3f}s")
+    for generation in generations:
+        if generation.exit_code != 0:
+            return Outcome(Status.RUNTIME_FAILURE, generation.describe())
+        print(f"checking the {generation.variant} run")
+        tolerances = model_spec.tolerances
+        vision_tolerances = (
+            model_spec.generation and model_spec.generation.vision_tolerances
         )
-    except AccuracyError as err:
-        return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{generation.describe()}")
-    return Outcome(Status.PASSED, generation.log)
+        if generation.variant == "vision" and vision_tolerances:
+            tolerances = vision_tolerances
+        try:
+            check_generation(
+                reference=generation_reference,
+                prompt_ids=generation.prompt_ids,
+                tokens=generation.tokens,
+                prefill_logits_file=generation.prefill_logits_file,
+                atol=tolerances.atol,
+                rtol=tolerances.rtol,
+                max_relative_l2_percent=tolerances.relative_l2_percent,
+            )
+        except AccuracyError as err:
+            return Outcome(
+                Status.ACCURACY_FAILURE,
+                f"{generation.variant} run: {err}\n{generation.describe()}",
+            )
+    return Outcome(Status.PASSED, "\n".join(g.log for g in generations))
 
 
 def test_model_on_device(

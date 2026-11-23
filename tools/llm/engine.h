@@ -20,6 +20,11 @@
 //       -> next_token: i64[1, 1]
 //     Runs one token at position pos against the cache.
 //
+// prefill may take more arguments after input_length, which the caller passes
+// as values (e.g. a VLM's image features, see
+// integration_tests/models/qwen3_vl.py). The engine passes them through as
+// they are; what they mean is between the caller and the module.
+//
 // Both run in one VM context, so prefill writes to a cache and the same one
 // is used by decode uses. Sampling is greedy and is performed inside the
 // module.
@@ -132,16 +137,20 @@ iree_host_size_t iree_llm_model_position(const iree_llm_model_t *model);
 // and returns the token following it. Padding is never attended to, so any
 // valid token ID works as |pad_token|.
 //
+// |extra_inputs|, if not NULL, holds the values prefill takes after
+// input_length, in order; they must be usable on the lead device, e.g. the
+// results of another function in the same context.
+//
 // If |out_logits| is not NULL, it receives prefill's logits, [1, P, vocab] for
 // all P padded positions, as the module returned them: in device memory, which
 // the caller may have to copy to the host to read them (e.g. with
 // iree_tooling_transfer_variants). The caller releases them. Otherwise they
 // are dropped.
-iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
-                                     const int64_t *prompt,
-                                     iree_host_size_t prompt_length,
-                                     int64_t pad_token, int64_t *out_token,
-                                     iree_hal_buffer_view_t **out_logits);
+iree_status_t
+iree_llm_model_prefill(iree_llm_model_t *model, const int64_t *prompt,
+                       iree_host_size_t prompt_length, int64_t pad_token,
+                       iree_vm_list_t *extra_inputs, int64_t *out_token,
+                       iree_hal_buffer_view_t **out_logits);
 
 // Runs decode on |token| at iree_llm_model_position and returns the token
 // following it. Fails with OUT_OF_RANGE once the cache holds max_seq_len
@@ -174,6 +183,8 @@ typedef struct iree_llm_generate_params_t {
   // Tokens that end generation; they are not passed to the token callback.
   iree_host_size_t stop_token_count;
   const int64_t *stop_tokens;
+  // See iree_llm_model_prefill's |extra_inputs|; NULL for none.
+  iree_vm_list_t *prefill_inputs;
 } iree_llm_generate_params_t;
 
 // Called with each generated token, in order. Setting |*out_stop| ends

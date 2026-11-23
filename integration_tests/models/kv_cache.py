@@ -167,6 +167,38 @@ class KvCacheLM(torch.nn.Module):
             use_cache=True,
         ).logits
 
+    def _prefill_logits(
+        self,
+        input_ids: torch.Tensor,
+        cache_position: torch.Tensor,
+        input_length: torch.Tensor,
+        *prefill_inputs: torch.Tensor,
+    ) -> torch.Tensor:
+        """Prefill's logits. A subclass whose `prefill` takes more arguments
+        after `input_length` (e.g. image features) gets them in
+        `prefill_inputs`; this class takes none."""
+        if prefill_inputs:
+            raise TypeError(f"{type(self).__name__}.prefill takes no extra inputs")
+        # Real tokens only; transformers adds the causal part.
+        positions = torch.arange(input_ids.shape[-1])
+        mask = positions[None, :] <= input_length[:, None]
+        return self._logits(input_ids, cache_position, mask)
+
+    def _decode_logits(
+        self, input_ids: torch.Tensor, cache_position: torch.Tensor
+    ) -> torch.Tensor:
+        # One new token sees every cached position.
+        mask = torch.zeros((input_ids.shape[0], 1, 1, 1), dtype=self.model.dtype)
+        return self._logits(input_ids, cache_position, mask)
+
+    def example_prefill_inputs(
+        self,
+    ) -> tuple[tuple[torch.Tensor, ...], dict[str, dict[int, Any]]]:
+        """Example values and dynamic shapes, by argument name, of the
+        arguments `prefill` takes after `input_length`, for the export. None
+        here; a subclass that adds some overrides this and `prefill`."""
+        return (), {}
+
     @torch.no_grad()
     def prefill(
         self,
@@ -174,10 +206,7 @@ class KvCacheLM(torch.nn.Module):
         cache_position: torch.Tensor,
         input_length: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Real tokens only; transformers adds the causal part.
-        positions = torch.arange(input_ids.shape[-1])
-        mask = positions[None, :] <= input_length[:, None]
-        logits = self._logits(input_ids, cache_position, mask)
+        logits = self._prefill_logits(input_ids, cache_position, input_length)
         next_token = torch.argmax(logits[0, input_length])[None, None]
         return next_token, logits
 
@@ -185,9 +214,7 @@ class KvCacheLM(torch.nn.Module):
     def decode(
         self, input_ids: torch.Tensor, cache_position: torch.Tensor
     ) -> torch.Tensor:
-        # One new token sees every cached position.
-        mask = torch.zeros((input_ids.shape[0], 1, 1, 1), dtype=self.model.dtype)
-        logits = self._logits(input_ids, cache_position, mask)
+        logits = self._decode_logits(input_ids, cache_position)
         return torch.argmax(logits[0, 0])[None, None]
 
     @torch.no_grad()
@@ -197,6 +224,7 @@ class KvCacheLM(torch.nn.Module):
         max_new_tokens: int,
         min_prefill_blocks: int = 2,
         pad_token_id: int = 0,
+        prefill_inputs: tuple[torch.Tensor, ...] = (),
     ) -> tuple[list[GeneratedTokenInfo], torch.Tensor]:
         """Greedy generation as iree-run-llm runs it, from an empty cache.
 
@@ -204,6 +232,9 @@ class KvCacheLM(torch.nn.Module):
         `min_prefill_blocks` blocks for `prefill`, then `decode` runs once per
         further token. Stop tokens are ignored, as with iree-run-llm's
         --ignore_eos, and generation ends early only at `max_seq_len`.
+
+        `prefill_inputs` are the arguments `prefill` takes after
+        `input_length`, if it takes any (see `example_prefill_inputs`).
 
         Returns one `GeneratedTokenInfo` per generated token, in order, and
         prefill's logits, `[1, padded length, vocab]` as `prefill` returns them.
@@ -221,9 +252,9 @@ class KvCacheLM(torch.nn.Module):
         input_length = torch.tensor([len(prompt) - 1])
         self.reset_cache()
         try:
-            positions = torch.arange(padded_length)
-            mask = positions[None, :] <= input_length[:, None]
-            prefill_logits = self._logits(input_ids, positions, mask)
+            prefill_logits = self._prefill_logits(
+                input_ids, torch.arange(padded_length), input_length, *prefill_inputs
+            )
             logits = prefill_logits[0, len(prompt) - 1]
             generated: list[GeneratedTokenInfo] = []
             position = len(prompt)
@@ -238,11 +269,9 @@ class KvCacheLM(torch.nn.Module):
                 )
                 if len(generated) == max_new_tokens or position >= self.max_seq_len:
                     break
-                mask = torch.zeros((1, 1, 1, 1), dtype=self.model.dtype)
-                logits = self._logits(
+                logits = self._decode_logits(
                     torch.tensor([[generated[-1].selected_id]]),
                     torch.arange(position + 1),
-                    mask,
                 )[0, 0]
                 position += 1
         finally:

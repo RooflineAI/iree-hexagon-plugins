@@ -220,11 +220,40 @@ The check, in `stages/checking.py`:
   positions (the padding's are never used);
 * the generated tokens have to match the reference's exactly.
 
+#### Image + text (VLM)
+
+A VLM's language model is a `KvCacheLM` whose `prefill` also takes the vision
+encoder's outputs (`Qwen3VLKvCacheLM` in `models/qwen3_vl.py`, e.g.
+`Qwen/Qwen3-VL-2B-Instruct-kv-cache`). Its `generation` block names an image,
+and optionally the model entry of the vision encoder:
+
+```yaml
+generation:
+  prompt: "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>..."
+  image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
+  vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
+```
+
+The import computes the image features with the model's own eager encoder,
+expands the prompt's one image placeholder to one token per image embedding,
+and generates the reference from both. The device then generates twice from
+one push, and each run is checked as above:
+
+* `features`: from the reference's image features, passed as files
+  (`iree-run-llm --prefill_input`). This checks the language model alone.
+* `vision`: with a `vision_model`, its entry is imported as VM module `vision`,
+  compiled in the same compile case, and run on the device on the image first
+  (`iree-run-llm --vision_function`); its results feed `prefill` directly.
+  This adds the encoder's error to the language model's, so its prefill
+  logits may get their own `vision_tolerances` (the tokens must still match).
+
 The log has the text and, under `generation timings:`, the time of the whole
 `iree-run-llm` run (`generate`) and its own times of `prefill` and of one
 decode step (`decode_per_token`). `perf_compare.py` compares the latter two
 against the recent main runs, each as `<test id>:<name>`, as it compares the
-`run:` of other models. A profile run case does not support these models.
+`run:` of other models; for a VLM, those of the `features` run (the `vision`
+run's are printed prefixed with `vision_`). A profile run case does not
+support these models.
 
 ## Profiling
 

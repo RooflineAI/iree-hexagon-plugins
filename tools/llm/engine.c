@@ -269,11 +269,11 @@ static iree_status_t iree_llm_invoke(iree_llm_model_t *model,
   return status;
 }
 
-iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
-                                     const int64_t *prompt,
-                                     iree_host_size_t prompt_length,
-                                     int64_t pad_token, int64_t *out_token,
-                                     iree_hal_buffer_view_t **out_logits) {
+iree_status_t
+iree_llm_model_prefill(iree_llm_model_t *model, const int64_t *prompt,
+                       iree_host_size_t prompt_length, int64_t pad_token,
+                       iree_vm_list_t *extra_inputs, int64_t *out_token,
+                       iree_hal_buffer_view_t **out_logits) {
   if (out_logits)
     *out_logits = NULL;
   if (prompt_length == 0) {
@@ -301,8 +301,11 @@ iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
   }
   const int64_t input_length = (int64_t)prompt_length - 1;
 
+  const iree_host_size_t extra_count =
+      extra_inputs ? iree_vm_list_size(extra_inputs) : 0;
   iree_vm_list_t *inputs = NULL;
-  IREE_RETURN_IF_ERROR(iree_vm_list_create(iree_vm_make_undefined_type_def(), 3,
+  IREE_RETURN_IF_ERROR(iree_vm_list_create(iree_vm_make_undefined_type_def(),
+                                           3 + extra_count,
                                            model->host_allocator, &inputs));
   const iree_hal_dim_t input_ids_shape[2] = {1, padded_length};
   const iree_hal_dim_t positions_shape[1] = {padded_length};
@@ -316,6 +319,13 @@ iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
   if (iree_status_is_ok(status)) {
     status = iree_llm_append_i64(model, 1, input_length_shape, &input_length,
                                  inputs);
+  }
+  for (iree_host_size_t i = 0; i < extra_count && iree_status_is_ok(status);
+       ++i) {
+    iree_vm_variant_t value = iree_vm_variant_empty();
+    status = iree_vm_list_get_variant_assign(extra_inputs, i, &value);
+    if (iree_status_is_ok(status))
+      status = iree_vm_list_push_variant_retain(inputs, &value);
   }
   if (iree_status_is_ok(status)) {
     status =
@@ -420,9 +430,9 @@ iree_status_t iree_llm_generate(iree_llm_model_t *model, const int64_t *prompt,
 
   int64_t token = 0;
   const iree_time_t prefill_start = iree_time_now();
-  iree_status_t status =
-      iree_llm_model_prefill(model, prompt, prompt_length, params->pad_token,
-                             &token, out_prefill_logits);
+  iree_status_t status = iree_llm_model_prefill(
+      model, prompt, prompt_length, params->pad_token, params->prefill_inputs,
+      &token, out_prefill_logits);
   out_stats->prefill_duration = iree_time_now() - prefill_start;
   while (iree_status_is_ok(status)) {
     if (iree_llm_is_stop_token(params, token)) {

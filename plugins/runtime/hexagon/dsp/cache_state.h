@@ -92,7 +92,8 @@ typedef struct hexagon_dsp_cache_op_s {
 
 /// What the data cache may hold of one mapped allocation.
 typedef struct hexagon_dsp_cache_state_s {
-  /// dirty lines may exist in [dirty_begin, dirty_end), none if equal
+  /// byte offsets within the allocation: dirty lines may exist only where they
+  /// overlap [dirty_begin, dirty_end); none if equal
   uint64_t dirty_begin;
   uint64_t dirty_end;
   /// lines may exist anywhere in the allocation

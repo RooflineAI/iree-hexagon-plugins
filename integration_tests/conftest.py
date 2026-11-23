@@ -229,6 +229,20 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     )
 
 
+def _run_order(item: pytest.Item) -> int:
+    """micro/ models first"""
+    callspec = getattr(item, "callspec", None)
+    spec = callspec.params.get("model_spec") if callspec is not None else None
+    return 0 if spec is not None and spec.name.startswith("micro/") else 1
+
+
+# trylast: after pytest's own reordering, which groups the tests of a model.
+# The sort is stable, so it keeps that grouping and the order within a group.
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    items.sort(key=_run_order)
+
+
 @pytest.fixture(scope="session")
 def iree_compile(pytestconfig: pytest.Config) -> Path:
     return resolve_bazel_artifact(

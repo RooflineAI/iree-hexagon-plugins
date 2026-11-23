@@ -476,8 +476,14 @@ iree_run_llm_image_token_count(iree_hal_device_t *device,
   iree_hal_buffer_view_t *grid =
       size ? iree_vm_list_get_buffer_view_assign(prefill_inputs, size - 1)
            : NULL;
+  // Any 64-bit integer type: a module returns signless i64, a .npy file
+  // parses as signed.
+  const iree_hal_element_type_t type =
+      grid ? iree_hal_buffer_view_element_type(grid)
+           : IREE_HAL_ELEMENT_TYPE_NONE;
   if (!grid || iree_hal_buffer_view_element_count(grid) != 2 ||
-      iree_hal_buffer_view_element_type(grid) != IREE_HAL_ELEMENT_TYPE_INT_64) {
+      !iree_hal_element_numerical_type_is_integer(type) ||
+      iree_hal_element_dense_byte_count(type) != 8) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "--image_pad_token needs the image grid, an i64 "
                             "tensor [h, w], as the last value prefill takes "

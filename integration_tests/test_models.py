@@ -93,14 +93,23 @@ def _run_pipeline(
         f"compiled {compile_case.name} in {compile_time:.2f}s -> {vmfb} ({vmfb.stat().st_size} bytes)"
     )
 
-    # FIXME:
-    # for the prefill-decode loop, the decode part does start with 0 as cache.
-    # the numerics are tested in the static part pass. for now, the prefill/decode patch only tests the structure
-    # the numerics should still hold up against the reference though, even with an unrealistic cache
     case_dir = (
         f"{model_spec.name.replace('/', '_')}_{compile_case.name}_{run_case.name}"
     )
     local_output_dir = work_dir / "device_outputs"
+    if imported_model.generation is not None:
+        return _run_generation(
+            model_spec=model_spec,
+            run_case=run_case,
+            imported_model=imported_model,
+            vmfb=vmfb,
+            host_rsync=host_rsync,
+            deployment=deployment,
+            case_dir=case_dir,
+            local_output_dir=local_output_dir,
+            tracy_port=tracy_port,
+        )
+
     result = run_module_on_device(
         deployment=deployment,
         case_dir_name=case_dir,
@@ -140,30 +149,6 @@ def _run_pipeline(
     except AccuracyError as err:
         return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{result.describe()}")
 
-    if imported_model.generation is not None:
-        generation = run_llm_on_device(
-            deployment=deployment,
-            case_dir_name=case_dir,
-            generation=imported_model.generation,
-            extra_flags=run_case.flags,
-            timeout=model_spec.run_timeout,
-        )
-        print(generation.log)
-        print("generation timings:")
-        for key, value in generation.timings.items():
-            print(f"  {key}: {value:.3f}s")
-        if generation.exit_code != 0:
-            return Outcome(Status.RUNTIME_FAILURE, generation.describe())
-        assert model_spec.generation is not None
-        try:
-            check_generation(
-                reference=imported_model.generation,
-                prompt_ids=generation.prompt_ids,
-                tokens=generation.tokens,
-            )
-        except AccuracyError as err:
-            return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{generation.describe()}")
-
     if tracy_port is not None:
         if result.profile_error is not None:
             return Outcome(Status.CAPTURE_PROFILE_FAILURE, result.profile_error)
@@ -186,6 +171,55 @@ def _run_pipeline(
             )
             return Outcome(Status.PROFILE_FAILURE, "\n".join(failures))
     return Outcome(Status.PASSED, result.log)
+
+
+def _run_generation(
+    model_spec: ModelSpec,
+    run_case: RunCase,
+    imported_model: ImportedModel,
+    vmfb: pathlib.Path,
+    host_rsync: pathlib.Path,
+    deployment: Deployment,
+    case_dir: str,
+    local_output_dir: pathlib.Path,
+    tracy_port: int | None,
+) -> Outcome:
+    """Run and check a `KvCacheLM` module: token generation with iree-run-llm."""
+    generation_reference = imported_model.generation
+    assert generation_reference is not None
+    if tracy_port is not None:
+        raise ValueError("profiling does not support token generation")
+    generation = run_llm_on_device(
+        deployment=deployment,
+        case_dir_name=case_dir,
+        module_vmfb=vmfb,
+        generation=generation_reference,
+        local_output_dir=local_output_dir,
+        host_rsync=host_rsync,
+        extra_flags=run_case.flags,
+        timeout=model_spec.run_timeout,
+    )
+    print(generation.log)
+    # perf_compare.py compares prefill and decode_per_token from here,
+    # instead of the `run:` under "timings:" a plain run has.
+    print("generation timings:")
+    for key, value in generation.timings.items():
+        print(f"  {key}: {value:.3f}s")
+    if generation.exit_code != 0:
+        return Outcome(Status.RUNTIME_FAILURE, generation.describe())
+    try:
+        check_generation(
+            reference=generation_reference,
+            prompt_ids=generation.prompt_ids,
+            tokens=generation.tokens,
+            prefill_logits_file=generation.prefill_logits_file,
+            atol=model_spec.tolerances.atol,
+            rtol=model_spec.tolerances.rtol,
+            max_relative_l2_percent=model_spec.tolerances.relative_l2_percent,
+        )
+    except AccuracyError as err:
+        return Outcome(Status.ACCURACY_FAILURE, f"{err}\n{generation.describe()}")
+    return Outcome(Status.PASSED, generation.log)
 
 
 def test_model_on_device(

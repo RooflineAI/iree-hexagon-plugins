@@ -6,7 +6,10 @@
 
 """Compare the run times of a test session against the latest main runs.
 
-Reads the pytest output of `pytest integration_tests/ -v -rA`.
+Reads the pytest output of `pytest integration_tests/ -v -rA`. A test that runs
+a module with iree-benchmark-module has one time, `run`, under its id. A test
+that generates tokens with iree-run-llm has two, each compared on its own as
+`<id>:<name>`: `prefill` and `decode_per_token` (see `_GENERATION_TIMES`).
 The recent runs are the same job of the latest completed main runs, read from
 their GitHub logs with `gh`. The average of a case's run times in them is the
 baseline it is compared against; their min-max spread is shown next to it.
@@ -39,6 +42,12 @@ _SECTION = re.compile(r"^=+ (.+?) =+$")
 _TEST_HEADER = re.compile(r"^_+ test_model_on_device\[(.+)\] _+$")
 # Printed by test_models.py under "timings:".
 _RUN_TIME = re.compile(r"^  run: ([0-9.]+)s$")
+# Printed by test_models.py under "generation timings:", one per line.
+_TIME = re.compile(r"^  (\w+): ([0-9.]+)s$")
+# The generation timings that are compared: iree-run-llm's own times of prefill
+# and of one decode step. Not `generate`, the host's wall clock around the
+# whole run, which includes the adb round trip and loading the module.
+_GENERATION_TIMES = ("prefill", "decode_per_token")
 _PASSED = re.compile(r"^PASSED \S+::test_model_on_device\[(.+)\]$")
 
 
@@ -57,7 +66,7 @@ class LogParseError(ValueError):
 
 def parse_log(text: str) -> dict[str, float]:
     """The run times in seconds of the passed, timed tests in pytest's `-rA`
-    output.
+    output, by test id, and by `<test id>:<name>` for a generation time.
 
     A failed test prints its timings too, in FAILURES; only the PASSES section
     is read, and a test only counts when the short summary says PASSED.
@@ -69,8 +78,18 @@ def parse_log(text: str) -> dict[str, float]:
     section = None
     case_id = None
     in_timings = False
-    run_times: dict[str, float] = {}
+    in_generation_timings = False
+    # By test id, the times found for it, under their keys.
+    times: dict[str, dict[str, float]] = {}
     passed: set[str] = set()
+
+    def add(key: str, seconds: float) -> None:
+        assert case_id is not None
+        case_times = times.setdefault(case_id, {})
+        if key in case_times:
+            raise LogParseError(f"second run time for {key}")
+        case_times[key] = seconds
+
     for raw_line in text.splitlines():
         line = _GITHUB_PREFIX.sub("", raw_line, count=1).rstrip()
         if match := _SECTION.match(line):
@@ -80,24 +99,33 @@ def parse_log(text: str) -> dict[str, float]:
         if section == "PASSES":
             if match := _TEST_HEADER.match(line):
                 case_id = match.group(1)
-                in_timings = False
+                in_timings = in_generation_timings = False
             elif line == "timings:":
                 in_timings = case_id is not None
+            elif line == "generation timings:":
+                in_generation_timings = case_id is not None
             elif in_timings and (match := _RUN_TIME.match(line)):
-                if case_id in run_times:
-                    raise LogParseError(f"second run time for {case_id}")
-                run_times[case_id] = float(match.group(1))
+                add(case_id, float(match.group(1)))
                 in_timings = False
+            elif in_generation_timings:
+                if match := _TIME.match(line):
+                    if match.group(1) in _GENERATION_TIMES:
+                        add(f"{case_id}:{match.group(1)}", float(match.group(2)))
+                else:
+                    in_generation_timings = False
         elif section == "short test summary info":
             if match := _PASSED.match(line):
                 passed.add(match.group(1))
     timed = {case for case in passed if _is_timed(case)}
+    run_times = {
+        key: seconds for case in timed for key, seconds in times.get(case, {}).items()
+    }
     if timed and not run_times:
         raise LogParseError(
-            "no run time found for any passed test; did the 'timings:' output "
-            "of test_models.py change?"
+            "no run time found for any passed test; did the 'timings:' or "
+            "'generation timings:' output of test_models.py change?"
         )
-    return {case: run_times[case] for case in timed if case in run_times}
+    return run_times
 
 
 def _parse_file(path: Path) -> dict[str, float]:
@@ -285,9 +313,9 @@ def _format_table(rows: Sequence[Row], recent_runs: Sequence[CIRun]) -> str:
     cells = [
         (
             row.case_id,
-            "-" if row.baseline is None else f"{row.baseline:.2f}s",
-            "-" if row.spread is None else f"{row.spread[0]:.2f}-{row.spread[1]:.2f}s",
-            "-" if row.current is None else f"{row.current:.2f}s",
+            "-" if row.baseline is None else f"{row.baseline:.3f}s",
+            "-" if row.spread is None else f"{row.spread[0]:.3f}-{row.spread[1]:.3f}s",
+            "-" if row.current is None else f"{row.current:.3f}s",
             "-" if row.percent is None else f"{row.percent:+.1f}%",
             str(row.verdict),
         )
@@ -295,8 +323,9 @@ def _format_table(rows: Sequence[Row], recent_runs: Sequence[CIRun]) -> str:
     ]
     title = (
         f"Performance against the average of the last {len(recent_runs)} main "
-        f"run(s), {', '.join(run.label for run in recent_runs)} "
-        f"(one invocation, timed on the device by iree-benchmark-module)"
+        f"run(s), {', '.join(run.label for run in recent_runs)}: a plain case "
+        "is one invocation, timed on the device by iree-benchmark-module; "
+        ":prefill and :decode_per_token are iree-run-llm's own times"
     )
     # The cells are formatted already; tabulate must not reparse them.
     table = tabulate(cells, _TABLE_HEADER, colalign=_TABLE_ALIGN, disable_numparse=True)
@@ -309,19 +338,19 @@ def _annotate(rows: Sequence[Row]) -> None:
         if row.verdict is Verdict.MISSING:
             print(
                 f"::notice title=performance case missing::{row.case_id}: timed in "
-                f"the recent main runs (average {row.baseline:.2f}s), but not "
+                f"the recent main runs (average {row.baseline:.3f}s), but not "
                 "in this run (removed, renamed or failed?)"
             )
         elif row.verdict in (Verdict.FAIL, Verdict.WARN):
             level = "error" if row.verdict is Verdict.FAIL else "warning"
             print(
                 f"::{level} title=performance regression::{row.case_id}: "
-                f"{row.baseline:.2f}s -> {row.current:.2f}s ({row.percent:+.1f}%)"
+                f"{row.baseline:.3f}s -> {row.current:.3f}s ({row.percent:+.1f}%)"
             )
         elif row.verdict is Verdict.FASTER:
             print(
                 f"::notice title=performance improvement::{row.case_id}: "
-                f"{row.baseline:.2f}s -> {row.current:.2f}s ({row.percent:+.1f}%)"
+                f"{row.baseline:.3f}s -> {row.current:.3f}s ({row.percent:+.1f}%)"
             )
 
 

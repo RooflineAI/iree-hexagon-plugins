@@ -185,12 +185,30 @@ static iree_status_t iree_llm_append_i64(iree_llm_model_t *model,
   return iree_vm_list_push_ref_move(list, &ref);
 }
 
+// Returns the second result in |outputs| of |function|, the logits, retained
+// in |out_logits|.
+static iree_status_t iree_llm_take_logits(iree_string_view_t name,
+                                          iree_vm_list_t *outputs,
+                                          iree_hal_buffer_view_t **out_logits) {
+  if (iree_vm_list_size(outputs) < 2 ||
+      !iree_vm_list_get_buffer_view_assign(outputs, 1)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "'%.*s' returned no logits tensor as its second "
+                            "result",
+                            (int)name.size, name.data);
+  }
+  *out_logits = iree_vm_list_get_buffer_view_retain(outputs, 1);
+  return iree_ok_status();
+}
+
 // Invokes |function| with |inputs| and waits for it to complete. Returns the
-// token in the first result, an integer tensor of one element.
+// token in the first result, an integer tensor of one element, and, if
+// |out_logits| is not NULL, the logits in the second, see
+// iree_llm_take_logits.
 static iree_status_t iree_llm_invoke(iree_llm_model_t *model,
                                      iree_vm_function_t function,
-                                     iree_vm_list_t *inputs,
-                                     int64_t *out_token) {
+                                     iree_vm_list_t *inputs, int64_t *out_token,
+                                     iree_hal_buffer_view_t **out_logits) {
   iree_string_view_t name = iree_vm_function_name(&function);
 
   // An async-external function gets fences to wait on; a sync one gets none.
@@ -247,7 +265,11 @@ static iree_status_t iree_llm_invoke(iree_llm_model_t *model,
       *out_token = element_size == 4 ? value.i32 : value.i64;
     }
   }
-  // Releases the remaining results unread, e.g. prefill's logits.
+  if (iree_status_is_ok(status) && out_logits) {
+    status = iree_llm_take_logits(name, outputs, out_logits);
+  }
+  // Releases the remaining results unread, e.g. prefill's logits if not
+  // asked for.
   iree_vm_list_release(outputs);
   return status;
 }
@@ -255,7 +277,10 @@ static iree_status_t iree_llm_invoke(iree_llm_model_t *model,
 iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
                                      const int64_t *prompt,
                                      iree_host_size_t prompt_length,
-                                     int64_t pad_token, int64_t *out_token) {
+                                     int64_t pad_token, int64_t *out_token,
+                                     iree_hal_buffer_view_t **out_logits) {
+  if (out_logits)
+    *out_logits = NULL;
   if (prompt_length == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "the prompt has no tokens");
@@ -298,7 +323,8 @@ iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
                                  inputs);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_llm_invoke(model, model->prefill, inputs, out_token);
+    status =
+        iree_llm_invoke(model, model->prefill, inputs, out_token, out_logits);
   }
   iree_vm_list_release(inputs);
   if (iree_status_is_ok(status))
@@ -331,7 +357,8 @@ iree_status_t iree_llm_model_decode(iree_llm_model_t *model, int64_t token,
                                  inputs);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_llm_invoke(model, model->decode, inputs, out_token);
+    status = iree_llm_invoke(model, model->decode, inputs, out_token,
+                             /*out_logits=*/NULL);
   }
   iree_vm_list_release(inputs);
   if (iree_status_is_ok(status))
@@ -371,8 +398,11 @@ iree_status_t iree_llm_generate(iree_llm_model_t *model, const int64_t *prompt,
                                 iree_host_size_t prompt_length,
                                 const iree_llm_generate_params_t *params,
                                 iree_llm_token_callback_t callback,
-                                iree_llm_generate_stats_t *out_stats) {
+                                iree_llm_generate_stats_t *out_stats,
+                                iree_hal_buffer_view_t **out_prefill_logits) {
   memset(out_stats, 0, sizeof(*out_stats));
+  if (out_prefill_logits)
+    *out_prefill_logits = NULL;
   out_stats->prompt_length = prompt_length;
   out_stats->padded_length =
       iree_llm_model_padded_prompt_length(model, prompt_length);
@@ -395,8 +425,9 @@ iree_status_t iree_llm_generate(iree_llm_model_t *model, const int64_t *prompt,
 
   int64_t token = 0;
   const iree_time_t prefill_start = iree_time_now();
-  iree_status_t status = iree_llm_model_prefill(model, prompt, prompt_length,
-                                                params->pad_token, &token);
+  iree_status_t status =
+      iree_llm_model_prefill(model, prompt, prompt_length, params->pad_token,
+                             &token, out_prefill_logits);
   const iree_time_t prefill_end = iree_time_now();
   out_stats->prefill_duration = prefill_end - prefill_start;
   iree_time_t decode_end = prefill_end;

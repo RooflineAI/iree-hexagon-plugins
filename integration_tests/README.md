@@ -184,19 +184,15 @@ By default the module has one function, `main`: the model's forward on the
 spec's inputs. A `model.py` whose `get_model()` returns a `KvCacheLM`
 (`models/kv_cache.py`) instead gets a causal LM exported for token generation,
 with the KV cache in module state (globals): `prefill` on the prompt, and
-`decode` of the next token, each with its own example arguments, dynamic
-shapes and eager reference. The test compiles once and runs both in one adb
-round trip, each in its own `iree-run-module`: `decode` runs only if prefill's
-token matches the reference, compared on the device. The host then checks every
-output. Both start from an empty cache, in the eager reference as on the
-device, so `decode` checks the compiled function rather than a real
-continuation.
+`decode` of the next token, with dynamic shapes. The spec's inputs, a prompt
+of token ids, only serve as the example arguments of the export.
 
-A `generation` block adds a real continuation: after those two checks pass,
-`iree-run-llm` (`tools/iree-run-llm-main.c`, on the inference engine in
-`tools/llm/`) runs the same module on the device as an inference loop. It tokenizes the prompt itself, runs `prefill`,
-then `decode` once per further token, and generates `max_new_tokens` tokens
-greedily, ignoring stop tokens:
+The two functions are not run one by one, each from an empty cache, but
+together, as they are meant to: `iree-run-llm` (`tools/iree-run-llm-main.c`, on
+the inference engine in `tools/llm/`) runs the module on the device as an
+inference loop. It tokenizes the prompt itself, runs `prefill`, then `decode`
+once per further token, and generates `max_new_tokens` tokens greedily,
+ignoring stop tokens. Such a model needs a `generation` block:
 
 ```yaml
 generation:
@@ -219,13 +215,16 @@ The check, in `stages/checking.py`:
 
 * the prompt's token ids have to match the `tokenizers` library's exactly,
   which checks the device's tokenizer;
+* prefill's logits, which `iree-run-llm --prefill_logits_output` writes, have
+  to match the reference's within the model's `tolerances` at the prompt's
+  positions (the padding's are never used);
 * the generated tokens have to match the reference's exactly.
 
-The log has
-the text and, under `generation timings:`, the time of the whole
+The log has the text and, under `generation timings:`, the time of the whole
 `iree-run-llm` run (`generate`) and its own times of `prefill` and of one
-decode step (`decode_per_token`). They are not part of `run:`, the time
-`perf_compare.py` tracks.
+decode step (`decode_per_token`). `perf_compare.py` compares the latter two
+against the recent main runs, each as `<test id>:<name>`, as it compares the
+`run:` of other models. A profile run case does not support these models.
 
 ## Profiling
 
@@ -289,7 +288,7 @@ A profile run case with no checks still produces the CSV.
 
 CI compares the run time of every passed test against its average in the same
 job of the latest completed main runs, in a step of its own after the tests:
-`perf_compare.py` parses the `-rA` output of the session, the `run:` line under `timings:` of each passed test, and reads the earlier main runs' output from their GitHub logs with `gh`.
+`perf_compare.py` parses the `-rA` output of the session, the `run:` line under `timings:` of each passed test (or the `prefill:` and `decode_per_token:` lines under `generation timings:` of a token-generation test), and reads the earlier main runs' output from their GitHub logs with `gh`.
 When no time can be found for any passed test, the check fails.
 
 The time is one invocation of the function, as `iree-benchmark-module` measures
@@ -301,6 +300,11 @@ module. When there is no plausible device time, the
 host's is printed as `run_host:` instead, and the test is not compared.
 Profile and debug-malloc run cases are not compared.
 
+A token-generation test has two times, each compared on its own as
+`<test id>:<name>`: `iree-run-llm`'s own times of `prefill` and of one decode
+step, `decode_per_token`. `generate`, the host's wall clock around the whole
+`iree-run-llm` run, is printed but not compared, as `adb_setup:` is not.
+
 The thresholds when a warning is raised are command-line arguments.
 To compare a local session:
 ```sh
@@ -309,7 +313,7 @@ To compare a local session:
 # compare against CI's main
 python -m integration_tests.perf_compare --current pytest-output.log \
     --num-recent-runs 5 --max-runs-searched 10 \
-    --warn-percent 5 --fail-percent 30 --min-delta-s 0.3 \
+    --warn-percent 5 --fail-percent 10 --min-delta-s 0.005 \
     --job test-bazel # or --baseline-log <file>, repeatable
 ```
 

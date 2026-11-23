@@ -170,8 +170,8 @@ class ModelSpec:
     # Checks on the profile of the profile run cases (e.g. parallel-profile).
     profile_checks: tuple[ProfileCheckSpec, ...] = ()
     semantic_check: SemanticCheck | None = None
-    # Only for a model.py whose get_model() returns a KvCacheLM; checked at
-    # import, which is where that is known.
+    # Required for, and only for, a model.py whose get_model() returns a
+    # KvCacheLM; checked at import, which is where that is known.
     generation: GenerationSpec | None = None
     extra_compile_flags: tuple[str, ...] = ()
     # Seconds the module push, and separately iree-run-module on the device,

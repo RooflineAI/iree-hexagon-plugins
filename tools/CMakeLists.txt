@@ -21,8 +21,12 @@ iree_cc_binary(
     iree::hal
     iree::hal::replay::recorder
     iree::io::file_handle
+    iree::io::stream
+    iree::modules::hal::types
     iree::tokenizer
     iree::tooling::context_util
+    iree::tooling::function_util
+    iree::tooling::numpy_io
     iree::vm
     iree_hexagon_plugins::tools::llm::engine
     iree_hexagon_plugins::tools::llm::tokenizer

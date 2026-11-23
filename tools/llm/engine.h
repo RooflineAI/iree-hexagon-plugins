@@ -11,7 +11,8 @@
 // in module globals shared by both:
 //
 //   prefill(input_ids: i64[1, P], cache_position: i64[P],
-//           input_length: i64[1]) -> (next_token: i64[1, 1], logits)
+//           input_length: i64[1])
+//       -> (next_token: i64[1, 1], logits: [1, P, vocab])
 //     Runs the prompt, padded to P, a multiple of block_seq_stride of at
 //     least min_prefill_blocks blocks. input_length is the index of the last
 //     real token, whose argmax is next_token.
@@ -111,10 +112,17 @@ iree_host_size_t iree_llm_model_position(const iree_llm_model_t *model);
 // Starts a new sequence: runs prefill on |prompt|, padded with |pad_token|,
 // and returns the token following it. Padding is never attended to, so any
 // valid token ID works as |pad_token|.
+//
+// If |out_logits| is not NULL, it receives prefill's logits, [1, P, vocab] for
+// all P padded positions, as the module returned them: in device memory, which
+// the caller may have to copy to the host to read them (e.g. with
+// iree_tooling_transfer_variants). The caller releases them. Otherwise they
+// are dropped.
 iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
                                      const int64_t *prompt,
                                      iree_host_size_t prompt_length,
-                                     int64_t pad_token, int64_t *out_token);
+                                     int64_t pad_token, int64_t *out_token,
+                                     iree_hal_buffer_view_t **out_logits);
 
 // Runs decode on |token| at iree_llm_model_position and returns the token
 // following it. Fails with OUT_OF_RANGE once the cache holds max_seq_len
@@ -176,11 +184,16 @@ typedef struct iree_llm_generate_stats_t {
 // each generated token to |callback|. |out_stats| is filled in also when an
 // error is returned, as far as generation got. With max_new_tokens == 0 the
 // prompt is only validated.
+//
+// If |out_prefill_logits| is not NULL, it receives prefill's logits as
+// iree_llm_model_prefill's |out_logits| does, or NULL if prefill did not run
+// or failed; the caller releases them, also when an error is returned.
 iree_status_t iree_llm_generate(iree_llm_model_t *model, const int64_t *prompt,
                                 iree_host_size_t prompt_length,
                                 const iree_llm_generate_params_t *params,
                                 iree_llm_token_callback_t callback,
-                                iree_llm_generate_stats_t *out_stats);
+                                iree_llm_generate_stats_t *out_stats,
+                                iree_hal_buffer_view_t **out_prefill_logits);
 
 #ifdef __cplusplus
 } // extern "C"

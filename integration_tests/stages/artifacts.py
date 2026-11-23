@@ -54,6 +54,8 @@ class GenerationReference:
     prompt_ids: tuple[int, ...]
     # One per generated token, in order.
     generated: tuple[GeneratedTokenInfo, ...]
+    # Prefill's logits on the padded prompt, [1, padded length, vocab].
+    prefill_logits_file: Path
 
     @property
     def tokens(self) -> tuple[int, ...]:
@@ -67,11 +69,12 @@ class ImportedModel:
 
     model_mlir: Path
     # One call per exported function. A plain model has one, `main`
-    # (iree-turbine's default entry point name).
+    # (iree-turbine's default entry point name). A `KvCacheLM` has none: its
+    # functions are checked by `generation` instead.
     calls: list[ModuleCall]
     # Present only when the model carries a config.id2label, i.e. classifiers.
     labels_file: Path | None = None
-    # Only for a `KvCacheLM` whose model.yaml has a `generation` block.
+    # Only, and always, for a `KvCacheLM`.
     generation: GenerationReference | None = None
 
     def labels(self) -> dict[int, str] | None:

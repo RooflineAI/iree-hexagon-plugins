@@ -14,14 +14,12 @@
     position `len(cache_position) - 1` against the cache.
 
 The cache is registered buffers, which the export turns into globals that both
-functions share, initially zero. Each function runs from that zero cache, both
-in the eager reference and on the device (a separate `iree-run-module` each),
-so `decode` is checked against an empty cache rather than the prompt's.
-`prefill` reads only the positions it has just written, so the initial cache
-does not change its result.
+functions share, initially zero. `prefill` reads only the positions it has
+just written, so the initial cache does not change its result.
 
-The test harness recognizes a `KvCacheLM` from `get_model()` and exports, runs
-and checks both functions (see `stages/importing.py`).
+The test harness recognizes a `KvCacheLM` from `get_model()`, exports both
+functions (see `stages/importing.py`) and checks them together:
+`iree-run-llm` has to generate as `generate_greedy` does.
 
 Attention is grouped-query matmuls without `repeat_kv`, and the greedy argmax
 is part of the graph. Only full attention is supported.
@@ -199,7 +197,7 @@ class KvCacheLM(torch.nn.Module):
         max_new_tokens: int,
         min_prefill_blocks: int = 2,
         pad_token_id: int = 0,
-    ) -> list[GeneratedTokenInfo]:
+    ) -> tuple[list[GeneratedTokenInfo], torch.Tensor]:
         """Greedy generation as iree-run-llm runs it, from an empty cache.
 
         The prompt is padded to a multiple of `block_seq_stride` of at least
@@ -207,7 +205,8 @@ class KvCacheLM(torch.nn.Module):
         further token. Stop tokens are ignored, as with iree-run-llm's
         --ignore_eos, and generation ends early only at `max_seq_len`.
 
-        Returns one `GeneratedTokenInfo` per generated token, in order.
+        Returns one `GeneratedTokenInfo` per generated token, in order, and
+        prefill's logits, `[1, padded length, vocab]` as `prefill` returns them.
         """
         stride = self.block_seq_stride
         blocks = max(-(-len(prompt) // stride), min_prefill_blocks)
@@ -224,7 +223,8 @@ class KvCacheLM(torch.nn.Module):
         try:
             positions = torch.arange(padded_length)
             mask = positions[None, :] <= input_length[:, None]
-            logits = self._logits(input_ids, positions, mask)[0, len(prompt) - 1]
+            prefill_logits = self._logits(input_ids, positions, mask)
+            logits = prefill_logits[0, len(prompt) - 1]
             generated: list[GeneratedTokenInfo] = []
             position = len(prompt)
             while True:
@@ -247,7 +247,7 @@ class KvCacheLM(torch.nn.Module):
                 position += 1
         finally:
             self.reset_cache()
-        return generated
+        return generated, prefill_logits
 
     def reset_cache(self) -> None:
         """Zero the cache, the state each function starts from on the device."""

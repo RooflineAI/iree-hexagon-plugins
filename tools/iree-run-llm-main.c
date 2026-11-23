@@ -26,8 +26,12 @@
 #include "iree/hal/api.h"
 #include "iree/hal/replay/recorder.h"
 #include "iree/io/file_contents.h"
+#include "iree/io/stdio_stream.h"
+#include "iree/modules/hal/types.h"
 #include "iree/tokenizer/tokenizer.h"
 #include "iree/tooling/context_util.h"
+#include "iree/tooling/function_util.h"
+#include "iree/tooling/numpy_io.h"
 #include "iree/vm/api.h"
 #include "llm/engine.h"
 #include "llm/tokenizer.h"
@@ -67,6 +71,9 @@ IREE_FLAG(bool, print_special_tokens, false,
 IREE_FLAG(bool, print_token_ids, false,
           "Print prompt and generated token IDs to stderr.");
 IREE_FLAG(bool, print_stats, true, "Print timing statistics to stderr.");
+IREE_FLAG(string, prefill_logits_output, "",
+          "File to write prefill's logits to, as .npy: [1, P, vocab] for all "
+          "P padded prompt positions.");
 IREE_FLAG(string, prefill_function, "prefill",
           "Name of the exported prefill function.");
 IREE_FLAG(string, decode_function, "decode",
@@ -288,6 +295,52 @@ static iree_status_t iree_run_llm_on_token(void *user_data, int64_t token,
   return status;
 }
 
+// Copies |logits| from |device| to the host, as iree-run-module does with its
+// outputs, and writes them to the .npy file --prefill_logits_output.
+static iree_status_t
+iree_run_llm_write_logits(iree_hal_device_t *device,
+                          iree_hal_buffer_view_t *logits,
+                          iree_allocator_t host_allocator) {
+  iree_vm_list_t *list = NULL;
+  IREE_RETURN_IF_ERROR(iree_vm_list_create(iree_vm_make_undefined_type_def(), 1,
+                                           host_allocator, &list));
+  iree_vm_ref_t ref = iree_hal_buffer_view_retain_ref(logits);
+  iree_status_t status = iree_vm_list_push_ref_move(list, &ref);
+  if (iree_status_is_ok(status)) {
+    const iree_hal_buffer_params_t host_params = {
+        .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING,
+        .access = IREE_HAL_MEMORY_ACCESS_ALL,
+        .type = IREE_HAL_MEMORY_TYPE_HOST_LOCAL |
+                IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+        .queue_affinity = IREE_HAL_QUEUE_AFFINITY_ANY,
+    };
+    status = iree_status_annotate(
+        iree_tooling_transfer_variants(
+            list, device, iree_hal_device_allocator(device), host_params,
+            /*wait_fence=*/NULL, /*signal_fence=*/NULL),
+        IREE_SV("copying prefill's logits to the host"));
+  }
+  iree_io_stream_t *stream = NULL;
+  if (iree_status_is_ok(status)) {
+    status = iree_status_annotate_f(
+        iree_io_stdio_stream_open(
+            IREE_IO_STDIO_STREAM_MODE_WRITE | IREE_IO_STDIO_STREAM_MODE_DISCARD,
+            iree_make_cstring_view(FLAG_prefill_logits_output), host_allocator,
+            &stream),
+        "opening '%s'", FLAG_prefill_logits_output);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_status_annotate_f(
+        iree_numpy_npy_save_ndarray(
+            stream, IREE_NUMPY_NPY_SAVE_OPTION_DEFAULT,
+            iree_vm_list_get_buffer_view_assign(list, 0), host_allocator),
+        "writing prefill's logits to '%s'", FLAG_prefill_logits_output);
+  }
+  iree_io_stream_release(stream);
+  iree_vm_list_release(list);
+  return status;
+}
+
 static void iree_run_llm_print_stats(double encode_ms,
                                      const iree_llm_generate_stats_t *stats) {
   const double prefill_ms = stats->prefill_duration / 1e6;
@@ -307,7 +360,9 @@ static void iree_run_llm_print_stats(double encode_ms,
           iree_llm_stop_reason_string(stats->stop_reason));
 }
 
+// |device| is the model's lead device, which prefill's logits are on.
 static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
+                                           iree_hal_device_t *device,
                                            const iree_tokenizer_t *tokenizer,
                                            iree_allocator_t host_allocator) {
   iree_llm_generate_params_t params = {
@@ -346,10 +401,12 @@ static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
 
   iree_llm_generate_stats_t stats;
   memset(&stats, 0, sizeof(stats));
+  iree_hal_buffer_view_t *prefill_logits = NULL;
   if (iree_status_is_ok(status)) {
     const iree_llm_token_callback_t on_token = {iree_run_llm_on_token, &output};
-    status = iree_llm_generate(model, prompt, prompt_length, &params, on_token,
-                               &stats);
+    status = iree_llm_generate(
+        model, prompt, prompt_length, &params, on_token, &stats,
+        FLAG_prefill_logits_output[0] != '\0' ? &prefill_logits : NULL);
   }
   if (iree_status_is_ok(status)) {
     status = iree_llm_detokenizer_finish(&output.detokenizer);
@@ -360,10 +417,14 @@ static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
   if (iree_status_is_ok(status) && FLAG_print_token_ids) {
     iree_run_llm_print_ids("generated token ids", output.tokens, output.count);
   }
+  if (iree_status_is_ok(status) && prefill_logits) {
+    status = iree_run_llm_write_logits(device, prefill_logits, host_allocator);
+  }
   if (iree_status_is_ok(status) && FLAG_print_stats) {
     iree_run_llm_print_stats((encode_end - encode_start) / 1e6, &stats);
   }
 
+  iree_hal_buffer_view_release(prefill_logits);
   iree_llm_detokenizer_deinitialize(&output.detokenizer);
   iree_allocator_free(host_allocator, output.tokens);
   iree_allocator_free(host_allocator, prompt);
@@ -410,7 +471,8 @@ int main(int argc, char **argv) {
         iree_run_llm_create_model(instance, host_allocator, &runtime, &model);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_run_llm_generate(model, tokenizer, host_allocator);
+    status = iree_run_llm_generate(model, iree_run_llm_lead_device(&runtime),
+                                   tokenizer, host_allocator);
   }
 
   iree_llm_model_free(model);

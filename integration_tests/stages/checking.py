@@ -84,6 +84,30 @@ def compare_arrays(
     )
 
 
+def _failure(
+    comparison: Comparison,
+    atol: float,
+    rtol: float,
+    max_relative_l2_percent: float | None,
+) -> str | None:
+    """Why `comparison` fails, or None if it passes."""
+    if not comparison.elementwise_close:
+        return comparison.report
+    if (
+        max_relative_l2_percent is not None
+        and comparison.relative_l2_percent > max_relative_l2_percent
+    ):
+        # Only reported separately when the element-wise check passed;
+        # otherwise it would be the same failure counted twice.
+        return (
+            f"{comparison.name}: relative L2 error "
+            f"{comparison.relative_l2_percent:.4f}% exceeds the "
+            f"{max_relative_l2_percent:g}% threshold, although every element "
+            f"is within atol={atol:g}/rtol={rtol:g}"
+        )
+    return None
+
+
 def check_output_files(
     reference_files: list[Path],
     actual_files: list[Path],
@@ -113,20 +137,9 @@ def check_output_files(
             rtol=0.0 if exact else rtol,
         )
         print(comparison.report)
-        if not comparison.elementwise_close:
-            failures.append(comparison.report)
-        elif (
-            max_relative_l2_percent is not None
-            and comparison.relative_l2_percent > max_relative_l2_percent
-        ):
-            # Only reported separately when the element-wise check passed;
-            # otherwise it would be the same failure counted twice.
-            failures.append(
-                f"{comparison.name}: relative L2 error "
-                f"{comparison.relative_l2_percent:.4f}% exceeds the "
-                f"{max_relative_l2_percent:g}% threshold, although every element "
-                f"is within atol={atol:g}/rtol={rtol:g}"
-            )
+        failure = _failure(comparison, atol, rtol, max_relative_l2_percent)
+        if failure is not None:
+            failures.append(failure)
     if failures:
         raise AccuracyError(
             f"{len(failures)} of {len(reference_files)} outputs failed the "
@@ -170,12 +183,18 @@ def check_generation(
     reference: GenerationReference,
     prompt_ids: tuple[int, ...] | None,
     tokens: tuple[int, ...] | None,
+    prefill_logits_file: Path | None,
+    atol: float,
+    rtol: float,
+    max_relative_l2_percent: float | None = None,
 ) -> None:
     """Assert iree-run-llm tokenized the prompt and generated as the reference.
 
     The prompt's token ids must match exactly: they check the device's
-    tokenizer. The generated tokens must match exactly too: the import made
-    sure the reference has no near-tie that rounding could tip (see the spec's
+    tokenizer. Prefill's logits must match within the tolerances, as the
+    outputs of a plain run do, at the prompt's positions; the padding's are
+    never used. The generated tokens must match exactly: the import made sure
+    the reference has no near-tie that rounding could tip (see the spec's
     `min_margin`). All `max_new_tokens` tokens must be there, as stop tokens
     are ignored.
     """
@@ -189,6 +208,27 @@ def check_generation(
             f"  device:    {list(prompt_ids)}\n"
             f"  reference: {list(reference.prompt_ids)}"
         )
+    if prefill_logits_file is None:
+        raise AccuracyError("iree-run-llm wrote no prefill logits; see its log")
+    expected_logits = np.load(reference.prefill_logits_file)
+    actual_logits = np.load(prefill_logits_file)
+    if actual_logits.shape != expected_logits.shape:
+        raise AccuracyError(
+            f"prefill logits: shape mismatch, reference {expected_logits.shape} "
+            f"vs actual {actual_logits.shape}"
+        )
+    prompt_length = len(reference.prompt_ids)
+    comparison = compare_arrays(
+        f"prefill logits of the {prompt_length} prompt positions",
+        expected_logits[:, :prompt_length],
+        actual_logits[:, :prompt_length],
+        atol=atol,
+        rtol=rtol,
+    )
+    print(comparison.report)
+    failure = _failure(comparison, atol, rtol, max_relative_l2_percent)
+    if failure is not None:
+        raise AccuracyError(failure)
     if len(tokens) != len(reference.tokens):
         raise AccuracyError(
             f"generated {len(tokens)} tokens, the reference "

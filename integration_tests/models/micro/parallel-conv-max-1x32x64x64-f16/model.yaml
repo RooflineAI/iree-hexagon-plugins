@@ -26,3 +26,4 @@ profile_checks:
   # The max reads both conv results, so it must run after both of them.
   - check: no_overlap
     args: {a: dispatch_3_reduction, b: "dispatch_[12]_conv"}
+marks: [smoke]

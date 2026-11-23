@@ -22,7 +22,7 @@ from integration_tests.device.deploy import (
     deploy,
 )
 from integration_tests.modeltree import discover
-from integration_tests.modeltree.spec import ModelSpec
+from integration_tests.modeltree.spec import MARKS, ModelSpec
 from integration_tests.stages.compiling import (
     COMPILE_CASE_NAMES,
     COMPILE_CASES_BY_NAME,
@@ -49,6 +49,8 @@ def pytest_configure(config: pytest.Config) -> None:
     # and replays it into the report of any failing test, where it buries the
     # actual assertion under thousands of lines.
     logging.getLogger("torch").setLevel(logging.WARNING)
+    for name, description in MARKS.items():
+        config.addinivalue_line("markers", f"{name}: {description}")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -165,12 +167,13 @@ def _selected_specs(config: pytest.Config) -> list[ModelSpec]:
 
 
 def _param(config: pytest.Config, spec: ModelSpec, *values: object, id: str):
-    """One test parameter, marked skipped if the model's yaml says so.
+    """One test parameter, with the model's marks from its yaml, and marked
+    skipped if the yaml says so.
 
     A skip mark is evaluated before any fixture is set up, so a skipped model
     is never imported.
     """
-    marks = []
+    marks = [getattr(pytest.mark, name) for name in spec.marks]
     if spec.skip is not None and not config.getoption("--run-skipped"):
         marks.append(pytest.mark.skip(reason=f"model.yaml skip: {spec.skip.strip()}"))
     return pytest.param(*values, marks=marks, id=id)

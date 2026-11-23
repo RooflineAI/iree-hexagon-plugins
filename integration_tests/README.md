@@ -346,6 +346,18 @@ so the model is not even imported. `--run-skipped` runs them anyway, e.g.
 `--model=Qwen/Qwen3-ASR-0.6B --run-skipped`. Keep its `expected_outcomes`
 current, so that a run with `--run-skipped` still checks the failure.
 
+## Marks
+
+A model can carry pytest marks, which `-m` selects:
+
+```yaml
+marks: [smoke]
+```
+
+`smoke` is a small subset for a quick check: all `micro/` models and
+`google/gemma-3-270m-it`. CI runs it in `test-cmake` on PRs
+(`pytest -m smoke`), as the bazel build covers the whole suite.
+
 
 ## Note
 Note that if you run a model sequentially and parallel, its compiled twice at the moment, so this is only recommended for smaller models

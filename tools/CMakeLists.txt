@@ -25,6 +25,7 @@ iree_cc_binary(
     iree::modules::hal::types
     iree::tokenizer
     iree::tooling::context_util
+    iree::tooling::function_io
     iree::tooling::function_util
     iree::tooling::numpy_io
     iree::vm

@@ -104,6 +104,7 @@ iree_lit_test_suite(
     "integration/attention_layer.mlir"
     "integration/hmx_batched_matmul.mlir"
     "target/executable_generation_and_dumping.mlir"
+    "target/hvx_spill_store_packet_order.mlir"
     "target/plugin_registration.mlir"
     "target/stack_frame_diagnostics.mlir"
     "target/stack_frame_transitive_calls.mlir"

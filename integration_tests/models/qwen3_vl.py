@@ -121,10 +121,13 @@ def _grid_tensors(
     with Python loops over the grid, here as tensor ops so that the grid can
     be dynamic.
 
-    `grid_h`, `grid_w` are 0-d i64 tensors; `num_patches` (= their product) may
+    `grid_h`, `grid_w` are 0-d i32 tensors; `num_patches` (= their product) may
     be a symbolic size, used only as a shape. Every value is computed from
     tensors: arithmetic between a tensor and a symbolic size imports as
-    invalid IR (see mrope_positions).
+    invalid IR (see mrope_positions). The index arithmetic is i32 (the values
+    stay below 2^16): in i64 the dispatch it fuses into, with the position
+    embedding gather, spills to a 14 KB stack frame on Hexagon, over the
+    12 KB limit.
     """
     if (
         visual.interpolation_mode != "bilinear"
@@ -135,7 +138,7 @@ def _grid_tensors(
     side = visual.num_grid_per_side
     # Patches come in spatial-merge-block order: (block_row, block_col,
     # in_row, in_col), in_col fastest.
-    index = torch.arange(num_patches)
+    index = torch.arange(num_patches, dtype=torch.int32)
     blocks_w = grid_w // m
     in_col = index % m
     in_row = (index // m) % m
@@ -149,8 +152,8 @@ def _grid_tensors(
         # position p of `size` maps to p * (side - 1) / (size - 1).
         source = position.float() * (side - 1) / torch.clamp(size - 1, min=1).float()
         floor = torch.floor(source)
-        offsets = torch.arange(2)
-        indices = (floor.long()[:, None] + offsets).clamp(0, side - 1)
+        offsets = torch.arange(2, dtype=torch.int32)
+        indices = (floor.int()[:, None] + offsets).clamp(0, side - 1)
         weights = (1 - (source[:, None] - floor[:, None] - offsets).abs()).clamp(min=0)
         return indices, weights
 
@@ -203,12 +206,12 @@ class VisionEncoder(torch.nn.Module):
         pixel_values = x.reshape(gh * gw, c * _TEMPORAL * _PATCH * _PATCH)
         # The patch grid as tensors, the only form the importer takes for
         # arithmetic on it.
-        grid_h = torch.ops.aten.scalar_tensor(gh, dtype=torch.int64)
-        grid_w = torch.ops.aten.scalar_tensor(gw, dtype=torch.int64)
+        grid_h = torch.ops.aten.scalar_tensor(gh, dtype=torch.int32)
+        grid_w = torch.ops.aten.scalar_tensor(gw, dtype=torch.int32)
         indices, weights, position_ids = _grid_tensors(
             self.visual, grid_h, grid_w, gh * gw
         )
-        one = torch.ones((), dtype=torch.int64)
+        one = torch.ones((), dtype=torch.int32)
         out = self.visual(
             pixel_values,
             grid_thw=torch.stack([one, grid_h, grid_w])[None],
@@ -217,10 +220,10 @@ class VisionEncoder(torch.nn.Module):
             position_ids=position_ids,
             # One image: a single attention segment (the patched attention
             # ignores it; transformers still reads it).
-            cu_seqlens=torch.stack([one - 1, grid_h * grid_w]).to(torch.int32),
+            cu_seqlens=torch.stack([one - 1, grid_h * grid_w]),
             return_dict=True,
         )
-        merged_grid = torch.stack([grid_h // _MERGE, grid_w // _MERGE])
+        merged_grid = torch.stack([grid_h // _MERGE, grid_w // _MERGE]).long()
         return (out.pooler_output, *out.deepstack_features, merged_grid)
 
 

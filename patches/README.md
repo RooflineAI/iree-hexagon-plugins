@@ -9,7 +9,7 @@ inside `third-party/`.
   APIs needed by the plugin.
 - [Tracy](tracy/README.md): client bug fixes, applied to IREE's nested
   `third_party/tracy` checkout.
-- [LLVM](llvm-project/README.md): no active source patches after the upgrade.
+- [LLVM](llvm-project/README.md): Hexagon backend fixes not yet in our llvm-project pin (upstream backports and local fixes).
 
 hexagon-mlir is not patched here. Its changes (LLVM compatibility, conversion
 APIs reused by the plugin, and runtime/compiler fixes) are carried as commits on

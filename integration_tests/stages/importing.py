@@ -48,6 +48,7 @@ from integration_tests.stages.artifacts import (
     GenerationReference,
     ImportedModel,
     ModuleCall,
+    VisionModule,
 )
 
 _aten = torch.ops.aten
@@ -291,12 +292,14 @@ def import_model(
     spec: ModelSpec,
     output_dir: Path,
     decompositions: list[Any] | None = None,
+    module_name: str | None = None,
 ) -> ImportedModel:
     """Export the spec's model to MLIR and record its inputs and eager outputs.
 
     Writes `model.mlir`, `input{N}.npy` and `output{N}.npy` into `output_dir`.
     The outputs come from running the model eagerly in torch on the same
-    inputs.
+    inputs. `module_name` names the VM module (iree-turbine's default is
+    `module`), e.g. to load it next to another one in one context.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     model = load_model(spec)
@@ -333,7 +336,7 @@ def import_model(
     # aot.export takes the decomposed program from here; iree-turbine still
     # applies its own default table on top, which is where the batch-norm and
     # _to_copy decompositions a conv net needs come from.
-    exported = aot.export(exported_program)
+    exported = aot.export(exported_program, module_name=module_name)
 
     model_mlir = output_dir / "model.mlir"
     exported.save_mlir(model_mlir)
@@ -386,11 +389,19 @@ def _import_kv_cache(
     length = prompt.shape[-1]
     block = torch.export.Dim("block_dim", min=2)
     seq_len = torch.export.Dim("seq_len", min=1, max=model.max_seq_len)
-    prefill_args = (prompt, torch.arange(length), torch.tensor([length - 1]))
+    # Whatever prefill takes after input_length, e.g. a VLM's image features.
+    extra_args, extra_shapes = model.example_prefill_inputs()
+    prefill_args = (
+        prompt,
+        torch.arange(length),
+        torch.tensor([length - 1]),
+        *extra_args,
+    )
     prefill_shapes = {
         "input_ids": {1: model.block_seq_stride * block},
         "cache_position": {0: model.block_seq_stride * block},
         "input_length": {},
+        **extra_shapes,
     }
     decode_shapes = {"input_ids": {}, "cache_position": {0: seq_len}}
 
@@ -408,7 +419,7 @@ def _import_kv_cache(
     for name, (args, dynamic_shapes) in functions.items():
         # Non-strict: dynamo cannot trace through transformers' model code.
         builder.export_program(
-            getattr(KvCacheLM, name),
+            getattr(type(model), name),
             name=name,
             args=args,
             dynamic_shapes=dynamic_shapes,
@@ -480,16 +491,25 @@ def _generation_reference(
         )
     tokenizer_json = output_dir / "tokenizer.json"
     tokenizer_json.write_bytes(Path(module.get_tokenizer_json()).read_bytes())
+    prompt = generation.prompt
+    prefill_inputs: tuple[torch.Tensor, ...] = ()
+    prefill_input_files: list[Path] = []
+    vision = None
+    if generation.image is not None:
+        prompt, prefill_inputs, prefill_input_files, vision = _image_inputs(
+            spec, output_dir, model
+        )
     prompt_file = output_dir / "prompt.txt"
-    prompt_file.write_text(generation.prompt)
+    prompt_file.write_text(prompt)
 
     tokenizer = Tokenizer.from_file(str(tokenizer_json))
-    prompt_ids = tokenizer.encode(generation.prompt).ids
+    prompt_ids = tokenizer.encode(prompt).ids
     generated, prefill_logits = model.generate_greedy(
         prompt_ids,
         generation.max_new_tokens,
         min_prefill_blocks=_MIN_PREFILL_BLOCKS,
         pad_token_id=_PAD_TOKEN_ID,
+        prefill_inputs=prefill_inputs,
     )
     prefill_logits_file = output_dir / "generation_prefill_logits.npy"
     np.save(prefill_logits_file, prefill_logits.detach().cpu().numpy())
@@ -504,13 +524,22 @@ def _generation_reference(
         prompt_ids=tuple(prompt_ids),
         generated=tuple(generated),
         prefill_logits_file=prefill_logits_file,
+        prefill_input_files=tuple(prefill_input_files),
+        vision=vision,
     )
     (output_dir / "generation_reference.json").write_text(
         json.dumps(
             {
                 key: value
                 for key, value in dataclasses.asdict(reference).items()
-                if key not in ("prompt_file", "tokenizer_json", "prefill_logits_file")
+                if key
+                not in (
+                    "prompt_file",
+                    "tokenizer_json",
+                    "prefill_logits_file",
+                    "prefill_input_files",
+                    "vision",
+                )
             },
             indent=2,
         )
@@ -528,3 +557,62 @@ def _generation_reference(
             f"The margins are in {output_dir / 'generation_reference.json'}."
         )
     return reference
+
+
+# The VM module name of a VLM's vision encoder, so that it can share a context
+# with the language model's module (`module`).
+_VISION_MODULE_NAME = "vision"
+
+
+def _image_inputs(
+    spec: ModelSpec, output_dir: Path, model: KvCacheLM
+) -> tuple[str, tuple[torch.Tensor, ...], list[Path], VisionModule | None]:
+    """A VLM generation's image: the prompt with its image placeholder
+    expanded, the image features prefill takes, the files holding them, and
+    the vision encoder module if the spec names one.
+
+    The features come from the model's own eager encoder (`image_features`),
+    on the image decoded as the `image` input generator does, so they are what
+    the vision model entry computes on the same pixels.
+    """
+    from integration_tests.models.qwen3_vl import load_image
+
+    generation = spec.generation
+    assert generation is not None and generation.image is not None
+    for method in ("image_features", "expand_prompt"):
+        if not hasattr(model, method):
+            raise TypeError(
+                f"{spec.name}: 'generation.image' needs a model with "
+                f"{method}(), which {type(model).__name__} has not"
+            )
+    path = spec.directory / generation.image
+    if not path.exists():
+        raise FileNotFoundError(f"{spec.name}: no such image {path}")
+    pixels = load_image(path, _TORCH_DTYPES[spec.dtype])
+    image_file = output_dir / "image.npy"
+    np.save(image_file, pixels.numpy())
+    features = model.image_features(pixels)  # type: ignore[operator]
+    files = []
+    for index, tensor in enumerate(features):
+        file = output_dir / f"prefill_input{index}.npy"
+        np.save(file, tensor.detach().cpu().numpy())
+        files.append(file)
+    prompt = model.expand_prompt(  # type: ignore[operator]
+        generation.prompt, int(features[0].shape[0])
+    )
+
+    vision = None
+    if generation.vision_model is not None:
+        from integration_tests.modeltree.discover import select
+
+        (vision_spec,) = select([generation.vision_model])
+        imported = import_model(
+            vision_spec, output_dir / "vision", module_name=_VISION_MODULE_NAME
+        )
+        vision = VisionModule(
+            model_mlir=imported.model_mlir,
+            input_file=image_file,
+            function=f"{_VISION_MODULE_NAME}.main",
+            compile_flags=tuple(vision_spec.extra_compile_flags),
+        )
+    return prompt, features, files, vision

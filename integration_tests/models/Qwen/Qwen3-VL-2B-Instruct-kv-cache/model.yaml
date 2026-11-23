@@ -1,0 +1,39 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Qwen3-VL-2B-Instruct, image + text in, generated tokens out (see
+# models/qwen3_vl.py): the language model exported as `prefill`, which also
+# takes the vision encoder's outputs, and `decode`. The device generates twice:
+# from the reference's image features (files), and from the vision encoder
+# entry compiled and run on the device first.
+dtype: float16
+inputs:
+  # The export's example prompt (random token ids, no image tokens): a multiple
+  # of 32 tokens (block_seq_stride), at least two blocks, shorter than
+  # max_seq_len (256). The example image features are model.py's.
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: null
+    seed: 0
+# Copied from Qwen/Qwen3-VL-2B-Instruct (the static prefill on random features).
+# The vision run adds the encoder's error (0.85% on its first output).
+tolerances:
+  atol: 2.0e-1
+  rtol: 5.0e-2
+  relative_l2_percent: 0.5
+compile_cases: [hexagon-vtcm-hmx]
+# The chat template for one image and a question. The import expands
+# <|image_pad|> to one token per image embedding (64), giving an 82-token
+# prompt. The reference answers in 18 tokens plus <|im_end|>, all with a margin
+# of at least 0.45 (measured on the host, 2026-11-23): "Describe this image in
+# one sentence." has a near-tie at step 5.
+generation:
+  prompt: "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image in one short sentence.<|im_end|>\n<|im_start|>assistant\n"
+  max_new_tokens: 19
+  image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
+  vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched

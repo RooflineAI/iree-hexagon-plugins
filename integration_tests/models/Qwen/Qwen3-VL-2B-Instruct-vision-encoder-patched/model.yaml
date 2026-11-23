@@ -5,8 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 # Qwen3-VL-2B-Instruct's vision encoder on a real photograph (resnet-50-keyboard's
-# keyboard.png, bicubic-resized to 256x256): 64 image tokens. Four outputs, all
-# checked: the merged image embeddings and the three deepstack features.
+# keyboard.png, bicubic-resized to 256x256): 64 image tokens. Five outputs, all
+# checked: the merged image embeddings, the three deepstack features, and the
+# merged grid [8, 8] (exact). Qwen/Qwen3-VL-2B-Instruct-kv-cache uses this
+# entry as its vision module.
 dtype: float16
 inputs:
   - shape: [1, 3, 256, 256]

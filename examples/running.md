@@ -154,6 +154,38 @@ instead of from the command line. This can help to avoid quoting issues with
 with `--stop_token_id` (can be specified multiple times, take IDs them from the
 model's `generation_config.json`).
 
+### Image + text (VLM)
+
+A VLM's language model takes image features in `prefill`, after the prompt
+(`Qwen3VLKvCacheLM` in
+[integration_tests/models/qwen3_vl.py](../integration_tests/models/qwen3_vl.py)).
+The prompt must already hold the image's tokens: for Qwen3-VL, the chat
+template with its one `<|image_pad|>` repeated once per image embedding (64
+for a 256x256 image). The features come either from files, in
+`iree-run-module`'s `--input` syntax, in prefill's argument order:
+
+```sh
+  $REMOTE_DIR/bin/iree-run-llm --module=$REMOTE_DIR/model.vmfb ... \
+    --prefill_input=@image_embeds.npy --prefill_input=@deepstack0.npy \
+    --prefill_input=@deepstack1.npy --prefill_input=@deepstack2.npy \
+    --prefill_input=2xi64=8,8
+```
+
+or from the vision encoder, compiled as its own module and run on the device
+first. Its results stay on the device and go to `prefill` as they are. The
+language model's module comes last; the two need distinct VM module names
+(the integration tests export the encoder as `vision`):
+
+```sh
+  $REMOTE_DIR/bin/iree-run-llm \
+    --module=$REMOTE_DIR/vision.vmfb --module=$REMOTE_DIR/model.vmfb ... \
+    --vision_function=vision.main --vision_input=@image.npy
+```
+
+`image.npy` is the image as the encoder takes it: for Qwen3-VL `[1, 3, 256,
+256]` f16, RGB in 0..1. The stats then also give the encoder's time
+(`vision:`).
+
 ## DSP-side debug logging
 
 DSP output does not appear on stdout; it goes to the Android log. Enable it by writing a

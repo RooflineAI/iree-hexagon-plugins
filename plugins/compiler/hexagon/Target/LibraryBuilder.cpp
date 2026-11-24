@@ -51,7 +51,6 @@ static llvm::StructType *makeImportTableType(llvm::LLVMContext &context) {
 //   i64,     // vtcm_bytes
 //   i64,     // threads
 //   i64,     // read_only_bindings
-//   i64,     // dma_bypass_bindings
 // }
 // Must match hexagon/dsp/rt/executable_library.h;
 // HexagonExecutableSerialization checks the offsets at build time.
@@ -67,7 +66,6 @@ static llvm::StructType *makeDispatchAttrsType(llvm::LLVMContext &context) {
                                             i64Type, // vtcm_bytes
                                             i64Type, // threads
                                             i64Type, // read_only_bindings
-                                            i64Type, // dma_bypass_bindings
                                         },
                                         "hexagon_executable_dispatch_attrs_t",
                                         /*isPacked=*/false);
@@ -274,8 +272,6 @@ LibraryBuilder::buildLibraryV0ExportTable(std::string libraryName) {
             llvm::ConstantInt::get(i64Type, dispatch.attrs.threads),
             // read_only_bindings=
             llvm::ConstantInt::get(i64Type, dispatch.attrs.readOnlyBindings),
-            // dma_bypass_bindings=
-            llvm::ConstantInt::get(i64Type, dispatch.attrs.dmaBypassBindings),
         }));
   }
   llvm::Constant *exportAttrs = createArrayConstant(

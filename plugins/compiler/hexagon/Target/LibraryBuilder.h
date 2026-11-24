@@ -76,9 +76,6 @@ public:
     // Bit i set: the dispatch only reads binding i. Bindings from 64 on are
     // treated as written.
     uint64_t readOnlyBindings = 0;
-    // Bit i set: the dispatch accesses binding i only by DMA transfers that
-    // bypass the data cache. Bindings from 64 on go through the cache.
-    uint64_t dmaBypassBindings = 0;
   };
 
   LibraryBuilder(llvm::Module *module, Version version = Version::LATEST)

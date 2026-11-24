@@ -592,10 +592,6 @@ typedef struct hexa_cmd_buf_task_s {
   const hexagon_executable_environment_t *environment;
   /// dispatch name for profiling and diagnostics, may be NULL
   const char *func_name;
-  /// attributes the compiler recorded for the dispatch, may be NULL
-  /// used by the main thread to check for necessary cache maintenance after
-  /// completion
-  const hexagon_executable_dispatch_attrs_t *attrs;
   /// allocation holding the arrays the dispatch state points to (constants,
   /// binding pointers and lengths) and mapped_fds: the slot's dispatches share
   /// it, grown to the largest, and it is freed with the slots.
@@ -639,13 +635,6 @@ typedef struct hexa_cmd_buf_sched_s {
   hexa_cmd_buf_future_t future;
 } hexa_cmd_buf_sched_t;
 
-/// Alignment of the ranges a dispatch writes by bypassing the cache, so no
-/// cache line they share with other data can be written back over the DMA's
-/// result: the L2 line size, 128 bytes (QuRT has no API to query it). Bindings
-/// get it with --iree-stream-resource-min-offset-alignment=128; buffers the
-/// application passes in must be aligned by the application.
-#define HEXA_CMD_BUF_BYPASS_WRITE_ALIGNMENT 128u
-
 /**
  * @brief How a dispatch accesses binding idx_binding, from the binding masks
  * the compiler recorded. Without them, it may write through the cache.
@@ -657,12 +646,7 @@ hexa_cmd_buf_binding_access(const hexagon_executable_dispatch_attrs_t *attrs,
     // unknown may do anything
     return HEXAGON_DSP_CACHE_ACCESS_CACHED_WRITE;
   }
-  uint64_t bit = 1ull << idx_binding;
-  bool read_only = (attrs->read_only_bindings & bit) != 0;
-  if ((attrs->dma_bypass_bindings & bit) != 0) {
-    return read_only ? HEXAGON_DSP_CACHE_ACCESS_BYPASS_READ
-                     : HEXAGON_DSP_CACHE_ACCESS_BYPASS_WRITE;
-  }
+  bool read_only = (attrs->read_only_bindings & (1ull << idx_binding)) != 0;
   return read_only ? HEXAGON_DSP_CACHE_ACCESS_CACHED_READ
                    : HEXAGON_DSP_CACHE_ACCESS_CACHED_WRITE;
 }
@@ -688,9 +672,6 @@ hexa_cmd_buf_binding_access(const hexagon_executable_dispatch_attrs_t *attrs,
  * @param[out] out_threads maximum number of tasks the dispatch submits to the
  *                         thread pool, 1 if none, INT64_MAX if unknown
  * @retval AEE_SUCCESS for success
- * @retval AEE_EBADPARM if the dispatch writes a binding by bypassing the cache
- *                      that is not aligned to
- *                      HEXA_CMD_BUF_BYPASS_WRITE_ALIGNMENT
  */
 static int hexa_cmd_buf_prepare_dispatch(
     hexagon_dsp_residency_t *residency, hexa_cmd_buf_future_t *future,
@@ -786,7 +767,6 @@ static int hexa_cmd_buf_prepare_dispatch(
   task->dispatch_func = dispatch_func;
   task->environment = environment;
   task->func_name = NULL;
-  task->attrs = NULL;
   task->mapped_fds = mapped_fds;
   task->num_buf_refs = 0;
 
@@ -818,28 +798,11 @@ static int hexa_cmd_buf_prepare_dispatch(
     binding_ptrs[idx_buf_ref] = (void *)(res_buf.dsp_vaddr + res_buf.offset);
     binding_lengths[idx_buf_ref] = res_buf.length;
     mapped_fds[idx_buf_ref] = res_buf.fd;
-    // writing to un-aligned buf is an error
-    if (hexa_cmd_buf_binding_access(attrs, idx_buf_ref) ==
-            HEXAGON_DSP_CACHE_ACCESS_BYPASS_WRITE &&
-        ((uintptr_t)binding_ptrs[idx_buf_ref] %
-         HEXA_CMD_BUF_BYPASS_WRITE_ALIGNMENT) != 0) {
-      const char *name = hexagon_dsp_function_get_name(function);
-      FARF(ERROR,
-           "HEXAGON-RUNTIME-ERROR: %s writes binding %u by bypassing the "
-           "cache, but its offset %llu is not aligned to %u bytes",
-           name ? name : "(unnamed)", (unsigned)idx_buf_ref,
-           (unsigned long long)res_buf.offset,
-           HEXA_CMD_BUF_BYPASS_WRITE_ALIGNMENT);
-      profiler_measurement_finish_and_record(prof_map_record);
-      hexa_cmd_buf_unmap(residency, mapped_fds, idx_buf_ref + 1);
-      return AEE_EBADPARM;
-    }
     ++task->num_buf_refs;
   }
   profiler_measurement_finish_and_record(prof_map_record);
 
   task->func_name = hexagon_dsp_function_get_name(function);
-  task->attrs = attrs;
 
   // The dispatch allocates VTCM only from its own partition, sized by the VTCM
   // the compiler declared for it. Without a declaration it gets all of VTCM.
@@ -936,21 +899,6 @@ static void hexa_cmd_buf_finish_dispatch(hexa_cmd_buf_sched_t *sched,
   }
   sched->vtcm_in_use -= task->vtcm_partition.size;
   hexagon_rt_release_vtcm_partition(&task->vtcm_partition);
-  // Safety net against prefetching: a line of a range the dispatch wrote by
-  // bypassing the cache, fetched while the DMA was running, is stale, so drop
-  // it.
-  for (uint32_t idx = 0; idx < task->num_buf_refs; ++idx) {
-    if (hexa_cmd_buf_binding_access(task->attrs, idx) ==
-        HEXAGON_DSP_CACHE_ACCESS_BYPASS_WRITE) {
-      int err = hexagon_dsp_residency_after_bypass_write(
-          sched->residency, task->mapped_fds[idx],
-          (const uint8_t *)task->dispatch_state.binding_ptrs[idx],
-          task->dispatch_state.binding_lengths[idx]);
-      if (err != AEE_SUCCESS && sched->status == AEE_SUCCESS) {
-        sched->status = err;
-      }
-    }
-  }
   hexa_cmd_buf_unmap(sched->residency, task->mapped_fds, task->num_buf_refs);
   task->in_flight = false;
 }

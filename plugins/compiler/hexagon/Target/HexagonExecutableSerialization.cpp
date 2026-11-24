@@ -7,7 +7,6 @@
 #include "hexagon/Target/HexagonExecutableSerialization.h"
 #include "hexagon/CodeGen/Conversion/HexagonRuntimeLinking.h"
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
-#include "hexagon/CodeGen/IR/HexagonDialect.h"
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
 #include "hexagon/Target/LLVMPasses/ExpandVectorTruncToI1.h"
@@ -64,14 +63,11 @@ static_assert(static_cast<uint32_t>(LibraryBuilder::Version::LATEST) ==
 
 // guard against struct layout changes
 static_assert(
-    sizeof(hexagon_executable_dispatch_attrs_t) == 40 &&
+    sizeof(hexagon_executable_dispatch_attrs_t) == 32 &&
         offsetof(hexagon_executable_dispatch_attrs_t, hexagon_flags) == 0 &&
         offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) == 8 &&
         offsetof(hexagon_executable_dispatch_attrs_t, threads) == 16 &&
-        offsetof(hexagon_executable_dispatch_attrs_t, read_only_bindings) ==
-            24 &&
-        offsetof(hexagon_executable_dispatch_attrs_t, dma_bypass_bindings) ==
-            32,
+        offsetof(hexagon_executable_dispatch_attrs_t, read_only_bindings) == 24,
     "dispatch attrs layout differs from LibraryBuilder");
 static_assert(
     static_cast<uint64_t>(
@@ -276,13 +272,6 @@ static void buildExecutableMetadata(llvm::Module &llvmModule,
       dispatchAttrs.vtcmBytes = static_cast<uint64_t>(resources.getVtcmBytes());
       dispatchAttrs.threads = static_cast<uint64_t>(resources.getThreads());
     }
-
-    // Bindings whose DMA transfers bypass the data cache
-    // (HexagonDMACacheBypassPass), so the DSP keeps their lines out of the
-    // cache around the dispatch.
-    if (auto mask = exportOp->getAttrOfType<IntegerAttr>(
-            IREE::Hexagon::IREEHexagonDialect::getDMABypassBindingsAttrName()))
-      dispatchAttrs.dmaBypassBindings = mask.getValue().getZExtValue();
 
     // Bindings the dispatch only reads, so the DSP neither flushes them nor
     // treats them as written.

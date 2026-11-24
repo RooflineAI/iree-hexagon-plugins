@@ -120,19 +120,6 @@ int hexagon_dsp_residency_host_sync(hexagon_dsp_residency_t *residency, int fd,
                                     uint64_t offset, uint64_t length);
 
 /**
- * @brief Once a command that wrote [vaddr, vaddr + length) of an allocation by
- *        bypassing the cache has completed, invalidate the lines fetched while
- *        the DMA was running. Call before releasing the allocation.
- * @param[in] fd file descriptor of the allocation
- * @param[in] vaddr start of the range, within the allocation's mapping
- * @param[in] length length of the range
- * @retval AEE_SUCCESS for success
- */
-int hexagon_dsp_residency_after_bypass_write(hexagon_dsp_residency_t *residency,
-                                             int fd, const uint8_t *vaddr,
-                                             uint64_t length);
-
-/**
  * @brief After an execution, flush the whole data cache if any allocation
  *        may be dirty, as the host may read any of them.
  * @retval AEE_SUCCESS for success

@@ -385,23 +385,6 @@ int hexagon_dsp_residency_host_sync(hexagon_dsp_residency_t *residency, int fd,
   return err;
 }
 
-int hexagon_dsp_residency_after_bypass_write(hexagon_dsp_residency_t *residency,
-                                             int fd, const uint8_t *vaddr,
-                                             uint64_t length) {
-  assert(fd >= 0);
-  int err = AEE_SUCCESS;
-  qurt_mutex_lock(&residency->mutex);
-  hexa_residency_entry_t *entry = hexa_residency_find(residency, fd);
-  if (entry && vaddr >= entry->vaddr) {
-    uint64_t offset = (uint64_t)(vaddr - entry->vaddr);
-    err = hexa_residency_cache_op(
-        entry, hexagon_dsp_cache_state_after_bypass_write(&entry->cache, offset,
-                                                          length));
-  }
-  qurt_mutex_unlock(&residency->mutex);
-  return err;
-}
-
 int hexagon_dsp_residency_end_execution(hexagon_dsp_residency_t *residency) {
   int err = AEE_SUCCESS;
   qurt_mutex_lock(&residency->mutex);

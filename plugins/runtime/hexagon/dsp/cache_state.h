@@ -18,18 +18,13 @@
  * Besides the DSP's loads and stores (through the caches), two points can
  * access DDR directly:
  * - the host, between executions, and only allocations it can map;
- * - DMA transfers that bypass the cache, during a dispatch.
+ * - DMA transfers that bypass the cache, during a dispatch, but only to read
+ *   constants (see HexagonDMACacheBypassPass), so they need no maintenance.
  * Coherent DMA goes through the cache like the cores' loads and stores
  * ("cached" accesses).
  *
  * Rules:
  * - A cached read may leave clean lines, a cached write dirty ones.
- * - Before a bypassed read, the dirty lines of its range are flushed.
- * - Before a bypassed write, the lines of its range are flushed and
- *   invalidated: a dirty line written back later would overwrite the result.
- *     After the dispatch, they are invalidated again, as lines fetched while
- *     the DMA was running are stale. This guards against someone "accidentally"
- *     prefetching the lines from this buffer, probably rare in practice.
  * - At the end of an execution, the whole cache is flushed, as the host may
  *   read any allocation. The lines stay in the cache, clean.
  * - Before an execution, the lines of ranges the host may have written are
@@ -38,11 +33,6 @@
  *   allocation that is not mapped has no lines.
  * A plain invalidate is only used where no dirty line can be, so dirty bytes of
  * a neighbour sharing a cache line at the edge of a range are never discarded.
- *
- * The dirty lines are tracked as one range per allocation: IREE packs many
- * tensors into one allocation, and a bypassed read only needs the dirty part of
- * its range flushed. A range removed from its middle leaves it unchanged, which
- * only costs flushing more than needed.
  */
 
 /// Flushes of this many bytes or more flush the whole data cache: cleaning a
@@ -69,10 +59,6 @@ typedef enum hexagon_dsp_cache_access_e {
   HEXAGON_DSP_CACHE_ACCESS_CACHED_READ,
   /// stores (or coherent DMA writes), possibly loads
   HEXAGON_DSP_CACHE_ACCESS_CACHED_WRITE,
-  /// DMA reads that bypass the cache only
-  HEXAGON_DSP_CACHE_ACCESS_BYPASS_READ,
-  /// DMA writes that bypass the cache, possibly bypassed DMA reads
-  HEXAGON_DSP_CACHE_ACCESS_BYPASS_WRITE,
 } hexagon_dsp_cache_access_t;
 
 /// Kind of a data cache operation.
@@ -92,13 +78,11 @@ typedef struct hexagon_dsp_cache_op_s {
 
 /// What the data cache may hold of one mapped allocation.
 typedef struct hexagon_dsp_cache_state_s {
-  /// byte offsets within the allocation: dirty lines may exist only where they
-  /// overlap [dirty_begin, dirty_end); none if equal
-  uint64_t dirty_begin;
-  uint64_t dirty_end;
-  /// whether the cache may hold any line of the allocation, clean or dirty,
-  /// also outside [dirty_begin, dirty_end); false only if it was never
-  /// accessed through the cache since it was mapped
+  /// whether the cache may hold dirty lines of the allocation, i.e. it was
+  /// written through the cache since the end of the last execution
+  bool dirty;
+  /// whether the cache may hold any line of the allocation, clean or dirty;
+  /// false only if it was never accessed through the cache since it was mapped
   bool has_lines;
 } hexagon_dsp_cache_state_t;
 
@@ -116,12 +100,6 @@ hexagon_dsp_cache_op_t
 hexagon_dsp_cache_state_access(hexagon_dsp_cache_state_t *state,
                                hexagon_dsp_cache_access_t access,
                                uint64_t offset, uint64_t length);
-
-/// Operation needed once a command that wrote the range by bypassing the cache
-/// has completed.
-hexagon_dsp_cache_op_t
-hexagon_dsp_cache_state_after_bypass_write(hexagon_dsp_cache_state_t *state,
-                                           uint64_t offset, uint64_t length);
 
 /// Operation needed before an execution on a range the host may have written
 /// since the last one.

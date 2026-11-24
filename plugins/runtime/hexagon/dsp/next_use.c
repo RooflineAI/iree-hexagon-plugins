@@ -36,7 +36,8 @@ static uint32_t hexa_uses_lower_bound(const hexagon_dsp_use_t *sorted_uses,
     if (use->fd < fd || (use->fd == fd && use->position < position)) {
       begin = mid + 1;
     } else {
-      end = mid;
+      end = mid; // mid could be the answer, but keep looking left for earlier
+                 // usage
     }
   }
   return begin;
@@ -50,7 +51,7 @@ uint64_t hexagon_dsp_next_use_distance(const hexagon_dsp_use_t *sorted_uses,
       hexa_uses_lower_bound(sorted_uses, num_uses, fd, (uint64_t)position + 1);
   if (idx < num_uses && sorted_uses[idx].fd == fd) {
     return sorted_uses[idx].position - position;
-  }
+  } // else: no known future use of this fd
 #if HEXAGON_DSP_NEXT_USE_WRAP_AROUND
   // first use in the next execution
   idx = hexa_uses_lower_bound(sorted_uses, num_uses, fd, 0);

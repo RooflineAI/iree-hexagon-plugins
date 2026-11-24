@@ -15,10 +15,12 @@ package(
 hexagon_plugin_library(
     name = "LLVMPasses",
     srcs = [
+        "DynamicInsertElementToSelect.cpp",
         "ExpandVectorTruncToI1.cpp",
         "SplatSelectConditionToI1Vector.cpp",
     ],
     hdrs = [
+        "DynamicInsertElementToSelect.h",
         "ExpandVectorTruncToI1.h",
         "SplatSelectConditionToI1Vector.h",
     ],

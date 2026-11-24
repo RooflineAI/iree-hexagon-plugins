@@ -1,0 +1,20 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Qwen3-VL's interleaved M-RoPE: two strided slice assignments
+# (freqs_t[..., 1:60:3] = freqs[1, ..., 1:60:3], and the same from 2). Each
+# copy gathers 20 strided floats into a vector, one dynamic insert at a time.
+# Through a stack slot, the Hexagon packetizer puts the vector spill and the
+# element store in one packet, the spill takes effect last, and every strided
+# column comes out 0; the DynamicInsertElementToSelect pass avoids the stack.
+# It is a pure copy, so the result must be exact.
+dtype: float32
+inputs:
+  - {shape: [3, 1, 96, 64], dtype: float32, generator: normal, seed: 0}
+tolerances:
+  atol: 0.0
+  rtol: 0.0
+  relative_l2_percent: 0.0

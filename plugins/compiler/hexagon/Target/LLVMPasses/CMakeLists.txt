@@ -14,9 +14,11 @@ iree_cc_library(
   NAME
     LLVMPasses
   HDRS
+    "DynamicInsertElementToSelect.h"
     "ExpandVectorTruncToI1.h"
     "SplatSelectConditionToI1Vector.h"
   SRCS
+    "DynamicInsertElementToSelect.cpp"
     "ExpandVectorTruncToI1.cpp"
     "SplatSelectConditionToI1Vector.cpp"
   DEPS

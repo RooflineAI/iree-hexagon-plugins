@@ -9,6 +9,7 @@
 #include "hexagon/CodeGen/IR/HexagonAttrs.h"
 
 #include "hexagon/Target/HexagonLLVMTarget.h"
+#include "hexagon/Target/LLVMPasses/DynamicInsertElementToSelect.h"
 #include "hexagon/Target/LLVMPasses/ExpandVectorTruncToI1.h"
 #include "hexagon/Target/LLVMPasses/SplatSelectConditionToI1Vector.h"
 #include "hexagon/Target/LibraryBuilder.h"
@@ -43,6 +44,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -287,6 +289,31 @@ static void buildExecutableMetadata(llvm::Module &llvmModule,
       llvm::GlobalValue::LinkageTypes::ExternalLinkage);
 }
 
+// Builds the packetizer workaround pass for the HVX configuration in the
+// target features: the vector length from `+hvx-length{64,128}b`, and HVX
+// floating point from 128-byte HVX on v68 or later (`+hvxvNN`).
+static DynamicInsertElementToSelectPass
+createDynamicInsertElementToSelectPass(llvm::StringRef targetFeatures) {
+  unsigned hvxVectorBits = 0;
+  unsigned hvxVersion = 0;
+  llvm::SmallVector<llvm::StringRef> features;
+  targetFeatures.split(features, ',', /*MaxSplit=*/-1, /*KeepEmpty=*/false);
+  for (llvm::StringRef feature : features) {
+    if (feature == "+hvx-length128b") {
+      hvxVectorBits = 1024;
+    } else if (feature == "+hvx-length64b") {
+      hvxVectorBits = 512;
+    } else if (feature.consume_front("+hvxv")) {
+      unsigned version = 0;
+      if (!feature.getAsInteger(10, version)) {
+        hvxVersion = std::max(hvxVersion, version);
+      }
+    }
+  }
+  return DynamicInsertElementToSelectPass(
+      hvxVectorBits, /*hvxFloat=*/hvxVectorBits == 1024 && hvxVersion >= 68);
+}
+
 // Runs the LLVM middle-end optimization pipeline at O2. Loop interleaving,
 // loop vectorization, loop unrolling and SLP vectorization stay disabled,
 // matching the defaults of the LLVMCPU backend this was derived from.
@@ -321,14 +348,19 @@ runLLVMOptimizationPasses(llvm::TargetMachine &targetMachine,
                                    cgsccAnalysisManager, moduleAnalysisManager);
   // FIXME: workaround for https://github.com/llvm/llvm-project/issues/237238
   passBuilder.registerOptimizerLastEPCallback(
-      [](llvm::ModulePassManager &modulePassManager, llvm::OptimizationLevel,
-         llvm::ThinOrFullLTOPhase) {
+      [&targetMachine](llvm::ModulePassManager &modulePassManager,
+                       llvm::OptimizationLevel, llvm::ThinOrFullLTOPhase) {
         modulePassManager.addPass(llvm::createModuleToFunctionPassAdaptor(
             ExpandVectorTruncToI1Pass()));
         // FIXME: workaround for
         // https://github.com/llvm/llvm-project/issues/239550
         modulePassManager.addPass(llvm::createModuleToFunctionPassAdaptor(
             SplatSelectConditionToI1VectorPass()));
+        // FIXME: workaround for a Hexagon packetizer bug (an HVX store and a
+        // later aliasing scalar store in one packet), not yet filed upstream.
+        modulePassManager.addPass(llvm::createModuleToFunctionPassAdaptor(
+            createDynamicInsertElementToSelectPass(
+                targetMachine.getTargetFeatureString())));
       });
 
   llvm::ModulePassManager modulePassManager =

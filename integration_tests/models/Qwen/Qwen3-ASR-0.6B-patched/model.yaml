@@ -10,18 +10,16 @@ dtype: float16
 inputs:
   - {shape: [1, 128, 400], dtype: float16, generator: normal, seed: 0}
   - {shape: [1, 400], dtype: int64, generator: ones}
-# Placeholder: never reached while the compile failure below stands.
+# Not met yet: 1.50% relative L2 on device (2026-11-24), see below.
 tolerances:
   atol: 2.0e-1
   rtol: 5.0e-2
   relative_l2_percent: 0.5
 compile_cases: [hexagon-vtcm-hmx]
-# A 3 GB import that only reaches the ISel failure below; micro/conv-gelu-4x32x8x50-f16
-# reproduces it in a second. Run with --run-skipped once that is fixed.
-skip: "known COMPILE_FAILURE (LLVM Hexagon ISel, f16 erf GELU); tracked by micro/conv-gelu-4x32x8x50-f16"
+skip: "known ACCURACY_FAILURE (1.50% relative L2 vs 0.5%; every argmax matches)"
 expected_outcomes:
   - case: hexagon-vtcm-hmx
-    status: COMPILE_FAILURE
-    reason: "v32i1 = setcc"
+    status: ACCURACY_FAILURE
+    reason: "allclose(atol=0.2, rtol=0.05) = False"
     comment: >-
-      LLVM Hexagon ISel failure in the conv 4x480x32x25x480x3x3 + exact-erf GELU dispatch (f16). The plain `hexagon` case fails the same way. With the GELU computed in f32 instead, the compile spends >10 min in HexagonGlobalScheduler and, with -disable-pull-up, then trips the 12 KiB stack-frame gate. Measured 2026-09-29.
+      Output0 (logits [1, 70, 151936]) is 1.50% relative L2, max abs diff 0.91. The error is spread over all 70 positions (median 1.07% per position, worst 8.5% at position 59), and the argmax agrees at all 70 positions. Not investigated further and tracked by ROO-2494.

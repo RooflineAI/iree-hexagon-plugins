@@ -137,16 +137,6 @@ def pull(remote_paths: list[str], local_dir: Path) -> None:
     _run(["pull", *remote_paths, str(local_dir)])
 
 
-def logcat_dump(filters: list[str] | None = None) -> str:
-    """Dump the log buffer collected since it was last cleared."""
-    args = ["logcat", "-d"]
-    args += filters if filters is not None else ["-s", "adsprpc"]
-    try:
-        return _run(args, timeout=120.0).stdout
-    except AdbError as err:  # a missing log must not mask the real failure
-        return f"<could not read logcat: {err}>"
-
-
 def getprop(name: str) -> str:
     return _run(["shell", f"getprop {shlex.quote(name)}"]).stdout.strip()
 

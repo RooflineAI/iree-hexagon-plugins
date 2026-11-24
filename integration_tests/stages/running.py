@@ -14,6 +14,7 @@ import json
 import posixpath
 import re
 import shlex
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -369,7 +370,11 @@ def run_module_on_device(
     stdout, marker, logcat = stdout.partition(_LOGCAT_MARKER + "\n")
     if not marker:
         # The shell ended before the dump, e.g. killed: fetch it separately.
-        logcat = adb.logcat_dump()
+        try:
+            _, logcat, _ = adb.shell_exit_code_split(_LOGCAT_DUMP, timeout=30.0)
+        # A missing log must not mask the real failure.
+        except (AdbError, subprocess.TimeoutExpired) as err:
+            logcat = f"<could not read logcat: {err}>"
     log = stdout + stderr
     invocation = _invocation_time(log, host_run)
     if invocation is None:
@@ -554,6 +559,8 @@ def run_llm_on_device(
 # Separates the run's stdout from the logcat dump that follows it in the same
 # adb shell (see run_module_on_device).
 _LOGCAT_MARKER = "--- end of run; logcat (adsprpc) follows ---"
+# Dumps the log buffer collected since it was last cleared.
+_LOGCAT_DUMP = "logcat -d -s adsprpc"
 
 
 def _with_logcat(script: str) -> str:
@@ -562,7 +569,7 @@ def _with_logcat(script: str) -> str:
     `exit` in `script` from skipping the dumpthe shell exits with the script's exit code."""
     return (
         f"logcat -c; ( {script} ); exit_code=$?; "
-        f"echo {shlex.quote(_LOGCAT_MARKER)}; logcat -d -s adsprpc; exit $exit_code"
+        f"echo {shlex.quote(_LOGCAT_MARKER)}; {_LOGCAT_DUMP}; exit $exit_code"
     )
 
 

@@ -25,7 +25,7 @@ static iree_status_t iree_hal_hexagon_cmd_dispatch_get_constant_count(
   iree_host_size_t constant_count = constants->data_length / sizeof(uint32_t);
   if (constant_count > UINT16_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "too many constants %" PRIu64 "u for Hexagon",
+                            "too many constants %" PRIhsz " for Hexagon",
                             constant_count);
   }
   *out_constant_count = constant_count;

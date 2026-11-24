@@ -129,6 +129,26 @@ func.func @hmx_dynamic_m_bounded(%lhs: tensor<4096x2048xf16>, %rhs: tensor<2048x
 
 #target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
 
+// IREE bounds a size it knows nothing about by 2^53 - 1. No dimension can be
+// that large on Hexagon, so M counts as unbounded; the tile search must not
+// enumerate HMX tiles up to the bound.
+func.func @hmx_dynamic_m_unbounded(%lhs: tensor<?x2048xf16>, %rhs: tensor<2048x1024xf16>, %m_arg: index) -> tensor<?x1024xf32> attributes {hal.executable.target = #target} {
+  %zero = arith.constant 0.0 : f32
+  %m = util.assume.int %m_arg<umin = 0, umax = 9007199254740991> : index
+  %empty = tensor.empty(%m) : tensor<?x1024xf32>
+  %init = linalg.fill ins(%zero : f32) outs(%empty : tensor<?x1024xf32>) -> tensor<?x1024xf32>
+  %result = linalg.matmul ins(%lhs, %rhs : tensor<?x2048xf16>, tensor<2048x1024xf16>) outs(%init : tensor<?x1024xf32>) -> tensor<?x1024xf32>
+  return %result : tensor<?x1024xf32>
+}
+// CHECK-DAG: #[[DYNAMIC_M_UNBOUNDED_ROOT:.+]] = #iree_hexagon.lowering_config<{{.*}}vtcm = [32, 128, 2048]>
+// CHECK: func.func @hmx_dynamic_m_unbounded(
+// CHECK: linalg.matmul
+// CHECK-SAME: lowering_config = #[[DYNAMIC_M_UNBOUNDED_ROOT]]
+
+// -----
+
+#target = #hal.executable.target<"hexagon", "embedded-elf-hexagon", {cpu = "hexagonv79", cpu_features = "+hvxv79,+hvx-length128b", max_stack_allocation_size = 16384 : i64, target_triple = "hexagon-unknown-unknown-elf"}>
+
 // A dynamic N is sized by its upper bound, so it still gets an HMX-aligned tile.
 func.func @hmx_dynamic_n_bounded(%lhs: tensor<1024x2048xf16>, %rhs: tensor<2048x4096xf16>, %n_arg: index) -> tensor<1024x?xf32> attributes {hal.executable.target = #target} {
   %zero = arith.constant 0.0 : f32

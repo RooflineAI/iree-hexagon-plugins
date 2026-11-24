@@ -455,8 +455,10 @@ typedef struct hexa_cmd_buf_task_s {
   /// dispatch name for profiling and diagnostics, may be NULL
   const char *func_name;
   /// allocation holding the arrays the dispatch state points to (constants,
-  /// binding pointers and lengths) and mapped_fds, freed when finished
+  /// binding pointers and lengths) and mapped_fds: the slot's dispatches share
+  /// it, grown to the largest, and it is freed with the slots.
   uint8_t *dispatch_arrays;
+  size_t dispatch_arrays_size;
   /// file descriptors mapped for the bindings, unmapped when finished
   int *mapped_fds;
   uint32_t num_buf_refs;
@@ -547,13 +549,13 @@ static int hexa_cmd_buf_prepare_dispatch(
   const hexagon_executable_environment_t *environment =
       hexagon_dsp_function_get_environment(function);
 
-  // Allocate buffer for nested arrays in dispatch state.
+  // Place the nested arrays of the dispatch state in the slot's buffer.
   // The dispatch state contains some pointers, which are arrays semantically.
-  // These pointers need to point to actual arrays, which are allocated here.
-  // To reduce the number of HAL_malloc calls, the arrays are allocated in the
-  // same buffer and the start addresses are computed based on their size.
-  // Storage for the RPCmem file descriptors to unmap at the end is also
-  // allocated in the same memory block.
+  // These pointers need to point to actual arrays, which live in the task
+  // slot's buffer, grown when this dispatch needs more than any before it.
+  // The arrays share the buffer and the start addresses are computed based on
+  // their size. Storage for the RPCmem file descriptors to unmap at the end is
+  // also in the same buffer.
   size_t constants_offset = 0;
   size_t constants_size = cmd_dispatch->constant_count * sizeof(uint32_t);
   size_t binding_ptrs_offset =
@@ -565,15 +567,23 @@ static int hexa_cmd_buf_prepare_dispatch(
   size_t mapped_fds_offset = HEXAGON_ALIGN_SIZE_FOR_TYPE(
       binding_lengths_offset + binding_lengths_size, int);
   size_t mapped_fds_size = num_buf_refs * sizeof(int);
-  uint8_t *dispatch_arrays = NULL;
-  int err = HAP_malloc(mapped_fds_offset + mapped_fds_size,
-                       (void **)&dispatch_arrays);
-  if (err != AEE_SUCCESS) {
-    return err;
+  size_t arrays_size = mapped_fds_offset + mapped_fds_size;
+  int err = AEE_SUCCESS;
+  if (arrays_size > task->dispatch_arrays_size) {
+    // need to grow
+    HAP_free(task->dispatch_arrays);
+    task->dispatch_arrays = NULL;
+    task->dispatch_arrays_size = 0;
+    err = HAP_malloc(arrays_size, (void **)&task->dispatch_arrays);
+    if (err != AEE_SUCCESS) {
+      return err;
+    }
+    if (!task->dispatch_arrays) {
+      return AEE_ENOMEMORY;
+    }
+    task->dispatch_arrays_size = arrays_size;
   }
-  if (!dispatch_arrays) {
-    return AEE_ENOMEMORY;
-  }
+  uint8_t *dispatch_arrays = task->dispatch_arrays;
   uint32_t *constants = (uint32_t *)(dispatch_arrays + constants_offset);
   void **binding_ptrs = (void **)(dispatch_arrays + binding_ptrs_offset);
   size_t *binding_lengths =
@@ -600,7 +610,6 @@ static int hexa_cmd_buf_prepare_dispatch(
   task->dispatch_func = dispatch_func;
   task->environment = environment;
   task->func_name = NULL;
-  task->dispatch_arrays = dispatch_arrays;
   task->mapped_fds = mapped_fds;
   task->num_buf_refs = 0;
 
@@ -624,7 +633,6 @@ static int hexa_cmd_buf_prepare_dispatch(
     if (err != AEE_SUCCESS) {
       profiler_measurement_finish_and_record(prof_map_record);
       hexa_cmd_buf_unmap(residency, mapped_fds, idx_buf_ref);
-      HAP_free(dispatch_arrays);
       return err;
     }
     binding_ptrs[idx_buf_ref] = (void *)(res_buf.dsp_vaddr + res_buf.offset);
@@ -734,7 +742,6 @@ static void hexa_cmd_buf_finish_dispatch(hexa_cmd_buf_sched_t *sched,
   sched->vtcm_in_use -= task->vtcm_partition.size;
   hexagon_rt_release_vtcm_partition(&task->vtcm_partition);
   hexa_cmd_buf_unmap(sched->residency, task->mapped_fds, task->num_buf_refs);
-  HAP_free(task->dispatch_arrays);
   task->in_flight = false;
 }
 
@@ -1204,6 +1211,9 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
 
   qurt_cond_destroy(&sched.done_notify.cond);
   qurt_mutex_destroy(&sched.done_notify.mutex);
+  for (uint32_t idx = 0; idx < max_concurrent; ++idx) {
+    HAP_free(sched.tasks[idx].dispatch_arrays);
+  }
   HAP_free(tasks_allocation);
   return err;
 }

@@ -45,7 +45,7 @@ unless marked as an estimate. Other SoCs may differ.
    what the host registered. `HAP_GET_FD_INFO` is not supported, so the
    allocation size is sent along with the fd.
 4. **Acquire (DSP).** Before a dispatch, copy or fill runs, the DSP acquires
-   every buffer it uses from the residency cache. The cache maps the whole
+   every buffer it uses from the residency-cache. The residency-cache maps the whole
    allocation with `HAP_mmap2` if needed, and keeps it mapped while acquired.
 5. **Release (DSP).** After the dispatch, copy or fill finishes, its buffers
    are released. They **stay mapped** until the address space is needed for
@@ -69,7 +69,7 @@ where everything fits, almost free.
 
 ### Budget
 
-The cache keeps at most a **budget** of bytes mapped, set with
+The residency-cache keeps at most a **budget** of bytes mapped, set with
 `--hexagon_dsp_residency_budget_mib` (default
 `IREE_HAL_HEXAGON_DEFAULT_DSP_RESIDENCY_BUDGET_MIB` = 3584 MiB in
 [`api.h`](api.h)).
@@ -78,8 +78,8 @@ The cache keeps at most a **budget** of bytes mapped, set with
   **not tuned**. The space above it is for the skel and kernel libraries, the
   DSP heap (command buffer copies live there), stacks, FastRPC argument
   mappings and fragmentation.
-- The budget is a soft limit. The cache does not know about fragmentation: if
-  `HAP_mmap2` fails even though the budget allows it, the cache unmaps more
+- The budget is a soft limit. The residency-cache does not know about fragmentation: if
+  `HAP_mmap2` fails even though the budget allows it, the residency-cache unmaps more
   and retries.
 - The budget must be at least the largest allocation, and at least the sum of
   the bindings of the largest dispatch. If a buffer can never fit, the
@@ -91,7 +91,7 @@ The cache keeps at most a **budget** of bytes mapped, set with
 
 ### What gets unmapped: Belady, then LRU
 
-When a new allocation does not fit, the cache unmaps allocations that are not
+When a new allocation does not fit, the residency-cache unmaps allocations that are not
 acquired, until it fits.
 
 - **With a known future** (command buffer execution), it unmaps the allocation
@@ -113,7 +113,7 @@ keeps caches coherent itself. The rules are in
 - **Execution start:** invalidate every bound range (binding table entries and
   direct references) that is **still mapped** from earlier, because the host
   may have written it since.
-- **Between commands:** nothing. All commands of a command buffer run on the
+- **Between commands**  (e.g. dispatches): nothing. All commands of a command buffer run on the
   DSP and share the same view of the caches.
 - **Execution end:** flush and invalidate every bound range that is mapped,
   also on error, so the host sees whatever was written.

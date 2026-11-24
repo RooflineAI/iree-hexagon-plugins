@@ -30,6 +30,7 @@ cases of one compile case share one module.
 from __future__ import annotations
 
 import dataclasses
+import gc
 import multiprocessing
 import os
 import pathlib
@@ -113,6 +114,8 @@ def _import_in_child(
         os.dup2(saved[1], 2)
         os.close(saved[0])
         os.close(saved[1])
+
+    gc.collect()
     return imported, log_path.read_text(errors="replace"), _rss_bytes()
 
 

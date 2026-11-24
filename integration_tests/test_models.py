@@ -27,6 +27,7 @@ from integration_tests.device.deploy import Deployment, Deployments
 from integration_tests.modeltree.outcomes import Outcome, Status, check_outcome
 from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.prefetch import Prefetcher
+from integration_tests.stages.artifacts import ImportedModel
 from integration_tests.stages.checking import (
     AccuracyError,
     check_generation,

@@ -370,11 +370,7 @@ def run_module_on_device(
     stdout, marker, logcat = stdout.partition(_LOGCAT_MARKER + "\n")
     if not marker:
         # The shell ended before the dump, e.g. killed: fetch it separately.
-        try:
-            _, logcat, _ = adb.shell_exit_code_split(_LOGCAT_DUMP, timeout=30.0)
-        # A missing log must not mask the real failure.
-        except (AdbError, subprocess.TimeoutExpired) as err:
-            logcat = f"<could not read logcat: {err}>"
+        logcat = _dump_logcat()
     log = stdout + stderr
     invocation = _invocation_time(log, host_run)
     if invocation is None:
@@ -524,7 +520,7 @@ def run_llm_on_device(
     stdout, marker, logcat = stdout.partition(_LOGCAT_MARKER + "\n")
     if not marker:
         # The shell ended before the dump, e.g. killed: fetch it separately.
-        logcat = adb.logcat_dump()
+        logcat = _dump_logcat()
     log = stdout + stderr
     local_output_dir.mkdir(parents=True, exist_ok=True)
     prefill_logits_file: Path | None = local_output_dir / _PREFILL_LOGITS
@@ -561,6 +557,17 @@ def run_llm_on_device(
 _LOGCAT_MARKER = "--- end of run; logcat (adsprpc) follows ---"
 # Dumps the log buffer collected since it was last cleared.
 _LOGCAT_DUMP = "logcat -d -s adsprpc"
+
+
+def _dump_logcat() -> str:
+    """`_LOGCAT_DUMP` in its own adb shell, for when `_with_logcat` did not get
+    to it."""
+    try:
+        _, logcat, _ = adb.shell_exit_code_split(_LOGCAT_DUMP, timeout=30.0)
+    # A missing log must not mask the real failure.
+    except (AdbError, subprocess.TimeoutExpired) as err:
+        return f"<could not read logcat: {err}>"
+    return logcat
 
 
 def _with_logcat(script: str) -> str:

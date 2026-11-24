@@ -4,13 +4,15 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Running a compiled module on a device with iree-benchmark-module."""
+"""Running a compiled module on a device with iree-benchmark-module, or an LLM's
+token generation with iree-run-llm."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import posixpath
+import re
 import shlex
 import time
 from dataclasses import dataclass, field
@@ -19,7 +21,7 @@ from pathlib import Path
 from integration_tests.device import adb
 from integration_tests.device.adb import AdbError
 from integration_tests.device.deploy import Deployment
-from integration_tests.stages.artifacts import ModuleCall
+from integration_tests.stages.artifacts import GenerationReference, ModuleCall
 
 
 @dataclass(frozen=True)
@@ -227,6 +229,31 @@ def push_module(
         timings["verify_module"] = time.time() - verify_module_start
 
 
+def _push_case(
+    deployment: Deployment,
+    case_dir_name: str,
+    module_vmfb: Path,
+    host_rsync: Path,
+    timeout: float,
+    timings: dict[str, float],
+) -> str:
+    """Make a fresh case directory on the device holding `module_vmfb` as
+    module.vmfb, see `push_module`, and return its path.
+    """
+    remote_dir = deployment.case_dir(case_dir_name)
+    push_module(
+        module_vmfb=module_vmfb,
+        remote_module=f"{remote_dir}/module.vmfb",
+        kept_module=deployment.kept_module(case_dir_name),
+        host_rsync=host_rsync,
+        device_rsync=f"{deployment.limit_lifetime} {deployment.rsync}",
+        timeout=timeout,
+        setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
+        timings=timings,
+    )
+    return remote_dir
+
+
 def _run_module_argv(
     deployment: Deployment, call: ModuleCall, extra_flags: tuple[str, ...]
 ) -> list[str]:
@@ -298,18 +325,10 @@ def run_module_on_device(
     timings: dict[str, float] = {}
 
     push_total_start = time.time()
-    remote_dir = deployment.case_dir(case_dir_name)
     # The first transfer of a large module takes a while, so it gets the same
     # budget as the run.
-    push_module(
-        module_vmfb=module_vmfb,
-        remote_module=f"{remote_dir}/module.vmfb",
-        kept_module=deployment.kept_module(case_dir_name),
-        host_rsync=host_rsync,
-        device_rsync=f"{deployment.limit_lifetime} {deployment.rsync}",
-        timeout=timeout,
-        setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
-        timings=timings,
+    remote_dir = _push_case(
+        deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
     )
     push_files = [path for call in calls for path in call.input_files]
     if push_files:
@@ -389,6 +408,136 @@ def run_module_on_device(
         timings=timings,
         profile_csv=profile_csv,
         profile_error=profile_error,
+    )
+
+
+@dataclass
+class RunLlmResult:
+    remote_dir: str
+    exit_code: int
+    log: str
+    logcat: str
+    # As iree-run-llm printed them; None when it did not get that far.
+    prompt_ids: tuple[int, ...] | None = None
+    tokens: tuple[int, ...] | None = None
+    # Pulled from the device; None when iree-run-llm wrote none.
+    prefill_logits_file: Path | None = None
+    timings: dict[str, float] = field(default_factory=dict)
+
+    def describe(self) -> str:
+        return (
+            f"iree-run-llm exited {self.exit_code} in {self.remote_dir}\n"
+            f"--- stdout/stderr ---\n{self.log}\n"
+            f"--- logcat (adsprpc) ---\n{self.logcat}"
+        )
+
+
+# What iree-run-llm --print_token_ids prints, on stderr. Not anchored to the
+# start of a line: the generated text before it, on stdout, need not end in a
+# newline.
+_PROMPT_IDS = re.compile(r"prompt token ids:([0-9, ]*)")
+_GENERATED_IDS = re.compile(r"generated token ids:([0-9, ]*)")
+# iree-run-llm's own times, from its stats on stderr.
+_PREFILL_MS = re.compile(r"^prefill: ([0-9.]+) ms", re.MULTILINE)
+_DECODE_MS_PER_TOKEN = re.compile(r"^decode: .*\(([0-9.]+) ms/token", re.MULTILINE)
+# Where iree-run-llm writes prefill's logits, in the case directory.
+_PREFILL_LOGITS = "generation_prefill_logits.npy"
+
+
+def _parse_ids(pattern: re.Pattern[str], log: str) -> tuple[int, ...] | None:
+    match = pattern.search(log)
+    if match is None:
+        return None
+    return tuple(
+        int(token) for token in match.group(1).replace(" ", "").split(",") if token
+    )
+
+
+def run_llm_on_device(
+    deployment: Deployment,
+    case_dir_name: str,
+    module_vmfb: Path,
+    generation: GenerationReference,
+    local_output_dir: Path,
+    host_rsync: Path,
+    extra_flags: tuple[str, ...] = (),
+    timeout: float = 900.0,
+) -> RunLlmResult:
+    """Push a module exported from a `KvCacheLM` and generate tokens with it
+    with iree-run-llm on the device.
+
+    Pushes the module as `run_module_on_device` does, plus the tokenizer and
+    the prompt, generates greedily without stopping at stop tokens, and parses
+    the prompt and generated token ids from the log. Prefill's logits are
+    pulled to `local_output_dir`.
+
+    `timeout` bounds both the module push and the run, which runs under
+    `limit_lifetime`, see `run_module_on_device`.
+    """
+    timings: dict[str, float] = {}
+    push_total_start = time.time()
+    remote_dir = _push_case(
+        deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
+    )
+    adb.push([generation.tokenizer_json, generation.prompt_file], remote_dir + "/")
+    timings["push_total"] = time.time() - push_total_start
+
+    argv = [
+        deployment.limit_lifetime,
+        deployment.run_llm,
+        "--module=module.vmfb",
+        "--module_mode=mmap",
+        "--device=hexagon",
+        f"--tokenizer={generation.tokenizer_json.name}",
+        f"--prompt_file={generation.prompt_file.name}",
+        f"--max_new_tokens={generation.max_new_tokens}",
+        f"--max_seq_len={generation.max_seq_len}",
+        f"--block_seq_stride={generation.block_seq_stride}",
+        f"--min_prefill_blocks={generation.min_prefill_blocks}",
+        f"--pad_token_id={generation.pad_token_id}",
+        "--ignore_eos",
+        "--print_token_ids",
+        f"--prefill_logits_output={_PREFILL_LOGITS}",
+        *extra_flags,
+    ]
+    # See run_module_on_device for oom_score_adj and DSP_LIBRARY_PATH.
+    script = (
+        "echo 1000 > /proc/self/oom_score_adj && "
+        f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
+        + shlex.join(argv)
+    )
+    adb.logcat_clear()
+    run_start = time.time()
+    exit_code, log = adb.shell_exit_code(script, timeout=timeout)
+    timings["generate"] = time.time() - run_start
+    logcat = adb.logcat_dump()
+    local_output_dir.mkdir(parents=True, exist_ok=True)
+    prefill_logits_file: Path | None = local_output_dir / _PREFILL_LOGITS
+    # A remnant of an earlier run must not pass for this run's logits.
+    prefill_logits_file.unlink(missing_ok=True)
+    pull_start = time.time()
+    try:
+        adb.pull([f"{remote_dir}/{_PREFILL_LOGITS}"], local_output_dir)
+    except AdbError:
+        # As in run_module_on_device: a failed run's exit code and log matter,
+        # not a pull error on top of them.
+        prefill_logits_file = None
+    timings["pull_prefill_logits"] = time.time() - pull_start
+    for key, pattern in (
+        ("prefill", _PREFILL_MS),
+        ("decode_per_token", _DECODE_MS_PER_TOKEN),
+    ):
+        if match := pattern.search(log):
+            timings[key] = float(match.group(1)) / 1e3
+    return RunLlmResult(
+        remote_dir=remote_dir,
+        exit_code=exit_code,
+        log=log,
+        logcat=_filter_logcat_lines(logcat),
+        prompt_ids=_parse_ids(_PROMPT_IDS, log),
+        tokens=_parse_ids(_GENERATED_IDS, log),
+        prefill_logits_file=prefill_logits_file,
+        timings=timings,
     )
 
 

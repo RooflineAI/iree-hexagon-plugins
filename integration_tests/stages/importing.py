@@ -16,8 +16,11 @@
 
 The exported entry point is named `main`, which is iree-turbine's default.
 A model that `get_model()` returns as a `KvCacheLM` (`models/kv_cache.py`) is
-exported as two functions instead, `prefill` and `decode`, each with its own
-inputs and reference.
+exported as two functions instead, `prefill` and `decode`. It needs a
+`generation` block in its model.yaml: instead of a reference per function, the
+import records the model's tokenizer, and the prefill logits and tokens an
+eager greedy loop generates from the prompt, for iree-run-llm on the device to
+reproduce.
 """
 
 from __future__ import annotations
@@ -41,7 +44,11 @@ from torch._export.utils import (
 
 from integration_tests.models.kv_cache import KvCacheLM
 from integration_tests.modeltree.spec import InputSpec, ModelSpec
-from integration_tests.stages.artifacts import ImportedModel, ModuleCall
+from integration_tests.stages.artifacts import (
+    GenerationReference,
+    ImportedModel,
+    ModuleCall,
+)
 
 _aten = torch.ops.aten
 
@@ -151,8 +158,8 @@ def build_decomposition_table(ops: list[Any]) -> dict[Any, Any]:
     return table
 
 
-def load_model(spec: ModelSpec) -> torch.nn.Module:
-    """Call `get_model()` from the spec's `model.py`."""
+def _load_model_source(spec: ModelSpec) -> Any:
+    """The spec's `model.py`, as a Python module."""
     source = spec.model_source
     module_spec = importlib.util.spec_from_file_location(
         f"hexagon_it_model_{spec.name.replace('/', '_').replace('-', '_')}", source
@@ -161,6 +168,13 @@ def load_model(spec: ModelSpec) -> torch.nn.Module:
         raise ImportError(f"cannot load {source}")
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
+    return module
+
+
+def load_model(spec: ModelSpec) -> torch.nn.Module:
+    """Call `get_model()` from the spec's `model.py`."""
+    source = spec.model_source
+    module = _load_model_source(spec)
     if not hasattr(module, "get_model"):
         raise ImportError(f"{source} does not define get_model()")
     model = module.get_model()
@@ -289,6 +303,11 @@ def import_model(
     inputs = generate_inputs(spec, model)
     if isinstance(model, KvCacheLM):
         return _import_kv_cache(spec, output_dir, model, inputs, decompositions)
+    if spec.generation is not None:
+        raise ValueError(
+            f"{spec.name}: 'generation' needs a get_model() that returns a "
+            f"KvCacheLM, not a {type(model).__name__}"
+        )
 
     # The eager reference is taken before the export, because aot.export can
     # mutate the module.
@@ -345,17 +364,6 @@ def import_model(
     )
 
 
-def _save_tensors(
-    output_dir: Path, prefix: str, tensors: tuple[torch.Tensor, ...]
-) -> list[Path]:
-    files = []
-    for index, tensor in enumerate(tensors):
-        path = output_dir / f"{prefix}{index}.npy"
-        np.save(path, tensor.detach().cpu().numpy())
-        files.append(path)
-    return files
-
-
 def _import_kv_cache(
     spec: ModelSpec,
     output_dir: Path,
@@ -363,11 +371,17 @@ def _import_kv_cache(
     inputs: tuple[torch.Tensor, ...],
     decompositions: list[Any] | None,
 ) -> ImportedModel:
-    """Export `prefill` and `decode` as functions of one module, with references.
+    """Export `prefill` and `decode` as functions of one module.
 
-    `prefill` runs on the whole prompt (`inputs`), `decode` on the token it
-    picks. The cache becomes module state, initially zero.
+    `inputs`, a prompt, only give the example arguments of the export. The
+    cache becomes module state, initially zero. The functions are not checked
+    one by one but together, by iree-run-llm against the generation reference.
     """
+    if spec.generation is None:
+        raise ValueError(
+            f"{spec.name}: a KvCacheLM needs a 'generation' block, which is how "
+            "its prefill and decode are checked"
+        )
     (prompt,) = inputs
     length = prompt.shape[-1]
     block = torch.export.Dim("block_dim", min=2)
@@ -380,33 +394,18 @@ def _import_kv_cache(
     }
     decode_shapes = {"input_ids": {}, "cache_position": {0: seq_len}}
 
-    # The eager references are taken before the export, which can mutate the
+    # The prompt's last token, decoded right after it.
+    decode_args = (prompt[:, -1:], torch.arange(length + 1))
+    # The eager reference is taken before the export, which can mutate the
     # module.
-    with torch.no_grad():
-        model.reset_cache()  # model start with empty cache anyway
-        prefill_outputs = model.prefill(*prefill_args)
-        decode_args = (prefill_outputs[0], torch.arange(length + 1))
-        # FIXME also see comment in test_models.py
-        # prefill and decode run n 2 processes on device, so we need to match that in the reference
-        # alternative would be to bake this cache into the module as starting cache
-        model.reset_cache()
-        decode_outputs = model.decode(*decode_args)
-        model.reset_cache()  # reset again before converting ot mlir
+    generation = _generation_reference(spec, output_dir, model)
     functions = {
-        "prefill": (prefill_args, prefill_shapes, prefill_outputs),
-        "decode": (decode_args, decode_shapes, (decode_outputs,)),
+        "prefill": (prefill_args, prefill_shapes),
+        "decode": (decode_args, decode_shapes),
     }
-    calls = [
-        ModuleCall(
-            function=name,
-            input_files=_save_tensors(output_dir, f"{name}_input", args),
-            output_files=_save_tensors(output_dir, f"{name}_output", outputs),
-        )
-        for name, (args, _, outputs) in functions.items()
-    ]
 
     builder = aot.FxProgramsBuilder(model)
-    for name, (args, dynamic_shapes, _) in functions.items():
+    for name, (args, dynamic_shapes) in functions.items():
         # Non-strict: dynamo cannot trace through transformers' model code.
         builder.export_program(
             getattr(KvCacheLM, name),
@@ -436,4 +435,96 @@ def _import_kv_cache(
             default=str,
         )
     )
-    return ImportedModel(model_mlir=model_mlir, calls=calls)
+    return ImportedModel(
+        model_mlir=model_mlir,
+        calls=[],
+        generation=generation,
+    )
+
+
+# iree-run-llm's defaults for padding the prompt: at least two blocks, padded
+# with token 0. Passed to it explicitly, so that the two cannot drift apart.
+_MIN_PREFILL_BLOCKS = 2
+_PAD_TOKEN_ID = 0
+
+
+class NearTieError(ValueError):
+    """The reference generation has a near-tie: the prompt is unsuitable."""
+
+
+def _generation_reference(
+    spec: ModelSpec, output_dir: Path, model: KvCacheLM
+) -> GenerationReference:
+    """The files iree-run-llm needs, and the tokens it has to generate.
+
+    The prompt is tokenized with the HuggingFace `tokenizers` library from the
+    same tokenizer.json the device gets, so the device's prompt tokens check its
+    own tokenizer too. The reference is `KvCacheLM.generate_greedy`: the
+    exported functions run eagerly, padded as on the device. Its prefill logits
+    go to generation_prefill_logits.npy.
+
+    Raises `NearTieError` if at some step the reference's most likely token
+    leads the runner-up by less than the spec's `min_margin`: a rounding
+    difference on the device could tip it, and the tokens after it could not be
+    compared. The reference is written to generation_reference.json first.
+    """
+    from tokenizers import Tokenizer
+
+    generation = spec.generation
+    assert generation is not None
+    module = _load_model_source(spec)
+    if not hasattr(module, "get_tokenizer_json"):
+        raise ImportError(
+            f"{spec.model_source} does not define get_tokenizer_json(), which "
+            "'generation' needs"
+        )
+    tokenizer_json = output_dir / "tokenizer.json"
+    tokenizer_json.write_bytes(Path(module.get_tokenizer_json()).read_bytes())
+    prompt_file = output_dir / "prompt.txt"
+    prompt_file.write_text(generation.prompt)
+
+    tokenizer = Tokenizer.from_file(str(tokenizer_json))
+    prompt_ids = tokenizer.encode(generation.prompt).ids
+    generated, prefill_logits = model.generate_greedy(
+        prompt_ids,
+        generation.max_new_tokens,
+        min_prefill_blocks=_MIN_PREFILL_BLOCKS,
+        pad_token_id=_PAD_TOKEN_ID,
+    )
+    prefill_logits_file = output_dir / "generation_prefill_logits.npy"
+    np.save(prefill_logits_file, prefill_logits.detach().cpu().numpy())
+    reference = GenerationReference(
+        prompt_file=prompt_file,
+        tokenizer_json=tokenizer_json,
+        max_new_tokens=generation.max_new_tokens,
+        max_seq_len=model.max_seq_len,
+        block_seq_stride=model.block_seq_stride,
+        min_prefill_blocks=_MIN_PREFILL_BLOCKS,
+        pad_token_id=_PAD_TOKEN_ID,
+        prompt_ids=tuple(prompt_ids),
+        generated=tuple(generated),
+        prefill_logits_file=prefill_logits_file,
+    )
+    (output_dir / "generation_reference.json").write_text(
+        json.dumps(
+            {
+                key: value
+                for key, value in dataclasses.asdict(reference).items()
+                if key not in ("prompt_file", "tokenizer_json", "prefill_logits_file")
+            },
+            indent=2,
+        )
+    )
+    for step, info in enumerate(generated):
+        if info.margin >= generation.min_margin:
+            continue
+        shorten = f" or set max_new_tokens to at most {step}" if step > 0 else ""
+        raise NearTieError(
+            f"{spec.name}: near-tie in the reference generation, please change "
+            f"the prompt{shorten}. At step {step}, token {info.selected_id} "
+            f"({tokenizer.decode([info.selected_id])!r}) leads token "
+            f"{info.runner_up_id} ({tokenizer.decode([info.runner_up_id])!r}) "
+            f"by {info.margin:.3f}, less than min_margin={generation.min_margin:g}. "
+            f"The margins are in {output_dir / 'generation_reference.json'}."
+        )
+    return reference

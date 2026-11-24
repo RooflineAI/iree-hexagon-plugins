@@ -1,0 +1,48 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["layering_check"],
+    licenses = [],
+)
+
+# LLM inference engine: runs an LLM exported as prefill/decode
+# (integration_tests/models/kv_cache.py) token by token. Shared by
+# iree-run-llm and other frontends; reads no flags of its own: the caller
+# creates the VM context and HAL device(s).
+cc_library(
+    name = "engine",
+    srcs = ["engine.c"],
+    hdrs = ["engine.h"],
+    strip_include_prefix = "/tools",
+    deps = [
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/hal",
+        "@iree//runtime/src/iree/modules/hal:types",
+        "@iree//runtime/src/iree/tooling:function_util",
+        "@iree//runtime/src/iree/vm",
+    ],
+)
+
+# Text side of the engine: tokenizes the prompt and detokenizes the generated
+# tokens with IREE's tokenizer, from a HuggingFace tokenizer.json. Separate so
+# that frontends that only exchange token IDs do not link a tokenizer.
+cc_library(
+    name = "tokenizer",
+    srcs = ["tokenizer.c"],
+    hdrs = ["tokenizer.h"],
+    strip_include_prefix = "/tools",
+    deps = [
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/io:file_handle",
+        "@iree//runtime/src/iree/tokenizer",
+        "@iree//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+        "@iree//runtime/src/iree/tokenizer/vocab",
+    ],
+)

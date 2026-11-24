@@ -242,7 +242,10 @@ jobs:
         # A case is flagged when slower by both the percentage and
         # --min-delta-s. The time is one invocation as iree-benchmark-module
         # measures it on the device, without the adb round trip or loading the
-        # module; smaller differences are noise. The baseline is the average of each case over
+        # module. In the main runs of 2026-11-18 to 11-20, no case slowed down
+        # by more than 2.6% against the average of the runs before it, and
+        # cases under 0.1 s varied by at most 5 ms (the times are rounded to
+        # the millisecond). The baseline is the average of each case over
         # the last --num-recent-runs main runs, which also give the spread.
         run: |
           .venv/bin/python -m integration_tests.perf_compare \
@@ -250,8 +253,8 @@ jobs:
           --num-recent-runs 5 \
           --max-runs-searched 10 \
           --warn-percent 5 \
-          --fail-percent 30 \
-          --min-delta-s 0.3
+          --fail-percent 10 \
+          --min-delta-s 0.005
   build-bazel:
     needs:
       - pre-commit

@@ -12,6 +12,7 @@ import bazel_to_cmake_targets
 DEFAULT_ROOT_DIRS = [
     "plugins",
     "integration_tests/device/tools",
+    "tools",
     "build_tools/bazel/overlays/hexagon_mlir",
 ]
 

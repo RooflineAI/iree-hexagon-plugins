@@ -4,7 +4,7 @@
 // correctness.
 
 // RUN: rm -f %t.vmfb
-// RUN: iree-compile %s --iree-stream-resource-min-offset-alignment=128 \
+// RUN: iree-compile %s \
 // RUN:   \
 // RUN:   --iree-hal-target-device=hexagon \
 // RUN:   --iree-hexagon-v=79 \

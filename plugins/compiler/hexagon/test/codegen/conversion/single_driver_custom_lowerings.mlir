@@ -51,17 +51,16 @@ module {
 // CHECK-NOT:     llvm.call
 // CHECK:         llvm.return
 
-  // A DMA transfer bypasses the data cache on the sides its attributes name.
-  // (Generic form: the custom parser of memref.dma_start drops attributes.)
+  // A hexagonmem.dma_start bypasses the data cache on the sides it names.
   func.func @dma_bypass() {
     %c0 = arith.constant 0 : index
     %c4 = arith.constant 4 : index
     %src = memref.alloc() : memref<4xf32>
     %dst = hexagonmem.alloc() <alignment = 128> : memref<4xf32, 1>
     %tag = memref.alloca() : memref<1xi32>
-    "memref.dma_start"(%src, %c0, %dst, %c0, %c4, %tag, %c0) {bypass_src}
-        : (memref<4xf32>, index, memref<4xf32, 1>, index, index,
-           memref<1xi32>, index) -> ()
+    hexagonmem.dma_start %src[%c0], %dst[%c0], %c4, %tag[%c0]
+        <bypass_src = true, bypass_dst = false>
+        : memref<4xf32>, memref<4xf32, 1>, memref<1xi32>
     memref.dma_wait %tag[%c0], %c4 : memref<1xi32>
     hexagonmem.dealloc %dst : memref<4xf32, 1>
     memref.dealloc %src : memref<4xf32>

@@ -6,7 +6,7 @@
 // slots as strided views and still pass the HMX runtime ABI checks on the way
 // to LLVM.
 
-// RUN: iree-opt --iree-stream-resource-min-offset-alignment=128 \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling --iree-hexagon-enable-hmx-matmul \
 // RUN:   --iree-hexagon-enable-double-buffering --iree-hexagon-vtcm-tile-budget-bytes=1048576 \
 // RUN:   --iree-hexagon-double-buffer-outer-tile-loops=false \
@@ -14,7 +14,7 @@
 // RUN:   --mlir-print-ir-after=iree-hexagon-pipeline-vtcm-transfers \
 // RUN:   %s -o /dev/null 2>&1 | FileCheck %s
 
-// RUN: iree-opt --iree-stream-resource-min-offset-alignment=128 \
+// RUN: iree-opt \
 // RUN:   --iree-hexagon-enable-vtcm-tiling --iree-hexagon-enable-hmx-matmul \
 // RUN:   --iree-hexagon-enable-double-buffering --iree-hexagon-vtcm-tile-budget-bytes=1048576 \
 // RUN:   --iree-hexagon-double-buffer-outer-tile-loops \

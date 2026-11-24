@@ -90,19 +90,15 @@ def HexagonConvertToLLVMPass :
 
 def HexagonDMACacheBypassPass :
     Pass<"iree-hexagon-dma-cache-bypass", "IREE::HAL::ExecutableVariantOp"> {
-  let summary = "Lets DMA transfers of DMA-only bindings bypass the data cache";
+  let summary = "Lets DMA transfers bypass the data cache where it is safe";
   let description = [{
-    Finds the bindings each dispatch accesses only by DMA, lets those DMA
-    transfers bypass the data cache, and records the bindings on the
-    hal.executable.export for the DSP runtime's cache maintenance.
-
-    Writing by DMA that bypasses the cache needs buffers aligned to the cache line
-    (`--iree-stream-resource-min-offset-alignment=128`); it is an error
-    otherwise.
+    Lets DMA transfers bypass the data cache on their VTCM side, which is not
+    cached, and when they read a binding with the Constant descriptor flag (an
+    immutable global, written in an earlier execution, after which the runtime
+    flushed the cache). Such a memref.dma_start becomes a hexagonmem.dma_start.
   }];
   let dependentDialects = [
-    // ResourceConfigAttr, for the buffer alignment
-    "IREE::Stream::StreamDialect",
+    "::mlir::hexagonmem::HexagonMemDialect",
   ];
 }
 

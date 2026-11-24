@@ -65,7 +65,6 @@ iree_lit_test_suite(
     "codegen/strategy/hexagon_vtcm_planning_tile_budget.mlir"
     "codegen/transforms/annotate_dispatch_resources.mlir"
     "codegen/transforms/dma_cache_bypass.mlir"
-    "codegen/transforms/dma_cache_bypass_alignment.mlir"
     "codegen/transforms/apply_vtcm_tiling.mlir"
     "codegen/transforms/assign_constant_ordinals.mlir"
     "codegen/transforms/check_ir_before_llvm_conversion.mlir"

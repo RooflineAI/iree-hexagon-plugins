@@ -14,3 +14,4 @@ tolerances:
   rtol: 1.0e-5
   relative_l2_percent: 0.01
 run_cases: [parallel-debug-malloc]
+marks: [smoke]

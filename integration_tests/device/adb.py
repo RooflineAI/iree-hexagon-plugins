@@ -60,8 +60,14 @@ def shell(script: str, timeout: float = 600.0) -> str:
 
 def shell_exit_code(script: str, timeout: float = 600.0) -> tuple[int, str]:
     """Run a script whose failure is data, not an error."""
+    exit_code, stdout, stderr = shell_exit_code_split(script, timeout)
+    return exit_code, stdout + stderr
+
+
+def shell_exit_code_split(script: str, timeout: float = 600.0) -> tuple[int, str, str]:
+    """Like shell_exit_code, with stdout and stderr apart."""
     result = _run(["shell", script], timeout=timeout, check=False)
-    return result.returncode, result.stdout + result.stderr
+    return result.returncode, result.stdout, result.stderr
 
 
 def push(local_paths: list[Path], remote_dir: str, timeout: float = 600.0) -> None:
@@ -129,20 +135,6 @@ def sync(
 
 def pull(remote_paths: list[str], local_dir: Path) -> None:
     _run(["pull", *remote_paths, str(local_dir)])
-
-
-def logcat_clear() -> None:
-    _run(["logcat", "-c"])
-
-
-def logcat_dump(filters: list[str] | None = None) -> str:
-    """Dump the log buffer collected since the last `logcat_clear`."""
-    args = ["logcat", "-d"]
-    args += filters if filters is not None else ["-s", "adsprpc"]
-    try:
-        return _run(args, timeout=120.0).stdout
-    except AdbError as err:  # a missing log must not mask the real failure
-        return f"<could not read logcat: {err}>"
 
 
 def getprop(name: str) -> str:

@@ -435,6 +435,8 @@ def _import_kv_cache(
             default=str,
         )
     )
+    # As in import_model: drop Dynamo's caches, which keep the weights alive.
+    torch._dynamo.reset()
     return ImportedModel(
         model_mlir=model_mlir,
         calls=[],

@@ -68,6 +68,7 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 | `modeltree/` | code *about* that data - `spec.py` (schema), `discover.py` (finding and selecting), `outcomes.py` (known failures) |
 | `stages/` | the pipeline, in order - `importing.py`, `compiling.py`, `running.py`, `checking.py`, plus `artifacts.py` |
 | `device/` | the only package that knows a phone exists - `adb.py`, `deploy.py`, and `tools/` (the cross-compiled helper) |
+| `prefetch.py` | import and compile the next test on the host while the current one runs on the device |
 | `tool_paths.py` | resolve an artifact path, or ask Bazel |
 | `conftest.py` | options and fixtures, the only pytest glue |
 | `test_models.py` | the device test, parametrized over the tree |
@@ -346,6 +347,29 @@ so the model is not even imported. `--run-skipped` runs them anyway, e.g.
 `--model=Qwen/Qwen3-ASR-0.6B --run-skipped`. Keep its `expected_outcomes`
 current, so that a run with `--run-skipped` still checks the failure.
 
+## Marks
 
-## Note
-Note that if you run a model sequentially and parallel, its compiled twice at the moment, so this is only recommended for smaller models
+A model can carry pytest marks, which `-m` selects:
+
+```yaml
+marks: [smoke]
+```
+
+`smoke` is a small subset for a quick check: all `micro/` models and
+`google/gemma-3-270m-it`. CI runs it in `test-cmake` on PRs
+(`pytest -m smoke`), as the bazel build covers the whole suite.
+
+
+## Host and device overlap
+
+The device stage (push, run, pull) is serial, one test at a time. The host
+stages are not: at the start of the session, the imports and compiles of all
+collected tests are queued, in test order, to one background thread
+(`prefetch.py`), which runs ahead of the device. It does one import or compile
+at a time. Each model is imported once, and each (model, compile case) compiled
+once, shared by its run cases.
+
+The imports run in one long-lived child process, so torch loads and warms up
+once per session. Each import's whole output (warnings, progress bars, C++
+logs) goes to `import.log` next to its `model.mlir`, and is printed by the first
+test of that model. The child is replaced when its memory grows past 4 GiB (`_RECYCLE_RSS_BYTES`), and after a crash.

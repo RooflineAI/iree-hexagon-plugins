@@ -78,6 +78,9 @@ jobs:
       # something to route around: pull_request_target would hand a fork's code
       # our credentials. Forks still get the full build, just no device steps.
       PHONE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      # test-bazel runs the full suite on every PR, so on PRs the CMake build
+      # only gets the models marked smoke (pytest -m). main runs the full suite.
+      TEST_MARKS: ${{ github.event_name == 'pull_request' && 'smoke' || '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Download build artifacts
@@ -221,7 +224,8 @@ jobs:
         run: |
           # The output is kept for the performance check, which parses it.
           set -o pipefail
-          .venv/bin/pytest integration_tests/ -v -rA \
+          # if TEST_MARKS is unset (e.g. in test-bazel): run everything.
+          .venv/bin/pytest integration_tests/ -v -rA ${TEST_MARKS:+-m "$TEST_MARKS"} \
           --iree-compile=build-artifacts/hexagon_compiler_x86_64_linux/bin/iree-compile \
           --runtime-zip=build-artifacts/hexagon_runtime_aarch64_android.zip \
           --runtime-zip-tracy=build-artifacts/hexagon_runtime_aarch64_android_tracy.zip \
@@ -235,7 +239,9 @@ jobs:
       - &performance_check
         name: Performance check
         # Also after failed tests: the cases that passed are still compared.
-        if: ${{ !cancelled() && env.PHONE_ACCESS == 'true' && hashFiles('pytest-output.log') != '' }}
+        # Skipped for a filtered run, which would report every case left out
+        # as missing.
+        if: ${{ !cancelled() && env.PHONE_ACCESS == 'true' && env.TEST_MARKS == '' && hashFiles('pytest-output.log') != '' }}
         env:
           # Reads the logs of this job in earlier main runs.
           GH_TOKEN: ${{ github.token }}

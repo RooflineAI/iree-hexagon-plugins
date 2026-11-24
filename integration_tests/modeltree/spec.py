@@ -40,6 +40,12 @@ from integration_tests.stages.running import (
 # set: a typo here would otherwise produce a silently different reference.
 _DTYPES = ("float32", "float16", "bfloat16", "int64", "int32", "bool")
 
+# Pytest marks a model may carry (`marks:` in model.yaml), selected with
+# `pytest -m`. conftest.py registers them with pytest.
+MARKS = {
+    "smoke": "a small subset of the models, for a quick check",
+}
+
 _GENERATORS = ("normal", "uniform", "ones", "zeros", "image")
 
 
@@ -181,6 +187,8 @@ class ModelSpec:
     # repeat while a known failure stands. Its tests are reported as skipped
     # with this reason, unless pytest is given --run-skipped.
     skip: str | None = None
+    # Pytest marks of all the model's tests, from MARKS.
+    marks: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.dtype not in _DTYPES:
@@ -203,6 +211,11 @@ class ModelSpec:
             raise SpecError(f"{self.name}: at least one run case is required")
         if self.skip is not None and not self.skip.strip():
             raise SpecError(f"{self.name}: 'skip' must say why the model is skipped")
+        unknown = [m for m in self.marks if m not in MARKS]
+        if unknown:
+            raise SpecError(
+                f"{self.name}: unknown marks {unknown}; known: {sorted(MARKS)}"
+            )
         for check in self.profile_checks:
             self._validate_profile_check(check)
 

@@ -14,6 +14,7 @@ import json
 import posixpath
 import re
 import shlex
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -361,10 +362,16 @@ def run_module_on_device(
         script += _capture_script(deployment, run_commands[0], tracy_port)
 
     local_output_dir.mkdir(parents=True, exist_ok=True)
-    adb.logcat_clear()
     run_start = time.time()
-    exit_code, log = adb.shell_exit_code(script, timeout=timeout)
+    exit_code, stdout, stderr = adb.shell_exit_code_split(
+        _with_logcat(script), timeout=timeout
+    )
     host_run = time.time() - run_start
+    stdout, marker, logcat = stdout.partition(_LOGCAT_MARKER + "\n")
+    if not marker:
+        # The shell ended before the dump, e.g. killed: fetch it separately.
+        logcat = _dump_logcat()
+    log = stdout + stderr
     invocation = _invocation_time(log, host_run)
     if invocation is None:
         # No usable device time, e.g. the run never started: keep the host
@@ -373,10 +380,9 @@ def run_module_on_device(
     else:
         # One invocation of the function, without loading the module.
         timings["run"] = invocation
-        # The rest: the adb round trip, starting the process, opening the DSP
-        # session and loading the module.
+        # The rest: the adb round trip, clearing and dumping logcat, starting
+        # the process, opening the DSP session and loading the module.
         timings["adb_setup"] = host_run - invocation
-    logcat = adb.logcat_dump()
     pulled: list[Path] = []
     pull_start = time.time()
     for name in (name for call in calls for name in call.output_names):
@@ -506,11 +512,16 @@ def run_llm_on_device(
         f"cd {remote_dir} && export DSP_LIBRARY_PATH={deployment.dsp_library_path} && "
         + shlex.join(argv)
     )
-    adb.logcat_clear()
     run_start = time.time()
-    exit_code, log = adb.shell_exit_code(script, timeout=timeout)
+    exit_code, stdout, stderr = adb.shell_exit_code_split(
+        _with_logcat(script), timeout=timeout
+    )
     timings["generate"] = time.time() - run_start
-    logcat = adb.logcat_dump()
+    stdout, marker, logcat = stdout.partition(_LOGCAT_MARKER + "\n")
+    if not marker:
+        # The shell ended before the dump, e.g. killed: fetch it separately.
+        logcat = _dump_logcat()
+    log = stdout + stderr
     local_output_dir.mkdir(parents=True, exist_ok=True)
     prefill_logits_file: Path | None = local_output_dir / _PREFILL_LOGITS
     # A remnant of an earlier run must not pass for this run's logits.
@@ -538,6 +549,34 @@ def run_llm_on_device(
         tokens=_parse_ids(_GENERATED_IDS, log),
         prefill_logits_file=prefill_logits_file,
         timings=timings,
+    )
+
+
+# Separates the run's stdout from the logcat dump that follows it in the same
+# adb shell (see run_module_on_device).
+_LOGCAT_MARKER = "--- end of run; logcat (adsprpc) follows ---"
+# Dumps the log buffer collected since it was last cleared.
+_LOGCAT_DUMP = "logcat -d -s adsprpc"
+
+
+def _dump_logcat() -> str:
+    """`_LOGCAT_DUMP` in its own adb shell, for when `_with_logcat` did not get
+    to it."""
+    try:
+        _, logcat, _ = adb.shell_exit_code_split(_LOGCAT_DUMP, timeout=30.0)
+    # A missing log must not mask the real failure.
+    except (AdbError, subprocess.TimeoutExpired) as err:
+        return f"<could not read logcat: {err}>"
+    return logcat
+
+
+def _with_logcat(script: str) -> str:
+    """`script` between clearing and dumping logcat, in one adb shell, saving
+    the two adb round trips of separate logcat calls. The subshell keeps an
+    `exit` in `script` from skipping the dumpthe shell exits with the script's exit code."""
+    return (
+        f"logcat -c; ( {script} ); exit_code=$?; "
+        f"echo {shlex.quote(_LOGCAT_MARKER)}; {_LOGCAT_DUMP}; exit $exit_code"
     )
 
 

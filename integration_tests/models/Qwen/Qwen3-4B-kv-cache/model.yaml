@@ -24,3 +24,9 @@ tolerances:
 run_timeout: 3600
 # The configuration the token-generation path is meant to run in.
 compile_cases: [hexagon-vtcm-hmx]
+# Token generation with iree-run-llm, which checks the module. With this
+# prompt, the reference's most likely token leads the runner-up by at least 2.93
+# at every step, above min_margin (0.25), so the import accepts it.
+generation:
+  prompt: "1, 2, 3, 4, 5, 6, 7, 8,"
+  max_new_tokens: 32

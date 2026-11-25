@@ -1,8 +1,5 @@
-# The CI jobs, called by build.yml. They live in a reusable workflow so that
-# build.yml can skip them all through one caller job: a skipped caller job
-# reports a single check of its own name and none of the nested jobs, so a run
-# that skips on purpose does not overwrite their results on the same commit.
-# Nested checks are named "<caller job> / <job>", e.g. "ci / gatekeeper".
+# The CI jobs, called by build.yml. Nested checks are named
+# "<caller job> / <job>", e.g. "ci / gatekeeper", the required check.
 name: ci
 on:
   workflow_call:
@@ -11,8 +8,7 @@ jobs:
     # Only run for pushes and for PRs at the bottom of a stack, i.e. based on
     # main. The `branches` filter in build.yml does not exclude GitHub-native
     # stacked PRs, so check the base ref here. Every other job depends on this
-    # one and is skipped along with it. Title and body edits never get here:
-    # build.yml skips the whole workflow for them.
+    # one and is skipped along with it, and gatekeeper fails the run.
     if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-24.04
     steps:
@@ -351,16 +347,24 @@ jobs:
       - test-cmake
       - test-bazel
     # always(): without it a skipped or failed dependency skips this job, and
-    # GitHub treats a skipped required check as passing. The remaining
-    # condition mirrors pre-commit: stacked PRs skip on purpose and have
-    # nothing to gate. The required check is "ci / gatekeeper".
-    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main')
+    # GitHub treats a skipped required check as passing. It also runs for
+    # stacked PRs above the bottom, and fails there, so an untested PR cannot
+    # be merged together with the PR below it. The required check is
+    # "ci / gatekeeper".
+    if: always()
     runs-on: ubuntu-24.04
     steps:
       - name: gatekeeper
         env:
+          CI_DEFERRED: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'main' }}
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
+          if [ "${CI_DEFERRED}" = "true" ]; then
+            message="CI is deferred. This PR must become the lowest unmerged PR in its stack and pass CI before merging."
+            echo "::error::${message}"
+            echo "${message}" >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
           echo "needs results: ${RESULTS}"
           for r in ${RESULTS}; do
             if [ "$r" != "success" ]; then

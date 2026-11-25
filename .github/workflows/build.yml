@@ -4,24 +4,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    # `edited` catches a stacked PR being retargeted onto main once the PR
-    # below it merges; other edits (title, body) are filtered out by the `ci`
-    # job's condition below.
-    types: [opened, synchronize, reopened, edited]
+    # Deliberately no `edited`: title and body edits must not start a run.
+    # A stacked PR that becomes the bottom of its stack gets its run from the
+    # push that rebases it onto main once the PR below it merges.
+    types: [opened, synchronize, reopened]
 concurrency:
-  # Edits that are not a retarget get their own group, so renaming a PR does
-  # not cancel its in-flight run.
-  group: ${{ github.workflow }}-${{ (github.event.action == 'edited' && !github.event.changes.base) && github.run_id || github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   ci:
-    # A title or body edit starts a run on the same commit as the PR's real
-    # run, and a PR shows the result that finished last for each check name.
-    # Were the CI jobs skipped one by one here, their "skipped" results would
-    # overwrite the real ones, the required gatekeeper among them, and GitHub
-    # treats a skipped required check as passing. Skipping this caller job
-    # instead reports only a check named "ci", so the real results stand.
-    if: github.event.action != 'edited' || github.event.changes.base
     uses: ./.github/workflows/ci.yml
     # The device tests need the overlay key and the Hugging Face token.
     secrets: inherit

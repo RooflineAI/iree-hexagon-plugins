@@ -11,17 +11,18 @@ PMU_TABLE="$REPO/plugins/runtime/hexagon/arm_dsp/pmu/hexagon_pmu_events_table.in
 
 usage() {
   cat <<EOF
-usage: $0 [--serial] [--pmu-events=<list>] <path/to/model/dir>
+usage: $0 [--serial] [--pmu-events=<list>] [--compile-case=<name>] <path/to/model/dir>
        $0 --list-pmu-events
 
-  <path/to/model/dir>  model directory (the one holding model.yaml and model.py),
-                       e.g. integration_tests/models/micro/parallel-conv-max-1x32x64x64-f16
-  --serial             run one dispatch at a time on one DSP thread; default is
-                       parallel
-  --pmu-events=<list>  comma-separated Hexagon PMU events, up to 8, each a name
-                       (HVXST_VTCM or HEX_PMU_EVENT_HVXST_VTCM) or a numeric ID
-                       (0x0126); counters not given keep the runtime defaults
-  --list-pmu-events    print the PMU event names, IDs and descriptions
+  <path/to/model/dir>   model directory (the one holding model.yaml and model.py),
+                        e.g. integration_tests/models/micro/parallel-conv-max-1x32x64x64-f16
+  --serial              run one dispatch at a time on one DSP thread; default is
+                        parallel
+  --pmu-events=<list>   comma-separated Hexagon PMU events, up to 8, each a name
+                        (HVXST_VTCM or HEX_PMU_EVENT_HVXST_VTCM) or a numeric ID
+                        (0x0126); counters not given keep the runtime defaults
+  --list-pmu-events     print the PMU event names, IDs and descriptions
+  --compile-case=<name> use a specific compile case, default: hexagon-vtcm-hmx
 EOF
 }
 
@@ -65,12 +66,15 @@ pmu_event_id() {
 MODEL_ARG=""
 SERIAL=false
 PMU_EVENTS=""
+COMPILE_CASE="hexagon-vtcm-hmx"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --serial) SERIAL=true ;;
     --pmu-events=*) PMU_EVENTS="${1#--pmu-events=}" ;;
     --pmu-events) [[ $# -ge 2 ]] || { usage >&2; exit 1; }; PMU_EVENTS="$2"; shift ;;
     --list-pmu-events) list_pmu_events; exit 0 ;;
+    --compile-case=*) COMPILE_CASE="${1#--compile-case=}" ;;
+    --compile-case) [[ $# -ge 2 ]] || { usage >&2; exit 1; }; COMPILE_CASE="$2"; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "error: unknown option '$1'" >&2; usage >&2; exit 1 ;;
     *)
@@ -153,6 +157,7 @@ DEVICE_TOOLS_ZIP="$REPO/$(bazel cquery --output=files \
 mkdir -p "$WORK_DIR"
 .venv/bin/python -c "
 from pathlib import Path
+from integration_tests.stages.compiling import COMPILE_CASES_BY_NAME
 from integration_tests.modeltree.discover import MODELS_DIR
 from integration_tests.modeltree.spec import load_model_spec
 from integration_tests.stages.importing import import_model
@@ -162,10 +167,17 @@ model_dir = Path('$MODEL_DIR')
 root = MODELS_DIR if model_dir.is_relative_to(MODELS_DIR) else model_dir.parent
 spec = load_model_spec(model_dir, root)
 imported = import_model(spec, Path('$WORK_DIR'))
-lines = [f'function {imported.function}']
-lines += [f'input {p.name}' for p in imported.input_files]
-lines += [f'output {name}' for name in imported.output_names]
-lines += [f'flag {flag}' for flag in spec.extra_compile_flags]
+# A plain model has exactly one call, main; a KvCacheLM has none (it runs
+# under iree-run-llm, which this script does not drive).
+if len(imported.calls) != 1:
+    raise SystemExit(f'error: {spec.name}: expected one module call, got '
+                     f'{len(imported.calls)} (KvCacheLM models are not supported)')
+call = imported.calls[0]
+flags = COMPILE_CASES_BY_NAME['$COMPILE_CASE'].flags(tuple(spec.extra_compile_flags))
+lines = [f'function {call.function}']
+lines += [f'input {p.name}' for p in call.input_files]
+lines += [f'output {name}' for name in call.output_names]
+lines += [f'flag {flag}' for flag in flags]
 lines += [f'name {spec.name}']
 Path('$WORK_DIR/io.txt').write_text('\\n'.join(lines) + '\\n')
 "
@@ -173,13 +185,13 @@ Path('$WORK_DIR/io.txt').write_text('\\n'.join(lines) + '\\n')
 FUNCTION=main
 INPUT_FILES=()
 IO_FLAGS=""
-EXTRA_COMPILE_FLAGS=()
+MODEL_COMPILE_FLAGS=()
 while read -r kind name; do
   case "$kind" in
     function) FUNCTION="$name" ;;
     input) INPUT_FILES+=("$WORK_DIR/$name"); IO_FLAGS+=" --input=@$name" ;;
     output) IO_FLAGS+=" --output=@$name" ;;
-    flag) EXTRA_COMPILE_FLAGS+=("$name") ;;
+    flag) MODEL_COMPILE_FLAGS+=("$name") ;;
     # as the integration tests name the case directory (test_models.py)
     name) CASE_PREFIX="${name//\//_}" ;;
   esac
@@ -187,18 +199,10 @@ done < "$WORK_DIR/io.txt"
 
 # --- Compile ----------------------------------------------------------------
 "$IREE_COMPILE" "$WORK_DIR/model.mlir" -o "$WORK_DIR/model.vmfb" \
-  --iree-hal-target-device=hexagon \
-  --iree-input-type=auto \
-  --iree-hexagon-v=79 \
-  --iree-hexagon-features=+hvxv79,+hvx-length128b \
-  --iree-opt-data-tiling=false \
-  --iree-stream-resource-min-offset-alignment=128 \
-  --iree-hexagon-enable-vtcm-tiling=true \
-  --iree-hexagon-enable-hmx-matmul=true \
+  ${MODEL_COMPILE_FLAGS[@]+"${MODEL_COMPILE_FLAGS[@]}"} \
   --iree-hexagon-enable-profiler-markers \
   --iree-hexagon-linker-path="$LLD" \
   --iree-llvmcpu-embedded-linker-path="$LLD" \
-  ${EXTRA_COMPILE_FLAGS[@]+"${EXTRA_COMPILE_FLAGS[@]}"} \
   ${COMPILE_FLAGS[@]+"${COMPILE_FLAGS[@]}"}
 
 # --- Deploy -----------------------------------------------------------------
@@ -213,7 +217,7 @@ from integration_tests.tool_paths import resolve_host_tool
 push_module(
     module_vmfb=Path('$WORK_DIR/model.vmfb'),
     remote_module='$REMOTE_DIR/model.vmfb',
-    kept_module='$DEVICE_ROOT/modules/${CASE_PREFIX}_hexagon-vtcm-hmx_$RUN_CASE/module.vmfb',
+    kept_module='$DEVICE_ROOT/modules/${CASE_PREFIX}_${COMPILE_CASE}_$RUN_CASE/module.vmfb',
     host_rsync=resolve_host_tool('rsync', None),
     device_rsync='$REMOTE_DIR/bin/limit_lifetime $REMOTE_DIR/bin/rsync',
     timeout=4 * 3600.0,

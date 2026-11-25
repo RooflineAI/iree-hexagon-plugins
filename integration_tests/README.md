@@ -372,5 +372,5 @@ once, shared by its run cases.
 
 The imports run in one long-lived child process, so torch loads and warms up
 once per session. Each import's whole output (warnings, progress bars, C++
-logs) goes to `import.log` next to its `model.mlir`, and is printed by the first
+logs) goes to `import.log` next to its `model.mlirbc`, and is printed by the first
 test of that model. The child is replaced when its memory grows past 4 GiB (`_RECYCLE_RSS_BYTES`), and after a crash.

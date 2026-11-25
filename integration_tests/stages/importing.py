@@ -52,6 +52,8 @@ from integration_tests.stages.artifacts import (
 
 _aten = torch.ops.aten
 
+MODEL_MLIR_NAME = "model.mlirbc"
+
 _TORCH_DTYPES: dict[str, torch.dtype] = {
     "float32": torch.float32,
     "float16": torch.float16,
@@ -294,7 +296,8 @@ def import_model(
 ) -> ImportedModel:
     """Export the spec's model to MLIR and record its inputs and eager outputs.
 
-    Writes `model.mlir`, `input{N}.npy` and `output{N}.npy` into `output_dir`.
+    Writes `model.mlirbc`, `input{N}.npy` and `output{N}.npy` into
+    `output_dir`.
     The outputs come from running the model eagerly in torch on the same
     inputs.
     """
@@ -326,7 +329,18 @@ def import_model(
         input_files.append(input_file)
 
     ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
-    exported_program = torch.export.export(model, args=inputs, strict=True)
+    # Non-strict:
+    # The strict export traces with Dynamo, which errors out on Python the graph
+    # would not capture faithfully (globals, side effects, non-torch calls),
+    # holds another copy of the weights while it runs (duplicating memory
+    # usage). The non-strict export runs the Python as is and bakes plain Python
+    # values (config numbers, shape arithmetic) into the graph unchecked. If an
+    # error happens, a bug will still happen and the verification against the
+    # eager reference will show a mismatch (or compilation will fail). In order
+    # to limit memory usage in the CI and when executing integration tests, we
+    # use a non-strict export, which should be acceptable in these previously
+    # manually tested models.
+    exported_program = torch.export.export(model, args=inputs, strict=False)
     exported_program = exported_program.run_decompositions(
         build_decomposition_table(ops)
     )
@@ -335,7 +349,7 @@ def import_model(
     # _to_copy decompositions a conv net needs come from.
     exported = aot.export(exported_program)
 
-    model_mlir = output_dir / "model.mlir"
+    model_mlir = output_dir / MODEL_MLIR_NAME
     exported.save_mlir(model_mlir)
 
     labels = label_map(model)
@@ -351,11 +365,6 @@ def import_model(
             default=str,
         )
     )
-
-    # The strict export traces with Dynamo, whose caches keep the traced module
-    # and with it every model weight. Without a reset, the weights (several GiB
-    # for the larger LLMs) stay in memory for the rest of the process.
-    torch._dynamo.reset()
 
     return ImportedModel(
         model_mlir=model_mlir,
@@ -422,7 +431,7 @@ def _import_kv_cache(
         program.target = program.target.run_decompositions(table)
     exported = aot.export(builder, import_symbolic_shape_expressions=True)
 
-    model_mlir = output_dir / "model.mlir"
+    model_mlir = output_dir / MODEL_MLIR_NAME
     exported.save_mlir(model_mlir)
     (output_dir / "import.json").write_text(
         json.dumps(
@@ -435,8 +444,6 @@ def _import_kv_cache(
             default=str,
         )
     )
-    # As in import_model: drop Dynamo's caches, which keep the weights alive.
-    torch._dynamo.reset()
     return ImportedModel(
         model_mlir=model_mlir,
         calls=[],

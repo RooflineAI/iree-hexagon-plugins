@@ -77,7 +77,8 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 
 ```
 /data/local/tmp/hexagon_it/
-    runs/<run-id>/          removed when the run ends
+    runs/<id>[-tracy]/      hash of host user and repo root; emptied when
+                            a run starts, removed when it ends
         bin/    iree-run-module, iree-benchmark-module, iree-run-llm,
                 limit_lifetime, rsync
         lib/    the DSP skel and libc++_shared

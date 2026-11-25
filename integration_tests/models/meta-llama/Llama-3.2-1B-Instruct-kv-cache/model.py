@@ -4,7 +4,10 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from pathlib import Path
+
 import torch
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM
 
 from integration_tests.models.kv_cache import KvCacheLM
@@ -26,3 +29,8 @@ def get_model() -> torch.nn.Module:
     # dtypes.
     model.to(dtype=torch.float16)
     return KvCacheLM(model, max_seq_len=128, block_seq_stride=32)
+
+
+def get_tokenizer_json() -> Path:
+    """The model's tokenizer, for the `generation` check."""
+    return Path(hf_hub_download(_MODEL_ID, "tokenizer.json", revision=_REVISION))

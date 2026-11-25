@@ -14,18 +14,11 @@ inputs:
     dtype: float16
     generator: image
     image: ../../../inputs/keyboard-256.png
-# Copied from Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched; no case passes
-# yet (see expected_outcomes).
+# hexagon-vtcm-hmx on device: 0.59 / 0.14 / 0.71 / 0.69% relative L2 per output
+# (2026-11-25).
 tolerances:
   atol: 2.0e-1
   rtol: 5.0e-2
   relative_l2_percent: 1.0
 # Only the VTCM/HMX configuration is exercised, as for the language model.
 compile_cases: [hexagon-vtcm-hmx]
-skip: "known ACCURACY_FAILURE in hexagon-vtcm-hmx (all four outputs 67-90% off)"
-expected_outcomes:
-  - case: hexagon-vtcm-hmx
-    status: ACCURACY_FAILURE
-    reason: "allclose(atol=0.2, rtol=0.05) = False"
-    comment: >-
-      Measured 2026-11-05: relative L2 67.6% (output0), 87.4%, 89.6%, 86.5% (deepstack 0-2), so wrong results, not f16 noise. Not 4B-specific: the same encoder except for its output width (2560), and Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched fails the same way in this case (70-93%, measured the same day; it now compiles, so its recorded COMPILE_FAILURE is stale). output1 is the deepstack feature after vision block 5 and already 87% off, so the error enters at the patch embedding or in the first blocks. Prime suspect: the patch-embedding dispatch (Conv3d as matmul 256x1024x1536 + bias + position-embedding add), which used to trip the large-vector gate under HMX.

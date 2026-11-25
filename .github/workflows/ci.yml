@@ -193,6 +193,11 @@ jobs:
           # the rig is holding the phone's USB interface, usually a stray adb
           # server left behind by a bare `adb` command run there.
           adb shell getprop ro.product.model
+      - &clean_old_files_on_phone
+        name: Clean old files on phone
+        if: env.PHONE_ACCESS == 'true'
+        run: |
+          integration_tests/device/tools/clean_phone.sh
       - &install_uv
         name: Install UV
         if: env.PHONE_ACCESS == 'true'
@@ -333,6 +338,7 @@ jobs:
       - *join_phone_overlay
       - *point_adb_at_phone_rig
       - *check_phone_reachable
+      - *clean_old_files_on_phone
       - *install_uv
       - *setup_test_env
       - *install_rsync

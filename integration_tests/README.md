@@ -235,9 +235,13 @@ generation:
   vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
 ```
 
-The import computes the image features with the model's own eager encoder,
+The entry's `model.py` also defines `get_vlm_preprocessor()`
+(`models/vlm_preprocessor.py`): it turns the image into the encoder's input and
 expands the prompt's one image placeholder to one token per image embedding,
-and generates the reference from both. The device then generates twice from
+as `tools/preprocess_vlm.py` does for a manual run. The import computes the
+image features with the model's own eager encoder on the processed image,
+checks that the prompt has one image token per embedding, and generates the
+reference from both. The device then generates twice from
 one push, and each run is checked as above:
 
 * `features`: from the reference's image features, passed as files

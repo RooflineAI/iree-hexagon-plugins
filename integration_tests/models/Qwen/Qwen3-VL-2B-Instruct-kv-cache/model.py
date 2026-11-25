@@ -24,6 +24,7 @@ from integration_tests.models.qwen3_vl import (
     VisionEncoder,
     patch_vision_tower,
 )
+from integration_tests.models.vlm_preprocessor import Fit, Qwen3VLProcessor
 
 _MODEL_ID = "Qwen/Qwen3-VL-2B-Instruct"
 _REVISION = "89644892e4d85e24eaac8bacfd4f463576704203"
@@ -51,6 +52,12 @@ def get_model() -> torch.nn.Module:
         max_seq_len=256,
         block_seq_stride=32,
     )
+
+
+def get_vlm_preprocessor(fit: Fit = "stretch") -> Qwen3VLProcessor:
+    """Image and prompt as the exported modules take them, for `generation`
+    and integration_tests/tools/preprocess_vlm.py."""
+    return Qwen3VLProcessor(_SIDE, fit)
 
 
 def get_tokenizer_json() -> Path:

@@ -23,10 +23,8 @@ encoder's outputs from files (`--prefill_input`).
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from transformers.models.qwen3_vl import modeling_qwen3_vl as mq
@@ -37,10 +35,6 @@ from transformers.vision_utils import (
 )
 
 from integration_tests.models.kv_cache import KvCacheLM
-
-# The chat template's placeholder for one image, which the prompt has once and
-# which is expanded to one token per merged patch.
-IMAGE_PAD = "<|image_pad|>"
 
 # preprocessor_config.json of Qwen3-VL-2B/4B-Instruct.
 _PATCH, _MERGE, _TEMPORAL, _MEAN, _STD = 16, 2, 2, 0.5, 0.5
@@ -170,19 +164,6 @@ class VisionEncoder(torch.nn.Module):
         )
         # A copy, so that the export returns a value rather than a buffer.
         return (*(out.pooler_output, *out.deepstack_features), self.merged_grid + 0)
-
-
-def load_image(path: Path, dtype: torch.dtype) -> torch.Tensor:
-    """An image file as the encoder takes it: [1, 3, H, W], RGB in 0..1.
-
-    The same decoding as the suite's `image` input generator, so that the
-    encoder's own test and the generation test see the same pixels.
-    """
-    from PIL import Image
-
-    array = np.asarray(Image.open(path).convert("RGB"))
-    tensor = torch.from_numpy(array.astype(np.float32) / 255.0)
-    return tensor.permute(2, 0, 1).unsqueeze(0).to(dtype)
 
 
 # ===----------------------------------------------------------------------=== #
@@ -405,13 +386,6 @@ class Qwen3VLKvCacheLM(KvCacheLM):
         """The encoder's outputs for `image` ([1, 3, H, W] in 0..1), eagerly:
         what `prefill` takes after `input_length`."""
         return tuple(self.encoder(image))
-
-    def expand_prompt(self, prompt: str, num_image_tokens: int) -> str:
-        """`prompt` with its one image placeholder expanded to one token per
-        image embedding, as the processor does."""
-        if prompt.count(IMAGE_PAD) != 1:
-            raise ValueError(f"the prompt needs exactly one {IMAGE_PAD}: {prompt!r}")
-        return prompt.replace(IMAGE_PAD, IMAGE_PAD * num_image_tokens)
 
     def reset_cache(self) -> None:
         super().reset_cache()

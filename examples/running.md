@@ -186,6 +186,22 @@ language model's module comes last; the two need distinct VM module names
 256]` f16, RGB in 0..1. The stats then also give the encoder's time
 (`vision:`).
 
+`iree-run-llm` knows nothing about the model, so `image.npy` and the prompt
+are prepared on the host, by the model entry's processor
+([integration_tests/models/vlm_preprocessor.py](../integration_tests/models/vlm_preprocessor.py)),
+the same one the integration tests use. It fits the image to the encoder's
+size (`--fit=stretch`, the default, or `--fit=pad` to keep the aspect ratio)
+and puts the prompt into the chat template with the image's tokens
+expanded:
+
+```sh
+.venv/bin/python -m integration_tests.tools.preprocess_vlm \
+  --model=Qwen/Qwen3-VL-2B-Instruct-kv-cache --image=photo.jpg \
+  --prompt="Describe this image in one short sentence." -o out/
+adb push out/image.npy out/prompt.txt $REMOTE_DIR/
+# then iree-run-llm ... --vision_input=@image.npy --prompt_file=prompt.txt
+```
+
 ## DSP-side debug logging
 
 DSP output does not appear on stdout; it goes to the Android log. Enable it by writing a

@@ -506,6 +506,16 @@ def _generation_reference(
 
     tokenizer = Tokenizer.from_file(str(tokenizer_json))
     prompt_ids = tokenizer.encode(prompt).ids
+    image_token_id = getattr(model, "image_token_id", None)
+    if prefill_inputs and image_token_id is not None:
+        # The graph does not check this: a mismatch repeats or skips image
+        # embeddings silently.
+        image_tokens = prompt_ids.count(image_token_id)
+        if image_tokens != prefill_inputs[0].shape[0]:
+            raise ValueError(
+                f"{spec.name}: the prompt has {image_tokens} image tokens, but "
+                f"the image has {prefill_inputs[0].shape[0]} embeddings"
+            )
     generated, prefill_logits = model.generate_greedy(
         prompt_ids,
         generation.max_new_tokens,
@@ -573,35 +583,39 @@ def _image_inputs(
     expanded, the image features prefill takes, the files holding them, and
     the vision encoder module if the spec names one.
 
-    The features come from the model's own eager encoder (`image_features`),
-    on the image decoded as the `image` input generator does, so they are what
-    the vision model entry computes on the same pixels.
+    The image and prompt come from the spec's `get_vlm_preprocessor()` (see
+    models/vlm_preprocessor.py) The features come from the model's own eager
+    encoder (`image_features`), so they are what the vision model entry
+    computes on the same pixels.
     """
-    from integration_tests.models.qwen3_vl import load_image
+    from PIL import Image
 
     generation = spec.generation
     assert generation is not None and generation.image is not None
-    for method in ("image_features", "expand_prompt"):
-        if not hasattr(model, method):
-            raise TypeError(
-                f"{spec.name}: 'generation.image' needs a model with "
-                f"{method}(), which {type(model).__name__} has not"
-            )
+    if not hasattr(model, "image_features"):
+        raise TypeError(
+            f"{spec.name}: 'generation.image' needs a model with "
+            f"image_features(), which {type(model).__name__} has not"
+        )
+    module = _load_model_source(spec)
+    if not hasattr(module, "get_vlm_preprocessor"):
+        raise ImportError(
+            f"{spec.model_source} does not define get_vlm_preprocessor(), which "
+            "'generation.image' needs"
+        )
     path = spec.directory / generation.image
     if not path.exists():
         raise FileNotFoundError(f"{spec.name}: no such image {path}")
-    pixels = load_image(path, _TORCH_DTYPES[spec.dtype])
+    with Image.open(path) as image:
+        prompt, pixels = module.get_vlm_preprocessor().process(image, generation.prompt)
     image_file = output_dir / "image.npy"
-    np.save(image_file, pixels.numpy())
-    features = model.image_features(pixels)  # type: ignore[operator]
+    np.save(image_file, pixels)
+    features = model.image_features(torch.from_numpy(pixels))  # type: ignore[operator]
     files = []
     for index, tensor in enumerate(features):
         file = output_dir / f"prefill_input{index}.npy"
         np.save(file, tensor.detach().cpu().numpy())
         files.append(file)
-    prompt = model.expand_prompt(  # type: ignore[operator]
-        generation.prompt, int(features[0].shape[0])
-    )
 
     vision = None
     if generation.vision_model is not None:

@@ -9,15 +9,13 @@
 // A Constant binding is an immutable global; its writer ran in an earlier
 // execution, and the runtime flushes the cache at the end of every execution,
 // so its memory is up to date and stays so. A DMA transfer that bypasses the
-// cache becomes a hexagonmem.dma_start.
+// cache gets the bypass_src / bypass_dst unit attributes.
 
 #include "hexagon/CodeGen/Passes.h"
 #include "hexagon/Common/Common.h"
-#include "hexagon/Dialect/HexagonMem/IR/HexagonMemDialect.h"
 #include "iree/compiler/Dialect/HAL/IR/HALOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
@@ -31,6 +29,11 @@ namespace mlir::iree_compiler::hexagon::codegen {
 #include "hexagon/CodeGen/Passes.h.inc"
 
 namespace {
+
+/// Unit attributes on `memref.dma_start` that let its source or destination
+/// bypass the data cache (read by hexagon-mlir's DMA lowering).
+constexpr StringLiteral kBypassSrcAttrName = "bypass_src";
+constexpr StringLiteral kBypassDstAttrName = "bypass_dst";
 
 bool isInVTCM(Value memref) {
   auto type = dyn_cast<MemRefType>(memref.getType());
@@ -113,23 +116,13 @@ struct HexagonDMACacheBypassPass
                                 constantReads);
     }
 
-    SmallVector<memref::DmaStartOp> dmaOps;
-    innerModule.walk(
-        [&](memref::DmaStartOp dmaOp) { dmaOps.push_back(dmaOp); });
-    IRRewriter rewriter(innerModule.getContext());
-    for (memref::DmaStartOp dmaOp : dmaOps) {
-      bool bypassSrc =
-          constantReads.contains(dmaOp) || isInVTCM(dmaOp.getSrcMemRef());
-      bool bypassDst = isInVTCM(dmaOp.getDstMemRef());
-      if (!bypassSrc && !bypassDst)
-        continue;
-      rewriter.setInsertionPoint(dmaOp);
-      rewriter.replaceOpWithNewOp<hexagonmem::DmaStartOp>(
-          dmaOp, dmaOp.getSrcMemRef(), dmaOp.getSrcIndices(),
-          dmaOp.getDstMemRef(), dmaOp.getDstIndices(), dmaOp.getNumElements(),
-          dmaOp.getTagMemRef(), dmaOp.getTagIndices(), dmaOp.getStride(),
-          dmaOp.getNumElementsPerStride(), bypassSrc, bypassDst);
-    }
+    UnitAttr unit = UnitAttr::get(&getContext());
+    innerModule.walk([&](memref::DmaStartOp dmaOp) {
+      if (constantReads.contains(dmaOp) || isInVTCM(dmaOp.getSrcMemRef()))
+        dmaOp->setAttr(kBypassSrcAttrName, unit);
+      if (isInVTCM(dmaOp.getDstMemRef()))
+        dmaOp->setAttr(kBypassDstAttrName, unit);
+    });
   }
 };
 

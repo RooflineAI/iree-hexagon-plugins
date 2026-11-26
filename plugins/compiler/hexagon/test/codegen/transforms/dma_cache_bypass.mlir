@@ -45,9 +45,8 @@ hal.executable private @executable {
 }
 
 // CHECK-LABEL: func.func @bypass
-// CHECK:       hexagonmem.dma_start {{.+}} <bypass_src = true, bypass_dst = true>
-// CHECK:       hexagonmem.dma_start {{.+}} <bypass_src = false, bypass_dst = true>
-// CHECK:       hexagonmem.dma_start {{.+}} <bypass_src = true, bypass_dst = false>
-// CHECK:       hexagonmem.dma_start {{.+}} <bypass_src = true, bypass_dst = false>
-// CHECK:       memref.dma_start
-// CHECK-NOT:   hexagonmem.dma_start
+// CHECK:       memref.dma_start {{.+}} {bypass_dst, bypass_src}
+// CHECK:       memref.dma_start {{.+}} {bypass_dst}
+// CHECK:       memref.dma_start {{.+}} {bypass_src}
+// CHECK:       memref.dma_start {{.+}} {bypass_src}
+// CHECK:       memref.dma_start {{[^{]+}}{{$}}

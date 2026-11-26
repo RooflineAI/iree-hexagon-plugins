@@ -95,11 +95,9 @@ def HexagonDMACacheBypassPass :
     Lets DMA transfers bypass the data cache on their VTCM side, which is not
     cached, and when they read a binding with the Constant descriptor flag (an
     immutable global, written in an earlier execution, after which the runtime
-    flushed the cache). Such a memref.dma_start becomes a hexagonmem.dma_start.
+    flushed the cache). The memref.dma_start gets the bypass_src / bypass_dst
+    unit attributes, which hexagon-mlir's DMA lowering reads.
   }];
-  let dependentDialects = [
-    "::mlir::hexagonmem::HexagonMemDialect",
-  ];
 }
 
 def HexagonEmitVectorizationRemarksPass :

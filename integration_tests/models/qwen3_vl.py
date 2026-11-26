@@ -298,9 +298,9 @@ class Qwen3VLKvCacheLM(KvCacheLM):
         embeds = self.model.get_input_embeddings()(input_ids)
         is_image = (input_ids == self.image_token_id)[..., None]
         # The i-th image token takes the i-th embedding, as masked_scatter
-        # does, with a static shape. The bounds keep a prompt with more image
-        # tokens than the grid has in bounds (see mrope_positions on why they
-        # come from a tensor).
+        # does, with a static shape. The prompt must have exactly one image
+        # token per embedding; a mismatch is unsupported. The bound here only keeps this
+        # gather in range (see mrope_positions on why it comes from a tensor).
         last = image_grid[0] * image_grid[1] - 1
         index = torch.minimum(
             (is_image[0, :, 0].long().cumsum(-1) - 1).clamp(min=0), last

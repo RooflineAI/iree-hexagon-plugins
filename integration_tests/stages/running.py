@@ -221,24 +221,39 @@ def push_parameters(
 
     temporary_path = f"{remote_path}.tmp.{uuid.uuid4().hex[:12]}"
     temporary = shlex.quote(temporary_path)
-    push_start = time.time()
-    adb.push([parameters.path], temporary_path, timeout=timeout)
-    timings["push_parameters"] = time.time() - push_start
+    try:
+        push_start = time.time()
+        adb.push([parameters.path], temporary_path, timeout=timeout)
+        timings["push_parameters"] = time.time() - push_start
 
-    verify_start = time.time()
-    actual = adb.shell(f"sha256sum {temporary}", timeout=timeout).split()[0]
-    if actual != parameters.sha256:
-        adb.shell(f"rm -f {temporary}")
-        raise ParameterMismatchError(
-            f"{parameters.path} arrived on the device with sha256 {actual}, "
-            f"expected {parameters.sha256}"
-        )
+        verify_start = time.time()
+        actual = adb.shell(f"sha256sum {temporary}", timeout=timeout).split()[0]
+        if actual != parameters.sha256:
+            raise ParameterMismatchError(
+                f"{parameters.path} arrived on the device with sha256 {actual}, "
+                f"expected {parameters.sha256}"
+            )
+    except BaseException:
+        # Whatever went wrong (a mismatch, a timeout, a lost connection), do
+        # not leave a partial copy of up to several GB on the phone. Best
+        # effort: the device may be what failed.
+        try:
+            adb.shell(f"rm -f {temporary}")
+        except (AdbError, subprocess.SubprocessError):
+            pass
+        raise
+    # adb push gives the file the host file's modification time, and mv keeps
+    # it: touch it, so that it counts as just used for the cleanups below and
+    # by other runs. The cleanups may race with another run cleaning the same
+    # directory, so their failures are ignored.
     stale = _STALE_PARAMETERS_MINUTES
+    quoted_dir = shlex.quote(remote_dir)
     adb.shell(
-        f"mv {temporary} {quoted_path}; "
-        f"find {shlex.quote(remote_dir)} -name '*.irpa' "
-        f"! -name {shlex.quote(posixpath.basename(remote_path))} -mmin +{stale} -delete; "
-        f"find {shlex.quote(remote_dir)} -name '*.irpa.tmp.*' -mmin +{stale} -delete"
+        f"mv {temporary} {quoted_path}; touch {quoted_path}; "
+        f"find {quoted_dir} -name '*.irpa' "
+        f"! -name {shlex.quote(posixpath.basename(remote_path))} "
+        f"-mmin +{stale} -delete || true; "
+        f"find {quoted_dir} -name '*.irpa.tmp.*' -mmin +{stale} -delete || true"
     )
     timings["verify_parameters"] = time.time() - verify_start
 

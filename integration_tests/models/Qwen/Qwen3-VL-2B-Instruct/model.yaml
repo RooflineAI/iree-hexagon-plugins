@@ -24,3 +24,9 @@ tolerances:
 # The plain `hexagon` case is ~10x slower on device
 # for an LLM prefill.
 compile_cases: [hexagon-vtcm-hmx]
+expected_outcomes:
+  - case: hexagon-vtcm-hmx
+    status: COMPILE_FAILURE
+    reason: "'iree_hexagon.hmx.pack' op source must be known to be 64-byte aligned"
+    comment: >-
+      Since the import keeps attention in f16 (model_dtype_attention), the attention batch matmuls [16, 81, 128] x [16, 128, 81] go through HMX, which cannot prove the alignment of these ragged (81) shapes; the f32 ones never reached HMX. Reproduced with one causal f16 attention [1, 16, L, 128]: L=81 fails, L=96 and L=128 compile (2026-11-26).

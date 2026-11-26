@@ -28,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -82,8 +83,9 @@ DEFAULT_DECOMPOSITIONS = [
     _aten.split,
     _aten.split_with_sizes.default,
     _aten.concat.default,
-    # Attention: keep the math form rather than the fused CPU kernels, which
-    # have no torch-mlir lowering.
+    # Attention: the math form rather than the fused CPU kernels, which have
+    # no torch-mlir lowering. scaled_dot_product_attention itself decomposes
+    # to model_dtype_attention (see build_decomposition_table).
     _aten.scaled_dot_product_attention.default,
     _aten._scaled_dot_product_attention_math.default,
     _aten._scaled_dot_product_flash_attention_for_cpu.default,
@@ -137,6 +139,57 @@ def _tool_versions() -> dict[str, str]:
     return versions
 
 
+def model_dtype_attention(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    attn_mask: torch.Tensor | None = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: float | None = None,
+    enable_gqa: bool = False,
+) -> torch.Tensor:
+    """`scaled_dot_product_attention` with both matmuls in the input dtype.
+
+    torch's own decomposition, `_scaled_dot_product_attention_math`, upcasts
+    f16 inputs to f32 on CPU, so the whole attention, the [heads, L, S] scores
+    included, runs and is stored in f32. Here, as in
+    kv_cache.grouped_query_attention, the query is scaled in its own dtype
+    before the QK^T matmul, so the f16 scores never exist unscaled; mask and
+    softmax run in f32, and the softmax weights go back to the input dtype for
+    the value matmul. It is not numerically equal to the math kernel.
+    """
+    if dropout_p != 0.0:
+        raise ValueError(f"unsupported: dropout_p={dropout_p}")
+    if enable_gqa:
+        groups = query.shape[-3] // key.shape[-3]
+        key = key.repeat_interleave(groups, dim=-3)
+        value = value.repeat_interleave(groups, dim=-3)
+    if scale is None:
+        scale = 1.0 / math.sqrt(query.shape[-1])
+    scores = torch.matmul(query * scale, key.transpose(-2, -1)).float()
+    if is_causal:
+        causal = torch.ones(
+            query.shape[-2], key.shape[-2], dtype=torch.bool, device=query.device
+        ).tril()
+        scores = scores.masked_fill(~causal, float("-inf"))
+    if attn_mask is not None:
+        if attn_mask.dtype == torch.bool:
+            scores = scores.masked_fill(~attn_mask, float("-inf"))
+        else:
+            scores = scores + attn_mask.float()
+    # As the math kernel: a fully masked row gives zeros, not NaN.
+    weights = _aten._safe_softmax(scores, -1).to(query.dtype)
+    out = torch.matmul(weights, value)
+    if out.dim() != 4:
+        return out
+    # The strides the op had before decomposition, as torch's own
+    # scaled_dot_product_flash_attention_for_cpu decomposition keeps them:
+    # model code views the output after a transpose (e.g. SigLIP's reshape to
+    # [B, L, H * E]), which is only valid for these strides.
+    return out.permute(2, 0, 1, 3).contiguous().permute(1, 2, 0, 3)
+
+
 def build_decomposition_table(ops: list[Any]) -> dict[Any, Any]:
     """A decomposition table that actually covers `ops`.
 
@@ -149,6 +202,9 @@ def build_decomposition_table(ops: list[Any]) -> dict[Any, Any]:
       * `_get_decomp_for_cia(op)` for CompositeImplicitAutograd ops, which have
         no registry entry but do have an implementation the exporter can be told
         to inline (`aten.conv2d.default`, `aten.__and__.Tensor`).
+
+    `aten.scaled_dot_product_attention` is the exception: it decomposes to
+    `model_dtype_attention`, not torch's f32 math kernel.
     """
     table = dict(current_aot_decompositions())
     table.update(get_decompositions(ops))
@@ -156,7 +212,31 @@ def build_decomposition_table(ops: list[Any]) -> dict[Any, Any]:
     for op in ops:
         if op in cia_ops:
             table[op] = _get_decomp_for_cia(op)
+    if _aten.scaled_dot_product_attention.default in ops:
+        table[_aten.scaled_dot_product_attention.default] = model_dtype_attention
     return table
+
+
+# Attention ops the exporter can emit instead of scaled_dot_product_attention.
+# Their decompositions are torch's f32 math kernel, so they would silently
+# bypass model_dtype_attention.
+_F32_ATTENTION_OPS = (
+    _aten._scaled_dot_product_attention_math.default,
+    _aten._scaled_dot_product_flash_attention_for_cpu.default,
+)
+
+
+def check_attention_ops(program: torch.export.ExportedProgram) -> None:
+    """Fails if `program`, before decomposition, has attention that would not
+    go through `model_dtype_attention`."""
+    found = sorted(
+        {str(n.target) for n in program.graph.nodes if n.target in _F32_ATTENTION_OPS}
+    )
+    if found:
+        raise RuntimeError(
+            f"exported graph has {found}, which decompose to torch's f32 math "
+            "attention instead of model_dtype_attention"
+        )
 
 
 def load_model(spec: ModelSpec) -> torch.nn.Module:
@@ -315,6 +395,7 @@ def import_model(
 
     ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
     exported_program = torch.export.export(model, args=inputs, strict=True)
+    check_attention_ops(exported_program)
     exported_program = exported_program.run_decompositions(
         build_decomposition_table(ops)
     )
@@ -420,6 +501,7 @@ def _import_kv_cache(
     ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
     table = build_decomposition_table(ops)
     for program in builder.programs.values():
+        check_attention_ops(program.target)
         program.target = program.target.run_decompositions(table)
     exported = aot.export(builder, import_symbolic_shape_expressions=True)
 

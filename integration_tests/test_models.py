@@ -27,7 +27,7 @@ from integration_tests.device.deploy import Deployment, Deployments
 from integration_tests.modeltree.outcomes import Outcome, Status, check_outcome
 from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.prefetch import Prefetcher
-from integration_tests.stages.artifacts import ImportedModel
+from integration_tests.stages.artifacts import ImportedModel, ParameterArchive
 from integration_tests.stages.checking import (
     AccuracyError,
     check_generation,
@@ -50,11 +50,18 @@ from integration_tests.stages.running import (
 def prefetcher(
     request: pytest.FixtureRequest,
     iree_compile: pathlib.Path,
+    iree_encode_parameters: pathlib.Path,
     lld: pathlib.Path | None,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[Prefetcher]:
     """Imports and compiles all tests' models in the background, in test order."""
-    active = Prefetcher(request.session.items, iree_compile, lld, tmp_path_factory)
+    active = Prefetcher(
+        request.session.items,
+        iree_compile,
+        iree_encode_parameters,
+        lld,
+        tmp_path_factory,
+    )
     yield active
     active.close()  # cleanup
 
@@ -63,6 +70,7 @@ def _run_pipeline(
     model_spec: ModelSpec,
     compile_case: CompileCase,
     run_case: RunCase,
+    weights: str,
     prefetcher: Prefetcher,
     host_rsync: pathlib.Path,
     deployment: Deployment,
@@ -73,7 +81,7 @@ def _run_pipeline(
     evidence."""
     try:
         # waits for compilation to finish
-        compiled = prefetcher.compiled(model_spec, compile_case)
+        compiled = prefetcher.compiled(model_spec, compile_case, weights)
     except CompilationError as err:
         return Outcome(Status.COMPILE_FAILURE, f"{err}\n{err.log}")
     # A ModelImportError (the import failed) is not caught: it fails the test,
@@ -87,9 +95,19 @@ def _run_pipeline(
     print(
         f"compiled {compile_case.name} in {compiled.seconds:.2f}s -> {vmfb} ({vmfb.stat().st_size} bytes)"
     )
+    parameters = compiled.parameters
+    if parameters is not None:
+        print(
+            f"weights in {parameters.path} (scope {parameters.scope}, "
+            f"{parameters.path.stat().st_size} bytes, sha256 {parameters.sha256}), "
+            f"encoded and hashed in {compiled.encode_seconds:.2f}s"
+        )
+    elif weights == "external":
+        print("external weights requested, but the model has no weights")
 
-    case_dir = (
-        f"{model_spec.name.replace('/', '_')}_{compile_case.name}_{run_case.name}"
+    model_dir = model_spec.name.replace("/", "_")
+    case_dir = f"{model_dir}_{compile_case.name}_{run_case.name}" + (
+        "_external" if weights == "external" else ""
     )
     local_output_dir = work_dir / "device_outputs"
     if imported_model.generation is not None:
@@ -103,6 +121,8 @@ def _run_pipeline(
             case_dir=case_dir,
             local_output_dir=local_output_dir,
             tracy_port=tracy_port,
+            parameters=parameters,
+            model_dir=model_dir,
         )
 
     result = run_module_on_device(
@@ -116,6 +136,8 @@ def _run_pipeline(
         timeout=model_spec.run_timeout,
         tracy_port=tracy_port,
         debug_malloc=run_case.debug_malloc,
+        parameters=parameters,
+        model_dir_name=model_dir,
     )
     print(result.log)
     print("timings:")
@@ -178,6 +200,8 @@ def _run_generation(
     case_dir: str,
     local_output_dir: pathlib.Path,
     tracy_port: int | None,
+    parameters: ParameterArchive | None,
+    model_dir: str,
 ) -> Outcome:
     """Run and check a `KvCacheLM` module: token generation with iree-run-llm."""
     generation_reference = imported_model.generation
@@ -193,6 +217,8 @@ def _run_generation(
         host_rsync=host_rsync,
         extra_flags=run_case.flags,
         timeout=model_spec.run_timeout,
+        parameters=parameters,
+        model_dir_name=model_dir,
     )
     print(generation.log)
     # perf_compare.py compares prefill and decode_per_token from here,
@@ -221,6 +247,7 @@ def test_model_on_device(
     model_spec: ModelSpec,
     compile_case: CompileCase,
     run_case: RunCase,
+    weights: str,
     prefetcher: Prefetcher,
     host_rsync: pathlib.Path,
     deployments: Deployments,
@@ -231,6 +258,7 @@ def test_model_on_device(
         model_spec=model_spec,
         compile_case=compile_case,
         run_case=run_case,
+        weights=weights,
         prefetcher=prefetcher,
         host_rsync=host_rsync,
         deployment=deployments.tracy if run_case.profile else deployments.plain,
@@ -242,7 +270,7 @@ def test_model_on_device(
     if expected is None:
         if not outcome.passed:
             pytest.fail(
-                f"{model_spec.name} [{compile_case.name}/{run_case.name}] failed as "
+                f"{model_spec.name} [{compile_case.name}/{run_case.name}/{weights} weights] failed as "
                 f"{outcome.status}:\n{outcome.log}",
                 pytrace=False,
             )
@@ -251,7 +279,7 @@ def test_model_on_device(
     mismatch = check_outcome(expected, outcome)
     if mismatch is not None:
         pytest.fail(
-            f"{model_spec.name} [{compile_case.name}/{run_case.name}]: {mismatch.kind.title()}\n"
+            f"{model_spec.name} [{compile_case.name}/{run_case.name}/{weights} weights]: {mismatch.kind.title()}\n"
             f"{mismatch.message}",
             pytrace=False,
         )

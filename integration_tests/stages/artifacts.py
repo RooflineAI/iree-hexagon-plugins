@@ -8,9 +8,31 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True)
+class ParameterArchive:
+    """The weights a module compiled with external weights loads at runtime."""
+
+    path: Path
+    # Names the archive on the device: a changed archive is a different file.
+    sha256: str
+    # The scope the module looks its parameters up in, as in
+    # `--parameters=<scope>=<file>`.
+    scope: str
+
+    @classmethod
+    def of(cls, path: Path, scope: str) -> ParameterArchive:
+        """The archive at `path`, hashed (~5 s for 9 GB)."""
+        digest = hashlib.sha256()
+        with path.open("rb") as file:
+            for chunk in iter(lambda: file.read(1 << 24), b""):
+                digest.update(chunk)
+        return cls(path, digest.hexdigest(), scope)
 
 
 @dataclass(frozen=True)
@@ -76,6 +98,9 @@ class ImportedModel:
     labels_file: Path | None = None
     # Only, and always, for a `KvCacheLM`.
     generation: GenerationReference | None = None
+    # The weights, when the import kept them out of the MLIR (external
+    # weights): the MLIR names them in this archive.
+    weights_archive: Path | None = None
 
     def labels(self) -> dict[int, str] | None:
         if self.labels_file is None or not self.labels_file.exists():

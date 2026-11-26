@@ -47,7 +47,7 @@ from integration_tests.stages.artifacts import (
     GenerationReference,
     ImportedModel,
     ModuleCall,
-    VisionModule,
+    VisionFunction,
 )
 from integration_tests.tools.preprocess_vlm import preprocess
 
@@ -279,14 +279,12 @@ def import_model(
     spec: ModelSpec,
     output_dir: Path,
     decompositions: list[Any] | None = None,
-    module_name: str | None = None,
 ) -> ImportedModel:
     """Export the spec's model to MLIR and record its inputs and eager outputs.
 
     Writes `model.mlir`, `input{N}.npy` and `output{N}.npy` into `output_dir`.
     The outputs come from running the model eagerly in torch on the same
-    inputs. `module_name` names the VM module (iree-turbine's default is
-    `module`), e.g. to load it next to another one in one context.
+    inputs.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     model = load_model(spec)
@@ -323,7 +321,7 @@ def import_model(
     # aot.export takes the decomposed program from here; iree-turbine still
     # applies its own default table on top, which is where the batch-norm and
     # _to_copy decompositions a conv net needs come from.
-    exported = aot.export(exported_program, module_name=module_name)
+    exported = aot.export(exported_program)
 
     model_mlir = output_dir / "model.mlir"
     exported.save_mlir(model_mlir)
@@ -361,7 +359,8 @@ def _import_kv_cache(
     inputs: tuple[torch.Tensor, ...],
     decompositions: list[Any] | None,
 ) -> ImportedModel:
-    """Export `prefill` and `decode` as functions of one module.
+    """Export `prefill` and `decode`, and a VLM's `vision`, as functions of
+    one module.
 
     `inputs`, a prompt, only give the example arguments of the export. The
     cache becomes module state, initially zero. The functions are not checked
@@ -401,6 +400,10 @@ def _import_kv_cache(
         "prefill": (prefill_args, prefill_shapes),
         "decode": (decode_args, decode_shapes),
     }
+    if generation.vision is not None:
+        # The encoder takes one fixed image size: the image's own shape.
+        image = torch.from_numpy(np.load(generation.vision.input_file))
+        functions[_VISION_FUNCTION] = ((image,), {"image": {}})
 
     builder = aot.FxProgramsBuilder(model)
     for name, (args, dynamic_shapes) in functions.items():
@@ -482,12 +485,9 @@ def _generation_reference(
     tokenizer_json.write_bytes(Path(module.get_tokenizer_json()).read_bytes())
     prompt = generation.prompt
     prefill_inputs: tuple[torch.Tensor, ...] = ()
-    prefill_input_files: list[Path] = []
     vision = None
     if generation.image is not None:
-        prompt, prefill_inputs, prefill_input_files, vision = _image_inputs(
-            spec, output_dir, model
-        )
+        prompt, prefill_inputs, vision = _image_inputs(spec, output_dir, model)
     prompt_file = output_dir / "prompt.txt"
     prompt_file.write_text(prompt)
 
@@ -523,7 +523,6 @@ def _generation_reference(
         prompt_ids=tuple(prompt_ids),
         generated=tuple(generated),
         prefill_logits_file=prefill_logits_file,
-        prefill_input_files=tuple(prefill_input_files),
         vision=vision,
     )
     (output_dir / "generation_reference.json").write_text(
@@ -536,7 +535,6 @@ def _generation_reference(
                     "prompt_file",
                     "tokenizer_json",
                     "prefill_logits_file",
-                    "prefill_input_files",
                     "vision",
                 )
             },
@@ -558,30 +556,30 @@ def _generation_reference(
     return reference
 
 
-# The VM module name of a VLM's vision encoder, so that it can share a context
-# with the language model's module (`module`).
-_VISION_MODULE_NAME = "vision"
+# The exported vision encoder function of a VLM.
+_VISION_FUNCTION = "vision"
 
 
 def _image_inputs(
     spec: ModelSpec, output_dir: Path, model: KvCacheLM
-) -> tuple[str, tuple[torch.Tensor, ...], list[Path], VisionModule | None]:
+) -> tuple[str, tuple[torch.Tensor, ...], VisionFunction]:
     """A VLM generation's image: the prompt in the chat template with its
-    image placeholder expanded, the image features prefill takes, the files
-    holding them, and the vision encoder module if the spec names one.
+    image placeholder expanded, the image features prefill takes, for the
+    reference, and the module's vision function that computes them on the
+    device, with the features as its reference outputs.
 
     The image and prompt are prepared by tools/preprocess_vlm.py's
     `preprocess`, as for a manual run, with the spec's
     `get_vlm_preprocessor()` (see models/vlm_preprocessor.py). The features
-    come from the model's own eager encoder (`image_features`), so they are
-    what the vision model entry computes on the same pixels.
+    come from the model's `vision` function run eagerly, so they are what the
+    exported one computes on the same pixels.
     """
     generation = spec.generation
     assert generation is not None and generation.image is not None
-    if not hasattr(model, "image_features"):
+    if not hasattr(model, _VISION_FUNCTION):
         raise TypeError(
             f"{spec.name}: 'generation.image' needs a model with "
-            f"image_features(), which {type(model).__name__} has not"
+            f"{_VISION_FUNCTION}(), which {type(model).__name__} has not"
         )
     inputs = preprocess(
         spec,
@@ -591,25 +589,15 @@ def _image_inputs(
         output_dir,
     )
     prompt, image_file = inputs.prompt, inputs.image_file
-    features = model.image_features(torch.from_numpy(inputs.pixels))  # type: ignore[operator]
-    files = []
+    features = getattr(model, _VISION_FUNCTION)(torch.from_numpy(inputs.pixels))
+    reference_files = []
     for index, tensor in enumerate(features):
-        file = output_dir / f"prefill_input{index}.npy"
+        file = output_dir / f"vision_reference{index}.npy"
         np.save(file, tensor.detach().cpu().numpy())
-        files.append(file)
-
-    vision = None
-    if generation.vision_model is not None:
-        from integration_tests.modeltree.discover import select
-
-        (vision_spec,) = select([generation.vision_model])
-        imported = import_model(
-            vision_spec, output_dir / "vision", module_name=_VISION_MODULE_NAME
-        )
-        vision = VisionModule(
-            model_mlir=imported.model_mlir,
-            input_file=image_file,
-            function=f"{_VISION_MODULE_NAME}.main",
-            compile_flags=tuple(vision_spec.extra_compile_flags),
-        )
-    return prompt, features, files, vision
+        reference_files.append(file)
+    vision = VisionFunction(
+        input_file=image_file,
+        function=_VISION_FUNCTION,
+        reference_files=tuple(reference_files),
+    )
+    return prompt, features, vision

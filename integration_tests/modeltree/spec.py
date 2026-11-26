@@ -125,29 +125,22 @@ class GenerationSpec:
     prompt: str
     max_new_tokens: int = 32
     min_margin: float = 0.25
-    # For a VLM (a model whose get_model() can compute image features, e.g.
-    # models/qwen3_vl.py): an image file, relative to model.yaml. `prompt` is
-    # then the user's prompt, which the import puts into the chat template
-    # with the image, as tools/preprocess_vlm.py does. The device first generates
-    # from the reference's image features, passed as files, which checks the
-    # language model on its own.
+    # For a VLM (a model with a `vision` function, e.g. models/qwen3_vl.py): an
+    # image file, relative to model.yaml. `prompt` is then the user's prompt,
+    # which the import puts into the chat template with the image, as
+    # tools/preprocess_vlm.py does. The device runs the module's `vision`
+    # function on the image first (iree-run-llm --vision_function), and its
+    # results go to prefill.
     image: str | None = None
-    # A model entry whose module is the vision encoder for `image`: the device
-    # then also generates with it, compiled in the same compile case and run
-    # on the image first (iree-run-llm --vision_function).
-    vision_model: str | None = None
-    # The prefill logits tolerances of that run, which adds the encoder's
-    # error to the language model's; the model's `tolerances` if absent. The
-    # generated tokens still have to match exactly.
-    vision_tolerances: Tolerances | None = None
+    # How close the device's vision function results (the image features)
+    # have to be to the eager ones; checked before the generation.
+    vision_tolerances: Tolerances = dataclasses.field(
+        default_factory=lambda: Tolerances(atol=0.2, rtol=0.05, relative_l2_percent=1.0)
+    )
 
     def __post_init__(self) -> None:
         if not self.prompt.strip():
             raise SpecError("generation: 'prompt' must not be empty")
-        if self.vision_model is not None and self.image is None:
-            raise SpecError("generation: 'vision_model' needs an 'image'")
-        if self.vision_tolerances is not None and self.vision_model is None:
-            raise SpecError("generation: 'vision_tolerances' needs a 'vision_model'")
         if self.max_new_tokens <= 0:
             raise SpecError("generation: 'max_new_tokens' must be positive")
         if self.min_margin < 0:

@@ -223,16 +223,16 @@ The check, in `stages/checking.py`:
 
 #### Image + text (VLM)
 
-A VLM's language model is a `KvCacheLM` whose `prefill` also takes the vision
-encoder's outputs (`Qwen3VLKvCacheLM` in `models/qwen3_vl.py`, e.g.
-`Qwen/Qwen3-VL-2B-Instruct-kv-cache`). Its `generation` block names an image,
-and optionally the model entry of the vision encoder:
+A VLM is a `KvCacheLM` whose `prefill` also takes the vision encoder's
+outputs, and which has the encoder as a third function, `vision`
+(`Qwen3VLKvCacheLM` in `models/qwen3_vl.py`, e.g.
+`Qwen/Qwen3-VL-2B-Instruct-kv-cache`). All three are exported into one module.
+Its `generation` block names an image:
 
 ```yaml
 generation:
   prompt: "Describe this image in one short sentence."
-  image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
-  vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
+  image: keyboard-256.png
 ```
 
 The prompt is the user's prompt. The entry's `model.py` also defines
@@ -241,26 +241,23 @@ into the encoder's input, puts the prompt into the chat template and expands
 its one image placeholder to one token per image embedding. The import calls
 `preprocess` from `tools/preprocess_vlm.py`, the same function the tool runs
 for a manual run. The import computes the
-image features with the model's own eager encoder on the processed image,
+image features with the model's `vision` function, eagerly, on the processed image,
 checks that the prompt has one image token per embedding, and generates the
-reference from both. The device then generates twice from
-one push, and each run is checked as above:
-
-* `features`: from the reference's image features, passed as files
-  (`iree-run-llm --prefill_input`). This checks the language model alone.
-* `vision`: with a `vision_model`, its entry is imported as VM module `vision`,
-  compiled in the same compile case, and run on the device on the image first
-  (`iree-run-llm --vision_function`); its results feed `prefill` directly.
-  This adds the encoder's error to the language model's, so its prefill
-  logits may get their own `vision_tolerances` (the tokens must still match).
+reference from both. On the device, `iree-run-llm` runs the module's `vision`
+function on the image first (`--vision_function=vision`) and feeds its
+results to `prefill`, end to end. It also writes them out
+(`--vision_output`), and the test checks them first, against the eager
+encoder's within `generation.vision_tolerances` (default: atol 0.2, rtol
+0.05, 1% relative L2), so an encoder error shows as such. Then the
+generation is checked as above. Its prefill logits carry the encoder's error
+as well as the language model's, which the entry's `tolerances` allow for.
 
 The log has the text and, under `generation timings:`, the time of the whole
 `iree-run-llm` run (`generate`) and its own times of `prefill` and of one
-decode step (`decode_per_token`). `perf_compare.py` compares the latter two
-against the recent main runs, each as `<test id>:<name>`, as it compares the
-`run:` of other models; for a VLM, those of the `features` run (the `vision`
-run's are printed prefixed with `vision_`). A profile run case does not
-support these models.
+decode step (`decode_per_token`), and for a VLM of the encoder (`vision`).
+`perf_compare.py` compares `prefill` and `decode_per_token` against the recent
+main runs, each as `<test id>:<name>`, as it compares the `run:` of other
+models. A profile run case does not support these models.
 
 ## Profiling
 

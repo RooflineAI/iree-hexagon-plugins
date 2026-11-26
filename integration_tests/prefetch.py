@@ -45,11 +45,7 @@ import pytest
 
 from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.stages.artifacts import ImportedModel
-from integration_tests.stages.compiling import (
-    CompilationError,
-    CompileCase,
-    compile_model,
-)
+from integration_tests.stages.compiling import CompileCase, compile_model
 
 # import does not release some memory back to the os
 # memory held by the import process may conflict with the memory needed for iree-compile step
@@ -72,9 +68,6 @@ class Compiled:
     seconds: float
     # What iree-compile printed (iree-compile.log).
     log: str
-    # A VLM's vision module (`imported.generation.vision`), compiled in the
-    # same compile case; None for any other model.
-    vision_vmfb: pathlib.Path | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -307,20 +300,4 @@ class Prefetcher:
         )
         seconds = time.time() - start
         log = (work_dir / "iree-compile.log").read_text(errors="replace")
-        vision = model.generation.vision if model.generation is not None else None
-        vision_vmfb = None
-        if vision is not None:
-            try:
-                vision_vmfb = compile_model(
-                    iree_compile=self._iree_compile,
-                    model_mlir=vision.model_mlir,
-                    output_vmfb=work_dir / "vision.vmfb",
-                    compile_case=compile_case,
-                    log_file=work_dir / "iree-compile-vision.log",
-                    linker=self._lld,
-                    model_flags=vision.compile_flags,
-                )
-            except CompilationError as err:
-                raise CompilationError(f"vision module: {err}", log=err.log) from err
-            seconds = time.time() - start
-        return Compiled(model, vmfb, seconds, log, vision_vmfb)
+        return Compiled(model, vmfb, seconds, log)

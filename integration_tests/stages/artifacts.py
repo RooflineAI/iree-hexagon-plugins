@@ -39,16 +39,17 @@ class GeneratedTokenInfo:
 
 
 @dataclass(frozen=True)
-class VisionModule:
-    """A VLM's vision encoder, which iree-run-llm runs before prefill."""
+class VisionFunction:
+    """A VLM's vision encoder, a function of the model's own module, which
+    iree-run-llm runs before prefill."""
 
-    model_mlir: Path
     # The image as the encoder takes it, as .npy.
     input_file: Path
-    # Fully qualified, as iree-run-llm --vision_function takes it.
+    # Its name in the module, for iree-run-llm --vision_function.
     function: str
-    # The vision model entry's extra_compile_flags.
-    compile_flags: tuple[str, ...] = ()
+    # Its results run eagerly on the same image, as .npy, one per result: what
+    # the device's (iree-run-llm --vision_output) are checked against.
+    reference_files: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -69,12 +70,9 @@ class GenerationReference:
     generated: tuple[GeneratedTokenInfo, ...]
     # Prefill's logits on the padded prompt, [1, padded length, vocab].
     prefill_logits_file: Path
-    # For a VLM: what prefill takes after input_length, the image features the
-    # reference generated from, as .npy (iree-run-llm --prefill_input).
-    prefill_input_files: tuple[Path, ...] = ()
-    # For a VLM with a `vision_model`: the encoder that computes them on the
-    # device instead.
-    vision: VisionModule | None = None
+    # For a VLM: its encoder, which computes what prefill takes after
+    # input_length from the image, on the device first.
+    vision: VisionFunction | None = None
 
     @property
     def tokens(self) -> tuple[int, ...]:

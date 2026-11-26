@@ -4,21 +4,24 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Qwen3-VL split into the two halves the device runs: vision encoder and LM.
+"""Qwen3-VL as one module with three functions: vision, prefill and decode.
 
 The whole multimodal forward does not export as one graph (its shapes come
-from the image grid through Python loops), so the halves are separate modules:
+from the image grid through Python loops), so the vision encoder and the
+language model are separate functions of one module:
 
   * `VisionEncoder`: image in, the four tensors the language model consumes
     out, plus the merged image grid. One fixed resolution for now: the grid
     tensors transformers derives from the image size are baked in.
   * `Qwen3VLKvCacheLM`: the language model as a `KvCacheLM` whose `prefill`
-    also takes the encoder's outputs. Unlike the encoder, it is not tied to one
-    image size: the number of image tokens is dynamic and the M-RoPE positions
-    are computed in the graph from the grid.
+    also takes the encoder's outputs, plus the encoder as its `vision`
+    function. Unlike the encoder, the language model is not tied to one image
+    size: the number of image tokens is dynamic and the M-RoPE positions are
+    computed in the graph from the grid.
 
-iree-run-llm chains the two on the device (`--vision_function`), or takes the
-encoder's outputs from files (`--prefill_input`).
+iree-run-llm runs `vision` on the device before prefill
+(`--vision_function=vision`), or takes the encoder's outputs from files
+(`--prefill_input`).
 """
 
 from __future__ import annotations
@@ -231,17 +234,18 @@ def mrope_positions(
 class Qwen3VLKvCacheLM(KvCacheLM):
     """Qwen3-VL's language model, with the image features as prefill inputs.
 
-      * `prefill(input_ids, cache_position, input_length, image_embeds,
-        deepstack0, deepstack1, deepstack2, image_grid)`: the image embeddings
-        replace the prompt's image tokens, the deepstack features are added
-        after the first three decoder layers, and the M-RoPE positions come
-        from `mrope_positions`, whose `rope_delta` prefill keeps in module
-        state.
-      * `decode(input_ids, cache_position)`: text only, at the cache position
-        plus `rope_delta` on all three axes.
+    * `prefill(input_ids, cache_position, input_length, image_embeds,
+      deepstack0, deepstack1, deepstack2, image_grid)`: the image embeddings
+      replace the prompt's image tokens, the deepstack features are added
+      after the first three decoder layers, and the M-RoPE positions come
+      from `mrope_positions`, whose `rope_delta` prefill keeps in module
+      state.
+    * `decode(input_ids, cache_position)`: text only, at the cache position
+      plus `rope_delta` on all three axes.
 
-    The vision tower is not part of the module: `image_features` runs it
-    eagerly, for the reference.
+    * `vision(image)`: the `VisionEncoder` on one image ([1, 3, side, side]
+      in 0..1), whose outputs are what `prefill` takes after
+      `input_length`.
     """
 
     def __init__(
@@ -260,8 +264,8 @@ class Qwen3VLKvCacheLM(KvCacheLM):
         self.image_token_id = int(model.config.image_token_id)
         self.hidden_size = int(self.config.hidden_size)
         self.register_buffer("rope_delta", torch.zeros(1, dtype=torch.int64))
-        # Not a submodule: its weights must stay out of the exported module.
-        self.__dict__["encoder"] = encoder
+        # A submodule: its weights are part of the module, for `vision`.
+        self.encoder = encoder
 
     def _run(
         self,
@@ -382,8 +386,8 @@ class Qwen3VLKvCacheLM(KvCacheLM):
         return next_token, logits
 
     @torch.no_grad()
-    def image_features(self, image: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """The encoder's outputs for `image` ([1, 3, H, W] in 0..1), eagerly:
+    def vision(self, image: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        """The encoder's outputs for `image` ([1, 3, side, side] in 0..1):
         what `prefill` takes after `input_length`."""
         return tuple(self.encoder(image))
 

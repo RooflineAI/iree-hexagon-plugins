@@ -6,11 +6,9 @@
 
 """Qwen3-VL-2B-Instruct exported for image + text token generation.
 
-The language model as a `Qwen3VLKvCacheLM` (models/qwen3_vl.py): `prefill`
-takes the vision encoder's outputs, `decode` continues from its KV cache. The
-encoder is the Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched entry, which
-the generation test compiles as the vision module; here it only computes the
-reference's image features, eagerly.
+One module, a `Qwen3VLKvCacheLM` (models/qwen3_vl.py): `vision` runs the
+vision encoder on one 256x256 image, `prefill` takes its outputs, and `decode`
+continues from the KV cache.
 """
 
 from pathlib import Path

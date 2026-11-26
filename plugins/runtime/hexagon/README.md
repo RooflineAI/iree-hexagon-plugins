@@ -201,10 +201,8 @@ See `hexagon_pmu_events_ids.h` for IDs:
 
 ## Technical notes
 
-### Memory allocation
+### Memory model
 
-Memory allocation can be done through `iree_hal_hexagon_mem_alloc_create`. Its implementation is in `mem_alloc.c`.
-There are three alternative allocations that can be done (available in `iree_hal_hexagon_mem_kind_e`). They represent DSP, host and shared allocations.
-Note that the behavior of the allocated memory differs depending on whether this framework is used or not.
-For example, when passing an allocation through an RPC as an argument, flushing the cache for synchronization with the host at the end of the RPC is automated.
-It must be done manually when not passed as an argument though.
+How buffers are allocated, mapped to the DSP, evicted and kept cache-coherent,
+and what the runtime expects from the compiler, is described in
+[MEMORY_MODEL.md](MEMORY_MODEL.md).

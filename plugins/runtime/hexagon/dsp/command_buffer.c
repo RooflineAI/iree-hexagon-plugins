@@ -20,6 +20,7 @@
 #include "hexagon/dsp/align.h"
 #include "hexagon/dsp/device.h"
 #include "hexagon/dsp/executable.h"
+#include "hexagon/dsp/next_use.h"
 #include "hexagon/dsp/pmu/hexagon_pmu.h"
 #include "hexagon/dsp/power_mode.h"
 #include "hexagon/dsp/residency.h"
@@ -40,6 +41,10 @@ typedef struct hexagon_dsp_command_buffer_s {
   /// needed for cache maintenance at command buffer level
   hexagon_rt_arm_dsp_binding_t *direct_bufs;
   uint32_t num_direct_bufs;
+  /// buffer references (into cmd_buf_data) in the order the commands acquire
+  /// them, the positions of the command order for choosing what to evict
+  const hexagon_rt_arm_dsp_buf_ref_t **use_refs;
+  uint32_t num_use_refs;
 } hexagon_dsp_command_buffer_t;
 
 /**
@@ -121,19 +126,45 @@ static void hexa_cmd_buf_add_direct_buf(const hexagon_rt_arm_dsp_buf_ref_t *ref,
 }
 
 /**
- * @brief Walk command buffer and collect all direct buffer references.
+ * @brief Record a buffer reference: as use at the next position of the command
+ *        order and, if direct, in the direct buffer references.
+ * @param[in] ref buffer reference to record
+ * @param[in,out] bufs see hexa_cmd_buf_add_direct_buf
+ * @param[in,out] num_bufs see hexa_cmd_buf_add_direct_buf
+ * @param[in,out] use_refs array to append ref to, NULL to only count
+ * @param[in,out] num_use_refs number of entries in use_refs (or counted)
+ */
+static void
+hexa_cmd_buf_add_buf_ref(const hexagon_rt_arm_dsp_buf_ref_t *ref,
+                         hexagon_rt_arm_dsp_binding_t *bufs, uint32_t *num_bufs,
+                         const hexagon_rt_arm_dsp_buf_ref_t **use_refs,
+                         uint32_t *num_use_refs) {
+  if (use_refs) {
+    use_refs[*num_use_refs] = ref;
+  }
+  ++*num_use_refs;
+  hexa_cmd_buf_add_direct_buf(ref, bufs, num_bufs);
+}
+
+/**
+ * @brief Walk command buffer and collect all buffer references in the order
+ *        they are acquired when executing, and the deduplicated direct ones.
  * @param[in] cmd_buf_data pointer to serialized command buffer data
  * @param[in] cmd_buf_size size of serialized command buffer data
  * @param[out] bufs array to store merged direct buffer references in,
  *                  NULL to only count (without merging)
  * @param[out] num_bufs number of entries (to be) stored in bufs
+ * @param[out] use_refs array to store pointers to all buffer references in
+ *                      (into cmd_buf_data), NULL to only count
+ * @param[out] num_use_refs number of entries (to be) stored in use_refs
  * @retval AEE_SUCCESS for success
  */
-static int hexa_cmd_buf_collect_direct_bufs(const uint8_t *cmd_buf_data,
-                                            int cmd_buf_size,
-                                            hexagon_rt_arm_dsp_binding_t *bufs,
-                                            uint32_t *num_bufs) {
+static int hexa_cmd_buf_collect_buf_refs(
+    const uint8_t *cmd_buf_data, int cmd_buf_size,
+    hexagon_rt_arm_dsp_binding_t *bufs, uint32_t *num_bufs,
+    const hexagon_rt_arm_dsp_buf_ref_t **use_refs, uint32_t *num_use_refs) {
   *num_bufs = 0;
+  *num_use_refs = 0;
   READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_buf_t,
                   cmd_buf)
   for (uint32_t idx_entry = 0; idx_entry < cmd_buf->num_entries; ++idx_entry) {
@@ -152,7 +183,8 @@ static int hexa_cmd_buf_collect_direct_bufs(const uint8_t *cmd_buf_data,
       for (uint32_t b = 0; b < cmd_dispatch->num_bindings; ++b) {
         READ_SERIALIZED(cmd_buf_data, cmd_buf_size,
                         hexagon_rt_arm_dsp_buf_ref_t, buf_ref)
-        hexa_cmd_buf_add_direct_buf(buf_ref, bufs, num_bufs);
+        hexa_cmd_buf_add_buf_ref(buf_ref, bufs, num_bufs, use_refs,
+                                 num_use_refs);
       }
       break;
     }
@@ -167,15 +199,18 @@ static int hexa_cmd_buf_collect_direct_bufs(const uint8_t *cmd_buf_data,
     case HEXAGON_RT_ARM_DSP_CMD_COPY: {
       READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_copy_t,
                       cmd_copy)
-      hexa_cmd_buf_add_direct_buf(&cmd_copy->src, bufs, num_bufs);
-      hexa_cmd_buf_add_direct_buf(&cmd_copy->trgt, bufs, num_bufs);
+      hexa_cmd_buf_add_buf_ref(&cmd_copy->src, bufs, num_bufs, use_refs,
+                               num_use_refs);
+      hexa_cmd_buf_add_buf_ref(&cmd_copy->trgt, bufs, num_bufs, use_refs,
+                               num_use_refs);
       break;
     }
 
     case HEXAGON_RT_ARM_DSP_CMD_FILL: {
       READ_SERIALIZED(cmd_buf_data, cmd_buf_size, hexagon_rt_arm_dsp_cmd_fill_t,
                       cmd_fill)
-      hexa_cmd_buf_add_direct_buf(&cmd_fill->trgt, bufs, num_bufs);
+      hexa_cmd_buf_add_buf_ref(&cmd_fill->trgt, bufs, num_bufs, use_refs,
+                               num_use_refs);
       break;
     }
 
@@ -274,24 +309,37 @@ int hexagon_dsp_command_buffer_create(remote_handle64 rpc_handle,
   // bound), second pass fills and deduplicates.
   command_buffer->direct_bufs = NULL;
   command_buffer->num_direct_bufs = 0;
+  command_buffer->use_refs = NULL;
+  command_buffer->num_use_refs = 0;
   uint32_t max_direct_bufs = 0;
+  uint32_t num_use_refs = 0;
   // count only
-  err = hexa_cmd_buf_collect_direct_bufs(command_buffer->cmd_buf_data,
-                                         cmd_buf_size, NULL, &max_direct_bufs);
+  err = hexa_cmd_buf_collect_buf_refs(command_buffer->cmd_buf_data,
+                                      cmd_buf_size, NULL, &max_direct_bufs,
+                                      NULL, &num_use_refs);
   if (err == AEE_SUCCESS && max_direct_bufs > 0) {
     err = HAP_malloc(max_direct_bufs * sizeof(hexagon_rt_arm_dsp_binding_t),
                      (void **)&command_buffer->direct_bufs);
     if (err == AEE_SUCCESS && !command_buffer->direct_bufs) {
       err = AEE_ENOMEMORY;
     }
+  }
+  if (err == AEE_SUCCESS && num_use_refs > 0) {
+    err = HAP_malloc(num_use_refs * sizeof(*command_buffer->use_refs),
+                     (void **)&command_buffer->use_refs);
+    if (err == AEE_SUCCESS && !command_buffer->use_refs) {
+      err = AEE_ENOMEMORY;
+    }
     if (err == AEE_SUCCESS) {
       // collect
-      err = hexa_cmd_buf_collect_direct_bufs(
+      err = hexa_cmd_buf_collect_buf_refs(
           command_buffer->cmd_buf_data, cmd_buf_size,
-          command_buffer->direct_bufs, &command_buffer->num_direct_bufs);
+          command_buffer->direct_bufs, &command_buffer->num_direct_bufs,
+          command_buffer->use_refs, &command_buffer->num_use_refs);
     }
   }
   if (err != AEE_SUCCESS) {
+    HAP_free(command_buffer->use_refs);
     HAP_free(command_buffer->direct_bufs);
     HAP_free(command_buffer->cmd_buf_data);
     HAP_free(command_buffer);
@@ -314,6 +362,7 @@ int hexagon_dsp_command_buffer_destroy(remote_handle64 rpc_handle,
   hexagon_dsp_command_buffer_t *command_buffer =
       (hexagon_dsp_command_buffer_t *)command_buffer_handle;
   // free command buffer data
+  HAP_free(command_buffer->use_refs);
   HAP_free(command_buffer->direct_bufs);
   HAP_free(command_buffer->cmd_buf_data);
   // free management data structure
@@ -330,8 +379,77 @@ typedef struct hexa_cmd_buf_res_buf_s {
 } hexa_cmd_buf_res_buf_t;
 
 /**
+ * Where the master is in the command order of an execution, so the residency
+ * cache can evict the buffer used furthest in the future (Belady).
+ *
+ * The order of buffer uses (use_refs) is fixed at command buffer creation,
+ * but binding table slots resolve to file descriptors only per execution.
+ * Under the residency budget nothing is evicted, so the next uses are only
+ * computed, once per execution, when the first eviction asks for them.
+ */
+typedef struct hexa_cmd_buf_future_s {
+  hexagon_dsp_residency_future_t base;
+  const hexagon_dsp_command_buffer_t *command_buffer;
+  const hexagon_rt_arm_dsp_binding_t *bind_tab;
+  uint32_t bind_tab_num_ent;
+  /// position of the next buffer use to acquire, counted up by each acquire
+  /// and reset by the caller when it retries a command
+  uint32_t position;
+  /// uses with their file descriptors, sorted for
+  /// hexagon_dsp_next_use_distance, NULL until the first eviction of the
+  /// execution asks for them
+  hexagon_dsp_use_t *sorted_uses;
+  uint32_t num_sorted_uses;
+  /// computing sorted_uses failed, evict least recently used first
+  bool no_future;
+} hexa_cmd_buf_future_t;
+
+/// Resolve the file descriptor of each buffer use and sort them.
+static void hexa_cmd_buf_future_compute(hexa_cmd_buf_future_t *future) {
+  const hexagon_dsp_command_buffer_t *command_buffer = future->command_buffer;
+  if (HAP_malloc(command_buffer->num_use_refs * sizeof(hexagon_dsp_use_t),
+                 (void **)&future->sorted_uses) != AEE_SUCCESS ||
+      !future->sorted_uses) {
+    future->sorted_uses = NULL;
+    future->no_future = true;
+    return;
+  }
+  uint32_t num_uses = 0;
+  for (uint32_t pos = 0; pos < command_buffer->num_use_refs; ++pos) {
+    const hexagon_rt_arm_dsp_buf_ref_t *ref = command_buffer->use_refs[pos];
+    int32_t fd = ref->fd;
+    if (fd == -1) {
+      if (ref->slot >= future->bind_tab_num_ent) {
+        continue; // invalid, fails when executed
+      }
+      fd = future->bind_tab[ref->slot].fd;
+    }
+    future->sorted_uses[num_uses++] = (hexagon_dsp_use_t){fd, pos};
+  }
+  hexagon_dsp_uses_sort(future->sorted_uses, num_uses);
+  future->num_sorted_uses = num_uses;
+}
+
+/// hexagon_dsp_residency_future_t::next_use for an execution
+static uint64_t hexa_cmd_buf_next_use(void *user_data, int fd) {
+  hexa_cmd_buf_future_t *future = (hexa_cmd_buf_future_t *)user_data;
+  if (!future->sorted_uses && !future->no_future) {
+    hexa_cmd_buf_future_compute(future);
+  }
+  if (future->no_future ||
+      future->position >= future->command_buffer->num_use_refs) {
+    return 0; // all equal, least recently used first
+  }
+  return hexagon_dsp_next_use_distance(
+      future->sorted_uses, future->num_sorted_uses,
+      future->command_buffer->num_use_refs, fd, future->position);
+}
+
+/**
  * @brief Resolve a buffer reference to an actual RPCmem file descriptor,
  *        offset and length. Map the file descriptor to get a virtual address.
+ * @param[in,out] future position in the command order, for eviction, counted
+ *                up by one
  * @param[in] buf_ref buffer reference to resolve, might use "slot" to point to
  *                    buffer in binding table
  * @param[in] bind_tab binding_table
@@ -356,12 +474,16 @@ typedef struct hexa_cmd_buf_res_buf_s {
  * table and converts it to a DSP vaddr of a buffer, the overall offset into it
  * and the length of the memory range to use.
  */
-static int
-hexa_cmd_buf_resolve_and_map(hexagon_dsp_residency_t *residency,
-                             const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
-                             const hexagon_rt_arm_dsp_binding_t *bind_tab,
-                             uint32_t bind_tab_num_ent,
-                             hexa_cmd_buf_res_buf_t *out_res_buf) {
+static int hexa_cmd_buf_resolve_and_map(
+    hexagon_dsp_residency_t *residency, hexa_cmd_buf_future_t *future,
+    const hexagon_rt_arm_dsp_buf_ref_t *buf_ref,
+    const hexagon_rt_arm_dsp_binding_t *bind_tab, uint32_t bind_tab_num_ent,
+    hexa_cmd_buf_res_buf_t *out_res_buf) {
+  // the commands acquire their buffers in the order
+  // hexa_cmd_buf_collect_buf_refs recorded them, otherwise next-use distances
+  // are off
+  assert(future->position < future->command_buffer->num_use_refs &&
+         future->command_buffer->use_refs[future->position] == buf_ref);
   // direct buffer reference -> use this buffer
   uint64_t alloc_size = 0;
   if (buf_ref->fd != -1) {
@@ -409,8 +531,11 @@ hexa_cmd_buf_resolve_and_map(hexagon_dsp_residency_t *residency,
   }
 
   // map the buffer to a DSP virtual address
-  return hexagon_dsp_residency_acquire(residency, out_res_buf->fd, alloc_size,
-                                       &out_res_buf->dsp_vaddr);
+  int err =
+      hexagon_dsp_residency_acquire(residency, out_res_buf->fd, alloc_size,
+                                    &future->base, &out_res_buf->dsp_vaddr);
+  ++future->position;
+  return err;
 }
 
 /// Unmap the file descriptors in mapped_fds.
@@ -493,6 +618,8 @@ typedef struct hexa_cmd_buf_sched_s {
   int status;
   /// residency cache of the RPC session, maps the buffers of the commands
   hexagon_dsp_residency_t *residency;
+  /// position in the command order, for the residency cache
+  hexa_cmd_buf_future_t future;
 } hexa_cmd_buf_sched_t;
 
 /**
@@ -500,6 +627,7 @@ typedef struct hexa_cmd_buf_sched_s {
  *        map buffers and build the dispatch state in a free task slot. Does
  *        not acquire VTCM.
  * @param[in] residency residency cache of the RPC session
+ * @param[in,out] future position in the command order, for eviction
  * @param[out] task free task slot to prepare, to be finished by
  *                  hexa_cmd_buf_finish_dispatch on success
  * @param[in,out] cmd_buf_data pointer to pointer to serialized dispatch command
@@ -517,8 +645,8 @@ typedef struct hexa_cmd_buf_sched_s {
  * @retval AEE_SUCCESS for success
  */
 static int hexa_cmd_buf_prepare_dispatch(
-    hexagon_dsp_residency_t *residency, hexa_cmd_buf_task_t *task,
-    const uint8_t **cmd_buf_data, int *cmd_buf_size,
+    hexagon_dsp_residency_t *residency, hexa_cmd_buf_future_t *future,
+    hexa_cmd_buf_task_t *task, const uint8_t **cmd_buf_data, int *cmd_buf_size,
     const hexagon_rt_arm_dsp_binding_t *bind_tab, uint32_t bind_tab_num_ent,
     hexagon_rt_prof_context_t *prof_context, size_t *out_vtcm_bytes,
     bool *out_uses_hmx, uint64_t *out_threads) {
@@ -628,7 +756,7 @@ static int hexa_cmd_buf_prepare_dispatch(
     READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_buf_ref_t,
                     buf_ref)
     hexa_cmd_buf_res_buf_t res_buf = {};
-    err = hexa_cmd_buf_resolve_and_map(residency, buf_ref, bind_tab,
+    err = hexa_cmd_buf_resolve_and_map(residency, future, buf_ref, bind_tab,
                                        bind_tab_num_ent, &res_buf);
     if (err != AEE_SUCCESS) {
       profiler_measurement_finish_and_record(prof_map_record);
@@ -841,18 +969,26 @@ static int hexa_cmd_buf_exec_dispatch(
   uint64_t threads = (uint64_t)INT64_MAX;
   const uint8_t *entry_data = *cmd_buf_data;
   int entry_size = *cmd_buf_size;
+  // current value to reset to, in case acquire buffers fails
+  // this way we dont need to keep track on the amount of buffers that are
+  // already mapped for the dispatches and can retry mapping all buffers
+  uint32_t entry_position = sched->future.position;
   int err = hexa_cmd_buf_prepare_dispatch(
-      sched->residency, task, cmd_buf_data, cmd_buf_size, bind_tab,
-      bind_tab_num_ent, prof_context, &vtcm_bytes, &uses_hmx, &threads);
+      sched->residency, &sched->future, task, cmd_buf_data, cmd_buf_size,
+      bind_tab, bind_tab_num_ent, prof_context, &vtcm_bytes, &uses_hmx,
+      &threads);
   // The buffers do not fit into the residency budget next to the ones of the
   // dispatches in flight: wait for one and prepare again.
   while (err == AEE_EWOULDBLOCK && sched->num_in_flight > 0) {
+    sched->future.position = entry_position; // reset on acquire failure
     hexa_cmd_buf_sched_wait_one(sched);
     *cmd_buf_data = entry_data;
     *cmd_buf_size = entry_size;
-    err = hexa_cmd_buf_prepare_dispatch(
-        sched->residency, task, cmd_buf_data, cmd_buf_size, bind_tab,
-        bind_tab_num_ent, prof_context, &vtcm_bytes, &uses_hmx, &threads);
+
+    err = hexa_cmd_buf_prepare_dispatch(sched->residency, &sched->future, task,
+                                        cmd_buf_data, cmd_buf_size, bind_tab,
+                                        bind_tab_num_ent, prof_context,
+                                        &vtcm_bytes, &uses_hmx, &threads);
   }
   if (err == AEE_EWOULDBLOCK) {
     err = hexa_cmd_buf_residency_exceeded("dispatch");
@@ -960,24 +1096,32 @@ static int hexa_cmd_buf_exec_copy(hexa_cmd_buf_sched_t *sched,
   // A buffer that does not fit into the residency budget next to the ones of
   // the dispatches in flight is mapped again once all of them have finished.
   hexa_cmd_buf_res_buf_t src = {};
-  int err = hexa_cmd_buf_resolve_and_map(sched->residency, &cmd_copy->src,
-                                         bind_tab, bind_tab_num_ent, &src);
+  uint32_t entry_position = sched->future.position;
+  int err = hexa_cmd_buf_resolve_and_map(sched->residency, &sched->future,
+                                         &cmd_copy->src, bind_tab,
+                                         bind_tab_num_ent, &src);
   if (err == AEE_EWOULDBLOCK) {
     hexa_cmd_buf_sched_drain(sched);
-    err = hexa_cmd_buf_resolve_and_map(sched->residency, &cmd_copy->src,
-                                       bind_tab, bind_tab_num_ent, &src);
+    sched->future.position = entry_position; // reset on acquire failure
+    err = hexa_cmd_buf_resolve_and_map(sched->residency, &sched->future,
+                                       &cmd_copy->src, bind_tab,
+                                       bind_tab_num_ent, &src);
   }
   if (err != AEE_SUCCESS) {
     return err == AEE_EWOULDBLOCK ? hexa_cmd_buf_residency_exceeded("copy")
                                   : err;
   }
   hexa_cmd_buf_res_buf_t dest = {};
-  err = hexa_cmd_buf_resolve_and_map(sched->residency, &cmd_copy->trgt,
-                                     bind_tab, bind_tab_num_ent, &dest);
+  entry_position = sched->future.position;
+  err = hexa_cmd_buf_resolve_and_map(sched->residency, &sched->future,
+                                     &cmd_copy->trgt, bind_tab,
+                                     bind_tab_num_ent, &dest);
   if (err == AEE_EWOULDBLOCK) {
     hexa_cmd_buf_sched_drain(sched);
-    err = hexa_cmd_buf_resolve_and_map(sched->residency, &cmd_copy->trgt,
-                                       bind_tab, bind_tab_num_ent, &dest);
+    sched->future.position = entry_position; // reset on acquire failure
+    err = hexa_cmd_buf_resolve_and_map(sched->residency, &sched->future,
+                                       &cmd_copy->trgt, bind_tab,
+                                       bind_tab_num_ent, &dest);
   }
   if (err != AEE_SUCCESS) {
     hexagon_dsp_residency_release(sched->residency, src.fd);
@@ -1013,13 +1157,17 @@ static int hexa_cmd_buf_exec_fill(hexa_cmd_buf_sched_t *sched,
   READ_SERIALIZED(*cmd_buf_data, *cmd_buf_size, hexagon_rt_arm_dsp_cmd_fill_t,
                   cmd_fill)
   hexa_cmd_buf_res_buf_t dest = {};
-  int err = hexa_cmd_buf_resolve_and_map(sched->residency, &cmd_fill->trgt,
-                                         bind_tab, bind_tab_num_ent, &dest);
+  uint32_t entry_position = sched->future.position;
+  int err = hexa_cmd_buf_resolve_and_map(sched->residency, &sched->future,
+                                         &cmd_fill->trgt, bind_tab,
+                                         bind_tab_num_ent, &dest);
   if (err == AEE_EWOULDBLOCK) {
     // retry once all dispatches have released their buffers
     hexa_cmd_buf_sched_drain(sched);
-    err = hexa_cmd_buf_resolve_and_map(sched->residency, &cmd_fill->trgt,
-                                       bind_tab, bind_tab_num_ent, &dest);
+    sched->future.position = entry_position; // reset on acquire failure
+    err = hexa_cmd_buf_resolve_and_map(sched->residency, &sched->future,
+                                       &cmd_fill->trgt, bind_tab,
+                                       bind_tab_num_ent, &dest);
   }
   if (err == AEE_EWOULDBLOCK) {
     err = hexa_cmd_buf_residency_exceeded("fill");
@@ -1129,13 +1277,14 @@ static int hexa_cmd_buf_walk_cmds(hexa_cmd_buf_sched_t *sched,
     }
   }
 
+  // every recorded buffer use was acquired
+  assert(sched->future.position == sched->future.command_buffer->num_use_refs);
   return AEE_SUCCESS;
 }
 
 /**
  * @brief Execute the commands of a command buffer (without cache maintenance).
- * @param[in] cmd_buf_data pointer to serialized command buffer data
- * @param[in] cmd_buf_size size of serialized command buffer data
+ * @param[in] command_buffer command buffer to execute
  * @param[in] bind_tab binding_table
  * @param[in] bind_tab_num_ent number of entries in binding table
  * @param[in] max_concurrent max. number of dispatches executing at the same
@@ -1150,12 +1299,12 @@ static int hexa_cmd_buf_walk_cmds(hexa_cmd_buf_sched_t *sched,
  * run on the master, which holds the HMX lock.
  * All dispatches have completed when this function returns, also on error.
  */
-static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
-                                  const hexagon_rt_arm_dsp_binding_t *bind_tab,
-                                  uint32_t bind_tab_num_ent,
-                                  uint32_t max_concurrent,
-                                  hexagon_dsp_residency_t *residency,
-                                  hexagon_rt_prof_context_t *prof_context) {
+static int
+hexa_cmd_buf_exec_cmds(const hexagon_dsp_command_buffer_t *command_buffer,
+                       const hexagon_rt_arm_dsp_binding_t *bind_tab,
+                       uint32_t bind_tab_num_ent, uint32_t max_concurrent,
+                       hexagon_dsp_residency_t *residency,
+                       hexagon_rt_prof_context_t *prof_context) {
   if (max_concurrent < 1) {
     max_concurrent = 1;
   }
@@ -1169,6 +1318,12 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
       .vtcm_in_use = 0,
       .status = AEE_SUCCESS,
       .residency = residency,
+  };
+  sched.future = (hexa_cmd_buf_future_t){
+      .base = {.next_use = hexa_cmd_buf_next_use, .user_data = &sched.future},
+      .command_buffer = command_buffer,
+      .bind_tab = bind_tab,
+      .bind_tab_num_ent = bind_tab_num_ent,
   };
 
   // Allocate the task slots, one per dispatch that can execute at the same
@@ -1198,7 +1353,8 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
   qurt_cond_init(&sched.done_notify.cond);
   sched.done_notify.num_completed = 0;
 
-  err = hexa_cmd_buf_walk_cmds(&sched, cmd_buf_data, cmd_buf_size, bind_tab,
+  err = hexa_cmd_buf_walk_cmds(&sched, command_buffer->cmd_buf_data,
+                               command_buffer->cmd_buf_size, bind_tab,
                                bind_tab_num_ent, prof_context);
 
   // wait fial all outstanding tasks to complete
@@ -1214,6 +1370,7 @@ static int hexa_cmd_buf_exec_cmds(const uint8_t *cmd_buf_data, int cmd_buf_size,
   for (uint32_t idx = 0; idx < max_concurrent; ++idx) {
     HAP_free(sched.tasks[idx].dispatch_arrays);
   }
+  HAP_free(sched.future.sorted_uses);
   HAP_free(tasks_allocation);
   return err;
 }
@@ -1266,8 +1423,7 @@ hexa_cmd_buf_exec_buf(const hexagon_dsp_command_buffer_t *command_buffer,
   }
 
   err = hexa_cmd_buf_exec_cmds(
-      command_buffer->cmd_buf_data, command_buffer->cmd_buf_size, bind_tab,
-      bind_tab_num_ent,
+      command_buffer, bind_tab, bind_tab_num_ent,
       hexagon_dsp_get_max_concurrent_dispatches(command_buffer->rpc_handle),
       residency, prof_context);
 

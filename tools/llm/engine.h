@@ -10,19 +10,28 @@
 // integration_tests/models/kv_cache.py's KvCacheLM, which keeps its KV cache
 // in module globals shared by both:
 //
-//   prefill(input_ids: i64[1, P], cache_position: i64[P],
+//   prefill(input_ids: i64[1, P], cache_position: i64[pos + P],
 //           input_length: i64[1])
 //       -> (next_token: i64[1, 1], logits: [1, P, vocab])
 //     Runs the prompt, padded to P, a multiple of block_seq_stride of at
-//     least min_prefill_blocks blocks. input_length is the index of the last
-//     real token, whose argmax is next_token.
+//     least min_prefill_blocks blocks, at positions pos onwards against the
+//     cache before pos: pos is 0 for a new sequence, or the number of cached
+//     tokens to continue one. input_length is the index of the last real
+//     token in input_ids, whose argmax is next_token.
 //   decode(input_ids: i64[1, 1], cache_position: i64[pos + 1])
 //       -> next_token: i64[1, 1]
 //     Runs one token at position pos against the cache.
 //
-// Both run in one VM context, so prefill writes to a cache and the same one
-// is used by decode uses. Sampling is greedy and is performed inside the
-// module.
+// Only the lengths of the cache_position arguments matter; the engine passes
+// 0, 1, 2, ... Both functions run in one VM context, so prefill writes to a
+// cache and the same one is used by decode and later prefills. Sampling is
+// greedy and is performed inside the module.
+//
+// A sequence is a conversation: a first prompt, the tokens generated after
+// it, then further prompts, each prefilled after the tokens so far, and the
+// tokens generated after them. The token prefill or decode returned last is
+// not in the cache, as no decode has run on it yet; a further prompt has to
+// start with it (iree_llm_generate does that).
 //
 // The engine is supposed to be re-usable in different tools (iree-run-llm
 // and e.g. some server). This means for instance that it does not parse any
@@ -33,10 +42,11 @@
 // the engine only runs the module's functions in them.
 //
 // Thread safety: the KV cache lives in the module globals of the VM context,
-// so a context holds one cache and runs one sequence at a time; a prefill
-// starts a new sequence and discards the previous one. Callers that share a
-// model across threads must serialize all calls on it, and must not create two
-// models on one context or invoke its prefill/decode functions themselves.
+// so a context holds one cache and runs one sequence at a time;
+// iree_llm_model_reset starts a new sequence and discards the previous one.
+// Callers that share a model across threads must serialize all calls on it,
+// and must not create two models on one context or invoke its prefill/decode
+// functions themselves.
 // Models on separate contexts are independent.
 
 #ifndef IREE_HEXAGON_PLUGINS_TOOLS_LLM_ENGINE_H_
@@ -119,18 +129,29 @@ const iree_llm_model_options_t *
 iree_llm_model_options(const iree_llm_model_t *model);
 
 // Returns the prefill sequence length a prompt of |prompt_length| tokens is
-// padded to. It may exceed max_seq_len, in which case prefill rejects it.
+// padded to. If it does not fit in max_seq_len after iree_llm_model_position,
+// prefill rejects it.
 iree_host_size_t
 iree_llm_model_padded_prompt_length(const iree_llm_model_t *model,
                                     iree_host_size_t prompt_length);
 
-// Returns the position the next decode runs at: the number of tokens in the
-// KV cache. 0 before the first prefill.
+// Returns the position the next prefill or decode runs at: the number of
+// tokens in the KV cache. 0 for a new sequence.
 iree_host_size_t iree_llm_model_position(const iree_llm_model_t *model);
 
-// Starts a new sequence: runs prefill on |prompt|, padded with |pad_token|,
-// and returns the token following it. Padding is never attended to, so any
-// valid token ID works as |pad_token|.
+// Starts a new sequence, discarding the current one: the next prefill runs at
+// position 0.
+void iree_llm_model_reset(iree_llm_model_t *model);
+
+// Runs prefill on |prompt|, padded with |pad_token|, at
+// iree_llm_model_position, and returns the token following it. Padding is
+// never attended to, so any valid token ID works as |pad_token|.
+//
+// At position 0 this starts a sequence. Later, it continues it, and |prompt|
+// has to start with the token prefill or decode returned last, see above.
+// Fails with OUT_OF_RANGE if the padded prompt does not fit in max_seq_len
+// after the position. On any error, the sequence stays as it was; call
+// iree_llm_model_reset to drop it instead.
 //
 // If |out_logits| is not NULL, it receives prefill's logits, [1, P, vocab] for
 // all P padded positions, as the module returned them: in device memory, which
@@ -145,7 +166,8 @@ iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
 
 // Runs decode on |token| at iree_llm_model_position and returns the token
 // following it. Fails with OUT_OF_RANGE once the cache holds max_seq_len
-// tokens, and with FAILED_PRECONDITION before a prefill.
+// tokens, and with FAILED_PRECONDITION before a prefill. On any error, the
+// sequence stays as it was.
 iree_status_t iree_llm_model_decode(iree_llm_model_t *model, int64_t token,
                                     int64_t *out_token);
 
@@ -189,6 +211,11 @@ typedef struct iree_llm_token_callback_t {
 
 typedef struct iree_llm_generate_stats_t {
   iree_host_size_t prompt_length;
+  // The position prefill ran at: 0 for the first prompt of a sequence.
+  iree_host_size_t start_position;
+  // The tokens prefill ran on: the prompt, preceded by the previous token if
+  // the sequence is continued; and the length they were padded to.
+  iree_host_size_t prefill_length;
   iree_host_size_t padded_length;
   // Tokens passed to the callback; the first comes from prefill.
   iree_host_size_t generated_count;
@@ -205,6 +232,11 @@ typedef struct iree_llm_generate_stats_t {
 // each generated token to |callback|. |out_stats| is filled in also when an
 // error is returned, as far as generation got. With max_new_tokens == 0 the
 // prompt is only validated.
+//
+// Continues the model's sequence, if it has one: |prompt| is prefilled after
+// the tokens so far, preceded by the token generated last (also if that was a
+// stop token, as e.g. a chat template expects the end-of-turn token between
+// turns). Call iree_llm_model_reset first to start a new sequence instead.
 //
 // If |out_prefill_logits| is not NULL, it receives prefill's logits as
 // iree_llm_model_prefill's |out_logits| does, or NULL if prefill did not run

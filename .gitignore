@@ -14,3 +14,5 @@
 /.vscode/
 *__pycache__*
 /tmp/
+/CLAUDE.md
+/CODEX.md

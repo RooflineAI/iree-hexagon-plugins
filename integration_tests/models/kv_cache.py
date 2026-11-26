@@ -7,15 +7,19 @@
 """A causal LM exported as `prefill` and `decode`, the KV cache in module state.
 
   * `prefill(input_ids, cache_position, input_length) -> (next_token, logits)`
-    runs the prompt, its length dynamic in multiples of `block_seq_stride`.
-    `input_length` is the index of the last real token; padding after it is
-    written to the cache but never attended to.
+    runs the prompt, its length dynamic in multiples of `block_seq_stride`, at
+    positions `len(cache_position) - len(input_ids)` onwards, against the
+    cache before them: 0 for a new sequence, or the number of cached tokens to
+    continue one with another prompt. `input_length` is the index of the last
+    real token in `input_ids`; padding after it is written to the cache but
+    never attended to.
   * `decode(input_ids, cache_position) -> next_token` runs one token at
     position `len(cache_position) - 1` against the cache.
 
-The cache is registered buffers, which the export turns into globals that both
-functions share, initially zero. `prefill` reads only the positions it has
-just written, so the initial cache does not change its result.
+Only the lengths of `cache_position` matter, not its values. The cache is
+registered buffers, which the export turns into globals that both functions
+share, initially zero. Both read only the positions written before or by
+themselves, so neither the initial cache nor padding changes their results.
 
 The test harness recognizes a `KvCacheLM` from `get_model()`, exports both
 functions (see `stages/importing.py`) and checks them together:
@@ -27,6 +31,7 @@ is part of the graph. Only full attention is supported.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -93,7 +98,7 @@ class SliceUpdateKvCache(torch.nn.Module, Cache):
 
     def __init__(self, config: Any, context_size: int, dtype: torch.dtype) -> None:
         super().__init__()
-        self.past_seen_tokens: Any = 0
+        self.past_seen_tokens: int | torch.SymInt = 0
         num_kv_heads = getattr(config, "num_key_value_heads", None)
         num_kv_heads = num_kv_heads or config.num_attention_heads
         head_dim = getattr(config, "head_dim", None)
@@ -157,15 +162,44 @@ class KvCacheLM(torch.nn.Module):
         )
 
     def _logits(
-        self, input_ids: torch.Tensor, cache_position: torch.Tensor, mask: Any
+        self, input_ids: torch.Tensor, kv_length: int | torch.SymInt, mask: torch.Tensor
     ) -> torch.Tensor:
-        self.kv_cache.past_seen_tokens = cache_position.shape[-1] - input_ids.shape[-1]
+        """The logits of `input_ids` at the last of `kv_length` positions.
+
+        `input_ids` are written to the cache right before `kv_length`, and
+        attend to all cache positions before it as `mask` allows.
+        """
+        self.kv_cache.past_seen_tokens = kv_length - input_ids.shape[-1]
         return self.model(
             input_ids,
             attention_mask=mask,
             past_key_values=self.kv_cache,
             use_cache=True,
         ).logits
+
+    def _prefill_logits(
+        self,
+        input_ids: torch.Tensor,
+        kv_length: int | torch.SymInt,
+        input_length: torch.Tensor,
+    ) -> torch.Tensor:
+        """`prefill`'s logits, see `prefill`."""
+        seq_len = input_ids.shape[-1]
+        # For the export, which cannot know these relations of the two dims.
+        torch._check(kv_length >= seq_len)
+        torch._check(kv_length <= self.max_seq_len)
+        # Additive [batch, 1, seq_len, kv_length]: query i, at position
+        # start + i, sees the earlier cache positions and the real prompt
+        # tokens up to itself, but no padding. Positions are relative to
+        # start, so that no tensor is added to a symbolic int, which the torch
+        # importer does not accept.
+        queries = torch.arange(seq_len)[:, None]
+        keys = torch.arange(seq_len - kv_length, seq_len)[None, :]
+        allowed = (keys <= queries) & (keys <= input_length[:, None])
+        mask = torch.zeros(allowed.shape, dtype=self.model.dtype).masked_fill(
+            ~allowed, torch.finfo(self.model.dtype).min
+        )
+        return self._logits(input_ids, kv_length, mask[None, None])
 
     @torch.no_grad()
     def prefill(
@@ -174,10 +208,7 @@ class KvCacheLM(torch.nn.Module):
         cache_position: torch.Tensor,
         input_length: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Real tokens only; transformers adds the causal part.
-        positions = torch.arange(input_ids.shape[-1])
-        mask = positions[None, :] <= input_length[:, None]
-        logits = self._logits(input_ids, cache_position, mask)
+        logits = self._prefill_logits(input_ids, cache_position.shape[-1], input_length)
         next_token = torch.argmax(logits[0, input_length])[None, None]
         return next_token, logits
 
@@ -187,67 +218,86 @@ class KvCacheLM(torch.nn.Module):
     ) -> torch.Tensor:
         # One new token sees every cached position.
         mask = torch.zeros((input_ids.shape[0], 1, 1, 1), dtype=self.model.dtype)
-        logits = self._logits(input_ids, cache_position, mask)
+        logits = self._logits(input_ids, cache_position.shape[-1], mask)
         return torch.argmax(logits[0, 0])[None, None]
 
     @torch.no_grad()
     def generate_greedy(
         self,
-        prompt: list[int],
-        max_new_tokens: int,
+        turns: Sequence[tuple[Sequence[int], int]],
         min_prefill_blocks: int = 2,
         pad_token_id: int = 0,
-    ) -> tuple[list[GeneratedTokenInfo], torch.Tensor]:
+    ) -> list[tuple[list[GeneratedTokenInfo], torch.Tensor]]:
         """Greedy generation as iree-run-llm runs it, from an empty cache.
 
-        The prompt is padded to a multiple of `block_seq_stride` of at least
-        `min_prefill_blocks` blocks for `prefill`, then `decode` runs once per
-        further token. Stop tokens are ignored, as with iree-run-llm's
-        --ignore_eos, and generation ends early only at `max_seq_len`.
+        `turns` are (prompt, max_new_tokens) pairs, run one after the other on
+        the same cache, as iree-run-llm runs several prompts. Each prompt is
+        padded to a multiple of `block_seq_stride` of at least
+        `min_prefill_blocks` blocks for `prefill`, at the position the previous
+        turn left off at, then `decode` runs once per further token. A turn
+        after the first is prefilled with the previous turn's last token in
+        front of its prompt: that token was generated but, no decode having run
+        on it, is not in the cache yet. Stop tokens are ignored, as with
+        iree-run-llm's --ignore_eos, and a turn ends early only at
+        `max_seq_len`.
 
-        Returns one `GeneratedTokenInfo` per generated token, in order, and
-        prefill's logits, `[1, padded length, vocab]` as `prefill` returns them.
+        Returns, per turn, one `GeneratedTokenInfo` per generated token, in
+        order, and prefill's logits, `[1, padded length, vocab]` as `prefill`
+        returns them. Raises `ValueError` if a padded prefill does not fit in
+        `max_seq_len`.
         """
         stride = self.block_seq_stride
-        blocks = max(-(-len(prompt) // stride), min_prefill_blocks)
-        padded_length = blocks * stride
-        if padded_length > self.max_seq_len:
-            raise ValueError(
-                f"the prompt has {len(prompt)} tokens, {padded_length} padded, "
-                f"more than max_seq_len={self.max_seq_len}"
-            )
-        input_ids = torch.full((1, padded_length), pad_token_id, dtype=torch.int64)
-        input_ids[0, : len(prompt)] = torch.tensor(prompt, dtype=torch.int64)
-        input_length = torch.tensor([len(prompt) - 1])
+        results: list[tuple[list[GeneratedTokenInfo], torch.Tensor]] = []
+        # The number of tokens in the cache, and the one generated last.
+        position = 0
+        pending: int | None = None
         self.reset_cache()
         try:
-            positions = torch.arange(padded_length)
-            mask = positions[None, :] <= input_length[:, None]
-            prefill_logits = self._logits(input_ids, positions, mask)
-            logits = prefill_logits[0, len(prompt) - 1]
-            generated: list[GeneratedTokenInfo] = []
-            position = len(prompt)
-            while True:
-                top2 = torch.topk(logits.float(), 2)
-                generated.append(
-                    GeneratedTokenInfo(
-                        selected_id=int(torch.argmax(logits)),
-                        runner_up_id=int(top2.indices[1]),
-                        margin=float(top2.values[0] - top2.values[1]),
+            for turn, (prompt, max_new_tokens) in enumerate(turns, start=1):
+                tokens = list(prompt) if pending is None else [pending, *prompt]
+                blocks = max(-(-len(tokens) // stride), min_prefill_blocks)
+                padded_length = blocks * stride
+                if position + padded_length > self.max_seq_len:
+                    raise ValueError(
+                        f"turn {turn}: {len(tokens)} tokens, {padded_length} "
+                        f"padded, at position {position}, end past "
+                        f"max_seq_len={self.max_seq_len}"
                     )
+                input_ids = torch.full(
+                    (1, padded_length), pad_token_id, dtype=torch.int64
                 )
-                if len(generated) == max_new_tokens or position >= self.max_seq_len:
-                    break
-                mask = torch.zeros((1, 1, 1, 1), dtype=self.model.dtype)
-                logits = self._logits(
-                    torch.tensor([[generated[-1].selected_id]]),
-                    torch.arange(position + 1),
-                    mask,
-                )[0, 0]
-                position += 1
+                input_ids[0, : len(tokens)] = torch.tensor(tokens, dtype=torch.int64)
+                prefill_logits = self._prefill_logits(
+                    input_ids,
+                    position + padded_length,
+                    torch.tensor([len(tokens) - 1]),
+                )
+                logits = prefill_logits[0, len(tokens) - 1]
+                position += len(tokens)
+                generated: list[GeneratedTokenInfo] = []
+                while True:
+                    top2 = torch.topk(logits.float(), 2)
+                    generated.append(
+                        GeneratedTokenInfo(
+                            selected_id=int(torch.argmax(logits)),
+                            runner_up_id=int(top2.indices[1]),
+                            margin=float(top2.values[0] - top2.values[1]),
+                        )
+                    )
+                    if len(generated) == max_new_tokens or position >= self.max_seq_len:
+                        break
+                    mask = torch.zeros((1, 1, 1, 1), dtype=self.model.dtype)
+                    logits = self._logits(
+                        torch.tensor([[generated[-1].selected_id]]),
+                        position + 1,
+                        mask,
+                    )[0, 0]
+                    position += 1
+                pending = generated[-1].selected_id
+                results.append((generated, prefill_logits))
         finally:
             self.reset_cache()
-        return generated, prefill_logits
+        return results
 
     def reset_cache(self) -> None:
         """Zero the cache, the state each function starts from on the device."""

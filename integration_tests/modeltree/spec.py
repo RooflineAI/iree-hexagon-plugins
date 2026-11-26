@@ -111,14 +111,18 @@ class SemanticCheck:
 
 
 @dataclasses.dataclass(frozen=True)
-class GenerationSpec:
-    """Token generation with `iree-run-llm`, for a `KvCacheLM` model.
+class GenerationTurnSpec:
+    """One prompt of token generation with `iree-run-llm`, for a `KvCacheLM`
+    model.
 
-    The device generates `max_new_tokens` greedily from `prompt`, ignoring
-    stop tokens, and has to produce exactly the tokens of the eager reference.
-    At every step, the reference's most likely token has to lead the runner-up
-    by at least `min_margin` (in logits), checked at import: a near-tie, which
-    rounding may tip either way, means the prompt has to change.
+    A model's `generation` is a list of these, run in order on one KV cache as
+    the turns of a conversation: each prompt after the first is prefilled after
+    the tokens so far. The device generates `max_new_tokens` greedily from each
+    prompt, ignoring stop tokens, and has to produce exactly the tokens of the
+    eager reference. At every step, the reference's most likely token has to
+    lead the runner-up by at least `min_margin` (in logits), checked at import:
+    a near-tie, which rounding may tip either way, means the prompt has to
+    change.
     """
 
     prompt: str
@@ -176,9 +180,10 @@ class ModelSpec:
     # Checks on the profile of the profile run cases (e.g. parallel-profile).
     profile_checks: tuple[ProfileCheckSpec, ...] = ()
     semantic_check: SemanticCheck | None = None
-    # Required for, and only for, a model.py whose get_model() returns a
-    # KvCacheLM; checked at import, which is where that is known.
-    generation: GenerationSpec | None = None
+    # The prompts, in order. Required for, and only for, a model.py whose
+    # get_model() returns a KvCacheLM; checked at import, which is where that
+    # is known.
+    generation: tuple[GenerationTurnSpec, ...] = ()
     extra_compile_flags: tuple[str, ...] = ()
     # Seconds the module push, and separately iree-run-module on the device,
     # may take before they are killed.
@@ -288,6 +293,11 @@ def load_model_spec(directory: Path, root: Path) -> ModelSpec:
     if not isinstance(data, dict):
         raise SpecError(f"{yaml_path}: expected a mapping at the top level")
     data = {key: value for key, value in data.items() if value is not None}
+    if isinstance(data.get("generation"), dict):
+        raise SpecError(
+            f"{yaml_path}: 'generation' is a list, one entry per prompt: "
+            "'- prompt: ...'"
+        )
 
     # There two filed are deduced from the path in the tree, not read from the yaml.
     data["name"] = directory.relative_to(root).as_posix()

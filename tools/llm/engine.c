@@ -27,8 +27,11 @@ struct iree_llm_model_t {
   iree_vm_module_t *main_module;
   iree_vm_function_t prefill;
   iree_vm_function_t decode;
-  // The position the next decode runs at; 0 until the first prefill.
+  // The position the next prefill or decode runs at; 0 for a new sequence.
   iree_host_size_t position;
+  // The token prefill or decode returned last, which is not in the cache
+  // yet; valid if position > 0.
+  int64_t last_token;
   // 0, 1, 2, ... up to max_seq_len: every cache_position argument is a prefix.
   int64_t *positions;
   // max_seq_len tokens to pad the prompt in.
@@ -139,6 +142,8 @@ iree_llm_model_padded_prompt_length(const iree_llm_model_t *model,
 iree_host_size_t iree_llm_model_position(const iree_llm_model_t *model) {
   return model->position;
 }
+
+void iree_llm_model_reset(iree_llm_model_t *model) { model->position = 0; }
 
 static iree_status_t
 iree_llm_copy_to_mapping(iree_hal_buffer_mapping_t *mapping, void *user_data) {
@@ -269,43 +274,60 @@ static iree_status_t iree_llm_invoke(iree_llm_model_t *model,
   return status;
 }
 
-iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
-                                     const int64_t *prompt,
-                                     iree_host_size_t prompt_length,
-                                     int64_t pad_token, int64_t *out_token,
-                                     iree_hal_buffer_view_t **out_logits) {
+// Returns OUT_OF_RANGE if a prompt of |prefill_length| tokens, padded, does
+// not fit in max_seq_len after the current position.
+static iree_status_t iree_llm_check_fits(const iree_llm_model_t *model,
+                                         iree_host_size_t prefill_length) {
+  const iree_host_size_t max_seq_len = model->options.max_seq_len;
+  const iree_host_size_t padded_length =
+      iree_llm_model_padded_prompt_length(model, prefill_length);
+  if (padded_length > max_seq_len - model->position) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "a prefill of %zu tokens, %zu padded to a "
+                            "multiple of block_seq_stride=%zu, does not fit "
+                            "in max_seq_len=%zu after position %zu",
+                            prefill_length, padded_length,
+                            model->options.block_seq_stride, max_seq_len,
+                            model->position);
+  }
+  return iree_ok_status();
+}
+
+// iree_llm_model_prefill on |prefix| followed by |prompt|, so that
+// iree_llm_generate can put the last token in front of a prompt without
+// copying it.
+static iree_status_t
+iree_llm_prefill_tokens(iree_llm_model_t *model, const int64_t *prefix,
+                        iree_host_size_t prefix_length, const int64_t *prompt,
+                        iree_host_size_t prompt_length, int64_t pad_token,
+                        int64_t *out_token,
+                        iree_hal_buffer_view_t **out_logits) {
   if (out_logits)
     *out_logits = NULL;
-  if (prompt_length == 0) {
+  const iree_host_size_t prefill_length = prefix_length + prompt_length;
+  if (prefill_length == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "the prompt has no tokens");
   }
-  const iree_host_size_t max_seq_len = model->options.max_seq_len;
+  IREE_RETURN_IF_ERROR(iree_llm_check_fits(model, prefill_length));
+  const iree_host_size_t start = model->position;
   const iree_host_size_t padded_length =
-      iree_llm_model_padded_prompt_length(model, prompt_length);
-  if (padded_length > max_seq_len) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "the prompt has %zu tokens, %zu padded to a "
-                            "multiple of block_seq_stride=%zu, more than "
-                            "max_seq_len=%zu",
-                            prompt_length, padded_length,
-                            model->options.block_seq_stride, max_seq_len);
-  }
-  // Whatever happens, the previous sequence's cache is no longer valid.
-  model->position = 0;
+      iree_llm_model_padded_prompt_length(model, prefill_length);
 
   int64_t *input_ids = model->input_ids;
-  memcpy(input_ids, prompt, prompt_length * sizeof(int64_t));
-  for (iree_host_size_t i = prompt_length; i < padded_length; ++i) {
+  if (prefix_length)
+    memcpy(input_ids, prefix, prefix_length * sizeof(int64_t));
+  memcpy(input_ids + prefix_length, prompt, prompt_length * sizeof(int64_t));
+  for (iree_host_size_t i = prefill_length; i < padded_length; ++i) {
     input_ids[i] = pad_token;
   }
-  const int64_t input_length = (int64_t)prompt_length - 1;
+  const int64_t input_length = (int64_t)prefill_length - 1;
 
   iree_vm_list_t *inputs = NULL;
   IREE_RETURN_IF_ERROR(iree_vm_list_create(iree_vm_make_undefined_type_def(), 3,
                                            model->host_allocator, &inputs));
   const iree_hal_dim_t input_ids_shape[2] = {1, padded_length};
-  const iree_hal_dim_t positions_shape[1] = {padded_length};
+  const iree_hal_dim_t positions_shape[1] = {start + padded_length};
   const iree_hal_dim_t input_length_shape[1] = {1};
   iree_status_t status =
       iree_llm_append_i64(model, 2, input_ids_shape, input_ids, inputs);
@@ -318,13 +340,27 @@ iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
                                  inputs);
   }
   if (iree_status_is_ok(status)) {
+    // On failure, the sequence stays as it was: prefill writes the cache only
+    // from start on, which is rewritten before it is read again.
     status =
         iree_llm_invoke(model, model->prefill, inputs, out_token, out_logits);
   }
   iree_vm_list_release(inputs);
-  if (iree_status_is_ok(status))
-    model->position = prompt_length;
+  if (iree_status_is_ok(status)) {
+    model->position = start + prefill_length;
+    model->last_token = *out_token;
+  }
   return status;
+}
+
+iree_status_t iree_llm_model_prefill(iree_llm_model_t *model,
+                                     const int64_t *prompt,
+                                     iree_host_size_t prompt_length,
+                                     int64_t pad_token, int64_t *out_token,
+                                     iree_hal_buffer_view_t **out_logits) {
+  return iree_llm_prefill_tokens(model, /*prefix=*/NULL, /*prefix_length=*/0,
+                                 prompt, prompt_length, pad_token, out_token,
+                                 out_logits);
 }
 
 iree_status_t iree_llm_model_decode(iree_llm_model_t *model, int64_t token,
@@ -356,8 +392,10 @@ iree_status_t iree_llm_model_decode(iree_llm_model_t *model, int64_t token,
                              /*out_logits=*/NULL);
   }
   iree_vm_list_release(inputs);
-  if (iree_status_is_ok(status))
+  if (iree_status_is_ok(status)) {
     ++model->position;
+    model->last_token = *out_token;
+  }
   return status;
 }
 
@@ -398,31 +436,28 @@ iree_status_t iree_llm_generate(iree_llm_model_t *model, const int64_t *prompt,
   memset(out_stats, 0, sizeof(*out_stats));
   if (out_prefill_logits)
     *out_prefill_logits = NULL;
+  // Continuing a sequence, the last token goes in front of the prompt.
+  const iree_host_size_t prefix_length = model->position > 0 ? 1 : 0;
   out_stats->prompt_length = prompt_length;
+  out_stats->start_position = model->position;
+  out_stats->prefill_length = prefix_length + prompt_length;
   out_stats->padded_length =
-      iree_llm_model_padded_prompt_length(model, prompt_length);
+      iree_llm_model_padded_prompt_length(model, out_stats->prefill_length);
   out_stats->stop_reason = IREE_LLM_STOP_REASON_MAX_NEW_TOKENS;
   if (prompt_length == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "the prompt has no tokens");
   }
   const iree_host_size_t max_seq_len = model->options.max_seq_len;
-  if (out_stats->padded_length > max_seq_len) {
-    return iree_make_status(
-        IREE_STATUS_OUT_OF_RANGE,
-        "the prompt has %zu tokens, %zu padded to a multiple of "
-        "block_seq_stride=%zu, more than max_seq_len=%zu",
-        prompt_length, out_stats->padded_length,
-        model->options.block_seq_stride, max_seq_len);
-  }
+  IREE_RETURN_IF_ERROR(iree_llm_check_fits(model, out_stats->prefill_length));
   if (params->max_new_tokens == 0)
     return iree_ok_status();
 
   int64_t token = 0;
   const iree_time_t prefill_start = iree_time_now();
-  iree_status_t status =
-      iree_llm_model_prefill(model, prompt, prompt_length, params->pad_token,
-                             &token, out_prefill_logits);
+  iree_status_t status = iree_llm_prefill_tokens(
+      model, &model->last_token, prefix_length, prompt, prompt_length,
+      params->pad_token, &token, out_prefill_logits);
   out_stats->prefill_duration = iree_time_now() - prefill_start;
   while (iree_status_is_ok(status)) {
     if (iree_llm_is_stop_token(params, token)) {

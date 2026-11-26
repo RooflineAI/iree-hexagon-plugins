@@ -141,8 +141,8 @@ adb shell "echo 1000 > /proc/self/oom_score_adj && \
     --module=$REMOTE_DIR/model.vmfb \
     --device=hexagon \
     --tokenizer=$REMOTE_DIR/tokenizer.json \
-    --prompt='The capital of France is' \
-    --max_new_tokens=32"
+    --max_new_tokens=32 \
+    --prompt='The capital of France is'"
 ```
 
 `--max_seq_len`, `--block_seq_stride` and `--min_prefill_blocks` must match
@@ -153,6 +153,21 @@ instead of from the command line. This can help to avoid quoting issues with
 `adb shell`. Generation stops at the tokenizer's EOS token, or at the IDs given
 with `--stop_token_id` (can be specified multiple times, take IDs them from the
 model's `generation_config.json`).
+
+Several `--prompt` and `--prompt_file` flags, mixed in any order, run as
+turns of one conversation: each further prompt is prefilled after the tokens
+so far, including the last generated one (e.g. the end-of-turn token), and
+generated from in turn. Only the first prompt gets the tokenizer's special
+tokens (e.g. BOS). `--max_new_tokens` applies to the prompts after it, up to
+the next `--max_new_tokens` (64 before the first). `--prefill_logits_output`
+applies to the next prompt only. All prompts, each padded, and the generated
+tokens have to fit in `--max_seq_len`.
+
+```sh
+  $REMOTE_DIR/bin/iree-run-llm ... \
+    --max_new_tokens=32 --prompt='The capital of France is' \
+    --max_new_tokens=16 --prompt=' The capital of Germany is'
+```
 
 ## DSP-side debug logging
 

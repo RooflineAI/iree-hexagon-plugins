@@ -28,6 +28,6 @@ compile_cases: [hexagon-vtcm-hmx]
 # (layer 8) on any real, BOS-prefixed prompt, so there is no reference to
 # check against.
 generation:
-  prompt: "def fibonacci(n):\n"
-  max_new_tokens: 32
+  - prompt: "def fibonacci(n):\n"
+    max_new_tokens: 32
 skip: "f16 reference overflows to NaN on real prompts (residual stream > 65504); no generation reference"

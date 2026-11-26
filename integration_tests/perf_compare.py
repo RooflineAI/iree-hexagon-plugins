@@ -8,8 +8,10 @@
 
 Reads the pytest output of `pytest integration_tests/ -v -rA`. A test that runs
 a module with iree-benchmark-module has one time, `run`, under its id. A test
-that generates tokens with iree-run-llm has two, each compared on its own as
-`<id>:<name>`: `prefill` and `decode_per_token` (see `_GENERATION_TIMES`).
+that generates tokens with iree-run-llm has more, each compared on its own as
+`<id>:<name>`: `prefill` and `decode_per_token` of its first prompt, and
+`prefill_turn2` and `decode_per_token_turn2` of a second (see
+`_GENERATION_TIMES`).
 The recent runs are the same job of the latest completed main runs, read from
 their GitHub logs with `gh`. The average of a case's run times in them is the
 baseline it is compared against; their min-max spread is shown next to it.
@@ -45,9 +47,16 @@ _RUN_TIME = re.compile(r"^  run: ([0-9.]+)s$")
 # Printed by test_models.py under "generation timings:", one per line.
 _TIME = re.compile(r"^  (\w+): ([0-9.]+)s$")
 # The generation timings that are compared: iree-run-llm's own times of prefill
-# and of one decode step. Not `generate`, the host's wall clock around the
-# whole run, which includes the adb round trip and loading the module.
-_GENERATION_TIMES = ("prefill", "decode_per_token")
+# and of one decode step, of the first prompt and of the second, which
+# continues the sequence: prefill at a start position, and decode over a longer
+# history. Not `generate`, the host's wall clock around the whole run, which
+# includes the adb round trip and loading the module.
+_GENERATION_TIMES = (
+    "prefill",
+    "decode_per_token",
+    "prefill_turn2",
+    "decode_per_token_turn2",
+)
 _PASSED = re.compile(r"^PASSED \S+::test_model_on_device\[(.+)\]$")
 
 
@@ -325,7 +334,8 @@ def _format_table(rows: Sequence[Row], recent_runs: Sequence[CIRun]) -> str:
         f"Performance against the average of the last {len(recent_runs)} main "
         f"run(s), {', '.join(run.label for run in recent_runs)}: a plain case "
         "is one invocation, timed on the device by iree-benchmark-module; "
-        ":prefill and :decode_per_token are iree-run-llm's own times"
+        ":prefill and :decode_per_token, and the same with _turn2 of the "
+        "second prompt, are iree-run-llm's own times"
     )
     # The cells are formatted already; tabulate must not reparse them.
     table = tabulate(cells, _TABLE_HEADER, colalign=_TABLE_ALIGN, disable_numparse=True)

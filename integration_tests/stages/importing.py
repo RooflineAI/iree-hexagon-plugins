@@ -19,7 +19,7 @@ A model that `get_model()` returns as a `KvCacheLM` (`models/kv_cache.py`) is
 exported as two functions instead, `prefill` and `decode`. It needs a
 `generation` block in its model.yaml: instead of a reference per function, the
 import records the model's tokenizer, and the prefill logits and tokens an
-eager greedy loop generates from the prompt, for iree-run-llm on the device to
+eager greedy loop generates from the prompts, for iree-run-llm on the device to
 reproduce.
 """
 
@@ -46,6 +46,7 @@ from integration_tests.models.kv_cache import KvCacheLM
 from integration_tests.modeltree.spec import InputSpec, ModelSpec
 from integration_tests.stages.artifacts import (
     GenerationReference,
+    GenerationTurn,
     ImportedModel,
     ModuleCall,
 )
@@ -303,7 +304,7 @@ def import_model(
     inputs = generate_inputs(spec, model)
     if isinstance(model, KvCacheLM):
         return _import_kv_cache(spec, output_dir, model, inputs, decompositions)
-    if spec.generation is not None:
+    if spec.generation:
         raise ValueError(
             f"{spec.name}: 'generation' needs a get_model() that returns a "
             f"KvCacheLM, not a {type(model).__name__}"
@@ -377,19 +378,33 @@ def _import_kv_cache(
     cache becomes module state, initially zero. The functions are not checked
     one by one but together, by iree-run-llm against the generation reference.
     """
-    if spec.generation is None:
+    if not spec.generation:
         raise ValueError(
             f"{spec.name}: a KvCacheLM needs a 'generation' block, which is how "
             "its prefill and decode are checked"
         )
     (prompt,) = inputs
     length = prompt.shape[-1]
-    block = torch.export.Dim("block_dim", min=2)
+    block = torch.export.Dim(
+        "block_dim",
+        min=_MIN_PREFILL_BLOCKS,
+        max=model.max_seq_len // model.block_seq_stride,
+    )
     seq_len = torch.export.Dim("seq_len", min=1, max=model.max_seq_len)
-    prefill_args = (prompt, torch.arange(length), torch.tensor([length - 1]))
+    # prefill's cache_position: its own dim, as prefill runs at any position,
+    # and at least as long as input_ids.
+    kv_len = torch.export.Dim(
+        "kv_len",
+        min=_MIN_PREFILL_BLOCKS * model.block_seq_stride,
+        max=model.max_seq_len,
+    )
+    # The example prefill continues a sequence of one token, so that the
+    # example lengths of input_ids and cache_position differ: equal sizes
+    # would make the export give both one symbol.
+    prefill_args = (prompt, torch.arange(length + 1), torch.tensor([length - 1]))
     prefill_shapes = {
         "input_ids": {1: model.block_seq_stride * block},
-        "cache_position": {0: model.block_seq_stride * block},
+        "cache_position": {0: kv_len},
         "input_length": {},
     }
     decode_shapes = {"input_ids": {}, "cache_position": {0: seq_len}}
@@ -446,6 +461,7 @@ def _import_kv_cache(
 
 # iree-run-llm's defaults for padding the prompt: at least two blocks, padded
 # with token 0. Passed to it explicitly, so that the two cannot drift apart.
+# The export's prefill accepts no fewer blocks.
 _MIN_PREFILL_BLOCKS = 2
 _PAD_TOKEN_ID = 0
 
@@ -459,21 +475,22 @@ def _generation_reference(
 ) -> GenerationReference:
     """The files iree-run-llm needs, and the tokens it has to generate.
 
-    The prompt is tokenized with the HuggingFace `tokenizers` library from the
-    same tokenizer.json the device gets, so the device's prompt tokens check its
-    own tokenizer too. The reference is `KvCacheLM.generate_greedy`: the
-    exported functions run eagerly, padded as on the device. Its prefill logits
-    go to generation_prefill_logits.npy.
+    The prompts are tokenized with the HuggingFace `tokenizers` library from
+    the same tokenizer.json the device gets, so the device's prompt tokens
+    check its own tokenizer too: the first with the tokenizer's special
+    tokens, the later ones without, as iree-run-llm does. The reference is
+    `KvCacheLM.generate_greedy`: the exported functions run eagerly, padded as
+    on the device, all prompts in turn on one cache. Turn N's prompt goes to
+    prompt_N.txt, its prefill logits to generation_prefill_logits_N.npy.
 
     Raises `NearTieError` if at some step the reference's most likely token
-    leads the runner-up by less than the spec's `min_margin`: a rounding
+    leads the runner-up by less than the prompt's `min_margin`: a rounding
     difference on the device could tip it, and the tokens after it could not be
     compared. The reference is written to generation_reference.json first.
     """
     from tokenizers import Tokenizer
 
     generation = spec.generation
-    assert generation is not None
     module = _load_model_source(spec)
     if not hasattr(module, "get_tokenizer_json"):
         raise ImportError(
@@ -482,51 +499,86 @@ def _generation_reference(
         )
     tokenizer_json = output_dir / "tokenizer.json"
     tokenizer_json.write_bytes(Path(module.get_tokenizer_json()).read_bytes())
-    prompt_file = output_dir / "prompt.txt"
-    prompt_file.write_text(generation.prompt)
-
     tokenizer = Tokenizer.from_file(str(tokenizer_json))
-    prompt_ids = tokenizer.encode(generation.prompt).ids
-    generated, prefill_logits = model.generate_greedy(
-        prompt_ids,
-        generation.max_new_tokens,
-        min_prefill_blocks=_MIN_PREFILL_BLOCKS,
-        pad_token_id=_PAD_TOKEN_ID,
-    )
-    prefill_logits_file = output_dir / "generation_prefill_logits.npy"
-    np.save(prefill_logits_file, prefill_logits.detach().cpu().numpy())
+
+    prompts = []
+    for turn, turn_spec in enumerate(generation, start=1):
+        prompt_ids = tokenizer.encode(
+            turn_spec.prompt, add_special_tokens=turn == 1
+        ).ids
+        if not prompt_ids:
+            raise ValueError(
+                f"{spec.name}: prompt {turn} {turn_spec.prompt!r} has no tokens"
+            )
+        prompts.append((prompt_ids, turn_spec.max_new_tokens))
+    try:
+        results = model.generate_greedy(
+            prompts, min_prefill_blocks=_MIN_PREFILL_BLOCKS, pad_token_id=_PAD_TOKEN_ID
+        )
+    except ValueError as err:
+        raise ValueError(
+            f"{spec.name}: the prompts do not fit in max_seq_len; shorten them "
+            f"or their max_new_tokens: {err}"
+        ) from err
+
+    turns = []
+    for turn, (
+        turn_spec,
+        (prompt_ids, max_new_tokens),
+        (generated, logits),
+    ) in enumerate(zip(generation, prompts, results, strict=True), start=1):
+        prompt_file = output_dir / f"prompt_{turn}.txt"
+        prompt_file.write_text(turn_spec.prompt)
+        prefill_logits_file = output_dir / f"generation_prefill_logits_{turn}.npy"
+        np.save(prefill_logits_file, logits.detach().cpu().numpy())
+        turns.append(
+            GenerationTurn(
+                prompt_file=prompt_file,
+                max_new_tokens=max_new_tokens,
+                prompt_ids=tuple(prompt_ids),
+                prefill_length=len(prompt_ids) + (turn > 1),
+                generated=tuple(generated),
+                prefill_logits_file=prefill_logits_file,
+            )
+        )
     reference = GenerationReference(
-        prompt_file=prompt_file,
         tokenizer_json=tokenizer_json,
-        max_new_tokens=generation.max_new_tokens,
         max_seq_len=model.max_seq_len,
         block_seq_stride=model.block_seq_stride,
         min_prefill_blocks=_MIN_PREFILL_BLOCKS,
         pad_token_id=_PAD_TOKEN_ID,
-        prompt_ids=tuple(prompt_ids),
-        generated=tuple(generated),
-        prefill_logits_file=prefill_logits_file,
+        turns=tuple(turns),
     )
+    _ignored = ("prompt_file", "tokenizer_json", "prefill_logits_file")
     (output_dir / "generation_reference.json").write_text(
         json.dumps(
-            {
-                key: value
-                for key, value in dataclasses.asdict(reference).items()
-                if key not in ("prompt_file", "tokenizer_json", "prefill_logits_file")
-            },
+            dataclasses.asdict(
+                reference,
+                dict_factory=lambda items: {
+                    key: value for key, value in items if key not in _ignored
+                },
+            ),
             indent=2,
         )
     )
-    for step, info in enumerate(generated):
-        if info.margin >= generation.min_margin:
-            continue
-        shorten = f" or set max_new_tokens to at most {step}" if step > 0 else ""
-        raise NearTieError(
-            f"{spec.name}: near-tie in the reference generation, please change "
-            f"the prompt{shorten}. At step {step}, token {info.selected_id} "
-            f"({tokenizer.decode([info.selected_id])!r}) leads token "
-            f"{info.runner_up_id} ({tokenizer.decode([info.runner_up_id])!r}) "
-            f"by {info.margin:.3f}, less than min_margin={generation.min_margin:g}. "
-            f"The margins are in {output_dir / 'generation_reference.json'}."
-        )
+    for turn, (turn_spec, reference_turn) in enumerate(
+        zip(generation, reference.turns, strict=True), start=1
+    ):
+        min_margin = turn_spec.min_margin
+        for step, info in enumerate(reference_turn.generated):
+            if info.margin >= min_margin:
+                continue
+            shorten = (
+                f" or set its max_new_tokens to at most {step}" if step > 0 else ""
+            )
+            raise NearTieError(
+                f"{spec.name}: near-tie in the reference generation, please "
+                f"change prompt {turn}{shorten}. At step {step}, token "
+                f"{info.selected_id} ({tokenizer.decode([info.selected_id])!r}) "
+                f"leads token {info.runner_up_id} "
+                f"({tokenizer.decode([info.runner_up_id])!r}) by "
+                f"{info.margin:.3f}, less than "
+                f"min_margin={min_margin:g}. The margins are in "
+                f"{output_dir / 'generation_reference.json'}."
+            )
     return reference

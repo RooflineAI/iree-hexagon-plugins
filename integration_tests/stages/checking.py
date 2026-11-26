@@ -8,12 +8,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from integration_tests.stages.artifacts import GenerationReference
+from integration_tests.stages.artifacts import GenerationReference, GenerationTurn
 
 
 class AccuracyError(AssertionError):
@@ -181,27 +182,63 @@ def check_predicted_label(
 
 def check_generation(
     reference: GenerationReference,
-    prompt_ids: tuple[int, ...] | None,
-    tokens: tuple[int, ...] | None,
-    prefill_logits_file: Path | None,
+    prompt_ids: Sequence[tuple[int, ...]],
+    tokens: Sequence[tuple[int, ...]],
+    prefill_logits_files: Sequence[Path | None],
     atol: float,
     rtol: float,
     max_relative_l2_percent: float | None = None,
 ) -> None:
-    """Assert iree-run-llm tokenized the prompt and generated as the reference.
+    """Assert iree-run-llm tokenized the prompts and generated as the
+    reference, for each prompt in turn.
 
-    The prompt's token ids must match exactly: they check the device's
+    The prompts' token ids must match exactly: they check the device's
     tokenizer. Prefill's logits must match within the tolerances, as the
-    outputs of a plain run do, at the prompt's positions; the padding's are
-    never used. The generated tokens must match exactly: the import made sure
-    the reference has no near-tie that rounding could tip (see the spec's
-    `min_margin`). All `max_new_tokens` tokens must be there, as stop tokens
-    are ignored.
+    outputs of a plain run do, at the positions prefill ran on; the padding's
+    are never used. The generated tokens must match exactly: the import made
+    sure the reference has no near-tie that rounding could tip (see each
+    prompt's `min_margin` in the spec). All `max_new_tokens` tokens must be
+    there, as stop tokens are ignored.
     """
-    if prompt_ids is None or tokens is None:
+    count = len(reference.turns)
+    if len(prompt_ids) < count or len(tokens) < count:
         raise AccuracyError(
-            "iree-run-llm printed no prompt or generated token ids; see its log"
+            f"iree-run-llm printed the prompt and generated token ids of "
+            f"{min(len(prompt_ids), len(tokens))} of the {count} prompts; see "
+            "its log"
         )
+    if len(prefill_logits_files) < count:
+        raise AccuracyError(
+            f"iree-run-llm wrote prefill logits of {len(prefill_logits_files)} "
+            f"of the {count} prompts; see its log"
+        )
+    for index, turn in enumerate(reference.turns):
+        where = f"prompt {index + 1}: " if count > 1 else ""
+        try:
+            _check_generation_turn(
+                turn,
+                prompt_ids[index],
+                tokens[index],
+                prefill_logits_files[index],
+                atol,
+                rtol,
+                max_relative_l2_percent,
+            )
+        except AccuracyError as err:
+            raise AccuracyError(f"{where}{err}") from err
+        print(f"generation: {where}all {len(tokens[index])} tokens match the reference")
+
+
+def _check_generation_turn(
+    reference: GenerationTurn,
+    prompt_ids: tuple[int, ...],
+    tokens: tuple[int, ...],
+    prefill_logits_file: Path | None,
+    atol: float,
+    rtol: float,
+    max_relative_l2_percent: float | None,
+) -> None:
+    """`check_generation` of one prompt."""
     if prompt_ids != reference.prompt_ids:
         raise AccuracyError(
             "the prompt's token ids differ from the reference tokenizer's:\n"
@@ -217,11 +254,11 @@ def check_generation(
             f"prefill logits: shape mismatch, reference {expected_logits.shape} "
             f"vs actual {actual_logits.shape}"
         )
-    prompt_length = len(reference.prompt_ids)
+    length = reference.prefill_length
     comparison = compare_arrays(
-        f"prefill logits of the {prompt_length} prompt positions",
-        expected_logits[:, :prompt_length],
-        actual_logits[:, :prompt_length],
+        f"prefill logits of the {length} prefilled positions",
+        expected_logits[:, :length],
+        actual_logits[:, :length],
         atol=atol,
         rtol=rtol,
     )
@@ -246,4 +283,3 @@ def check_generation(
                 f"  device:    {list(tokens)}\n"
                 f"  reference: {list(reference.tokens)}"
             )
-    print(f"generation: all {len(tokens)} tokens match the reference")

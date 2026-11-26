@@ -72,6 +72,7 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
 | `tool_paths.py` | resolve an artifact path, or ask Bazel |
 | `conftest.py` | options and fixtures, the only pytest glue |
 | `test_models.py` | the device test, parametrized over the tree |
+| `test_kv_cache.py` | a host test of `models/kv_cache.py`, no device needed |
 
 ## On the device
 
@@ -185,48 +186,68 @@ run_timeout: 3600
 By default the module has one function, `main`: the model's forward on the
 spec's inputs. A `model.py` whose `get_model()` returns a `KvCacheLM`
 (`models/kv_cache.py`) instead gets a causal LM exported for token generation,
-with the KV cache in module state (globals): `prefill` on the prompt, and
-`decode` of the next token, with dynamic shapes. The spec's inputs, a prompt
-of token ids, only serve as the example arguments of the export.
+with the KV cache in module state (globals): `prefill` on a prompt, at
+position 0 or after the tokens already in the cache, and `decode` of the next
+token, with dynamic shapes. The spec's inputs, a prompt of token ids, only
+serve as the example arguments of the export.
 
 The two functions are not run one by one, each from an empty cache, but
 together, as they are meant to: `iree-run-llm` (`tools/iree-run-llm-main.c`, on
 the inference engine in `tools/llm/`) runs the module on the device as an
 inference loop. It tokenizes the prompt itself, runs `prefill`, then `decode`
 once per further token, and generates `max_new_tokens` tokens greedily,
-ignoring stop tokens. Such a model needs a `generation` block:
+ignoring stop tokens. Then it does the same for each further prompt, as a
+further turn of a conversation: the prompt is prefilled after the tokens so
+far, preceded by the last generated token, which no decode has written to the
+cache yet. Such a model needs a `generation` list, one entry per prompt:
 
 ```yaml
 generation:
-  prompt: "def fibonacci(n):\n"
-  max_new_tokens: 32
-  min_margin: 0.25  # the default
+  - prompt: "def fibonacci(n):\n"
+    max_new_tokens: 32  # the default
+    min_margin: 0.25    # the default
+  - prompt: "\n\ndef factorial(n):\n"
+    max_new_tokens: 16
 ```
+
+All prompts, each padded, and their tokens have to fit in the export's
+`max_seq_len`; the import fails if they do not.
 
 `model.py` then also defines `get_tokenizer_json()`, the path of the model's
 `tokenizer.json`, which the device gets too. The reference is
-`KvCacheLM.generate_greedy`: the same functions run eagerly, with the prompt
+`KvCacheLM.generate_greedy`: the same functions run eagerly, with the prompts
 padded as on the device. At every step, its most likely token has to lead the
-runner-up by at least `min_margin` in logits. Otherwise it is a near-tie that
-rounding on the device may tip either way, after which the two sides continue
-from different text, and the import fails with a `NearTieError` naming the step
-and both tokens: change the prompt, or shorten `max_new_tokens` to end before
-the near-tie. The import writes the margins to `generation_reference.json`.
+runner-up by at least the prompt's `min_margin` in logits. Otherwise it is a
+near-tie that rounding on the device may tip either way, after which the two
+sides continue from different text, and the import fails with a `NearTieError`
+naming the prompt, the step and both tokens: change the prompt, or shorten its
+`max_new_tokens` to end before the near-tie. The import writes the margins to
+`generation_reference.json`.
 
-The check, in `stages/checking.py`:
+The check, in `stages/checking.py`, for each prompt:
 
 * the prompt's token ids have to match the `tokenizers` library's exactly,
-  which checks the device's tokenizer;
+  which checks the device's tokenizer (the later prompts' without special
+  tokens);
 * prefill's logits, which `iree-run-llm --prefill_logits_output` writes, have
-  to match the reference's within the model's `tolerances` at the prompt's
-  positions (the padding's are never used);
+  to match the reference's within the model's `tolerances` at the positions
+  prefill ran on (the padding's are never used);
 * the generated tokens have to match the reference's exactly.
+
+The reference's prefill and decode, mask and cache positions included, are
+checked on the host by `test_kv_cache.py`, against a forward of the whole
+history without a cache.
 
 The log has the text and, under `generation timings:`, the time of the whole
 `iree-run-llm` run (`generate`) and its own times of `prefill` and of one
-decode step (`decode_per_token`). `perf_compare.py` compares the latter two
-against the recent main runs, each as `<test id>:<name>`, as it compares the
-`run:` of other models. A profile run case does not support these models.
+decode step (`decode_per_token`), of the first prompt, and the same of each
+further prompt N as `prefill_turnN` and `decode_per_token_turnN`.
+`perf_compare.py` compares those of the first and second prompt against the
+recent main runs, each as `<test id>:<name>`, as it compares the `run:` of
+other models.
+
+These models cannot use a profile run case (e.g. `parallel-profile`):
+`iree-run-llm` does not run under Tracy, and the test rejects it.
 
 ## Profiling
 

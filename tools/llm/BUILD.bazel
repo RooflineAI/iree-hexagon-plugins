@@ -46,3 +46,18 @@ cc_library(
         "@iree//runtime/src/iree/tokenizer/vocab",
     ],
 )
+
+# VLM support for the engine: runs a VLM's vision function, whose results
+# prefill takes. Reads no flags, like the engine.
+cc_library(
+    name = "vlm",
+    srcs = ["vlm.c"],
+    hdrs = ["vlm.h"],
+    strip_include_prefix = "/tools",
+    deps = [
+        "@iree//runtime/src/iree/base",
+        "@iree//runtime/src/iree/hal",
+        "@iree//runtime/src/iree/tooling:function_util",
+        "@iree//runtime/src/iree/vm",
+    ],
+)

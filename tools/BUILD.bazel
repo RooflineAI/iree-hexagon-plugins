@@ -22,6 +22,7 @@ cc_binary(
     deps = [
         "//tools/llm:engine",
         "//tools/llm:tokenizer",
+        "//tools/llm:vlm",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/base/tooling:flags",
         "@iree//runtime/src/iree/hal",

@@ -31,6 +31,7 @@ iree_cc_binary(
     iree::vm
     iree_hexagon_plugins::tools::llm::engine
     iree_hexagon_plugins::tools::llm::tokenizer
+    iree_hexagon_plugins::tools::llm::vlm
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

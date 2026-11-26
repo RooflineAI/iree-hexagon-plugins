@@ -23,3 +23,6 @@ tolerances:
   relative_l2_percent: 0.3
 run_timeout: 3600
 compile_cases: [hexagon-vtcm-hmx]
+# Multi-GB: the weights go to a parameter archive kept on the phone, so
+# a run only pushes them when they change.
+weights: [external]

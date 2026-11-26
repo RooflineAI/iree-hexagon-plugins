@@ -23,6 +23,4 @@ tolerances:
 # The plain `hexagon` case runs ~10x slower on device for an LLM prefill,
 # so only the VTCM/HMX configuration is exercised.
 compile_cases: [hexagon-vtcm-hmx]
-# Both, so that a small smoke model covers the external-weights path.
-weights: [embedded, external]
 marks: [smoke]

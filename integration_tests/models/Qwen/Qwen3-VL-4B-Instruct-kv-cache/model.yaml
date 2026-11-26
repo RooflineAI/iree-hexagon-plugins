@@ -1,0 +1,42 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Qwen3-VL-4B-Instruct, image + text in, generated tokens out (see
+# models/qwen3_vl.py): one module with the vision encoder as `vision`, the
+# language model as `prefill`, which also takes the encoder's outputs, and
+# `decode`. The device runs `vision` on the image first, end to end.
+dtype: float16
+inputs:
+  # The export's example prompt (random token ids, no image tokens): a multiple
+  # of 32 tokens (block_seq_stride), at least two blocks, shorter than
+  # max_seq_len (256). The example image features are model.py's.
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: null
+    seed: 0
+# Prefill logits with `vision` run on the device (hexagon-vtcm-hmx): 2.33%,
+# max abs diff 2.33 on logits up to ~41 (2026-11-26), all 19 tokens match.
+# That is the encoder's error (0.59% on the image embeddings, 2026-11-25)
+# carried into the language model, whose own is 0.84% / 1.15 from the
+# reference's image features (2026-11-25), larger than 2B's (36 layers
+# instead of 28).
+tolerances:
+  atol: 5.0
+  rtol: 5.0e-2
+  relative_l2_percent: 3.0
+compile_cases: [hexagon-vtcm-hmx]
+# The user prompt. The import puts it into the chat template for one image
+# and expands <|image_pad|> to one token per image embedding (64). The 2B entry's question
+# ("Describe this image in one short sentence.") has near-ties on 4B (margins
+# 0.03-0.09 at steps 1, 2, 11); this one's lowest margin is 0.91 (host,
+# 2026-11-25): "In this image, I see a close-up, high-contrast black-and-white
+# photograph of a ...".
+generation:
+  prompt: "What do you see in this image?"
+  max_new_tokens: 19
+  image: ../Qwen3-VL-2B-Instruct-kv-cache/keyboard-256.png

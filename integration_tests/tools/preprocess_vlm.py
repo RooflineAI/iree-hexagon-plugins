@@ -26,13 +26,51 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from integration_tests.models.vlm_preprocessor import FITS
+from integration_tests.models.vlm_preprocessor import FITS, Fit
 from integration_tests.modeltree.discover import select
+from integration_tests.modeltree.spec import ModelSpec, load_model_source
+
+
+@dataclass(frozen=True)
+class VlmInputs:
+    """What `preprocess` wrote, and what it holds."""
+
+    image_file: Path
+    prompt_file: Path
+    pixels: np.ndarray
+    prompt: str
+
+
+def preprocess(
+    spec: ModelSpec, image: Path, prompt: str, fit: Fit, output_dir: Path
+) -> VlmInputs:
+    """Write image.npy and prompt.txt for `spec`'s VLM to `output_dir`.
+    Parameters are documented below in argparse
+    """
+    module = load_model_source(spec)
+    if not hasattr(module, "get_vlm_preprocessor"):
+        raise ImportError(
+            f"{spec.model_source} does not define get_vlm_preprocessor(): "
+            "not a VLM entry"
+        )
+    if not image.exists():
+        raise FileNotFoundError(f"{spec.name}: no such image {image}")
+    processor = module.get_vlm_preprocessor(fit)
+    with Image.open(image) as opened:
+        expanded, pixels = processor.process(opened, processor.chat_prompt(prompt))
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    image_file = output_dir / "image.npy"
+    prompt_file = output_dir / "prompt.txt"
+    np.save(image_file, pixels)
+    prompt_file.write_text(expanded)
+    return VlmInputs(image_file, prompt_file, pixels, expanded)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,24 +99,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--output_dir", required=True, type=Path)
     args = parser.parse_args(argv)
 
-    # The importer loads model.py; it pulls in torch, but builds no model.
-    from integration_tests.stages.importing import _load_model_source
-
     (spec,) = select([args.model])
-    module = _load_model_source(spec)
-    if not hasattr(module, "get_vlm_preprocessor"):
-        parser.error(f"{spec.name} has no get_vlm_preprocessor(): not a VLM entry")
-    processor = module.get_vlm_preprocessor(args.fit)
-
-    with Image.open(args.image) as image:
-        expanded, pixels = processor.process(image, processor.chat_prompt(args.prompt))
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    np.save(args.output_dir / "image.npy", pixels)
-    (args.output_dir / "prompt.txt").write_text(expanded)
+    inputs = preprocess(spec, args.image, args.prompt, args.fit, args.output_dir)
     print(
-        f"wrote {args.output_dir / 'image.npy'} {list(pixels.shape)} {pixels.dtype}"
-        f" and {args.output_dir / 'prompt.txt'}\n"
+        f"wrote {inputs.image_file} {list(inputs.pixels.shape)} {inputs.pixels.dtype}"
+        f" and {inputs.prompt_file}\n"
         "iree-run-llm ... --vision_input=@image.npy --prompt_file=prompt.txt"
     )
     return 0

@@ -28,13 +28,13 @@ tolerances:
   rtol: 5.0e-2
   relative_l2_percent: 0.5
 compile_cases: [hexagon-vtcm-hmx]
-# The chat template for one image and a question. The import expands
-# <|image_pad|> to one token per image embedding (64), giving an 82-token
+# The user prompt. The import puts it into the chat template for one image
+# and expands <|image_pad|> to one token per image embedding (64), giving an 82-token
 # prompt. The reference answers in 18 tokens plus <|im_end|>, all with a margin
 # of at least 0.45 (measured on the host, 2026-11-23): "Describe this image in
 # one sentence." has a near-tie at step 5.
 generation:
-  prompt: "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image in one short sentence.<|im_end|>\n<|im_start|>assistant\n"
+  prompt: "Describe this image in one short sentence."
   max_new_tokens: 19
   image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
   vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched

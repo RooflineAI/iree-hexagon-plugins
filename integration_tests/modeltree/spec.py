@@ -15,6 +15,7 @@ A model in this suite is two files and no test code:
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
 import typing
 from pathlib import Path
 
@@ -125,8 +126,9 @@ class GenerationSpec:
     max_new_tokens: int = 32
     min_margin: float = 0.25
     # For a VLM (a model whose get_model() can compute image features, e.g.
-    # models/qwen3_vl.py): an image file, relative to model.yaml, that the
-    # prompt's one image placeholder stands for. The device first generates
+    # models/qwen3_vl.py): an image file, relative to model.yaml. `prompt` is
+    # then the user's prompt, which the import puts into the chat template
+    # with the image, as tools/preprocess_vlm.py does. The device first generates
     # from the reference's image features, passed as files, which checks the
     # language model on its own.
     image: str | None = None
@@ -315,3 +317,20 @@ def load_model_spec(directory: Path, root: Path) -> ModelSpec:
         return dacite.from_dict(ModelSpec, data, _DACITE_CONFIG)
     except (dacite.DaciteError, TypeError, ValueError) as err:
         raise SpecError(f"{yaml_path}: {err}") from err
+
+
+def load_model_source(spec: ModelSpec) -> typing.Any:
+    """The spec's `model.py`, as a Python module.
+
+    Only loads the file: building the model is up to its `get_model()`, but
+    its imports (torch, transformers) run.
+    """
+    source = spec.model_source
+    module_spec = importlib.util.spec_from_file_location(
+        f"hexagon_it_model_{spec.name.replace('/', '_').replace('-', '_')}", source
+    )
+    if module_spec is None or module_spec.loader is None:
+        raise ImportError(f"cannot load {source}")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module

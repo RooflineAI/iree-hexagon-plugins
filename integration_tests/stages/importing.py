@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import dataclasses
 import importlib.metadata
-import importlib.util
 import json
 from pathlib import Path
 from typing import Any
@@ -43,13 +42,14 @@ from torch._export.utils import (
 )
 
 from integration_tests.models.kv_cache import KvCacheLM
-from integration_tests.modeltree.spec import InputSpec, ModelSpec
+from integration_tests.modeltree.spec import InputSpec, ModelSpec, load_model_source
 from integration_tests.stages.artifacts import (
     GenerationReference,
     ImportedModel,
     ModuleCall,
     VisionModule,
 )
+from integration_tests.tools.preprocess_vlm import preprocess
 
 _aten = torch.ops.aten
 
@@ -159,23 +159,10 @@ def build_decomposition_table(ops: list[Any]) -> dict[Any, Any]:
     return table
 
 
-def _load_model_source(spec: ModelSpec) -> Any:
-    """The spec's `model.py`, as a Python module."""
-    source = spec.model_source
-    module_spec = importlib.util.spec_from_file_location(
-        f"hexagon_it_model_{spec.name.replace('/', '_').replace('-', '_')}", source
-    )
-    if module_spec is None or module_spec.loader is None:
-        raise ImportError(f"cannot load {source}")
-    module = importlib.util.module_from_spec(module_spec)
-    module_spec.loader.exec_module(module)
-    return module
-
-
 def load_model(spec: ModelSpec) -> torch.nn.Module:
     """Call `get_model()` from the spec's `model.py`."""
     source = spec.model_source
-    module = _load_model_source(spec)
+    module = load_model_source(spec)
     if not hasattr(module, "get_model"):
         raise ImportError(f"{source} does not define get_model()")
     model = module.get_model()
@@ -485,7 +472,7 @@ def _generation_reference(
 
     generation = spec.generation
     assert generation is not None
-    module = _load_model_source(spec)
+    module = load_model_source(spec)
     if not hasattr(module, "get_tokenizer_json"):
         raise ImportError(
             f"{spec.model_source} does not define get_tokenizer_json(), which "
@@ -579,17 +566,16 @@ _VISION_MODULE_NAME = "vision"
 def _image_inputs(
     spec: ModelSpec, output_dir: Path, model: KvCacheLM
 ) -> tuple[str, tuple[torch.Tensor, ...], list[Path], VisionModule | None]:
-    """A VLM generation's image: the prompt with its image placeholder
-    expanded, the image features prefill takes, the files holding them, and
-    the vision encoder module if the spec names one.
+    """A VLM generation's image: the prompt in the chat template with its
+    image placeholder expanded, the image features prefill takes, the files
+    holding them, and the vision encoder module if the spec names one.
 
-    The image and prompt come from the spec's `get_vlm_preprocessor()` (see
-    models/vlm_preprocessor.py) The features come from the model's own eager
-    encoder (`image_features`), so they are what the vision model entry
-    computes on the same pixels.
+    The image and prompt are prepared by tools/preprocess_vlm.py's
+    `preprocess`, as for a manual run, with the spec's
+    `get_vlm_preprocessor()` (see models/vlm_preprocessor.py). The features
+    come from the model's own eager encoder (`image_features`), so they are
+    what the vision model entry computes on the same pixels.
     """
-    from PIL import Image
-
     generation = spec.generation
     assert generation is not None and generation.image is not None
     if not hasattr(model, "image_features"):
@@ -597,20 +583,15 @@ def _image_inputs(
             f"{spec.name}: 'generation.image' needs a model with "
             f"image_features(), which {type(model).__name__} has not"
         )
-    module = _load_model_source(spec)
-    if not hasattr(module, "get_vlm_preprocessor"):
-        raise ImportError(
-            f"{spec.model_source} does not define get_vlm_preprocessor(), which "
-            "'generation.image' needs"
-        )
-    path = spec.directory / generation.image
-    if not path.exists():
-        raise FileNotFoundError(f"{spec.name}: no such image {path}")
-    with Image.open(path) as image:
-        prompt, pixels = module.get_vlm_preprocessor().process(image, generation.prompt)
-    image_file = output_dir / "image.npy"
-    np.save(image_file, pixels)
-    features = model.image_features(torch.from_numpy(pixels))  # type: ignore[operator]
+    inputs = preprocess(
+        spec,
+        spec.directory / generation.image,
+        generation.prompt,
+        "stretch",
+        output_dir,
+    )
+    prompt, image_file = inputs.prompt, inputs.image_file
+    features = model.image_features(torch.from_numpy(inputs.pixels))  # type: ignore[operator]
     files = []
     for index, tensor in enumerate(features):
         file = output_dir / f"prefill_input{index}.npy"

@@ -230,15 +230,17 @@ and optionally the model entry of the vision encoder:
 
 ```yaml
 generation:
-  prompt: "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>..."
+  prompt: "Describe this image in one short sentence."
   image: ../Qwen3-VL-2B-Instruct-vision-encoder-patched/keyboard-256.png
   vision_model: Qwen/Qwen3-VL-2B-Instruct-vision-encoder-patched
 ```
 
-The entry's `model.py` also defines `get_vlm_preprocessor()`
-(`models/vlm_preprocessor.py`): it turns the image into the encoder's input and
-expands the prompt's one image placeholder to one token per image embedding,
-as `tools/preprocess_vlm.py` does for a manual run. The import computes the
+The prompt is the user's prompt. The entry's `model.py` also defines
+`get_vlm_preprocessor()` (`models/vlm_preprocessor.py`): it turns the image
+into the encoder's input, puts the prompt into the chat template and expands
+its one image placeholder to one token per image embedding. The import calls
+`preprocess` from `tools/preprocess_vlm.py`, the same function the tool runs
+for a manual run. The import computes the
 image features with the model's own eager encoder on the processed image,
 checks that the prompt has one image token per embedding, and generates the
 reference from both. The device then generates twice from

@@ -203,7 +203,7 @@ change.
 weights: [external]             # or [embedded, external] to test both
 ```
 
-This is the flow roof-mlir uses (`compile_with_parameter_encoding`):
+Description of the flow (`compile_with_parameter_encoding`):
 
 1. The import keeps the weights out of the MLIR
    (`aot.externalize_module_parameters`) and writes them to `weights.irpa`; the
@@ -215,20 +215,6 @@ This is the flow roof-mlir uses (`compile_with_parameter_encoding`):
 3. The encoder module is compiled for the host CPU and run by
    `iree-encode-parameters` on `weights.irpa`. Its output, in the scope
    `encoded`, is the only archive the module needs on the device.
-
-The encoded archive holds the weights as the compiler wants them on the device:
-if it transforms them differently, the archive's sha256 changes and it is pushed
-again. It also holds only the weights the module uses. If the compile produces
-no encoder, the module loads `weights.irpa` itself, in the scope `model`.
-`iree-encode-parameters` is taken from beside `iree-compile`
-(`--iree-encode-parameters` to override).
-
-Each weights mode is a separate import, compile and test. Tests with external
-weights have `-external` at the end of their id; `--weights=external` filters a
-test invocation to them. A module compiled this way runs with
-`--parameters=encoded=/path/to/<sha256>.irpa` (in the default `file`
-parameter mode: `--parameter_mode=preload` reads the whole archive into memory
-on top of the device's copy, which a large model does not survive).
 
 ### Token generation: prefill and decode
 

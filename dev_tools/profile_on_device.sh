@@ -149,9 +149,9 @@ RUNTIME_ZIP_TRACY="$REPO/$(bazel cquery --output=files \
 DEVICE_TOOLS_ZIP="$REPO/$(bazel cquery --output=files \
   //integration_tests/device/tools:device_tools_aarch64_android 2>/dev/null | head -n1)"
 
-# --- Import: torch model -> model.mlir + input*.npy -------------------------
-# The import also writes io.txt, listing the entry function, the input and
-# output file names, the model's extra_compile_flags from model.yaml and its
+# --- Import: torch model -> model.mlirbc + input*.npy -----------------------
+# The import also writes io.txt, listing the imported MLIR file, the entry
+# function, the input and output file names, the model's extra_compile_flags from model.yaml and its
 # name in the model tree, so the compile, deploy and run below work for any
 # model.
 mkdir -p "$WORK_DIR"
@@ -174,7 +174,8 @@ if len(imported.calls) != 1:
                      f'{len(imported.calls)} (KvCacheLM models are not supported)')
 call = imported.calls[0]
 flags = COMPILE_CASES_BY_NAME['$COMPILE_CASE'].flags(tuple(spec.extra_compile_flags))
-lines = [f'function {call.function}']
+lines = [f'mlir {imported.model_mlir.name}']
+lines += [f'function {call.function}']
 lines += [f'input {p.name}' for p in call.input_files]
 lines += [f'output {name}' for name in call.output_names]
 lines += [f'flag {flag}' for flag in flags]
@@ -182,12 +183,14 @@ lines += [f'name {spec.name}']
 Path('$WORK_DIR/io.txt').write_text('\\n'.join(lines) + '\\n')
 "
 
+MODEL_MLIR=
 FUNCTION=main
 INPUT_FILES=()
 IO_FLAGS=""
 MODEL_COMPILE_FLAGS=()
 while read -r kind name; do
   case "$kind" in
+    mlir) MODEL_MLIR="$WORK_DIR/$name" ;;
     function) FUNCTION="$name" ;;
     input) INPUT_FILES+=("$WORK_DIR/$name"); IO_FLAGS+=" --input=@$name" ;;
     output) IO_FLAGS+=" --output=@$name" ;;
@@ -198,7 +201,7 @@ while read -r kind name; do
 done < "$WORK_DIR/io.txt"
 
 # --- Compile ----------------------------------------------------------------
-"$IREE_COMPILE" "$WORK_DIR/model.mlir" -o "$WORK_DIR/model.vmfb" \
+"$IREE_COMPILE" "$MODEL_MLIR" -o "$WORK_DIR/model.vmfb" \
   ${MODEL_COMPILE_FLAGS[@]+"${MODEL_COMPILE_FLAGS[@]}"} \
   --iree-hexagon-enable-profiler-markers \
   --iree-hexagon-linker-path="$LLD" \

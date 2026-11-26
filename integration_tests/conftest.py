@@ -123,7 +123,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--keep-device-dir",
         action="store_true",
         default=False,
-        help="leave this run's directory on the device, to inspect a failure.",
+        help=(
+            "leave this run's directory on the device, to inspect a failure. "
+            "Don't remove earlier run's results in the same device directory, "
+            "either."
+        ),
     )
     group.addoption(
         "--model",
@@ -310,13 +314,20 @@ def deployments(
     directory. The profile run cases use the Tracy one, the others the plain one.
     """
     root = pytestconfig.getoption("--device-root")
+    keep_device_dir = pytestconfig.getoption("--keep-device-dir")
     active = Deployments(
-        plain=deploy(runtime_zip=runtime_zip, tools_zip=device_tools_zip, root=root),
+        plain=deploy(
+            runtime_zip=runtime_zip,
+            tools_zip=device_tools_zip,
+            root=root,
+            keep_device_dir=keep_device_dir,
+        ),
         tracy=deploy(
             runtime_zip=runtime_zip_tracy,
             tools_zip=device_tools_zip,
             root=root,
             has_tracy=True,
+            keep_device_dir=keep_device_dir,
         ),
     )
     print(
@@ -325,7 +336,7 @@ def deployments(
     )
     yield active
     for deployment in (active.plain, active.tracy):
-        if pytestconfig.getoption("--keep-device-dir"):
+        if keep_device_dir:
             print(f"leaving {deployment.run_dir} on the device as requested")
         else:
             cleanup(deployment)

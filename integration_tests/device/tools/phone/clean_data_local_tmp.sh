@@ -3,9 +3,9 @@
 set -eux
 
 DIR="/data/local/tmp"
-MAX_USAGE_PERCENT=50
+MAX_USAGE_PERCENT=70
 CLEAN_START_AGE_DAYS=30
-CLEAN_END_AGE_DAYS=7
+CLEAN_END_AGE_DAYS=5
 
 # while SD card partition is not empty enough, delete oldest files
 MAXDAYS=$CLEAN_START_AGE_DAYS

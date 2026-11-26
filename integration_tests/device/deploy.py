@@ -6,7 +6,7 @@
 
 """What gets put on the device, and where.
 
-Two packages are unpacked into one directory per run:
+Two packages are unpacked into one directory per host user and checkout:
 
   * the runtime, `//plugins/runtime/hexagon:hexagon_runtime_aarch64_android`,
     whose layout is:
@@ -26,14 +26,21 @@ Two packages are unpacked into one directory per run:
 
 Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
 
-    runs/<run-id>/bin,lib/   the runtime and the helpers for this run
-    runs/<run-id>/cases/     one directory per (model, compile case)
+    runs/<id>/bin,lib/       the plain runtime and the helpers
+    runs/<id>-tracy/         the same for the Tracy runtime
+    runs/<id>*/cases/        one directory per (model, compile case)
     modules/<case>/module.vmfb   the last large module sent for each (model,
                              compile case), kept across runs
 
-A run's directory is removed at the end of the run. `modules/` is not: each
-module there is the basis that rsync diffs the next build of the same case
-against, so a rebuilt module only sends the bytes that changed. It holds one
+`<id>` is a hash of the user name on the host and the repository root, so each
+checkout of each user has one directory per runtime. It is emptied when a run
+starts, which also removes what an aborted earlier run from the same checkout
+left behind, and removed at the end of the run. With `keep_device_dir`
+(`--keep-device-dir`), it is neither emptied nor removed.
+
+`modules/` is not removed: each module there is the basis that rsync diffs the
+next build of the same case against, so a rebuilt module only sends the bytes
+that changed. It holds one
 module per (model, compile case) that ever ran with a module large enough to be
 kept (`_KEEP_MODULE_MIN_BYTES` in `stages/running.py`), and can be deleted at
 any time, at the cost of one full transfer per case.
@@ -43,8 +50,9 @@ There is no lock: this suite is meant for one runner executing serially.
 
 from __future__ import annotations
 
+import getpass
+import hashlib
 import shlex
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,9 +67,16 @@ _ENTRY_BINARIES = ("iree-run-module", "iree-benchmark-module", "iree-run-llm")
 
 DEFAULT_DEVICE_ROOT = "/data/local/tmp/hexagon_it"
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
-def new_run_id() -> str:
-    return uuid.uuid4().hex[:12]
+
+def default_run_id(has_tracy: bool = False) -> str:
+    """A hash of the host's user name and the repository root, plus `-tracy`
+    for the Tracy runtime, so the two deployments of a session do not collide.
+    """
+    key = f"{getpass.getuser()}\0{_REPO_ROOT}"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:12]
+    return f"{digest}-tracy" if has_tracy else digest
 
 
 @dataclass(frozen=True)
@@ -144,14 +159,24 @@ def deploy(
     root: str = DEFAULT_DEVICE_ROOT,
     run_id: str | None = None,
     has_tracy: bool = False,
+    keep_device_dir: bool = False,
 ) -> Deployment:
-    """Unpack the runtime and the helpers into a fresh directory for this run.
+    """Unpack the runtime and the helpers into this run's directory, emptied
+    first unless `keep_device_dir` is set.
 
     `has_tracy` says whether `runtime_zip` is the Tracy runtime.
     """
     deployment = Deployment(
-        root=root, run_id=run_id or new_run_id(), has_tracy=has_tracy
+        root=root,
+        run_id=run_id or default_run_id(has_tracy),
+        has_tracy=has_tracy,
     )
+    run_dir = shlex.quote(deployment.run_dir)
+    setup_dir_cmds: list[str] = []
+    if not keep_device_dir:
+        setup_dir_cmds.append(f"rm -rf {run_dir}")
+    setup_dir_cmds.append(f"mkdir -p {run_dir}")
+    adb.shell(" && ".join(setup_dir_cmds))
     _unpack(runtime_zip, deployment.run_dir)
     _unpack(tools_zip, deployment.run_dir)
     farf_writes = " && ".join(

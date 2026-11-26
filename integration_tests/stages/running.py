@@ -564,7 +564,7 @@ def run_llm_on_device(
             adb.pull([f"{remote_dir}/{name}"], local_output_dir)
         except AdbError:
             pass  # reported as missing by the check
-    timings["pull_prefill_logits"] = time.time() - pull_start
+    timings["pull_logits"] = time.time() - pull_start
     for key, pattern in (
         ("vision", _VISION_MS),
         ("prefill", _PREFILL_MS),

@@ -1,0 +1,31 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+dtype: float16
+inputs:
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: 255999
+    # The config has no top-level vocab_size (it is multimodal). Token ids from
+    # 255999 up are the image/audio special tokens; keep the prompt text-only.
+    seed: 0
+  - shape: [1, 128]
+    dtype: int64
+    generator: ones
+# Copied from gemma-3-1b-it. Measured 2026-11-20: max abs 0.26, relative L2
+# 0.43%. On the host, torch f16 is 0.35% from f32.
+tolerances:
+  atol: 1.5
+  rtol: 5.0e-2
+  relative_l2_percent: 3.0
+# A 9.3 GB parameter archive: its first push takes ~7 min, the run ~30 s.
+run_timeout: 3600
+compile_cases: [hexagon-vtcm-hmx]
+# Multi-GB: the weights go to a parameter archive kept on the phone, so
+# a run only pushes them when they change.
+weights: [external]

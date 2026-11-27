@@ -27,3 +27,6 @@ expected_outcomes:
     reason: "relative L2 error nan%"
     comment: >-
       All four outputs are NaN (2026-11-24). LLVM Hexagon bug, fix not merged yet: https://github.com/llvm/llvm-project/pull/244193
+# The weights go to a parameter archive kept on the phone, so a run only
+# pushes them when they change.
+weights: [external]

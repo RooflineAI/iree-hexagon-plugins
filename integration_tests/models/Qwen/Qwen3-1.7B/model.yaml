@@ -23,3 +23,6 @@ tolerances:
 # The plain `hexagon` case runs ~10x slower on device for an LLM prefill,
 # so only the VTCM/HMX configuration is exercised.
 compile_cases: [hexagon-vtcm-hmx]
+# The weights go to a parameter archive kept on the phone, so a run only
+# pushes them when they change.
+weights: [external]

@@ -26,6 +26,6 @@ tolerances:
 # A 9.3 GB parameter archive: its first push takes ~7 min, the run ~30 s.
 run_timeout: 3600
 compile_cases: [hexagon-vtcm-hmx]
-# Multi-GB: the weights go to a parameter archive kept on the phone, so
-# a run only pushes them when they change.
+# The weights go to a parameter archive kept on the phone, so a run only
+# pushes them when they change.
 weights: [external]

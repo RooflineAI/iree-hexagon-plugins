@@ -42,14 +42,19 @@ class VlmProcessor(Protocol):
         ...
 
 
-def fit_square(image: Image.Image, side: int, fit: Fit) -> Image.Image:
-    """`image` as RGB, `side` x `side`, resized with bicubic resampling (as
-    the HF image processors do); an image of that size already is unchanged."""
+def fit_square(
+    image: Image.Image,
+    side: int,
+    fit: Fit,
+    resample: Image.Resampling = Image.Resampling.BICUBIC,
+) -> Image.Image:
+    """`image` as RGB, `side` x `side`, resized with `resample` (the model's
+    HF image processor's); an image of that size already is unchanged."""
     image = image.convert("RGB")
     if image.size == (side, side):
         return image
     if fit == "stretch":
-        return image.resize((side, side), Image.Resampling.BICUBIC)
+        return image.resize((side, side), resample)
     if fit != "pad":
         raise ValueError(f"unknown fit {fit!r}, expected one of {FITS}")
     width, height = image.size
@@ -57,7 +62,7 @@ def fit_square(image: Image.Image, side: int, fit: Fit) -> Image.Image:
     size = (max(1, round(width * scale)), max(1, round(height * scale)))
     canvas = Image.new("RGB", (side, side), _PAD_COLOR)
     canvas.paste(
-        image.resize(size, Image.Resampling.BICUBIC),
+        image.resize(size, resample),
         ((side - size[0]) // 2, (side - size[1]) // 2),
     )
     return canvas
@@ -116,3 +121,39 @@ class Qwen3VLProcessor:
         )
         pixels = to_nchw(fit_square(image, self.side, self.fit), np.float16)
         return expanded, pixels
+
+
+class Gemma3Processor:
+    """Gemma 3: one `side` x `side` image (896, fixed by the encoder) is 256
+    image tokens. As HF's processor without pan and scan, the image is
+    resized to the square, bilinear; `pad` keeps its aspect ratio instead.
+    Normalization is in the encoder graph, so it takes RGB in 0..1, f16.
+    """
+
+    BOI = "<start_of_image>"
+
+    def __init__(self, side: int, num_image_tokens: int, fit: Fit = "stretch") -> None:
+        self.side = side
+        self.num_image_tokens = num_image_tokens
+        self.fit = fit
+
+    def chat_prompt(self, prompt: str) -> str:
+        """Gemma 3's chat template (chat_template.json) for one user turn: the
+        image, then `prompt`, and the generation prompt."""
+        return (
+            f"<start_of_turn>user\n{self.BOI}{prompt}<end_of_turn>\n"
+            "<start_of_turn>model\n"
+        )
+
+    def process(self, image: Image.Image, prompt: str) -> tuple[str, np.ndarray]:
+        if prompt.count(self.BOI) != 1:
+            raise ValueError(f"the prompt needs exactly one {self.BOI}: {prompt!r}")
+        # Gemma3Processor.full_image_sequence.
+        expanded = prompt.replace(
+            self.BOI,
+            f"\n\n{self.BOI}"
+            + "<image_soft_token>" * self.num_image_tokens
+            + "<end_of_image>\n\n",
+        )
+        square = fit_square(image, self.side, self.fit, Image.Resampling.BILINEAR)
+        return expanded, to_nchw(square, np.float16)

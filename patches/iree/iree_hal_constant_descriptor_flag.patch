@@ -1,0 +1,129 @@
+diff --git a/compiler/src/iree/compiler/Dialect/HAL/Analysis/BindingLayout.cpp b/compiler/src/iree/compiler/Dialect/HAL/Analysis/BindingLayout.cpp
+index 7ec878e28e..c6169faf88 100644
+--- a/compiler/src/iree/compiler/Dialect/HAL/Analysis/BindingLayout.cpp
++++ b/compiler/src/iree/compiler/Dialect/HAL/Analysis/BindingLayout.cpp
+@@ -103,6 +103,8 @@ deriveStreamExportLayout(IREE::Stream::ExecutableExportOp exportOp,
+   // Check the usage of each binding at each dispatch site.
+   struct DescriptorInfo {
+     DescriptorFlags flags = DescriptorFlags::None;
++    // Bound to an immutable global at every dispatch site so far.
++    bool isConstant = true;
+   };
+   SmallVector<DescriptorInfo> descriptorInfos(bindingCount);
+   for (auto dispatchOp : dispatchOps) {
+@@ -117,16 +119,21 @@ deriveStreamExportLayout(IREE::Stream::ExecutableExportOp exportOp,
+     for (unsigned i = 0; i < bindingCount; ++i) {
+       auto &descriptorInfo = descriptorInfos[i];
+ 
++      Value resource = dispatchOp.getResources()[i];
++      if (auto blockArg = dyn_cast<BlockArgument>(resource)) {
++        if (parentOp && blockArg.getOwner()->getParentOp() == parentOp) {
++          resource = parentOp.getResourceOperands()[blockArg.getArgNumber()];
++        }
++      }
++      ValueOrigin origin = categorizeValue(resource);
++      if (origin != ValueOrigin::ImmutableGlobal) {
++        descriptorInfo.isConstant = false;
++      }
++
+       // Opt into indirect descriptors when dynamic values are used from
+       // execution regions that may be executed more than once.
+       if (!isRegionExecutedOnce) {
+-        Value resource = dispatchOp.getResources()[i];
+-        if (auto blockArg = dyn_cast<BlockArgument>(resource)) {
+-          if (blockArg.getOwner()->getParentOp() == parentOp) {
+-            resource = parentOp.getResourceOperands()[blockArg.getArgNumber()];
+-          }
+-        }
+-        switch (categorizeValue(resource)) {
++        switch (origin) {
+         default:
+         case ValueOrigin::Unknown:
+         case ValueOrigin::MutableGlobal:
+@@ -169,6 +176,12 @@ deriveStreamExportLayout(IREE::Stream::ExecutableExportOp exportOp,
+     binding.ordinal = i;
+     binding.type = IREE::HAL::DescriptorType::StorageBuffer;
+     binding.flags = descriptorInfo.flags;
++    // Only read, and bound to an immutable global at every dispatch site.
++    if (!dispatchOps.empty() && descriptorInfo.isConstant &&
++        allEnumBitsSet(descriptorInfo.flags,
++                       IREE::HAL::DescriptorFlags::ReadOnly)) {
++      binding.flags = binding.flags | IREE::HAL::DescriptorFlags::Constant;
++    }
+     pipelineLayout.bindings.push_back(binding);
+     pipelineLayout.resourceMap[i] = binding.ordinal;
+   }
+diff --git a/compiler/src/iree/compiler/Dialect/HAL/IR/HALAttrs.td b/compiler/src/iree/compiler/Dialect/HAL/IR/HALAttrs.td
+index b35a9c0957..4c6a902e2f 100644
+--- a/compiler/src/iree/compiler/Dialect/HAL/IR/HALAttrs.td
++++ b/compiler/src/iree/compiler/Dialect/HAL/IR/HALAttrs.td
+@@ -237,11 +237,15 @@ def HAL_DescriptorTypeAttr :
+ def HAL_DescriptorFlags_None : I32BitEnumAttrCase<"None", 0x0000>;
+ def HAL_DescriptorFlags_ReadOnly : I32BitEnumAttrCase<"ReadOnly", 0x0001>;
+ def HAL_DescriptorFlags_Indirect : I32BitEnumAttrCase<"Indirect", 0x0002>;
++// Every dispatch site binds an immutable global, which is only written before it
++// is stored to the global. Its contents never change while it is bound.
++def HAL_DescriptorFlags_Constant : I32BitEnumAttrCase<"Constant", 0x0004>;
+ def HAL_DescriptorFlagsAttr :
+     I32BitEnumAttr<"DescriptorFlags", "valid Descriptor flags", [
+       HAL_DescriptorFlags_None,
+       HAL_DescriptorFlags_ReadOnly,
+       HAL_DescriptorFlags_Indirect,
++      HAL_DescriptorFlags_Constant,
+     ]> {
+   let cppNamespace = "::mlir::iree_compiler::IREE::HAL";
+ }
+diff --git a/compiler/src/iree/compiler/Dialect/HAL/Transforms/test/materialize_interfaces.mlir b/compiler/src/iree/compiler/Dialect/HAL/Transforms/test/materialize_interfaces.mlir
+index 28401e6009..7f4dca2445 100644
+--- a/compiler/src/iree/compiler/Dialect/HAL/Transforms/test/materialize_interfaces.mlir
++++ b/compiler/src/iree/compiler/Dialect/HAL/Transforms/test/materialize_interfaces.mlir
+@@ -248,3 +248,49 @@ module {
+     util.return %0 : !stream.timepoint
+   }
+ }
++
++// -----
++
++// Tests that a binding is Constant only if every dispatch site binds an
++// immutable global and the binding is only read: binding 1 is a transient at
++// one site and a mutable global at the other, binding 2 is written.
++
++util.global private @default_device = #hal.device.target<"cpu", [
++  #hal.executable.target<"llvm-cpu", "arm_64">
++]> : !hal.device
++util.global private @immutable : !stream.resource<constant>
++util.global private mutable @mutable : !stream.resource<variable>
++
++// CHECK: #pipeline_layout = #hal.pipeline.layout<
++// CHECK-SAME: bindings = [
++// CHECK-SAME:   #hal.pipeline.binding<storage_buffer, "ReadOnly|Constant">
++// CHECK-SAME:   #hal.pipeline.binding<storage_buffer, ReadOnly>
++// CHECK-SAME:   #hal.pipeline.binding<storage_buffer>
++stream.executable private @ex {
++  stream.executable.export public @entry
++  builtin.module {
++    func.func @entry(%arg0: !stream.binding, %arg1: !stream.binding, %arg2: !stream.binding) {
++      return
++    }
++  }
++}
++util.func public @main(%arg0: !stream.resource<transient>, %arg1: index) attributes {
++  stream.affinity = #hal.device.affinity<@default_device>
++} {
++  %c0 = arith.constant 0 : index
++  %immutable = util.global.load immutable @immutable : !stream.resource<constant>
++  %mutable = util.global.load @mutable : !stream.resource<variable>
++  %0 = stream.cmd.execute once with(%immutable as %arg2: !stream.resource<constant>{%arg1}, %mutable as %arg3: !stream.resource<variable>{%arg1}, %arg0 as %arg4: !stream.resource<transient>{%arg1}) {
++    stream.cmd.dispatch @ex::@entry {
++      ro %arg2[%c0 for %arg1] : !stream.resource<constant>{%arg1},
++      ro %arg4[%c0 for %arg1] : !stream.resource<transient>{%arg1},
++      wo %arg2[%c0 for %arg1] : !stream.resource<constant>{%arg1}
++    }
++    stream.cmd.dispatch @ex::@entry {
++      ro %arg2[%c0 for %arg1] : !stream.resource<constant>{%arg1},
++      ro %arg3[%c0 for %arg1] : !stream.resource<variable>{%arg1},
++      wo %arg2[%c0 for %arg1] : !stream.resource<constant>{%arg1}
++    }
++  } => !stream.timepoint
++  util.return
++}

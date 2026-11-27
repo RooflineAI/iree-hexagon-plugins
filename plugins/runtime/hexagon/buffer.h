@@ -37,9 +37,11 @@ iree_status_t iree_hal_hexagon_buffer_wrap(
 void *iree_hal_hexagon_buffer_impl_ptr(iree_hal_buffer_t *base_buffer);
 
 /// Return the file descriptor of buffer's memory block for access of the memory
-/// on the DSP and the size of the whole memory block.
+/// on the DSP, the size of the whole memory block and what the host may do with
+/// it (HEXAGON_RT_ARM_DSP_BUF_FLAG_*).
 iree_status_t
 iree_hal_hexagon_buffer_get_fd_for_dsp(iree_hal_buffer_t *base_buffer,
-                                       int *out_fd, uint64_t *out_alloc_size);
+                                       int *out_fd, uint64_t *out_alloc_size,
+                                       uint32_t *out_flags);
 
 #endif // IREE_HAL_DRIVERS_HEXAGON_BUFFER_H_

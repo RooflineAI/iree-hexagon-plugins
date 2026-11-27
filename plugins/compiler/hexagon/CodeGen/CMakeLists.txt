@@ -207,6 +207,7 @@ iree_cc_library(
     "Transforms/HexagonAssignConstantOrdinals.cpp"
     "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp"
     "Transforms/HexagonCoalesceVTCMLoops.cpp"
+    "Transforms/HexagonDMACacheBypass.cpp"
     "Transforms/HexagonConvertMatmulToHmx.cpp"
     "Transforms/HexagonEmitVectorizationRemarks.cpp"
     "Transforms/HexagonExpandHmxMatmul.cpp"

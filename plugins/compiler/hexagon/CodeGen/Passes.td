@@ -88,6 +88,18 @@ def HexagonConvertToLLVMPass :
   ];
 }
 
+def HexagonDMACacheBypassPass :
+    Pass<"iree-hexagon-dma-cache-bypass", "IREE::HAL::ExecutableVariantOp"> {
+  let summary = "Lets DMA transfers bypass the data cache where it is safe";
+  let description = [{
+    Lets DMA transfers bypass the data cache on their VTCM side, which is not
+    cached, and when they read a binding with the Constant descriptor flag (an
+    immutable global, written in an earlier execution, after which the runtime
+    flushed the cache). The memref.dma_start gets the bypass_src / bypass_dst
+    unit attributes, which hexagon-mlir's DMA lowering reads.
+  }];
+}
+
 def HexagonEmitVectorizationRemarksPass :
     InterfacePass<"iree-hexagon-emit-vectorization-remarks", "mlir::FunctionOpInterface"> {
   let summary = "Emit vectorization remarks on Linalg ops";

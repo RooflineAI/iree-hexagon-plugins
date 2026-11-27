@@ -80,6 +80,7 @@ void buildHexagonTranslationPassPipeline(
   addHexagonPreLLVMConversionPasses(variantPassManager.nest<ModuleOp>());
   // Every allocation and HMX op is final here and still visible as such.
   variantPassManager.addPass(createHexagonAnnotateDispatchResourcesPass());
+  variantPassManager.addPass(createHexagonDMACacheBypassPass());
   addHexagonConvertToLLVMPasses(variantPassManager.nest<ModuleOp>());
 
   // Fold each iree_codegen.dispatch_config op back into its HAL export's

@@ -73,6 +73,9 @@ public:
     // Maximum number of tasks in flight on worker threads, 1 if none. Only
     // meaningful if hexagonFlags has RESOURCES_VALID.
     uint64_t threads = 1;
+    // Bit i set: the dispatch only reads binding i. Bindings from 64 on are
+    // treated as written.
+    uint64_t readOnlyBindings = 0;
   };
 
   LibraryBuilder(llvm::Module *module, Version version = Version::LATEST)

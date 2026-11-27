@@ -204,18 +204,24 @@ typedef struct hexagon_executable_dispatch_attrs_t {
   // Only meaningful if `hexagon_flags` has
   // HEXAGON_DISPATCH_FLAG_RESOURCES_VALID set.
   uint64_t threads;
+  // Bit i set: the dispatch only reads binding i (the pipeline layout marks it
+  // read-only). Bindings from 64 on are treated as written.
+  uint64_t read_only_bindings;
 } hexagon_executable_dispatch_attrs_t;
 static_assert(sizeof(hexagon_executable_dispatch_attrs_t) <= 64,
               "try keeping dispatch attrs small enough to fit in a cache line");
 // The compiler's LibraryBuilder emits this layout as an LLVM struct
 // (makeDispatchAttrsType); keep both in sync.
-static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 24,
+static_assert(sizeof(hexagon_executable_dispatch_attrs_t) == 32,
               "Hexagon dispatch attrs layout changed");
 static_assert(offsetof(hexagon_executable_dispatch_attrs_t, hexagon_flags) == 0,
               "Hexagon dispatch attrs layout changed");
 static_assert(offsetof(hexagon_executable_dispatch_attrs_t, vtcm_bytes) == 8,
               "Hexagon dispatch attrs layout changed");
 static_assert(offsetof(hexagon_executable_dispatch_attrs_t, threads) == 16,
+              "Hexagon dispatch attrs layout changed");
+static_assert(offsetof(hexagon_executable_dispatch_attrs_t,
+                       read_only_bindings) == 24,
               "Hexagon dispatch attrs layout changed");
 
 // A table of exported functions arranged as a struct-of-arrays for more

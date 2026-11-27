@@ -60,8 +60,10 @@ static iree_status_t hexagon_test_get_fd(iree_hal_buffer_t *buffer,
 }
 
 iree_status_t hexagon_test_get_buffer_fd(iree_hal_buffer_t *buffer, int *out_fd,
-                                         uint64_t *out_alloc_size) {
+                                         uint64_t *out_alloc_size,
+                                         uint32_t *out_flags) {
   IREE_RETURN_IF_ERROR(hexagon_test_get_fd(buffer, out_fd));
   *out_alloc_size = HEXAGON_TEST_ALLOC_SIZE(*out_fd);
+  *out_flags = HEXAGON_TEST_FLAGS(*out_fd);
   return iree_ok_status();
 }

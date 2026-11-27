@@ -188,6 +188,7 @@ hexagon_plugin_library(
         "Transforms/HexagonCheckIRBeforeLLVMConversion.cpp",
         "Transforms/HexagonCoalesceVTCMLoops.cpp",
         "Transforms/HexagonConvertMatmulToHmx.cpp",
+        "Transforms/HexagonDMACacheBypass.cpp",
         "Transforms/HexagonEmitVectorizationRemarks.cpp",
         "Transforms/HexagonExpandHmxMatmul.cpp",
         "Transforms/HexagonFormAsyncThreads.cpp",

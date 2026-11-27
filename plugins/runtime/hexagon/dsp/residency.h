@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "hexagon/dsp/cache_state.h"
+
 /**
  * Residency cache: maps RPCmem allocations into the DSP address space when
  * commands use them and keeps them mapped until the space is needed.
@@ -25,9 +27,11 @@
  * The eviction mechanism is not aware of fragmentation and will evict more,
  * until it fits
  *
- * Unmapping frees the DSP addresses for another allocation, so an allocation
- * is flushed and invalidated from the data cache before it is unmapped
- * Therefore, no cache invalidation on mapping is needed
+ * The cache also tracks what the data cache may hold of each mapped allocation
+ * and does the cache maintenance its accesses need (see cache_state.h). An
+ * allocation that may have lines in the data cache is flushed and invalidated
+ * before it is unmapped
+ * Therefore, no cache invalidation on mapping is needed.
  *
  * Each RPC session owns one cache. The address space belongs to the DSP
  * process, which all sessions of a host process share, so the budgets of all
@@ -48,6 +52,14 @@
 
 /// A residency cache, see above.
 typedef struct hexagon_dsp_residency_s hexagon_dsp_residency_t;
+
+/// How a command accesses an allocation it acquires.
+typedef struct hexagon_dsp_residency_access_s {
+  hexagon_dsp_cache_access_t kind;
+  /// range the command accesses, within the allocation
+  uint64_t offset;
+  uint64_t length;
+} hexagon_dsp_residency_access_t;
 
 /// Which allocations the caller uses next, for choosing what to unmap.
 typedef struct hexagon_dsp_residency_future_s {
@@ -73,11 +85,13 @@ int hexagon_dsp_residency_set_budget(hexagon_dsp_residency_t *residency,
 
 /**
  * @brief Map an allocation if not mapped yet and hold it mapped until
- *        hexagon_dsp_residency_release.
+ *        hexagon_dsp_residency_release. Does the cache maintenance needed
+ *        before the access.
  * @param[in] fd file descriptor of the registered allocation
  * @param[in] alloc_size size of the whole allocation
  * @param[in] future next uses, to choose which allocation to unmap if there is
  *            no room; NULL to unmap the least recently used one
+ * @param[in] access how the command accesses the allocation
  * @param[out] out_vaddr DSP address of the start of the allocation
  * @retval AEE_SUCCESS for success
  * @retval AEE_EWOULDBLOCK if it does not fit, even after unmapping all unused
@@ -86,6 +100,7 @@ int hexagon_dsp_residency_set_budget(hexagon_dsp_residency_t *residency,
 int hexagon_dsp_residency_acquire(hexagon_dsp_residency_t *residency, int fd,
                                   uint64_t alloc_size,
                                   const hexagon_dsp_residency_future_t *future,
+                                  const hexagon_dsp_residency_access_t *access,
                                   uint8_t **out_vaddr);
 
 /// Stop holding an allocation acquired with hexagon_dsp_residency_acquire. It
@@ -93,18 +108,23 @@ int hexagon_dsp_residency_acquire(hexagon_dsp_residency_t *residency, int fd,
 void hexagon_dsp_residency_release(hexagon_dsp_residency_t *residency, int fd);
 
 /**
- * @brief Invalidate [offset, offset + length) of an allocation in the data
- *        cache, if it is mapped. An allocation that is not mapped has no cache
- *        lines, as it was flushed and invalidated when it was unmapped.
+ * @brief Before an execution, invalidate [offset, offset + length) of an
+ *        allocation the host may have written since the last one. Nothing to
+ *        do if it is not mapped (or has no lines in the data cache).
  * @param[in] fd file descriptor of the allocation
  * @param[in] offset start of the range within the allocation
  * @param[in] length length of the range
- * @param[in] flush flush the range before invalidating it
  * @retval AEE_SUCCESS for success
  */
-int hexagon_dsp_residency_invalidate_if_mapped(
-    hexagon_dsp_residency_t *residency, int fd, uint64_t offset,
-    uint64_t length, bool flush);
+int hexagon_dsp_residency_host_sync(hexagon_dsp_residency_t *residency, int fd,
+                                    uint64_t offset, uint64_t length);
+
+/**
+ * @brief After an execution, flush the whole data cache if any allocation
+ *        may be dirty, as the host may read any of them.
+ * @retval AEE_SUCCESS for success
+ */
+int hexagon_dsp_residency_end_execution(hexagon_dsp_residency_t *residency);
 
 /**
  * @brief Unmap an allocation the host is about to free (and deregister).

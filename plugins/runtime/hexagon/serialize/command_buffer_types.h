@@ -24,9 +24,12 @@
 /// in order to decouple unit tests from the actual HAL.
 /// @param[in] buffer pointer to IREE buffer
 /// @param[out] out_fd filled with file descriptor of RPCmem for use on DSP
+/// @param[out] out_alloc_size filled with size of the whole RPCmem allocation
+/// @param[out] out_flags filled with HEXAGON_RT_ARM_DSP_BUF_FLAG_*
 /// @return IREE status
 typedef iree_status_t (*iree_hal_hexagon_get_buffer_fd_t)(
-    iree_hal_buffer_t *buffer, int *out_fd, uint64_t *out_alloc_size);
+    iree_hal_buffer_t *buffer, int *out_fd, uint64_t *out_alloc_size,
+    uint32_t *out_flags);
 
 /// an entry in the command buffer
 typedef struct iree_hal_hexagon_command_buffer_entry_s {

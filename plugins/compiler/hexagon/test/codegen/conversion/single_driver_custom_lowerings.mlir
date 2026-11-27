@@ -18,6 +18,12 @@
 // RUN:     --implicit-check-not=hexagon_runtime_alloc_1d_dsp \
 // RUN:     --implicit-check-not='@hexkl_matmul_f16f16_f32('
 
+// CHECK-DAG: llvm.func @hexagon_runtime_vtcm_alloc(!llvm.ptr, i64, i64) -> !llvm.ptr attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexagon_runtime_dma_start(!llvm.ptr, i32, !llvm.ptr, i32, i32, i32, i32, !llvm.ptr) -> i32 attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexagon_runtime_dma_wait(i32) attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexkl_matmul_f16f16_f32_scratch_bytes(i64, i64, i64) -> i32 attributes {hal.import.static}
+// CHECK-DAG: llvm.func @hexkl_matmul_f16f16_f32_with_scratch(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32 attributes {hal.import.static}
+
 module {
   func.func @memory_and_dma() {
     %c0 = arith.constant 0 : index
@@ -32,6 +38,42 @@ module {
     memref.dealloc %src : memref<4xf32>
     return
   }
+
+// CHECK-LABEL: llvm.func @memory_and_dma(
+// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr
+// CHECK:         llvm.ptrtoint
+// CHECK-NEXT:    %[[NO_ALIGN:.+]] = llvm.mlir.constant(0 : i64) : i64
+// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[NO_ALIGN]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
+// CHECK:         %[[ALIGN_128:.+]] = llvm.mlir.constant(128 : i64) : i64
+// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[ALIGN_128]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
+// CHECK:         llvm.call @hexagon_runtime_dma_start
+// CHECK:         llvm.call @hexagon_runtime_dma_wait
+// CHECK-NOT:     llvm.call
+// CHECK:         llvm.return
+
+  // A DMA transfer bypasses the data cache on the sides its attributes name.
+  // (Generic form: the custom parser of memref.dma_start drops attributes.)
+  func.func @dma_bypass() {
+    %c0 = arith.constant 0 : index
+    %c4 = arith.constant 4 : index
+    %src = memref.alloc() : memref<4xf32>
+    %dst = hexagonmem.alloc() <alignment = 128> : memref<4xf32, 1>
+    %tag = memref.alloca() : memref<1xi32>
+    "memref.dma_start"(%src, %c0, %dst, %c0, %c4, %tag, %c0) {bypass_src}
+        : (memref<4xf32>, index, memref<4xf32, 1>, index, index,
+           memref<1xi32>, index) -> ()
+    memref.dma_wait %tag[%c0], %c4 : memref<1xi32>
+    hexagonmem.dealloc %dst : memref<4xf32, 1>
+    memref.dealloc %src : memref<4xf32>
+    return
+  }
+
+// CHECK-LABEL: llvm.func @dma_bypass(
+// CHECK:         %[[SRC_DDR:.+]] = llvm.mlir.constant(0 : i32) : i32
+// CHECK-NEXT:    %[[DST_VTCM:.+]] = llvm.mlir.constant(1 : i32) : i32
+// CHECK-NEXT:    %[[BYPASS_SRC:.+]] = llvm.mlir.constant(1 : i32) : i32
+// CHECK-NEXT:    %[[BYPASS_DST:.+]] = llvm.mlir.constant(0 : i32) : i32
+// CHECK-NEXT:    llvm.call @hexagon_runtime_dma_start(%{{.+}}, %[[SRC_DDR]], %{{.+}}, %[[DST_VTCM]], %{{.+}}, %[[BYPASS_SRC]], %[[BYPASS_DST]], %{{.+}})
 
   // The partition aligns every allocation itself: neither memref.alloc nor
   // hexagonmem.alloc pad the request or align the pointer by hand. DDR
@@ -51,34 +93,6 @@ module {
     return
   }
 
-  func.func @hexkl_matmul() {
-    %lhs = memref.alloca() : memref<2x4xf16>
-    %rhs = memref.alloca() : memref<4x3xf16>
-    %out = memref.alloca() : memref<2x3xf32>
-    hexkl.matmul ins(%lhs, %rhs : memref<2x4xf16>, memref<4x3xf16>)
-                 outs(%out : memref<2x3xf32>)
-    return
-  }
-}
-
-// CHECK-DAG: llvm.func @hexagon_runtime_vtcm_alloc(!llvm.ptr, i64, i64) -> !llvm.ptr attributes {hal.import.static}
-// CHECK-DAG: llvm.func @hexagon_runtime_dma_start(!llvm.ptr, i32, !llvm.ptr, i32, i32, i32, i32, !llvm.ptr) -> i32 attributes {hal.import.static}
-// CHECK-DAG: llvm.func @hexagon_runtime_dma_wait(i32) attributes {hal.import.static}
-// CHECK-DAG: llvm.func @hexkl_matmul_f16f16_f32_scratch_bytes(i64, i64, i64) -> i32 attributes {hal.import.static}
-// CHECK-DAG: llvm.func @hexkl_matmul_f16f16_f32_with_scratch(i64, i64, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> i32 attributes {hal.import.static}
-
-// CHECK-LABEL: llvm.func @memory_and_dma(
-// CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr
-// CHECK:         llvm.ptrtoint
-// CHECK-NEXT:    %[[NO_ALIGN:.+]] = llvm.mlir.constant(0 : i64) : i64
-// CHECK-NEXT:    llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[NO_ALIGN]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
-// CHECK:         %[[ALIGN_128:.+]] = llvm.mlir.constant(128 : i64) : i64
-// CHECK:         llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %{{.+}}, %[[ALIGN_128]]) : (!llvm.ptr, i64, i64) -> !llvm.ptr
-// CHECK:         llvm.call @hexagon_runtime_dma_start
-// CHECK:         llvm.call @hexagon_runtime_dma_wait
-// CHECK-NOT:     llvm.call
-// CHECK:         llvm.return
-
 // CHECK-LABEL: llvm.func @aligned_allocs(
 // CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr
 // CHECK:         %[[BYTES:.+]] = llvm.ptrtoint
@@ -96,6 +110,15 @@ module {
 // CHECK-NOT:     llvm.call
 // CHECK:         llvm.return
 
+  func.func @hexkl_matmul() {
+    %lhs = memref.alloca() : memref<2x4xf16>
+    %rhs = memref.alloca() : memref<4x3xf16>
+    %out = memref.alloca() : memref<2x3xf32>
+    hexkl.matmul ins(%lhs, %rhs : memref<2x4xf16>, memref<4x3xf16>)
+                 outs(%out : memref<2x3xf32>)
+    return
+  }
+
 // CHECK-LABEL: llvm.func @hexkl_matmul(
 // CHECK-SAME:    %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %{{[A-Za-z0-9_]+}}: !llvm.ptr {{{[^}]*}}}, %[[WORKGROUP:[A-Za-z0-9_]+]]: !llvm.ptr
 // CHECK-DAG:     %[[ROWS:.+]] = llvm.mlir.constant(2 : i64) : i64
@@ -107,3 +130,4 @@ module {
 // CHECK:         %[[SCRATCH:.+]] = llvm.call @hexagon_runtime_vtcm_alloc(%[[WORKGROUP]], %[[BYTES_IDX]], %[[ALIGN_2K]])
 // CHECK:         llvm.alloca
 // CHECK:         llvm.call @hexkl_matmul_f16f16_f32_with_scratch(%{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %{{.+}}, %[[SCRATCH]])
+}

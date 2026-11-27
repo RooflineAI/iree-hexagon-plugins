@@ -4,11 +4,12 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Locating the four artifacts these tests drive, and the host's rsync.
+"""Locating the artifacts these tests drive, and the host's rsync.
 
 The device suite runs under plain pytest, so the normal path is that each of
-`iree-compile`, the runtime zip, the device-tools zip and `ld.lld` arrives as a
-command-line option and this module only checks that it exists.
+`iree-compile`, `iree-encode-parameters`, the runtime zip, the device-tools zip
+and `ld.lld` arrives as a command-line option and this module only checks that
+it exists.
 
 When an option is omitted the path is resolved with
 `bazel cquery` instead.
@@ -24,6 +25,7 @@ import subprocess
 from pathlib import Path
 
 IREE_COMPILE_TARGET = "@iree//tools:iree-compile"
+IREE_ENCODE_PARAMETERS_TARGET = "@iree//tools:iree-encode-parameters"
 RUNTIME_ZIP_TARGET = "//plugins/runtime/hexagon:hexagon_runtime_aarch64_android"
 LLD_TARGET = "@llvm-project//lld:ld.lld"
 DEVICE_TOOLS_TARGET = "//integration_tests/device/tools:device_tools_aarch64_android"

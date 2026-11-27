@@ -26,6 +26,7 @@ from integration_tests.modeltree.spec import MARKS, ModelSpec
 from integration_tests.stages.compiling import (
     COMPILE_CASE_NAMES,
     COMPILE_CASES_BY_NAME,
+    WEIGHTS_MODES,
     CompileCase,
 )
 from integration_tests.stages.running import (
@@ -36,6 +37,7 @@ from integration_tests.stages.running import (
 from integration_tests.tool_paths import (
     DEVICE_TOOLS_TARGET,
     IREE_COMPILE_TARGET,
+    IREE_ENCODE_PARAMETERS_TARGET,
     LLD_TARGET,
     RUNTIME_ZIP_TARGET,
     RUNTIME_ZIP_TRACY_TARGET,
@@ -61,6 +63,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=(
             f"path to iree-compile ({IREE_COMPILE_TARGET}). Resolved with "
             "'bazel cquery' when omitted."
+        ),
+    )
+    group.addoption(
+        "--iree-encode-parameters",
+        default=None,
+        help=(
+            f"path to iree-encode-parameters ({IREE_ENCODE_PARAMETERS_TARGET}), "
+            "which encodes external weights. Resolved with 'bazel cquery' when "
+            "omitted."
         ),
     )
     group.addoption(
@@ -134,7 +145,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="append",
         default=[],
         metavar="ORG/NAME",
-        help="run only this model from models/ (repeatable).",
+        help=("filter: keep only the tests of this model from models/ (repeatable)."),
     )
     group.addoption(
         "--run-skipped",
@@ -148,10 +159,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=[],
         choices=COMPILE_CASE_NAMES,
         metavar="NAME",
-        help=(
-            "run only this compile case from each selected model's configured "
-            "cases (repeatable)."
-        ),
+        help=("filter: keep only the tests of this compile case"),
+    )
+    group.addoption(
+        "--weights",
+        action="append",
+        default=[],
+        choices=WEIGHTS_MODES,
+        metavar="MODE",
+        help=("filter: keep only the tests of this weights mode"),
     )
     group.addoption(
         "--run-case",
@@ -159,10 +175,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=[],
         choices=RUN_CASE_NAMES,
         metavar="NAME",
-        help=(
-            "run only this run case from each selected model's configured "
-            "cases (repeatable)."
-        ),
+        help=("filter: keep only the tests of this run case"),
     )
 
 
@@ -191,27 +204,32 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if "compile_case" in metafunc.fixturenames:
         requested_compile = set(metafunc.config.getoption("--compile-case"))
         requested_run = set(metafunc.config.getoption("--run-case"))
-        triples: list[tuple[ModelSpec, CompileCase, RunCase]] = []
+        requested_weights = set(metafunc.config.getoption("--weights"))
+        combinations: list[tuple[ModelSpec, CompileCase, RunCase, str]] = []
         for spec in specs:
             for compile_name in spec.compile_cases:
                 if requested_compile and compile_name not in requested_compile:
                     continue
-                for run_name in spec.run_cases:
-                    if not requested_run or run_name in requested_run:
-                        triples.append(
-                            (
-                                spec,
-                                COMPILE_CASES_BY_NAME[compile_name],
-                                RUN_CASES_BY_NAME[run_name],
+                for weights in spec.weights:
+                    if requested_weights and weights not in requested_weights:
+                        continue
+                    for run_name in spec.run_cases:
+                        if not requested_run or run_name in requested_run:
+                            combinations.append(
+                                (
+                                    spec,
+                                    COMPILE_CASES_BY_NAME[compile_name],
+                                    RUN_CASES_BY_NAME[run_name],
+                                    weights,
+                                )
                             )
-                        )
-        if not triples:
+        if not combinations:
             raise pytest.UsageError(
-                "no model/compile-case/run-case combinations match --model, "
-                "--compile-case and --run-case"
+                "no model/compile-case/run-case/weights combinations match "
+                "--model, --compile-case, --run-case and --weights"
             )
         metafunc.parametrize(
-            ("model_spec", "compile_case", "run_case"),
+            ("model_spec", "compile_case", "run_case", "weights"),
             [
                 _param(
                     metafunc.config,
@@ -219,9 +237,13 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                     spec,
                     case,
                     run,
-                    id=f"{spec.name}-{case.name}-{run.name}",
+                    weights,
+                    # Embedded weights keep the ids tests had before the
+                    # weights modes existed, so their history carries on.
+                    id=f"{spec.name}-{case.name}-{run.name}"
+                    + ("-external" if weights == "external" else ""),
                 )
-                for spec, case, run in triples
+                for spec, case, run, weights in combinations
             ],
             scope="session",
         )
@@ -251,6 +273,14 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def iree_compile(pytestconfig: pytest.Config) -> Path:
     return resolve_bazel_artifact(
         IREE_COMPILE_TARGET, pytestconfig.getoption("--iree-compile")
+    )
+
+
+@pytest.fixture(scope="session")
+def iree_encode_parameters(pytestconfig: pytest.Config) -> Path:
+    return resolve_bazel_artifact(
+        IREE_ENCODE_PARAMETERS_TARGET,
+        pytestconfig.getoption("--iree-encode-parameters"),
     )
 
 

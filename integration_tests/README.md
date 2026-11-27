@@ -24,14 +24,15 @@ expected to be built separately and passed as an argument to the pytest command.
 ```sh
 build_tools/create_test_venv.sh                 # creates ./.venv from requirements.txt
 .venv/bin/pytest integration_tests/ -v -rA \
-    --iree-compile=<path> --runtime-zip=<path> --runtime-zip-tracy=<path> \
+    --iree-compile=<path> --iree-encode-parameters=<path> \
+    --runtime-zip=<path> --runtime-zip-tracy=<path> \
     --device-tools-zip=<path> --lld=<path>
 ```
 
 Omit the paths and they will try to be resolved with `bazel cquery`:
 
 ```sh
-bazel build @iree//tools:iree-compile \
+bazel build @iree//tools:iree-compile @iree//tools:iree-encode-parameters \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy \
             //integration_tests/device/tools:device_tools_aarch64_android \
@@ -43,9 +44,10 @@ Both runtimes are deployed once per session, each in its own run directory; the
 profile run cases (see [Profiling](#profiling)) use the Tracy one, all others
 the plain one.
 
-Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
-(all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`,
-`--rsync`, `--tracy-port` (default 8086), and the five artifact paths.
+Options, all in `conftest.py`: `--model`, `--compile-case`, `--run-case` and
+`--weights` (all repeatable filters), `--run-skipped`, `--keep-device-dir`,
+`--device-root`, `--rsync`, `--tracy-port` (default 8086), and the six artifact
+paths.
 
 ## Requirements
 
@@ -84,6 +86,7 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
         lib/    the DSP skel and libc++_shared
         cases/  one directory per (model, compile case)
     modules/<case>/module.vmfb   kept across runs
+    parameters/<sha256>.irpa  external weights, kept across runs
 ```
 
 Modules of 64 MiB and more are kept in `modules/` and sent with rsync, as a
@@ -99,6 +102,15 @@ sends the whole module once.
 
 Smaller modules go straight into the case directory with adb push: for them a
 delta saves less than rsync's own round trips to the phone cost.
+
+A model compiled with [external weights](#external-weights) keeps them in
+`parameters/`, in a parameter archive named after its sha256 and shared by
+every module that uses it. A run whose archive is already there only touches
+it (so that the phone's cleanup, which goes by age, keeps it); otherwise the
+archive is pushed under a temporary name, checked against its sha256 on the
+phone and renamed into place, so the file under a name is always complete and
+never changes. Archives no run uses any more are left to the phone's cleanup.
+Deleting `parameters/` is safe too.
 
 **There is no device lock.** This suite assumes one runner executing serially.
 
@@ -179,6 +191,32 @@ and to run on the device:
 ```yaml
 run_timeout: 3600
 ```
+
+### External weights
+
+By default a model's weights are compiled into its vmfb, which is then pushed
+whole (as an rsync delta when large). A multi-GB model is better off with
+`external` weights: the vmfb shrinks to a few MB and the weights go to a
+parameter archive (`.irpa`) that stays on the phone (see
+[On the device](#on-the-device)), so a run only pushes the weights when they
+change.
+
+```yaml
+weights: [external]             # or [embedded, external] to test both
+```
+
+Description of the flow:
+
+1. The import keeps the weights out of the MLIR
+   (iree-turbine external tensors) and writes them to `weights.irpa`; the
+   MLIR names them in the scope `model`. A KV-cache model's cache stays in the
+   MLIR.
+2. `iree-compile` compiles the module with
+   `--iree-parameter-encoder-output-file`, which splits off an encoder module:
+   whatever the module would compute from the weights when it starts up.
+3. The encoder module is compiled for the host CPU and run by
+   `iree-encode-parameters` on `weights.irpa`. Its output, in the scope
+   `encoded`, is the only archive the module needs on the device.
 
 ### Token generation: prefill and decode
 

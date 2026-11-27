@@ -58,6 +58,15 @@ COMPILE_CASE_NAMES = tuple(COMPILE_CASES_BY_NAME)
 DEFAULT_COMPILE_CASE_NAMES = ("hexagon", "hexagon-vtcm-hmx")
 
 
+# Where a model's weights go. `embedded` keeps them in the vmfb. `external`
+# keeps them out of the IR from the import on and encodes them into a parameter
+# archive (.irpa) that the vmfb loads at runtime (see `stages/encoding.py`), so
+# a large model's weights can stay on the device across runs while only a small
+# vmfb is pushed each time.
+WEIGHTS_MODES = ("embedded", "external")
+DEFAULT_WEIGHTS_MODES = ("embedded",)
+
+
 class CompilationError(RuntimeError):
     """Raised when iree-compile fails. Carries the log, for reason matching."""
 
@@ -82,8 +91,12 @@ def compile_model(
     log_file: Path | None = None,
     linker: Path | None = None,
     model_flags: tuple[str, ...] = (),
+    extra_flags: tuple[str, ...] = (),
 ) -> Path:
-    """Compile `model_mlir` for Hexagon, returning the vmfb path."""
+    """Compile `model_mlir` for Hexagon, returning the vmfb path.
+
+    `extra_flags` come last, e.g. `encoding.encoder_output_flags`.
+    """
     output_vmfb.parent.mkdir(parents=True, exist_ok=True)
     argv = [
         str(iree_compile),
@@ -92,6 +105,7 @@ def compile_model(
         str(output_vmfb),
         *compile_case.flags(model_flags),
         *(linker_flags(linker) if linker is not None else []),
+        *extra_flags,
     ]
     result = subprocess.run(argv, capture_output=True, text=True)
     log = result.stdout + result.stderr

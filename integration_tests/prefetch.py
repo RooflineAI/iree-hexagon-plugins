@@ -23,8 +23,11 @@ the import prints that log.
 The child is replaced once its memory grows past _RECYCLE_RSS_BYTES, and after a
 crash.
 
-Imports are shared per model and compiles per (model, compile case), so the run
-cases of one compile case share one module.
+Imports are shared per (model, whether the weights are external) and compiles
+per (model, compile case, weights mode), so the run cases of one compile case
+share one module. With external weights, the compile job also encodes them
+(`stages/encoding.py`) and hashes the result, so that this too overlaps the
+device work.
 """
 
 from __future__ import annotations
@@ -44,8 +47,14 @@ from concurrent.futures.process import BrokenProcessPool
 import pytest
 
 from integration_tests.modeltree.spec import ModelSpec
-from integration_tests.stages.artifacts import ImportedModel
+from integration_tests.stages.artifacts import ImportedModel, ParameterArchive
 from integration_tests.stages.compiling import CompileCase, compile_model
+from integration_tests.stages.encoding import (
+    ENCODED_SCOPE,
+    IMPORT_SCOPE,
+    encode_parameters,
+    encoder_output_flags,
+)
 
 # import does not release some memory back to the os
 # memory held by the import process may conflict with the memory needed for iree-compile step
@@ -65,9 +74,15 @@ class Compiled:
     # The inputs and references the run and check need.
     imported: ImportedModel
     vmfb: pathlib.Path
+    # iree-compile's time for the module, without the encoding.
     seconds: float
     # What iree-compile printed (iree-compile.log).
     log: str
+    # The weights the module loads at runtime, for the `external` weights
+    # mode; None otherwise, or when the model has no weights.
+    parameters: ParameterArchive | None = None
+    # Compiling and running the encoder, and hashing its output.
+    encode_seconds: float = 0.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,7 +99,7 @@ def _rss_bytes() -> int:
 
 
 def _import_in_child(
-    name: str, output_dir: pathlib.Path
+    name: str, output_dir: pathlib.Path, externalize: bool
 ) -> tuple[ImportedModel | None, str, int]:
     """Runs in the import child: (the import or None, its log, the child's RSS after importing)."""
     # Imported here, so that only the child loads torch.
@@ -103,7 +118,7 @@ def _import_in_child(
             os.dup2(log.fileno(), 2)
             try:
                 (spec,) = discover.select(names=[name])
-                imported = import_model(spec, output_dir)
+                imported = import_model(spec, output_dir, externalize=externalize)
             except Exception:
                 traceback.print_exc()
             finally:
@@ -124,10 +139,12 @@ class Prefetcher:
         self,
         items: Sequence[pytest.Item],
         iree_compile: pathlib.Path,
+        iree_encode_parameters: pathlib.Path,
         lld: pathlib.Path | None,
         tmp_path_factory: pytest.TempPathFactory,
     ) -> None:
         self._iree_compile = iree_compile
+        self._iree_encode_parameters = iree_encode_parameters
         self._lld = lld
         self._tmp_path_factory = tmp_path_factory
         # the worker thread.
@@ -141,20 +158,22 @@ class Prefetcher:
         )
         # The import child; created and replaced by the worker thread only.
         self._import_pool: ProcessPoolExecutor | None = None
-        # models already imported
-        self._imports: dict[str, Future[Import]] = {}
-        # Models whose import output a test has printed already.
-        self._import_logged: set[str] = set()
+        # imports already queued, by (model, external weights)
+        self._imports: dict[tuple[str, bool], Future[Import]] = {}
+        # Imports whose output a test has printed already.
+        self._import_logged: set[tuple[str, bool]] = set()
         # Compiles whose output a test has printed already.
-        self._compile_logged: set[tuple[str, str]] = set()
-        # models already compiled
-        self._compiles: dict[tuple[str, str], Future[Compiled]] = {}
+        self._compile_logged: set[tuple[str, str, str]] = set()
+        # models already compiled, by (model, compile case, weights mode)
+        self._compiles: dict[tuple[str, str, str], Future[Compiled]] = {}
         # Queue every test, in test order. The first import overlaps with the
         # session setup (deploying RT to the device). Queue is worked sequentially.
         for item in items:
             self._prefetch(item)
 
-    def compiled(self, spec: ModelSpec, compile_case: CompileCase) -> Compiled:
+    def compiled(
+        self, spec: ModelSpec, compile_case: CompileCase, weights: str = "embedded"
+    ) -> Compiled:
         """Look up the compile that __init__ queued and wait for it; returns the
         compiled module with its import.
 
@@ -163,27 +182,34 @@ class Prefetcher:
         Prints the import's output the first time a test asks for this model,
         and iree-compile's output, the first time a test asks for this compile.
         """
-        key = (spec.name, compile_case.name)
+        key = (spec.name, compile_case.name, weights)
         compiled = self._compiles[key]
         try:
             # raise compile or import error on failure
             result = compiled.result()
         finally:
             # print import log, even if compile raised
-            if spec.name not in self._import_logged:
-                self._import_logged.add(spec.name)
+            import_key = (spec.name, weights == "external")
+            if import_key not in self._import_logged:
+                self._import_logged.add(import_key)
                 # we know its done: the compile waited for it.
-                imported = self._imports[spec.name]
+                imported = self._imports[import_key]
                 if imported.exception() is None:
                     done = imported.result()
-                    print(f"{spec.name}: imported in {done.seconds:.2f}s, output:")
+                    print(
+                        f"{spec.name}: imported ({weights} weights) in "
+                        f"{done.seconds:.2f}s, output:"
+                    )
                     print(done.log)
         # Only on success: print compile time and compile log (although probably empty)
         # a failed compile's output is in its CompilationError.
         if key not in self._compile_logged:
             self._compile_logged.add(key)
             if result.log.strip():
-                print(f"{spec.name} [{compile_case.name}]: iree-compile output:")
+                print(
+                    f"{spec.name} [{compile_case.name}, {weights} weights]: "
+                    "iree-compile output:"
+                )
                 print(result.log)
         return result
 
@@ -200,55 +226,67 @@ class Prefetcher:
             return
         spec = callspec.params.get("model_spec")
         compile_case = callspec.params.get("compile_case")
+        weights = callspec.params.get("weights", "embedded")
         if spec is not None and compile_case is not None:
-            self._submit_compile(spec, compile_case)
+            self._submit_compile(spec, compile_case, weights)
 
     # The two _submit_* queue their work unless it is queued already, so tests
     # sharing a model share its import, and tests sharing a (model, compile
     # case) share its compile.
-    def _submit_import(self, spec: ModelSpec) -> Future[Import]:
-        imported = self._imports.get(spec.name)
+    def _submit_import(self, spec: ModelSpec, externalize: bool) -> Future[Import]:
+        key = (spec.name, externalize)
+        imported = self._imports.get(key)
         if imported is None:
+            suffix = "_external" if externalize else ""
             imported = self._executor.submit(
                 self._import,
                 spec,
-                self._tmp_path_factory.mktemp(spec.name.replace("/", "_")),
+                externalize,
+                self._tmp_path_factory.mktemp(spec.name.replace("/", "_") + suffix),
             )
-            self._imports[spec.name] = imported
+            self._imports[key] = imported
         return imported
 
     def _submit_compile(
-        self, spec: ModelSpec, compile_case: CompileCase
+        self, spec: ModelSpec, compile_case: CompileCase, weights: str
     ) -> Future[Compiled]:
-        key = (spec.name, compile_case.name)
+        key = (spec.name, compile_case.name, weights)
         compiled = self._compiles.get(key)
         if compiled is None:
             # get or queue the relevant import
-            imported = self._submit_import(spec)
+            imported = self._submit_import(spec, weights == "external")
+            suffix = "_external" if weights == "external" else ""
             compiled = self._executor.submit(
                 self._compile,
                 spec,
                 compile_case,
+                weights,
                 imported,
                 self._tmp_path_factory.mktemp(
-                    f"{spec.name.replace('/', '_')}_{compile_case.name}"
+                    f"{spec.name.replace('/', '_')}_{compile_case.name}{suffix}"
                 ),
             )
             self._compiles[key] = compiled
         return compiled
 
-    def _import(self, spec: ModelSpec, output_dir: pathlib.Path) -> Import:
+    def _import(
+        self, spec: ModelSpec, externalize: bool, output_dir: pathlib.Path
+    ) -> Import:
         """The import job: runs on the worker thread, queued by _submit_import."""
         if self._import_pool is None:
             self._import_pool = self._new_import_pool()
         start = time.time()
         # manage the import process, detects if its still alive
         try:
-            future = self._import_pool.submit(_import_in_child, spec.name, output_dir)
+            future = self._import_pool.submit(
+                _import_in_child, spec.name, output_dir, externalize
+            )
         except BrokenProcessPool:
             self._import_pool = self._new_import_pool()  # re-start
             # an error occurring with a fresh import process is checked below as it belongs to this import
-            future = self._import_pool.submit(_import_in_child, spec.name, output_dir)
+            future = self._import_pool.submit(
+                _import_in_child, spec.name, output_dir, externalize
+            )
         # wait for completion
         try:
             model, log, rss = future.result()
@@ -281,6 +319,7 @@ class Prefetcher:
         self,
         spec: ModelSpec,
         compile_case: CompileCase,
+        weights: str,
         imported: Future[Import],
         work_dir: pathlib.Path,
     ) -> Compiled:
@@ -288,6 +327,11 @@ class Prefetcher:
         # Submitted after its import to the single worker, so already done.
         # Raises the import's ModelImportError if it failed.
         model = imported.result().model
+        encoder_mlir = work_dir / "encoder.mlirbc"
+        # A stale encoder from an earlier compile into the same directory would
+        # otherwise pass for this compile's.
+        encoder_mlir.unlink(missing_ok=True)
+        external = weights == "external"
         start = time.time()
         vmfb = compile_model(
             iree_compile=self._iree_compile,
@@ -297,7 +341,35 @@ class Prefetcher:
             log_file=work_dir / "iree-compile.log",
             linker=self._lld,
             model_flags=spec.extra_compile_flags,
+            extra_flags=tuple(encoder_output_flags(encoder_mlir)) if external else (),
         )
         seconds = time.time() - start
         log = (work_dir / "iree-compile.log").read_text(errors="replace")
-        return Compiled(model, vmfb, seconds, log)
+        if not external:
+            return Compiled(model, vmfb, seconds, log)
+
+        start = time.time()
+        weights_archive = model.weights_archive
+        if encoder_mlir.exists():
+            if weights_archive is None:
+                raise ModelImportError(
+                    f"{spec.name}: the import for external weights wrote no archive"
+                )
+            parameters = ParameterArchive.of(
+                encode_parameters(
+                    iree_compile=self._iree_compile,
+                    iree_encode_parameters=self._iree_encode_parameters,
+                    encoder_mlir=encoder_mlir,
+                    weights_archive=weights_archive,
+                    output_archive=work_dir / "model.irpa",
+                    linker=self._lld,
+                ),
+                ENCODED_SCOPE,
+            )
+        elif weights_archive is not None:
+            # Nothing for an encoder to do: the module loads the import's
+            # archive as it is.
+            parameters = ParameterArchive.of(weights_archive, IMPORT_SCOPE)
+        else:
+            parameters = None
+        return Compiled(model, vmfb, seconds, log, parameters, time.time() - start)

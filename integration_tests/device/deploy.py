@@ -31,6 +31,9 @@ Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
     runs/<id>*/cases/        one directory per (model, compile case)
     modules/<case>/module.vmfb   the last large module sent for each (model,
                              compile case), kept across runs
+    parameters/<sha256>.irpa  the weights of a model compiled with external
+                             weights, named after their sha256 and shared by
+                             every module that uses them, kept across runs
 
 `<id>` is a hash of the user name on the host and the repository root, so each
 checkout of each user has one directory per runtime. It is emptied when a run
@@ -44,6 +47,12 @@ that changed. It holds one
 module per (model, compile case) that ever ran with a module large enough to be
 kept (`_KEEP_MODULE_MIN_BYTES` in `stages/running.py`), and can be deleted at
 any time, at the cost of one full transfer per case.
+
+A parameter archive is only ever written under its own sha256, so a run either
+finds the archive it needs in `parameters/` or pushes it. It is touched on every
+use, so that the phone's cleanup, which deletes files by age, removes only the
+archives no run uses any more. `parameters/` can be deleted at any time, at the
+cost of one full transfer per archive.
 
 There is no lock: this suite is meant for one runner executing serially.
 """
@@ -135,6 +144,10 @@ class Deployment:
     def kept_module(self, case_dir_name: str) -> str:
         """Where the case's module lives across runs, see the module docstring."""
         return f"{self.root}/modules/{case_dir_name}/module.vmfb"
+
+    def kept_parameters(self, sha256: str) -> str:
+        """Where a parameter archive lives across runs."""
+        return f"{self.root}/parameters/{sha256}.irpa"
 
 
 @dataclass(frozen=True)

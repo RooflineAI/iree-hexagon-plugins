@@ -14,6 +14,10 @@
     `build_tools/bazel/default_compiler_plugins.bzl`), so
     `--iree-input-type=auto` does it as part of the compile.
 
+With `externalize`, the weights stay out of the MLIR: iree-turbine names them
+as parameters of scope `encoding.IMPORT_SCOPE` and they are written to
+`weights.irpa` beside it (see `stages/encoding.py` for what becomes of them).
+
 The exported entry point is named `main`, which is iree-turbine's default.
 A model that `get_model()` returns as a `KvCacheLM` (`models/kv_cache.py`) is
 exported as two functions instead, `prefill` and `decode`. It needs a
@@ -49,10 +53,12 @@ from integration_tests.stages.artifacts import (
     ImportedModel,
     ModuleCall,
 )
+from integration_tests.stages.encoding import IMPORT_SCOPE
 
 _aten = torch.ops.aten
 
 MODEL_MLIR_NAME = "model.mlirbc"
+WEIGHTS_ARCHIVE_NAME = "weights.irpa"
 
 _TORCH_DTYPES: dict[str, torch.dtype] = {
     "float32": torch.float32,
@@ -116,10 +122,11 @@ DEFAULT_DECOMPOSITIONS = [
 DECOMPOSITION_NAMES = tuple(sorted(str(op) for op in DEFAULT_DECOMPOSITIONS))
 
 
-def manifest(spec: ModelSpec) -> dict[str, Any]:
+def manifest(spec: ModelSpec, externalize: bool = False) -> dict[str, Any]:
     """Everything that determined this MLIR, for the record."""
     return {
         "model": spec.name,
+        "weights": "external" if externalize else "embedded",
         "dtype": spec.dtype,
         "inputs": [dataclasses.asdict(entry) for entry in spec.inputs],
         "decompositions": list(DECOMPOSITION_NAMES),
@@ -278,6 +285,33 @@ def generate_inputs(
     return tuple(tensors)
 
 
+def _externalize_weights(model: torch.nn.Module, output_dir: Path) -> Path:
+    """Keep the model's weights out of the MLIR and write them to an archive.
+
+    Call it right before the export: from here on iree-turbine names every
+    weight (parameters and persistent buffers, as in the state dict) in the IR
+    instead of embedding it. A `KvCacheLM`'s cache buffers are state, not
+    weights, so they stay in the IR. A tensor shared under several names (tied
+    embeddings) is stored once, under its first name.
+    """
+    cache_prefix = "kv_cache." if isinstance(model, KvCacheLM) else None
+    builder = aot.ParameterArchiveBuilder()
+    seen: set[int] = set()
+    for name, tensor in model.state_dict(keep_vars=True).items():
+        if cache_prefix is not None and name.startswith(cache_prefix):
+            continue
+        if id(tensor) in seen:
+            continue
+        seen.add(id(tensor))
+        aot.ExternalTensorTrait(external_scope=IMPORT_SCOPE, external_name=name).set(
+            tensor
+        )
+        builder.add_tensor(name, tensor)
+    archive = output_dir / WEIGHTS_ARCHIVE_NAME
+    builder.save(archive)
+    return archive
+
+
 def _as_tensor_tuple(outputs: Any) -> tuple[torch.Tensor, ...]:
     if hasattr(outputs, "items"):  # transformers ModelOutput
         outputs = tuple(value for _, value in outputs.items())
@@ -293,11 +327,12 @@ def import_model(
     spec: ModelSpec,
     output_dir: Path,
     decompositions: list[Any] | None = None,
+    externalize: bool = False,
 ) -> ImportedModel:
     """Export the spec's model to MLIR and record its inputs and eager outputs.
 
     Writes `model.mlirbc`, `input{N}.npy` and `output{N}.npy` into
-    `output_dir`.
+    `output_dir`, and with `externalize` the weights to `weights.irpa`.
     The outputs come from running the model eagerly in torch on the same
     inputs.
     """
@@ -305,7 +340,9 @@ def import_model(
     model = load_model(spec)
     inputs = generate_inputs(spec, model)
     if isinstance(model, KvCacheLM):
-        return _import_kv_cache(spec, output_dir, model, inputs, decompositions)
+        return _import_kv_cache(
+            spec, output_dir, model, inputs, decompositions, externalize
+        )
     if spec.generation is not None:
         raise ValueError(
             f"{spec.name}: 'generation' needs a get_model() that returns a "
@@ -328,6 +365,7 @@ def import_model(
         np.save(input_file, tensor.detach().cpu().numpy())
         input_files.append(input_file)
 
+    weights_archive = _externalize_weights(model, output_dir) if externalize else None
     ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
     # Non-strict:
     # The strict export traces with Dynamo, which errors out on Python if the graph
@@ -360,7 +398,10 @@ def import_model(
 
     (output_dir / "import.json").write_text(
         json.dumps(
-            {**manifest(spec), "model_mlir_bytes": model_mlir.stat().st_size},
+            {
+                **manifest(spec, externalize),
+                "model_mlir_bytes": model_mlir.stat().st_size,
+            },
             indent=2,
             default=str,
         )
@@ -370,6 +411,7 @@ def import_model(
         model_mlir=model_mlir,
         calls=[ModuleCall("main", input_files, output_files)],
         labels_file=(output_dir / "labels.json") if labels is not None else None,
+        weights_archive=weights_archive,
     )
 
 
@@ -379,6 +421,7 @@ def _import_kv_cache(
     model: KvCacheLM,
     inputs: tuple[torch.Tensor, ...],
     decompositions: list[Any] | None,
+    externalize: bool,
 ) -> ImportedModel:
     """Export `prefill` and `decode` as functions of one module.
 
@@ -413,6 +456,7 @@ def _import_kv_cache(
         "decode": (decode_args, decode_shapes),
     }
 
+    weights_archive = _externalize_weights(model, output_dir) if externalize else None
     builder = aot.FxProgramsBuilder(model)
     for name, (args, dynamic_shapes) in functions.items():
         # Non-strict: dynamo cannot trace through transformers' model code.
@@ -436,7 +480,7 @@ def _import_kv_cache(
     (output_dir / "import.json").write_text(
         json.dumps(
             {
-                **manifest(spec),
+                **manifest(spec, externalize),
                 "functions": list(functions),
                 "model_mlir_bytes": model_mlir.stat().st_size,
             },
@@ -448,6 +492,7 @@ def _import_kv_cache(
         model_mlir=model_mlir,
         calls=[],
         generation=generation,
+        weights_archive=weights_archive,
     )
 
 

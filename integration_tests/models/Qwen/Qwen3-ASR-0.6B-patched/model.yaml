@@ -23,3 +23,6 @@ expected_outcomes:
     reason: "allclose(atol=0.2, rtol=0.05) = False"
     comment: >-
       Output0 (logits [1, 70, 151936]) is 1.50% relative L2, max abs diff 0.91. The error is spread over all 70 positions (median 1.07% per position, worst 8.5% at position 59), and the argmax agrees at all 70 positions. Not investigated further and tracked by ROO-2494.
+# The weights go to a parameter archive kept on the phone, so a run only
+# pushes them when they change.
+weights: [external]

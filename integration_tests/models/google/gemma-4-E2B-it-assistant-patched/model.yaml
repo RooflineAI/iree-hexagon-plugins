@@ -42,3 +42,6 @@ tolerances:
   rtol: 5.0e-2
   relative_l2_percent: 0.3
 compile_cases: [hexagon-vtcm-hmx]
+# The weights go to a parameter archive kept on the phone, so a run only
+# pushes them when they change.
+weights: [external]

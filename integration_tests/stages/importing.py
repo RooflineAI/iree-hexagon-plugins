@@ -285,7 +285,7 @@ def _resolve_high(input_spec: InputSpec, model: torch.nn.Module) -> int:
 
 
 def _load_image(spec: ModelSpec, input_spec: InputSpec) -> torch.Tensor:
-    """Decode a PNG beside model.yaml into the spec's NCHW shape, scaled 0..1.
+    """Decode a PNG (path relative to model.yaml) into the spec's NCHW shape, scaled 0..1.
 
     RGB, HWC->NCHW, uint8/255 - with no ImageNet mean/std normalization.
     It is what their resnet-50 test asserts a label against, so keeping

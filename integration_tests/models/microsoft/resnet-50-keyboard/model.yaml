@@ -10,7 +10,7 @@ inputs:
   - shape: [1, 3, 224, 224]
     dtype: float32
     generator: image
-    image: keyboard.png
+    image: ../../../inputs/keyboard_grayscale.png
 tolerances:
   atol: 1.0e-2
   rtol: 1.0e-2

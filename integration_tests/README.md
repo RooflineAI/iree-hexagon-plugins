@@ -165,10 +165,14 @@ For a classifier on a real photograph, `generator: image` plus a
 
 ```yaml
 inputs:
-  - {shape: [1, 3, 224, 224], dtype: float32, generator: image, image: keyboard.png}
+  - {shape: [1, 3, 224, 224], dtype: float32, generator: image, image: ../../../inputs/keyboard_grayscale.png}
 semantic_check:
   expected_label: "computer keyboard, keypad"
 ```
+
+`image:` is relative to `model.yaml`. Images live in `integration_tests/inputs/`
+so that models can share them; reuse one there rather than checking in another
+copy.
 
 A large model may need more than the default 600 seconds to push its module
 and to run on the device:

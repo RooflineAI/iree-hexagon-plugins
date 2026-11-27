@@ -48,4 +48,22 @@ iree_cc_library(
   PUBLIC
 )
 
+iree_cc_library(
+  NAME
+    vlm
+  HDRS
+    "vlm.h"
+  SRCS
+    "vlm.c"
+  DEPS
+    iree::base
+    iree::hal
+    iree::tooling::function_util
+    iree::vm
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"
+  PUBLIC
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

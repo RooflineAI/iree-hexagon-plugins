@@ -15,6 +15,7 @@ A model in this suite is two files and no test code:
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
 import typing
 from pathlib import Path
 
@@ -124,6 +125,18 @@ class GenerationSpec:
     prompt: str
     max_new_tokens: int = 32
     min_margin: float = 0.25
+    # For a VLM (a model with a `vision` function, e.g. models/qwen3_vl.py): an
+    # image file, relative to model.yaml. `prompt` is then the user's prompt,
+    # which the import puts into the chat template with the image, as
+    # tools/preprocess_vlm.py does. The device runs the module's `vision`
+    # function on the image first (iree-run-llm --vision_function), and its
+    # results go to prefill.
+    image: str | None = None
+    # How close the device's vision function results (the image features)
+    # have to be to the eager ones; checked before the generation.
+    vision_tolerances: Tolerances = dataclasses.field(
+        default_factory=lambda: Tolerances(atol=0.2, rtol=0.05, relative_l2_percent=1.0)
+    )
 
     def __post_init__(self) -> None:
         if not self.prompt.strip():
@@ -297,3 +310,20 @@ def load_model_spec(directory: Path, root: Path) -> ModelSpec:
         return dacite.from_dict(ModelSpec, data, _DACITE_CONFIG)
     except (dacite.DaciteError, TypeError, ValueError) as err:
         raise SpecError(f"{yaml_path}: {err}") from err
+
+
+def load_model_source(spec: ModelSpec) -> typing.Any:
+    """The spec's `model.py`, as a Python module.
+
+    Only loads the file: building the model is up to its `get_model()`, but
+    its imports (torch, transformers) run.
+    """
+    source = spec.model_source
+    module_spec = importlib.util.spec_from_file_location(
+        f"hexagon_it_model_{spec.name.replace('/', '_').replace('-', '_')}", source
+    )
+    if module_spec is None or module_spec.loader is None:
+        raise ImportError(f"cannot load {source}")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module

@@ -15,6 +15,17 @@
 //   iree-run-llm --device=hexagon --module=model.vmfb \
 //       --tokenizer=tokenizer.json --prompt="The capital of France is" \
 //       --max_new_tokens=32
+//
+// A module whose prefill takes more inputs than the prompt, e.g. a VLM's
+// language model taking image features, gets them with --prefill_input, or
+// from a vision function the module exports next to prefill and decode
+// (llm/vlm.h). In one run, iree-run-llm then calls the vision function on
+// --vision_input, passes its results to prefill on the device, and decodes:
+//   iree-run-llm --device=hexagon --module=model.vmfb \
+//       --vision_function=vision --vision_input=@image.npy \
+//       --tokenizer=tokenizer.json --prompt_file=prompt.txt
+// The prompt must already hold the image's tokens (e.g. Qwen3-VL's
+// <|image_pad|> once per image embedding).
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -30,11 +41,13 @@
 #include "iree/modules/hal/types.h"
 #include "iree/tokenizer/tokenizer.h"
 #include "iree/tooling/context_util.h"
+#include "iree/tooling/function_io.h"
 #include "iree/tooling/function_util.h"
 #include "iree/tooling/numpy_io.h"
 #include "iree/vm/api.h"
 #include "llm/engine.h"
 #include "llm/tokenizer.h"
+#include "llm/vlm.h"
 
 //===----------------------------------------------------------------------===//
 // Flags
@@ -78,6 +91,22 @@ IREE_FLAG(string, prefill_function, IREE_LLM_DEFAULT_PREFILL_FUNCTION,
           "Name of the exported prefill function.");
 IREE_FLAG(string, decode_function, IREE_LLM_DEFAULT_DECODE_FUNCTION,
           "Name of the exported decode function.");
+IREE_FLAG(string, vision_function, "",
+          "Name of an exported function of the model's module (e.g. vision) "
+          "to run once before prefill, on the --vision_input values. Its "
+          "results are passed to prefill after input_length, before any "
+          "--prefill_input.");
+IREE_FLAG_LIST(string, vision_input,
+               "Input of --vision_function, as iree-run-module's --input "
+               "(e.g. @image.npy); repeatable, in order.");
+IREE_FLAG_LIST(string, vision_output,
+               "Where to write a --vision_function result, as "
+               "iree-run-module's --output (e.g. @vision_output0.npy); "
+               "repeatable, one per result, in order. Only outputs them.");
+IREE_FLAG_LIST(string, prefill_input,
+               "Value prefill takes after input_length (and after the "
+               "--vision_function results), as iree-run-module's --input "
+               "(e.g. @image_embeds.npy); repeatable, in order.");
 
 //===----------------------------------------------------------------------===//
 // Setup from flags
@@ -87,6 +116,8 @@ IREE_FLAG(string, decode_function, IREE_LLM_DEFAULT_DECODE_FUNCTION,
 // model runs in. Outlives the model.
 typedef struct iree_run_llm_runtime_t {
   iree_vm_context_t *context;
+  // Runs --vision_function of the model's module; NULL without it.
+  iree_llm_vision_t *vision;
   iree_hal_device_list_t *device_list;
   // The lead device's allocator, which identifies the lead device.
   iree_hal_allocator_t *device_allocator;
@@ -95,6 +126,7 @@ typedef struct iree_run_llm_runtime_t {
 } iree_run_llm_runtime_t;
 
 static void iree_run_llm_runtime_deinitialize(iree_run_llm_runtime_t *runtime) {
+  iree_llm_vision_free(runtime->vision);
   iree_vm_context_release(runtime->context);
   if (runtime->replay_recorder) {
     iree_status_ignore(
@@ -134,6 +166,13 @@ static iree_status_t iree_run_llm_create_model(iree_vm_instance_t *instance,
                             "--max_seq_len must be positive, and "
                             "--max_new_tokens not negative");
   }
+  if (FLAG_vision_function[0] == '\0' &&
+      (FLAG_vision_input_list().count > 0 ||
+       FLAG_vision_output_list().count > 0)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "--vision_input and --vision_output need --vision_function");
+  }
   iree_llm_model_options_t options;
   iree_llm_model_options_initialize(&options);
   options.max_seq_len = (iree_host_size_t)FLAG_max_seq_len;
@@ -169,9 +208,17 @@ static iree_status_t iree_run_llm_create_model(iree_vm_instance_t *instance,
                                 "the module does not use a HAL device");
     }
   }
+  iree_vm_module_t *main_module =
+      module_list.count > 0 ? module_list.values[module_list.count - 1] : NULL;
+  if (iree_status_is_ok(status) && FLAG_vision_function[0] != '\0') {
+    status = iree_status_annotate_f(
+        iree_llm_vision_create(runtime->context, lead_device, main_module,
+                               iree_make_cstring_view(FLAG_vision_function),
+                               host_allocator, &runtime->vision),
+        "--vision_function=%s", FLAG_vision_function);
+  }
   if (iree_status_is_ok(status)) {
-    status = iree_llm_model_create(runtime->context, lead_device,
-                                   module_list.values[module_list.count - 1],
+    status = iree_llm_model_create(runtime->context, lead_device, main_module,
                                    &options, host_allocator, out_model);
   }
   iree_tooling_module_list_reset(&module_list);
@@ -259,6 +306,115 @@ iree_run_llm_parse_stop_tokens(const iree_tokenizer_t *tokenizer,
 }
 
 //===----------------------------------------------------------------------===//
+// Prefill inputs
+//===----------------------------------------------------------------------===//
+
+// At most this many --prefill_input flags.
+#define IREE_RUN_LLM_MAX_PREFILL_INPUTS 32
+
+// Appends every value of |values| to |list|.
+static iree_status_t iree_run_llm_append_all(iree_vm_list_t *values,
+                                             iree_vm_list_t *list) {
+  for (iree_host_size_t i = 0; i < iree_vm_list_size(values); ++i) {
+    iree_vm_variant_t value = iree_vm_variant_empty();
+    IREE_RETURN_IF_ERROR(iree_vm_list_get_variant_assign(values, i, &value));
+    IREE_RETURN_IF_ERROR(iree_vm_list_push_variant_retain(list, &value));
+  }
+  return iree_ok_status();
+}
+
+// Copies the --vision_function |outputs| to the host and writes them to the
+// --vision_output targets. A shallow clone is copied, so |outputs| keep their
+// device buffers for prefill.
+static iree_status_t
+iree_run_llm_write_vision_outputs(iree_hal_device_t *device,
+                                  iree_vm_list_t *outputs,
+                                  iree_allocator_t host_allocator) {
+  iree_vm_list_t *copy = NULL;
+  IREE_RETURN_IF_ERROR(iree_vm_list_clone(outputs, host_allocator, &copy));
+  const iree_hal_buffer_params_t host_params = {
+      .usage = IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING,
+      .access = IREE_HAL_MEMORY_ACCESS_ALL,
+      .type =
+          IREE_HAL_MEMORY_TYPE_HOST_LOCAL | IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE,
+      .queue_affinity = IREE_HAL_QUEUE_AFFINITY_ANY,
+  };
+  iree_status_t status = iree_status_annotate(
+      iree_tooling_transfer_variants(copy, device,
+                                     iree_hal_device_allocator(device),
+                                     host_params, /*wait_fence=*/NULL,
+                                     /*signal_fence=*/NULL),
+      IREE_SV("copying the --vision_function results to the host"));
+  if (iree_status_is_ok(status)) {
+    status = iree_status_annotate(
+        iree_tooling_write_variants(copy, FLAG_vision_output_list(),
+                                    /*max_element_count=*/0,
+                                    /*default_stream=*/NULL, host_allocator),
+        IREE_SV("writing --vision_output"));
+  }
+  iree_vm_list_release(copy);
+  return status;
+}
+
+// Runs --vision_function on the --vision_input values. Sets |out_results| to
+// its results, as they are: on the device, for prefill to take. Writes them to
+// the --vision_output targets, if any. Sets |out_duration| to the time the
+// call took, without that.
+static iree_status_t iree_run_llm_run_vision(iree_run_llm_runtime_t *runtime,
+                                             iree_hal_device_t *device,
+                                             iree_allocator_t host_allocator,
+                                             iree_vm_list_t **out_results,
+                                             iree_duration_t *out_duration) {
+  *out_results = NULL;
+  iree_string_view_t arguments_cconv = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(
+      iree_llm_vision_arguments_cconv(runtime->vision, &arguments_cconv));
+
+  iree_vm_list_t *inputs = NULL;
+  IREE_RETURN_IF_ERROR(iree_tooling_parse_variants(
+                           arguments_cconv, FLAG_vision_input_list(), device,
+                           runtime->device_allocator, host_allocator, &inputs),
+                       "parsing --vision_input");
+  iree_vm_list_t *outputs = NULL;
+  iree_status_t status = iree_status_annotate_f(
+      iree_llm_vision_run(runtime->vision, inputs, &outputs, out_duration),
+      "running --vision_function=%s", FLAG_vision_function);
+  if (iree_status_is_ok(status) && FLAG_vision_output_list().count > 0)
+    status = iree_run_llm_write_vision_outputs(device, outputs, host_allocator);
+  if (iree_status_is_ok(status)) {
+    *out_results = outputs;
+  } else {
+    iree_vm_list_release(outputs);
+  }
+  iree_vm_list_release(inputs);
+  return status;
+}
+
+// Parses the --prefill_input values and appends them to |list|.
+static iree_status_t iree_run_llm_append_prefill_inputs(
+    iree_run_llm_runtime_t *runtime, iree_hal_device_t *device,
+    iree_allocator_t host_allocator, iree_vm_list_t *list) {
+  const iree_flag_string_list_t specs = FLAG_prefill_input_list();
+  if (specs.count > IREE_RUN_LLM_MAX_PREFILL_INPUTS) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "at most %d --prefill_input flags",
+                            IREE_RUN_LLM_MAX_PREFILL_INPUTS);
+  }
+  // Every value is a reference type (a tensor), as --input parses it.
+  char cconv_storage[IREE_RUN_LLM_MAX_PREFILL_INPUTS];
+  memset(cconv_storage, 'r', specs.count);
+  iree_vm_list_t *values = NULL;
+  IREE_RETURN_IF_ERROR(iree_tooling_parse_variants(
+                           iree_make_string_view(cconv_storage, specs.count),
+                           specs, device, runtime->device_allocator,
+                           host_allocator, &values),
+                       "parsing --prefill_input");
+  iree_status_t status = iree_run_llm_append_all(values, list);
+  iree_vm_list_release(values);
+  return status;
+}
+
+//===----------------------------------------------------------------------===//
 // Generation
 //===----------------------------------------------------------------------===//
 
@@ -341,13 +497,16 @@ iree_run_llm_write_logits(iree_hal_device_t *device,
   return status;
 }
 
-static void iree_run_llm_print_stats(double encode_ms,
+// |vision_ms| is negative without --vision_function.
+static void iree_run_llm_print_stats(double encode_ms, double vision_ms,
                                      const iree_llm_generate_stats_t *stats) {
   const double prefill_ms = stats->prefill_duration / 1e6;
   const double decode_ms = stats->decode_duration / 1e6;
   const iree_host_size_t steps = stats->decode_steps;
+  fputs("\n--- iree-run-llm ---\n", stderr);
+  if (vision_ms >= 0)
+    fprintf(stderr, "vision:  %.2f ms\n", vision_ms);
   fprintf(stderr,
-          "\n--- iree-run-llm ---\n"
           "prompt:  %zu tokens (padded to %zu), tokenized in %.2f ms\n"
           "prefill: %.2f ms (%.1f tokens/s)\n"
           "decode:  %zu steps in %.2f ms (%.2f ms/token, %.2f tokens/s)\n"
@@ -362,6 +521,7 @@ static void iree_run_llm_print_stats(double encode_ms,
 
 // |device| is the model's lead device, which prefill's logits are on.
 static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
+                                           iree_run_llm_runtime_t *runtime,
                                            iree_hal_device_t *device,
                                            const iree_tokenizer_t *tokenizer,
                                            iree_allocator_t host_allocator) {
@@ -399,6 +559,28 @@ static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
         write_text, host_allocator, &output.detokenizer);
   }
 
+  // What prefill takes after input_length: the --vision_function results
+  // (image features), then the --prefill_input values; NULL if none. The
+  // vision function runs here, before the timed generation.
+  iree_vm_list_t *prefill_inputs = NULL;
+  iree_duration_t vision_duration = -1;
+  if (iree_status_is_ok(status) && runtime->vision) {
+    status = iree_run_llm_run_vision(runtime, device, host_allocator,
+                                     &prefill_inputs, &vision_duration);
+  }
+  if (iree_status_is_ok(status) && FLAG_prefill_input_list().count > 0) {
+    if (!prefill_inputs) {
+      status = iree_vm_list_create(iree_vm_make_undefined_type_def(),
+                                   FLAG_prefill_input_list().count,
+                                   host_allocator, &prefill_inputs);
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_run_llm_append_prefill_inputs(
+          runtime, device, host_allocator, prefill_inputs);
+    }
+  }
+  params.prefill_inputs = prefill_inputs;
+
   iree_llm_generate_stats_t stats;
   memset(&stats, 0, sizeof(stats));
   iree_hal_buffer_view_t *prefill_logits = NULL;
@@ -421,9 +603,12 @@ static iree_status_t iree_run_llm_generate(iree_llm_model_t *model,
     status = iree_run_llm_write_logits(device, prefill_logits, host_allocator);
   }
   if (iree_status_is_ok(status) && FLAG_print_stats) {
-    iree_run_llm_print_stats((encode_end - encode_start) / 1e6, &stats);
+    iree_run_llm_print_stats((encode_end - encode_start) / 1e6,
+                             vision_duration >= 0 ? vision_duration / 1e6 : -1,
+                             &stats);
   }
 
+  iree_vm_list_release(prefill_inputs);
   iree_hal_buffer_view_release(prefill_logits);
   iree_llm_detokenizer_deinitialize(&output.detokenizer);
   iree_allocator_free(host_allocator, output.tokens);
@@ -451,7 +636,14 @@ int main(int argc, char **argv) {
       "      --max_new_tokens=32\n"
       "\n"
       "--max_seq_len, --block_seq_stride and --min_prefill_blocks must match\n"
-      "the shapes the module was exported with.\n");
+      "the shapes the module was exported with.\n"
+      "\n"
+      "A VLM takes its image features with --prefill_input, or runs its\n"
+      "vision encoder on the device first with --vision_function:\n"
+      "  iree-run-llm --device=hexagon --module=model.vmfb \\\n"
+      "      --vision_function=vision \\\n"
+      "      --vision_input=@image.npy --tokenizer=tokenizer.json \\\n"
+      "      --prompt_file=prompt.txt\n");
   iree_flags_parse_checked(IREE_FLAGS_PARSE_MODE_DEFAULT, &argc, &argv);
 
   iree_allocator_t host_allocator = iree_allocator_system();
@@ -471,7 +663,8 @@ int main(int argc, char **argv) {
         iree_run_llm_create_model(instance, host_allocator, &runtime, &model);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_run_llm_generate(model, iree_run_llm_lead_device(&runtime),
+    status = iree_run_llm_generate(model, &runtime,
+                                   iree_run_llm_lead_device(&runtime),
                                    tokenizer, host_allocator);
   }
 

@@ -22,6 +22,7 @@ cc_binary(
     deps = [
         "//tools/llm:engine",
         "//tools/llm:tokenizer",
+        "//tools/llm:vlm",
         "@iree//runtime/src/iree/base",
         "@iree//runtime/src/iree/base/tooling:flags",
         "@iree//runtime/src/iree/hal",
@@ -31,6 +32,7 @@ cc_binary(
         "@iree//runtime/src/iree/modules/hal:types",
         "@iree//runtime/src/iree/tokenizer",
         "@iree//runtime/src/iree/tooling:context_util",
+        "@iree//runtime/src/iree/tooling:function_io",
         "@iree//runtime/src/iree/tooling:function_util",
         "@iree//runtime/src/iree/tooling:numpy_io",
         "@iree//runtime/src/iree/vm",

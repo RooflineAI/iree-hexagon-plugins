@@ -179,7 +179,11 @@ def _run_generation(
     local_output_dir: pathlib.Path,
     tracy_port: int | None,
 ) -> Outcome:
-    """Run and check a `KvCacheLM` module: token generation with iree-run-llm."""
+    """Run and check a `KvCacheLM` module: token generation with iree-run-llm.
+
+    For a VLM, the vision function's results are checked first, against the
+    eager ones within `generation.vision_tolerances`; then the generation.
+    """
     generation_reference = imported_model.generation
     assert generation_reference is not None
     if tracy_port is not None:
@@ -202,6 +206,23 @@ def _run_generation(
         print(f"  {key}: {value:.3f}s")
     if generation.exit_code != 0:
         return Outcome(Status.RUNTIME_FAILURE, generation.describe())
+    vision = generation_reference.vision
+    if vision is not None:
+        assert model_spec.generation is not None
+        tolerances = model_spec.generation.vision_tolerances
+        try:
+            check_output_files(
+                reference_files=list(vision.reference_files),
+                actual_files=list(generation.vision_output_files),
+                atol=tolerances.atol,
+                rtol=tolerances.rtol,
+                max_relative_l2_percent=tolerances.relative_l2_percent,
+            )
+        except AccuracyError as err:
+            return Outcome(
+                Status.ACCURACY_FAILURE,
+                f"vision outputs: {err}\n{generation.describe()}",
+            )
     try:
         check_generation(
             reference=generation_reference,

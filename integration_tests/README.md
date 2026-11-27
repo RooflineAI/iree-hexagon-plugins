@@ -222,11 +222,43 @@ The check, in `stages/checking.py`:
   positions (the padding's are never used);
 * the generated tokens have to match the reference's exactly.
 
+#### Image + text (VLM)
+
+A VLM is a `KvCacheLM` whose `prefill` also takes the vision encoder's
+outputs, and which has the encoder as a third function, `vision`
+(`Qwen3VLKvCacheLM` in `models/qwen3_vl.py`, e.g.
+`Qwen/Qwen3-VL-2B-Instruct-kv-cache`). All three are exported into one module.
+Its `generation` block names an image:
+
+```yaml
+generation:
+  prompt: "Describe this image in one short sentence."
+  image: keyboard-256.png
+```
+
+The prompt is the user's prompt. The entry's `model.py` also defines
+`get_vlm_preprocessor()` (`models/vlm_preprocessor.py`): it turns the image
+into the encoder's input, puts the prompt into the chat template and expands
+its one image placeholder to one token per image embedding. The import calls
+`preprocess` from `tools/preprocess_vlm.py`, the same function the tool runs
+for a manual run. The import computes the
+image features with the model's `vision` function, eagerly, on the processed image,
+checks that the prompt has one image token per embedding, and generates the
+reference from both. On the device, `iree-run-llm` runs the module's `vision`
+function on the image first (`--vision_function=vision`) and feeds its
+results to `prefill`, end to end. It also writes them out
+(`--vision_output`), and the test checks them first, against the eager
+encoder's within `generation.vision_tolerances` (default: atol 0.2, rtol
+0.05, 1% relative L2), so an encoder error shows as such. Then the
+generation is checked as above. Its prefill logits carry the encoder's error
+as well as the language model's, which the entry's `tolerances` allow for.
+
 The log has the text and, under `generation timings:`, the time of the whole
 `iree-run-llm` run (`generate`) and its own times of `prefill` and of one
-decode step (`decode_per_token`). `perf_compare.py` compares the latter two
-against the recent main runs, each as `<test id>:<name>`, as it compares the
-`run:` of other models. A profile run case does not support these models.
+decode step (`decode_per_token`), and for a VLM of the encoder (`vision`).
+`perf_compare.py` compares `prefill` and `decode_per_token` against the recent
+main runs, each as `<test id>:<name>`, as it compares the `run:` of other
+models. A profile run case does not support these models.
 
 ## Profiling
 

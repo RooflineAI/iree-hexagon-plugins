@@ -154,6 +154,54 @@ instead of from the command line. This can help to avoid quoting issues with
 with `--stop_token_id` (can be specified multiple times, take IDs them from the
 model's `generation_config.json`).
 
+### Image + text (VLM)
+
+A VLM's language model takes image features in `prefill`, after the prompt
+(`Qwen3VLKvCacheLM` in
+[integration_tests/models/qwen3_vl.py](../integration_tests/models/qwen3_vl.py)).
+The prompt must already hold the image's tokens: for Qwen3-VL, the chat
+template with its one `<|image_pad|>` repeated once per image embedding (64
+for a 256x256 image). The features come either from files, in
+`iree-run-module`'s `--input` syntax, in prefill's argument order:
+
+```sh
+  $REMOTE_DIR/bin/iree-run-llm --module=$REMOTE_DIR/model.vmfb ... \
+    --prefill_input=@image_embeds.npy --prefill_input=@deepstack0.npy \
+    --prefill_input=@deepstack1.npy --prefill_input=@deepstack2.npy \
+    --prefill_input=2xi64=8,8
+```
+
+or from the vision encoder, run on the device first. It is a function of the
+model's module, exported as `vision` next to `prefill` and `decode`. Its
+results stay on the device and go to `prefill` as they are:
+
+```sh
+  $REMOTE_DIR/bin/iree-run-llm --module=$REMOTE_DIR/model.vmfb ... \
+    --vision_function=vision --vision_input=@image.npy
+```
+
+`image.npy` is the image as the encoder takes it: for Qwen3-VL `[1, 3, 256,
+256]` f16, RGB in 0..1. The stats then also give the encoder's time
+(`vision:`). `--vision_output=@vision_output0.npy`, once per result, also
+writes the encoder's results to files, e.g. to compare them with the
+reference.
+
+`iree-run-llm` knows nothing about the model, so `image.npy` and the prompt
+are prepared on the host, by the model entry's processor
+([integration_tests/models/vlm_preprocessor.py](../integration_tests/models/vlm_preprocessor.py)),
+the same one the integration tests use. It fits the image to the encoder's
+size (`--fit=stretch`, the default, or `--fit=pad` to keep the aspect ratio)
+and puts the prompt into the chat template with the image's tokens
+expanded:
+
+```sh
+.venv/bin/python -m integration_tests.tools.preprocess_vlm \
+  --model=Qwen/Qwen3-VL-2B-Instruct-kv-cache --image=photo.jpg \
+  --prompt="Describe this image in one short sentence." -o out/
+adb push out/image.npy out/prompt.txt $REMOTE_DIR/
+# then iree-run-llm ... --vision_input=@image.npy --prompt_file=prompt.txt
+```
+
 ## DSP-side debug logging
 
 DSP output does not appear on stdout; it goes to the Android log. Enable it by writing a

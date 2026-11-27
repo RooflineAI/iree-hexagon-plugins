@@ -1,0 +1,44 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Qwen3-VL-2B-Instruct, image + text in, generated tokens out (see
+# models/qwen3_vl.py): one module with the vision encoder as `vision`, the
+# language model as `prefill`, which also takes the encoder's outputs, and
+# `decode`. The device runs `vision` on the image first, end to end. The image
+# is resnet-50-keyboard's keyboard.png, bicubic-resized to 256x256.
+dtype: float16
+inputs:
+  # The export's example prompt (random token ids, no image tokens): a multiple
+  # of 32 tokens (block_seq_stride), at least two blocks, shorter than
+  # max_seq_len (256). The example image features are model.py's.
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: null
+    seed: 0
+# Prefill logits with `vision` run on the device (hexagon-vtcm-hmx): 1.62%,
+# max abs diff 3.57 on logits of magnitude ~30 (2026-11-26), all 19 tokens
+# match. That is the encoder's error (0.85% on the image embeddings,
+# 2026-11-24) carried into the language model, whose own is 0.26% / 0.125
+# from the reference's image features (2026-11-23).
+tolerances:
+  atol: 5.0
+  rtol: 5.0e-2
+  relative_l2_percent: 2.5
+compile_cases: [hexagon-vtcm-hmx]
+# The user prompt. The import puts it into the chat template for one image
+# and expands <|image_pad|> to one token per image embedding (64), giving an 82-token
+# prompt. The reference answers in 18 tokens plus <|im_end|>, all with a margin
+# of at least 0.45 (measured on the host, 2026-11-23): "Describe this image in
+# one sentence." has a near-tie at step 5.
+generation:
+  prompt: "Describe this image in one short sentence."
+  max_new_tokens: 19
+  image: keyboard-256.png
+  # vision_tolerances: the default (1%). The encoder's results were 0.85 /
+  # 0.14 / 0.27 / 0.48% relative L2 (embeddings, deepstack 0-2), the grid
+  # exact (2026-11-24, as a separate entry).

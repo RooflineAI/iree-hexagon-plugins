@@ -1,0 +1,133 @@
+diff --git a/llvm/lib/Target/Hexagon/HexagonVLIWPacketizer.cpp b/llvm/lib/Target/Hexagon/HexagonVLIWPacketizer.cpp
+index 4d1db5206886..402787d6f865 100644
+--- a/llvm/lib/Target/Hexagon/HexagonVLIWPacketizer.cpp
++++ b/llvm/lib/Target/Hexagon/HexagonVLIWPacketizer.cpp
+@@ -1540,7 +1540,8 @@ bool HexagonPacketizerList::isLegalToPacketizeTogether(SUnit *SUI, SUnit *SUJ) {
+     // 1. Volatile loads/stores can be packetized together, unless other
+     //    rules prevent is.
+     // 2. Store followed by a load is not allowed.
+-    // 3. Store followed by a store is valid.
++    // 3. Store followed by a store is valid, unless the first store must go
++    //    in slot 0 and they may alias.
+     // 4. Load followed by any memory operation is allowed.
+     if (DepType == SDep::Order) {
+       if (!PacketizeVolatiles) {
+@@ -1565,6 +1566,20 @@ bool HexagonPacketizerList::isLegalToPacketizeTogether(SUnit *SUI, SUnit *SUJ) {
+         break;
+       }
+ 
++      // The same holds for two stores. When both stores of a packet write
++      // the same location, the store in slot 0 takes effect last, so the
++      // shuffler keeps program order by placing the first store in slot 1
++      // (HexagonShuffler::restrictStoreLoadOrder). A first store that can
++      // only go in slot 0, such as an HVX vmem store, would then take effect
++      // after the second one. Do not packetize such a pair if they may alias.
++      // ALLOCFRAME is exempt: it only writes the saved FP/LR pair, and stores
++      // are packetized with it on purpose (see the special case below).
++      if (StoreJ && StoreI && HII->isPureSlot0(J) &&
++          J.getOpcode() != Hexagon::S2_allocframe && alias(J, I)) {
++        FoundSequentialDependence = true;
++        break;
++      }
++
+       if (Slot1Store && MF.getSubtarget<HexagonSubtarget>().hasV65Ops() &&
+           ((LoadJ && StoreI && !NVStoreI) ||
+            (StoreJ && LoadI && !NVStoreJ)) &&
+diff --git a/llvm/test/CodeGen/Hexagon/autohvx/hvx-store-packet-order.mir b/llvm/test/CodeGen/Hexagon/autohvx/hvx-store-packet-order.mir
+new file mode 100644
+index 000000000000..dbe1e75bf6a1
+--- /dev/null
++++ b/llvm/test/CodeGen/Hexagon/autohvx/hvx-store-packet-order.mir
+@@ -0,0 +1,92 @@
++# RUN: llc -mtriple=hexagon -mcpu=hexagonv79 -mattr=+hvxv79,+hvx-length128b \
++# RUN:   -run-pass=hexagon-packetizer -verify-machineinstrs %s -o - | FileCheck %s
++
++# An HVX store can only go in slot 0, and when both stores of a packet write
++# the same location, the store in slot 0 takes effect last. Check that an HVX
++# store is not packetized with a later store that may alias it, which would
++# then be overwritten. A dynamic insertelement into a vector that lives on the
++# stack is lowered to this sequence: spill the vector, store the element,
++# reload the vector.
++
++# CHECK-LABEL: name: hvx_store_scalar_store
++# CHECK: {{^    }}V6_vS32b_ai $r29, 0, $v0
++# CHECK-NEXT: BUNDLE
++# CHECK-NEXT: S2_storeri_io $r2, 0, $r1
++
++# The other order is fine: the later (HVX) store goes in slot 0.
++# CHECK-LABEL: name: scalar_store_hvx_store
++# CHECK: BUNDLE
++# CHECK-NEXT: S2_storeri_io $r2, 0, $r1
++# CHECK-NEXT: V6_vS32b_ai $r29, 0, $v0
++
++# Stores that do not alias can still share a packet.
++# CHECK-LABEL: name: hvx_store_disjoint_store
++# CHECK: BUNDLE
++# CHECK-NEXT: V6_vS32b_ai $r0, 0, $v0
++# CHECK-NEXT: S2_storeri_io $r1, 0, $r2
++
++# ALLOCFRAME is a slot-0 store too, but the frame setup still packetizes it
++# with the following store (which then uses the caller's SP).
++# CHECK-LABEL: name: allocframe_store
++# CHECK: BUNDLE
++# CHECK-NEXT: S2_allocframe
++# CHECK-NEXT: S2_storerd_io internal $r29, -8, $d8
++
++--- |
++  define void @hvx_store_scalar_store() { ret void }
++  define void @scalar_store_hvx_store() { ret void }
++  define void @hvx_store_disjoint_store(ptr noalias %a, ptr noalias %b) {
++    ret void
++  }
++  define void @allocframe_store() { ret void }
++...
++---
++name: hvx_store_scalar_store
++tracksRegLiveness: true
++stack:
++  - { id: 0, size: 128, alignment: 128 }
++body: |
++  bb.0:
++    liveins: $r1, $r2, $r29, $v0
++
++    V6_vS32b_ai $r29, 0, $v0 :: (store (s1024) into %stack.0)
++    S2_storeri_io $r2, 0, $r1 :: (store (s32) into %stack.0)
++    PS_jmpret $r31, implicit-def dead $pc
++...
++---
++name: scalar_store_hvx_store
++tracksRegLiveness: true
++stack:
++  - { id: 0, size: 128, alignment: 128 }
++body: |
++  bb.0:
++    liveins: $r1, $r2, $r29, $v0
++
++    S2_storeri_io $r2, 0, $r1 :: (store (s32) into %stack.0)
++    V6_vS32b_ai $r29, 0, $v0 :: (store (s1024) into %stack.0)
++    PS_jmpret $r31, implicit-def dead $pc
++...
++---
++name: hvx_store_disjoint_store
++tracksRegLiveness: true
++body: |
++  bb.0:
++    liveins: $r0, $r1, $r2, $v0
++
++    V6_vS32b_ai $r0, 0, $v0 :: (store (s1024) into %ir.a)
++    S2_storeri_io $r1, 0, $r2 :: (store (s32) into %ir.b)
++    PS_jmpret $r31, implicit-def dead $pc
++...
++---
++name: allocframe_store
++tracksRegLiveness: true
++stack:
++  - { id: 0, type: spill-slot, offset: -16, size: 8, alignment: 8 }
++body: |
++  bb.0:
++    liveins: $d8, $r29, $r30, $r31
++
++    $r29 = S2_allocframe $r29, 8, implicit-def $r30, implicit $framekey, implicit $framelimit, implicit $r30, implicit $r31 :: (store (s64) into stack)
++    S2_storerd_io $r29, 0, $d8 :: (store (s64) into %stack.0)
++    PS_jmpret $r31, implicit-def dead $pc
++...

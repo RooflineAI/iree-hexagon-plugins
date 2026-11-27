@@ -177,7 +177,7 @@ class ModelSpec:
     run_cases: tuple[str, ...] = DEFAULT_RUN_CASE_NAMES
     # Where the weights go, from WEIGHTS_MODES: `embedded` in the vmfb, or
     # `external` in a parameter archive kept on the device across runs, which
-    # spares a large model the push of its weights. Each mode is a separate
+    # spares a large model the re-push of its weights. Each mode is a separate
     # compile and test.
     weights: tuple[str, ...] = DEFAULT_WEIGHTS_MODES
     # Checks on the profile of the profile run cases (e.g. parallel-profile).

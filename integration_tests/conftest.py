@@ -43,7 +43,6 @@ from integration_tests.tool_paths import (
     RUNTIME_ZIP_TRACY_TARGET,
     resolve_bazel_artifact,
     resolve_host_tool,
-    resolve_sibling_tool,
 )
 
 
@@ -71,8 +70,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help=(
             f"path to iree-encode-parameters ({IREE_ENCODE_PARAMETERS_TARGET}), "
-            "which encodes external weights. Taken from beside iree-compile "
-            "when omitted."
+            "which encodes external weights. Resolved with 'bazel cquery' when "
+            "omitted."
         ),
     )
     group.addoption(
@@ -146,7 +145,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="append",
         default=[],
         metavar="ORG/NAME",
-        help="run only this model from models/ (repeatable).",
+        help=("filter: keep only the tests of this model from models/ (repeatable)."),
     )
     group.addoption(
         "--run-skipped",
@@ -160,10 +159,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=[],
         choices=COMPILE_CASE_NAMES,
         metavar="NAME",
-        help=(
-            "run only this compile case from each selected model's configured "
-            "cases (repeatable)."
-        ),
+        help=("filter: keep only the tests of this compile case"),
     )
     group.addoption(
         "--weights",
@@ -171,10 +167,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=[],
         choices=WEIGHTS_MODES,
         metavar="MODE",
-        help=(
-            "run only this weights mode (embedded or external) from each "
-            "selected model's configured modes (repeatable)."
-        ),
+        help=("filter: keep only the tests of this weights mode"),
     )
     group.addoption(
         "--run-case",
@@ -182,10 +175,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=[],
         choices=RUN_CASE_NAMES,
         metavar="NAME",
-        help=(
-            "run only this run case from each selected model's configured "
-            "cases (repeatable)."
-        ),
+        help=("filter: keep only the tests of this run case"),
     )
 
 
@@ -287,11 +277,10 @@ def iree_compile(pytestconfig: pytest.Config) -> Path:
 
 
 @pytest.fixture(scope="session")
-def iree_encode_parameters(pytestconfig: pytest.Config, iree_compile: Path) -> Path:
-    return resolve_sibling_tool(
-        "iree-encode-parameters",
+def iree_encode_parameters(pytestconfig: pytest.Config) -> Path:
+    return resolve_bazel_artifact(
+        IREE_ENCODE_PARAMETERS_TARGET,
         pytestconfig.getoption("--iree-encode-parameters"),
-        iree_compile,
     )
 
 

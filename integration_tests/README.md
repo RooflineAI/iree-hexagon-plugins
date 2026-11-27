@@ -24,14 +24,15 @@ expected to be built separately and passed as an argument to the pytest command.
 ```sh
 build_tools/create_test_venv.sh                 # creates ./.venv from requirements.txt
 .venv/bin/pytest integration_tests/ -v -rA \
-    --iree-compile=<path> --runtime-zip=<path> --runtime-zip-tracy=<path> \
+    --iree-compile=<path> --iree-encode-parameters=<path> \
+    --runtime-zip=<path> --runtime-zip-tracy=<path> \
     --device-tools-zip=<path> --lld=<path>
 ```
 
 Omit the paths and they will try to be resolved with `bazel cquery`:
 
 ```sh
-bazel build @iree//tools:iree-compile \
+bazel build @iree//tools:iree-compile @iree//tools:iree-encode-parameters \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android \
             //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy \
             //integration_tests/device/tools:device_tools_aarch64_android \
@@ -44,8 +45,9 @@ profile run cases (see [Profiling](#profiling)) use the Tracy one, all others
 the plain one.
 
 Options, all in `conftest.py`: `--model`, `--compile-case`, `--run-case` and
-`--weights` (all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`,
-`--rsync`, `--tracy-port` (default 8086), and the five artifact paths.
+`--weights` (all repeatable filters), `--run-skipped`, `--keep-device-dir`,
+`--device-root`, `--rsync`, `--tracy-port` (default 8086), and the six artifact
+paths.
 
 ## Requirements
 
@@ -84,7 +86,7 @@ Options, all in `conftest.py`: `--model`, `--compile-case`, `--run-case` and
         lib/    the DSP skel and libc++_shared
         cases/  one directory per (model, compile case)
     modules/<case>/module.vmfb   kept across runs
-    modules/<model>/<sha256>.irpa  external weights, kept across runs
+    parameters/<sha256>.irpa  external weights, kept across runs
 ```
 
 Modules of 64 MiB and more are kept in `modules/` and sent with rsync, as a
@@ -102,13 +104,13 @@ Smaller modules go straight into the case directory with adb push: for them a
 delta saves less than rsync's own round trips to the phone cost.
 
 A model compiled with [external weights](#external-weights) keeps them in
-`modules/<model>/`, in a parameter archive named after its sha256 and shared by
-the model's compile cases. A run whose archive is already there only touches
+`parameters/`, in a parameter archive named after its sha256 and shared by
+every module that uses it. A run whose archive is already there only touches
 it (so that the phone's cleanup, which goes by age, keeps it); otherwise the
 archive is pushed under a temporary name, checked against its sha256 on the
 phone and renamed into place, so the file under a name is always complete and
-never changes. A new archive for a model deletes that model's archives not used
-for two hours. Deleting `modules/` is safe here too.
+never changes. Archives no run uses any more are left to the phone's cleanup.
+Deleting `parameters/` is safe too.
 
 **There is no device lock.** This suite assumes one runner executing serially.
 
@@ -203,10 +205,10 @@ change.
 weights: [external]             # or [embedded, external] to test both
 ```
 
-Description of the flow (`compile_with_parameter_encoding`):
+Description of the flow:
 
 1. The import keeps the weights out of the MLIR
-   (`aot.externalize_module_parameters`) and writes them to `weights.irpa`; the
+   (iree-turbine external tensors) and writes them to `weights.irpa`; the
    MLIR names them in the scope `model`. A KV-cache model's cache stays in the
    MLIR.
 2. `iree-compile` compiles the module with

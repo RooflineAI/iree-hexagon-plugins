@@ -15,13 +15,10 @@ the encoder module is compiled for the host CPU and run by
 `iree-encode-parameters` on the import's archive. Its output, in the default
 `consolidate` mode, is the only archive the module needs at runtime, under
 `ENCODED_SCOPE`.
-
-This is the flow roof-mlir uses (attic's `compile_with_parameter_encoding`).
 """
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -51,14 +48,7 @@ def encoder_output_flags(encoder_mlir: Path) -> list[str]:
 
 
 def _run(argv: list[str], log_file: Path, what: str) -> None:
-    # A dynamically loaded HAL (the Hexagon one) is of no use to the host
-    # encoder and must not be loaded into it.
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith("IREE_DYNAMIC_HAL")
-    }
-    result = subprocess.run(argv, capture_output=True, text=True, env=env)
+    result = subprocess.run(argv, capture_output=True, text=True)
     log = result.stdout + result.stderr
     log_file.parent.mkdir(parents=True, exist_ok=True)
     log_file.write_text(log)
@@ -85,6 +75,9 @@ def encode_parameters(
     """
     work_dir = output_archive.parent
     encoder_vmfb = work_dir / "encoder.vmfb"
+    # A stale archive from an earlier run into the same directory would
+    # otherwise pass for this one's.
+    output_archive.unlink(missing_ok=True)
     _run(
         [
             str(iree_compile),
@@ -97,9 +90,6 @@ def encode_parameters(
         work_dir / "encoder-compile.log",
         "compiling the parameter encoder",
     )
-    # A stale archive from an earlier run into the same directory would
-    # otherwise pass for this one's.
-    output_archive.unlink(missing_ok=True)
     _run(
         [
             str(iree_encode_parameters),

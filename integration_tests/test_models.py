@@ -105,10 +105,9 @@ def _run_pipeline(
     elif weights == "external":
         print("external weights requested, but the model has no weights")
 
-    model_dir = model_spec.name.replace("/", "_")
-    case_dir = f"{model_dir}_{compile_case.name}_{run_case.name}" + (
-        "_external" if weights == "external" else ""
-    )
+    case_dir = (
+        f"{model_spec.name.replace('/', '_')}_{compile_case.name}_{run_case.name}"
+    ) + ("_external" if weights == "external" else "")
     local_output_dir = work_dir / "device_outputs"
     if imported_model.generation is not None:
         return _run_generation(
@@ -122,7 +121,6 @@ def _run_pipeline(
             local_output_dir=local_output_dir,
             tracy_port=tracy_port,
             parameters=parameters,
-            model_dir=model_dir,
         )
 
     result = run_module_on_device(
@@ -137,7 +135,6 @@ def _run_pipeline(
         tracy_port=tracy_port,
         debug_malloc=run_case.debug_malloc,
         parameters=parameters,
-        model_dir_name=model_dir,
     )
     print(result.log)
     print("timings:")
@@ -201,7 +198,6 @@ def _run_generation(
     local_output_dir: pathlib.Path,
     tracy_port: int | None,
     parameters: ParameterArchive | None,
-    model_dir: str,
 ) -> Outcome:
     """Run and check a `KvCacheLM` module: token generation with iree-run-llm."""
     generation_reference = imported_model.generation
@@ -218,7 +214,6 @@ def _run_generation(
         extra_flags=run_case.flags,
         timeout=model_spec.run_timeout,
         parameters=parameters,
-        model_dir_name=model_dir,
     )
     print(generation.log)
     # perf_compare.py compares prefill and decode_per_token from here,

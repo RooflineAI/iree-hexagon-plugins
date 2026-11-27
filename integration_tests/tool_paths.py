@@ -7,13 +7,12 @@
 """Locating the artifacts these tests drive, and the host's rsync.
 
 The device suite runs under plain pytest, so the normal path is that each of
-`iree-compile`, the runtime zip, the device-tools zip and `ld.lld` arrives as a
-command-line option and this module only checks that it exists.
+`iree-compile`, `iree-encode-parameters`, the runtime zip, the device-tools zip
+and `ld.lld` arrives as a command-line option and this module only checks that
+it exists.
 
 When an option is omitted the path is resolved with
-`bazel cquery` instead. `iree-encode-parameters` is taken from beside
-`iree-compile`, where both the bazel build and the packaged compiler put it,
-unless given explicitly.
+`bazel cquery` instead.
 
 rsync is not built here for the host but taken from the system: from `--rsync`,
 or else from PATH. Its device side ships in the device-tools zip.
@@ -55,23 +54,6 @@ def resolve_host_tool(name: str, explicit: str | None) -> Path:
             f"or pass its path with --{name}."
         )
     return Path(found)
-
-
-def resolve_sibling_tool(name: str, explicit: str | None, sibling: Path) -> Path:
-    """Return the tool `name` from beside `sibling`, unless given explicitly."""
-    if explicit:
-        path = Path(explicit).resolve()
-        if not path.exists():
-            raise ToolResolutionError(f"{name}: given path does not exist: {path}")
-        return path
-    path = sibling.parent / name
-    if not path.exists():
-        raise ToolResolutionError(
-            f"{name} is not beside {sibling}. Build it "
-            f"('bazel build {IREE_ENCODE_PARAMETERS_TARGET}') or pass its path "
-            f"with --{name}."
-        )
-    return path
 
 
 def resolve_bazel_artifact(target: str, explicit: str | None) -> Path:

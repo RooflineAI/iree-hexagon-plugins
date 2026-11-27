@@ -31,9 +31,9 @@ Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
     runs/<id>*/cases/        one directory per (model, compile case)
     modules/<case>/module.vmfb   the last large module sent for each (model,
                              compile case), kept across runs
-    modules/<model>/<sha256>.irpa  the weights of a model compiled with external
+    parameters/<sha256>.irpa  the weights of a model compiled with external
                              weights, named after their sha256 and shared by
-                             the model's compile cases, kept across runs
+                             every module that uses them, kept across runs
 
 `<id>` is a hash of the user name on the host and the repository root, so each
 checkout of each user has one directory per runtime. It is emptied when a run
@@ -49,9 +49,10 @@ kept (`_KEEP_MODULE_MIN_BYTES` in `stages/running.py`), and can be deleted at
 any time, at the cost of one full transfer per case.
 
 A parameter archive is only ever written under its own sha256, so a run either
-finds the archive it needs there or pushes it; it is touched on every use, so
-that the phone's cleanup (by age) keeps the archives in use. Pushing a new
-archive for a model deletes that model's archives not used for two hours.
+finds the archive it needs in `parameters/` or pushes it. It is touched on every
+use, so that the phone's cleanup, which deletes files by age, removes only the
+archives no run uses any more. `parameters/` can be deleted at any time, at the
+cost of one full transfer per archive.
 
 There is no lock: this suite is meant for one runner executing serially.
 """
@@ -144,9 +145,9 @@ class Deployment:
         """Where the case's module lives across runs, see the module docstring."""
         return f"{self.root}/modules/{case_dir_name}/module.vmfb"
 
-    def kept_parameters(self, model_dir_name: str, sha256: str) -> str:
-        """Where a model's parameter archive lives across runs."""
-        return f"{self.root}/modules/{model_dir_name}/{sha256}.irpa"
+    def kept_parameters(self, sha256: str) -> str:
+        """Where a parameter archive lives across runs."""
+        return f"{self.root}/parameters/{sha256}.irpa"
 
 
 @dataclass(frozen=True)

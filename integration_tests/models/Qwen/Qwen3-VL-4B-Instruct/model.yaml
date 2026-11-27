@@ -23,3 +23,6 @@ tolerances:
 # A ~4B-parameter prefill needs longer than the default to push and run.
 run_timeout: 3600
 compile_cases: [hexagon-vtcm-hmx]
+# The weights go to a parameter archive kept on the phone, so a run only
+# pushes them when they change.
+weights: [external]

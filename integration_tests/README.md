@@ -43,8 +43,8 @@ Both runtimes are deployed once per session, each in its own run directory; the
 profile run cases (see [Profiling](#profiling)) use the Tracy one, all others
 the plain one.
 
-Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
-(all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`,
+Options, all in `conftest.py`: `--model`, `--compile-case`, `--run-case` and
+`--weights` (all repeatable), `--run-skipped`, `--keep-device-dir`, `--device-root`,
 `--rsync`, `--tracy-port` (default 8086), and the five artifact paths.
 
 ## Requirements
@@ -84,6 +84,7 @@ Options, all in `conftest.py`: `--model`, `--compile-case` and `--run-case`
         lib/    the DSP skel and libc++_shared
         cases/  one directory per (model, compile case)
     modules/<case>/module.vmfb   kept across runs
+    modules/<model>/<sha256>.irpa  external weights, kept across runs
 ```
 
 Modules of 64 MiB and more are kept in `modules/` and sent with rsync, as a
@@ -99,6 +100,15 @@ sends the whole module once.
 
 Smaller modules go straight into the case directory with adb push: for them a
 delta saves less than rsync's own round trips to the phone cost.
+
+A model compiled with [external weights](#external-weights) keeps them in
+`modules/<model>/`, in a parameter archive named after its sha256 and shared by
+the model's compile cases. A run whose archive is already there only touches
+it (so that the phone's cleanup, which goes by age, keeps it); otherwise the
+archive is pushed under a temporary name, checked against its sha256 on the
+phone and renamed into place, so the file under a name is always complete and
+never changes. A new archive for a model deletes that model's archives not used
+for two hours. Deleting `modules/` is safe here too.
 
 **There is no device lock.** This suite assumes one runner executing serially.
 
@@ -179,6 +189,46 @@ and to run on the device:
 ```yaml
 run_timeout: 3600
 ```
+
+### External weights
+
+By default a model's weights are compiled into its vmfb, which is then pushed
+whole (as an rsync delta when large). A multi-GB model is better off with
+`external` weights: the vmfb shrinks to a few MB and the weights go to a
+parameter archive (`.irpa`) that stays on the phone (see
+[On the device](#on-the-device)), so a run only pushes the weights when they
+change.
+
+```yaml
+weights: [external]             # or [embedded, external] to test both
+```
+
+This is the flow roof-mlir uses (`compile_with_parameter_encoding`):
+
+1. The import keeps the weights out of the MLIR
+   (`aot.externalize_module_parameters`) and writes them to `weights.irpa`; the
+   MLIR names them in the scope `model`. A KV-cache model's cache stays in the
+   MLIR.
+2. `iree-compile` compiles the module with
+   `--iree-parameter-encoder-output-file`, which splits off an encoder module:
+   whatever the module would compute from the weights when it starts up.
+3. The encoder module is compiled for the host CPU and run by
+   `iree-encode-parameters` on `weights.irpa`. Its output, in the scope
+   `encoded`, is the only archive the module needs on the device.
+
+The encoded archive holds the weights as the compiler wants them on the device:
+if it transforms them differently, the archive's sha256 changes and it is pushed
+again. It also holds only the weights the module uses. If the compile produces
+no encoder, the module loads `weights.irpa` itself, in the scope `model`.
+`iree-encode-parameters` is taken from beside `iree-compile`
+(`--iree-encode-parameters` to override).
+
+Each weights mode is a separate import, compile and test. Tests with external
+weights have `-external` at the end of their id; `--weights=external` filters a
+test invocation to them. A module compiled this way runs with
+`--parameters=encoded=/path/to/<sha256>.irpa` (in the default `file`
+parameter mode: `--parameter_mode=preload` reads the whole archive into memory
+on top of the device's copy, which a large model does not survive).
 
 ### Token generation: prefill and decode
 

@@ -16,13 +16,18 @@ import re
 import shlex
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from integration_tests.device import adb
 from integration_tests.device.adb import AdbError
 from integration_tests.device.deploy import Deployment
-from integration_tests.stages.artifacts import GenerationReference, ModuleCall
+from integration_tests.stages.artifacts import (
+    GenerationReference,
+    ModuleCall,
+    ParameterArchive,
+)
 
 
 @dataclass(frozen=True)
@@ -168,6 +173,91 @@ def _check_module_after_rsync(
         )
 
 
+class ParameterMismatchError(RuntimeError):
+    """A parameter archive arrived on the device with a different sha256."""
+
+
+# When a model gets a new parameter archive, its other archives that nobody has
+# used (touched) for this long are deleted. Longer than any run can take, so an
+# archive another execution is running with is left alone.
+_STALE_PARAMETERS_MINUTES = 120
+
+
+def push_parameters(
+    parameters: ParameterArchive,
+    remote_path: str,
+    timeout: float,
+    timings: dict[str, float] | None = None,
+) -> None:
+    """Make `remote_path` on the device a copy of `parameters`.
+
+    `remote_path` is named after the archive's sha256 (see
+    `Deployment.kept_parameters`), so an existing file there is the archive:
+    it is touched, to keep it from the phone's cleanup, and used as is.
+    Otherwise the archive is pushed to a temporary name, its sha256 is checked
+    on the device, and it is renamed into place, so `remote_path` only ever
+    holds a complete, verified archive, even with another execution of the
+    suite pushing the same archive at the same time. The model's archives that
+    were not used for `_STALE_PARAMETERS_MINUTES` are then deleted.
+
+    `timeout` bounds the transfer and the checksum. With `timings`, the
+    durations of the check, the transfer and the verification are added to it.
+    """
+    if timings is None:
+        timings = {}
+    remote_dir = posixpath.dirname(remote_path)
+    quoted_path = shlex.quote(remote_path)
+    check_start = time.time()
+    present = (
+        adb.shell(
+            f"mkdir -p {shlex.quote(remote_dir)}; "
+            f"if [ -f {quoted_path} ]; then touch {quoted_path}; echo kept; fi"
+        ).strip()
+        == "kept"
+    )
+    timings["check_parameters"] = time.time() - check_start
+    if present:
+        return
+
+    temporary_path = f"{remote_path}.tmp.{uuid.uuid4().hex[:12]}"
+    temporary = shlex.quote(temporary_path)
+    push_start = time.time()
+    adb.push([parameters.path], temporary_path, timeout=timeout)
+    timings["push_parameters"] = time.time() - push_start
+
+    verify_start = time.time()
+    actual = adb.shell(f"sha256sum {temporary}", timeout=timeout).split()[0]
+    if actual != parameters.sha256:
+        adb.shell(f"rm -f {temporary}")
+        raise ParameterMismatchError(
+            f"{parameters.path} arrived on the device with sha256 {actual}, "
+            f"expected {parameters.sha256}"
+        )
+    stale = _STALE_PARAMETERS_MINUTES
+    adb.shell(
+        f"mv {temporary} {quoted_path}; "
+        f"find {shlex.quote(remote_dir)} -name '*.irpa' "
+        f"! -name {shlex.quote(posixpath.basename(remote_path))} -mmin +{stale} -delete; "
+        f"find {shlex.quote(remote_dir)} -name '*.irpa.tmp.*' -mmin +{stale} -delete"
+    )
+    timings["verify_parameters"] = time.time() - verify_start
+
+
+def _parameter_flags(
+    deployment: Deployment,
+    parameters: ParameterArchive | None,
+    model_dir_name: str,
+    timeout: float,
+    timings: dict[str, float],
+) -> list[str]:
+    """Push `parameters`, if any, and return the flags that load them."""
+    if parameters is None:
+        return []
+    remote_path = deployment.kept_parameters(model_dir_name, parameters.sha256)
+    push_parameters(parameters, remote_path, timeout, timings)
+    return [f"--parameters={parameters.scope}={remote_path}"]
+
+
 def push_module(
     module_vmfb: Path,
     remote_module: str,
@@ -288,6 +378,8 @@ def run_module_on_device(
     timeout: float = 900.0,
     tracy_port: int | None = None,
     debug_malloc: bool = False,
+    parameters: ParameterArchive | None = None,
+    model_dir_name: str = "",
 ) -> RunModuleResult:
     """Push a module plus its inputs, run it on the DSP, and pull the outputs.
 
@@ -304,6 +396,10 @@ def run_module_on_device(
     into the case directory.
 
     `timeout` bounds both the module push and the run.
+
+    With `parameters`, the module was compiled with external weights: the
+    archive is kept on the device under `model_dir_name` (see
+    `push_parameters`) and the module loads it from there.
 
     With `debug_malloc`, iree-benchmark-module runs under bionic's malloc debug, see
     `_DEBUG_MALLOC_OPTIONS`.
@@ -331,6 +427,9 @@ def run_module_on_device(
     remote_dir = _push_case(
         deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
     )
+    parameter_flags = _parameter_flags(
+        deployment, parameters, model_dir_name, timeout, timings
+    )
     push_files = [path for call in calls for path in call.input_files]
     if push_files:
         adb.push(push_files, remote_dir + "/")
@@ -352,7 +451,10 @@ def run_module_on_device(
         else ""
     )
     run_commands = [
-        env + shlex.join(_run_module_argv(deployment, call, extra_flags))
+        env
+        + shlex.join(
+            _run_module_argv(deployment, call, (*parameter_flags, *extra_flags))
+        )
         for call in calls
     ]
     if tracy_port is None:
@@ -468,6 +570,8 @@ def run_llm_on_device(
     host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
+    parameters: ParameterArchive | None = None,
+    model_dir_name: str = "",
 ) -> RunLlmResult:
     """Push a module exported from a `KvCacheLM` and generate tokens with it
     with iree-run-llm on the device.
@@ -478,12 +582,16 @@ def run_llm_on_device(
     pulled to `local_output_dir`.
 
     `timeout` bounds both the module push and the run, which runs under
-    `limit_lifetime`, see `run_module_on_device`.
+    `limit_lifetime`, see `run_module_on_device`. `parameters` and
+    `model_dir_name` are as there.
     """
     timings: dict[str, float] = {}
     push_total_start = time.time()
     remote_dir = _push_case(
         deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
+    )
+    parameter_flags = _parameter_flags(
+        deployment, parameters, model_dir_name, timeout, timings
     )
     adb.push([generation.tokenizer_json, generation.prompt_file], remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start
@@ -504,6 +612,7 @@ def run_llm_on_device(
         "--ignore_eos",
         "--print_token_ids",
         f"--prefill_logits_output={_PREFILL_LOGITS}",
+        *parameter_flags,
         *extra_flags,
     ]
     # See run_module_on_device for oom_score_adj and DSP_LIBRARY_PATH.

@@ -25,6 +25,8 @@ from integration_tests.modeltree.outcomes import ExpectedOutcome, Status
 from integration_tests.stages.compiling import (
     COMPILE_CASE_NAMES,
     DEFAULT_COMPILE_CASE_NAMES,
+    DEFAULT_WEIGHTS_MODES,
+    WEIGHTS_MODES,
 )
 from integration_tests.stages.profile_checks import (
     PROFILE_CHECKS,
@@ -173,6 +175,11 @@ class ModelSpec:
     # Which runtime configurations to run each compile case with. Each one is
     # a separate test of the same compiled module.
     run_cases: tuple[str, ...] = DEFAULT_RUN_CASE_NAMES
+    # Where the weights go, from WEIGHTS_MODES: `embedded` in the vmfb, or
+    # `external` in a parameter archive kept on the device across runs, which
+    # spares a large model the push of its weights. Each mode is a separate
+    # compile and test.
+    weights: tuple[str, ...] = DEFAULT_WEIGHTS_MODES
     # Checks on the profile of the profile run cases (e.g. parallel-profile).
     profile_checks: tuple[ProfileCheckSpec, ...] = ()
     semantic_check: SemanticCheck | None = None
@@ -209,6 +216,13 @@ class ModelSpec:
             )
         if not self.run_cases:
             raise SpecError(f"{self.name}: at least one run case is required")
+        unknown = [w for w in self.weights if w not in WEIGHTS_MODES]
+        if unknown:
+            raise SpecError(
+                f"{self.name}: unknown weights modes {unknown}; known: {WEIGHTS_MODES}"
+            )
+        if not self.weights:
+            raise SpecError(f"{self.name}: at least one weights mode is required")
         if self.skip is not None and not self.skip.strip():
             raise SpecError(f"{self.name}: 'skip' must say why the model is skipped")
         unknown = [m for m in self.marks if m not in MARKS]

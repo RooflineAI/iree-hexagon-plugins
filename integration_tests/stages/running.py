@@ -423,11 +423,12 @@ class RunLlmResult:
     exit_code: int
     log: str
     logcat: str
-    # As iree-run-llm printed them; None when it did not get that far.
-    prompt_ids: tuple[int, ...] | None = None
-    tokens: tuple[int, ...] | None = None
-    # Pulled from the device; None when iree-run-llm wrote none.
-    prefill_logits_file: Path | None = None
+    # As iree-run-llm printed them, one per prompt it got to.
+    prompt_ids: tuple[tuple[int, ...], ...] = ()
+    tokens: tuple[tuple[int, ...], ...] = ()
+    # One per prompt, pulled from the device; None where iree-run-llm wrote
+    # none.
+    prefill_logits_files: tuple[Path | None, ...] = ()
     timings: dict[str, float] = field(default_factory=dict)
 
     def describe(self) -> str:
@@ -443,20 +444,29 @@ class RunLlmResult:
 # newline.
 _PROMPT_IDS = re.compile(r"prompt token ids:([0-9, ]*)")
 _GENERATED_IDS = re.compile(r"generated token ids:([0-9, ]*)")
-# iree-run-llm's own times, from its stats on stderr.
+# iree-run-llm's own times, from its stats on stderr, one per prompt.
 _PREFILL_MS = re.compile(r"^prefill: ([0-9.]+) ms", re.MULTILINE)
 _DECODE_MS_PER_TOKEN = re.compile(r"^decode: .*\(([0-9.]+) ms/token", re.MULTILINE)
-# Where iree-run-llm writes prefill's logits, in the case directory.
-_PREFILL_LOGITS = "generation_prefill_logits.npy"
 
 
-def _parse_ids(pattern: re.Pattern[str], log: str) -> tuple[int, ...] | None:
-    match = pattern.search(log)
-    if match is None:
-        return None
+def _prefill_logits_name(turn: int) -> str:
+    """Where iree-run-llm writes prefill's logits of prompt `turn` (from 1), in
+    the case directory."""
+    return f"generation_prefill_logits_{turn}.npy"
+
+
+def _parse_ids(pattern: re.Pattern[str], log: str) -> tuple[tuple[int, ...], ...]:
     return tuple(
-        int(token) for token in match.group(1).replace(" ", "").split(",") if token
+        tuple(int(token) for token in ids.replace(" ", "").split(",") if token)
+        for ids in pattern.findall(log)
     )
+
+
+def timing_name(name: str, turn: int) -> str:
+    """The name of iree-run-llm's time `name` (prefill or decode_per_token) of
+    prompt `turn` (from 1): the first prompt's is `name`, a later one's
+    `name_turn<N>`."""
+    return name if turn == 1 else f"{name}_turn{turn}"
 
 
 def run_llm_on_device(
@@ -473,9 +483,9 @@ def run_llm_on_device(
     with iree-run-llm on the device.
 
     Pushes the module as `run_module_on_device` does, plus the tokenizer and
-    the prompt, generates greedily without stopping at stop tokens, and parses
-    the prompt and generated token ids from the log. Prefill's logits are
-    pulled to `local_output_dir`.
+    the prompts, generates greedily from each prompt in turn without stopping
+    at stop tokens, and parses the prompt and generated token ids of each from
+    the log. Prefill's logits of each prompt are pulled to `local_output_dir`.
 
     `timeout` bounds both the module push and the run, which runs under
     `limit_lifetime`, see `run_module_on_device`.
@@ -485,7 +495,10 @@ def run_llm_on_device(
     remote_dir = _push_case(
         deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
     )
-    adb.push([generation.tokenizer_json, generation.prompt_file], remote_dir + "/")
+    adb.push(
+        [generation.tokenizer_json, *(turn.prompt_file for turn in generation.turns)],
+        remote_dir + "/",
+    )
     timings["push_total"] = time.time() - push_total_start
 
     argv = [
@@ -495,15 +508,22 @@ def run_llm_on_device(
         "--module_mode=mmap",
         "--device=hexagon",
         f"--tokenizer={generation.tokenizer_json.name}",
-        f"--prompt_file={generation.prompt_file.name}",
-        f"--max_new_tokens={generation.max_new_tokens}",
+        # Both apply to the prompt after them.
+        *(
+            flag
+            for index, turn in enumerate(generation.turns, start=1)
+            for flag in (
+                f"--max_new_tokens={turn.max_new_tokens}",
+                f"--prefill_logits_output={_prefill_logits_name(index)}",
+                f"--prompt_file={turn.prompt_file.name}",
+            )
+        ),
         f"--max_seq_len={generation.max_seq_len}",
         f"--block_seq_stride={generation.block_seq_stride}",
         f"--min_prefill_blocks={generation.min_prefill_blocks}",
         f"--pad_token_id={generation.pad_token_id}",
         "--ignore_eos",
         "--print_token_ids",
-        f"--prefill_logits_output={_PREFILL_LOGITS}",
         *extra_flags,
     ]
     # See run_module_on_device for oom_score_adj and DSP_LIBRARY_PATH.
@@ -523,23 +543,27 @@ def run_llm_on_device(
         logcat = _dump_logcat()
     log = stdout + stderr
     local_output_dir.mkdir(parents=True, exist_ok=True)
-    prefill_logits_file: Path | None = local_output_dir / _PREFILL_LOGITS
-    # A remnant of an earlier run must not pass for this run's logits.
-    prefill_logits_file.unlink(missing_ok=True)
+    prefill_logits_files: list[Path | None] = []
     pull_start = time.time()
-    try:
-        adb.pull([f"{remote_dir}/{_PREFILL_LOGITS}"], local_output_dir)
-    except AdbError:
-        # As in run_module_on_device: a failed run's exit code and log matter,
-        # not a pull error on top of them.
-        prefill_logits_file = None
+    for turn in range(1, len(generation.turns) + 1):
+        name = _prefill_logits_name(turn)
+        prefill_logits_file: Path | None = local_output_dir / name
+        # A remnant of an earlier run must not pass for this run's logits.
+        prefill_logits_file.unlink(missing_ok=True)
+        try:
+            adb.pull([f"{remote_dir}/{name}"], local_output_dir)
+        except AdbError:
+            # As in run_module_on_device: a failed run's exit code and log
+            # matter, not a pull error on top of them.
+            prefill_logits_file = None
+        prefill_logits_files.append(prefill_logits_file)
     timings["pull_prefill_logits"] = time.time() - pull_start
-    for key, pattern in (
+    for name, pattern in (
         ("prefill", _PREFILL_MS),
         ("decode_per_token", _DECODE_MS_PER_TOKEN),
     ):
-        if match := pattern.search(log):
-            timings[key] = float(match.group(1)) / 1e3
+        for turn, value in enumerate(pattern.findall(log), start=1):
+            timings[timing_name(name, turn)] = float(value) / 1e3
     return RunLlmResult(
         remote_dir=remote_dir,
         exit_code=exit_code,
@@ -547,7 +571,7 @@ def run_llm_on_device(
         logcat=_filter_logcat_lines(logcat),
         prompt_ids=_parse_ids(_PROMPT_IDS, log),
         tokens=_parse_ids(_GENERATED_IDS, log),
-        prefill_logits_file=prefill_logits_file,
+        prefill_logits_files=tuple(prefill_logits_files),
         timings=timings,
     )
 

@@ -23,9 +23,14 @@ tolerances:
   relative_l2_percent: 0.5 # slightly increased tolerance compared to one-shot mode
 # The configuration the token-generation path is meant to run in.
 compile_cases: [hexagon-vtcm-hmx]
-# Token generation with iree-run-llm, which checks the module. With this
-# prompt, the reference's most likely token leads the runner-up by at least 0.45
-# at every step, above min_margin (0.25), so the import accepts it.
+# Token generation with iree-run-llm, which checks the module: the first
+# prompt, then the second, which continues the sequence after the first's
+# tokens. The second's padded prefill and its tokens fit in max_seq_len
+# (128). With these prompts, the reference's most likely token leads the
+# runner-up by at least 0.45 (first prompt) and 3.7 (second) at every step,
+# above min_margin (0.25), so the import accepts it.
 generation:
-  prompt: "Monday, Tuesday, Wednesday,"
-  max_new_tokens: 32
+  - prompt: "Monday, Tuesday, Wednesday,"
+    max_new_tokens: 32
+  - prompt: "\nJanuary, February, March,"
+    max_new_tokens: 16

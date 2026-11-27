@@ -207,7 +207,7 @@ def _run_generation(
             reference=generation_reference,
             prompt_ids=generation.prompt_ids,
             tokens=generation.tokens,
-            prefill_logits_file=generation.prefill_logits_file,
+            prefill_logits_files=generation.prefill_logits_files,
             atol=model_spec.tolerances.atol,
             rtol=model_spec.tolerances.rtol,
             max_relative_l2_percent=model_spec.tolerances.relative_l2_percent,

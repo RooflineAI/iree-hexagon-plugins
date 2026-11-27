@@ -39,19 +39,17 @@ class GeneratedTokenInfo:
 
 
 @dataclass(frozen=True)
-class GenerationReference:
-    """What iree-run-llm gets, and the eager tokens it has to generate."""
+class GenerationTurn:
+    """One prompt of a generation, and the eager tokens it has to generate."""
 
     prompt_file: Path
-    tokenizer_json: Path
     max_new_tokens: int
-    # KvCacheLM's shape parameters, which iree-run-llm cannot read from the
-    # module and has to be told.
-    max_seq_len: int
-    block_seq_stride: int
-    min_prefill_blocks: int
-    pad_token_id: int
+    # The first prompt's with the tokenizer's special tokens, as
+    # iree-run-llm encodes it, the later prompts' without.
     prompt_ids: tuple[int, ...]
+    # The tokens prefill ran on, before padding: the prompt, after the first
+    # turn preceded by the previous turn's last generated token.
+    prefill_length: int
     # One per generated token, in order.
     generated: tuple[GeneratedTokenInfo, ...]
     # Prefill's logits on the padded prompt, [1, padded length, vocab].
@@ -61,6 +59,21 @@ class GenerationReference:
     def tokens(self) -> tuple[int, ...]:
         """The generated token ids."""
         return tuple(info.selected_id for info in self.generated)
+
+
+@dataclass(frozen=True)
+class GenerationReference:
+    """What iree-run-llm gets, and the eager tokens it has to generate."""
+
+    tokenizer_json: Path
+    # KvCacheLM's shape parameters, which iree-run-llm cannot read from the
+    # module and has to be told.
+    max_seq_len: int
+    block_seq_stride: int
+    min_prefill_blocks: int
+    pad_token_id: int
+    # The prompts, in the order iree-run-llm runs them on one KV cache.
+    turns: tuple[GenerationTurn, ...]
 
 
 @dataclass(frozen=True)

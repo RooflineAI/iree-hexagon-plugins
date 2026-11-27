@@ -133,8 +133,8 @@ def push_parameters(
 ) -> None:
     """Make `remote_path` on the device a copy of `parameters`.
 
-    `remote_path` is named after the archive's sha256 (see
-    `Deployment.kept_parameters`), so an existing file there is the archive:
+    `remote_path` is named after the archive's sha256 (see `push_module`), so
+    an existing file there is the archive:
     it is touched, to keep it from the phone's cleanup, and used as is.
     Otherwise the archive is pushed to a temporary name, its sha256 is checked
     on the device, and it is renamed into place, so `remote_path` only ever
@@ -184,44 +184,74 @@ def push_parameters(
         except (AdbError, subprocess.SubprocessError):
             pass
         raise
-    # adb push gives the file the host file's modification time.
-    # Touch it so that it counts as just used for the cleanups below.
-    # Cleanups may race so their failures are ignored.
+    # adb push gives the file the host file's modification time: touch it
+    # before the rename (which keeps the time), so that the phone's cleanup
+    # never sees the archive at `remote_path` as unused.
     adb.shell(f"touch {temporary}; mv {temporary} {quoted_path}")
     timings["verify_parameters"] = time.time() - verify_start
 
 
-def _parameter_flags(
-    deployment: Deployment,
+def push_module(
+    module_vmfb: Path,
+    remote_module: str,
     parameters: ParameterArchive | None,
+    parameters_dir: str,
     timeout: float,
-    timings: dict[str, float],
+    setup: str = "",
+    timings: dict[str, float] | None = None,
 ) -> list[str]:
-    """Push `parameters`, if any, and return the flags that load them."""
-    if parameters is None:
-        return []
-    remote_path = deployment.kept_parameters(parameters.sha256)
-    push_parameters(parameters, remote_path, timeout, timings)
-    return [f"--parameters={parameters.scope}={remote_path}"]
+    """Put a built module, and the weights it loads, on the device.
+
+    `module_vmfb` is pushed to `remote_module`. A module compiled with external
+    weights also needs `parameters`: the archive is kept across runs in
+    `parameters_dir` under its sha256, and only pushed if it is not there yet
+    (see `push_parameters`). Returns the flags that make the module load it,
+    none for embedded weights.
+
+    `setup` is a shell script run first. `timeout` bounds each transfer. With
+    `timings`, the durations of the steps are added to it, and `push_module`
+    for all of them together.
+    """
+    if timings is None:
+        timings = {}
+    start = time.time()
+    if setup:
+        adb.shell(setup)
+    push_vmfb_start = time.time()
+    adb.push([module_vmfb], remote_module, timeout=timeout)
+    timings["push_vmfb"] = time.time() - push_vmfb_start
+    flags: list[str] = []
+    if parameters is not None:
+        remote_path = f"{parameters_dir}/{parameters.sha256}.irpa"
+        push_parameters(parameters, remote_path, timeout, timings)
+        flags = [f"--parameters={parameters.scope}={remote_path}"]
+    timings["push_module"] = time.time() - start
+    return flags
 
 
 def _push_case(
     deployment: Deployment,
     case_dir_name: str,
     module_vmfb: Path,
+    parameters: ParameterArchive | None,
     timeout: float,
     timings: dict[str, float],
-) -> str:
+) -> tuple[str, list[str]]:
     """Make a fresh case directory on the device holding `module_vmfb` as
-    module.vmfb, and return its path. `timeout` bounds the transfer, whose
-    duration is added to `timings`.
+    module.vmfb, see `push_module`. Returns the directory and the flags that
+    load `parameters`.
     """
     remote_dir = deployment.case_dir(case_dir_name)
-    adb.shell(f"rm -rf {remote_dir}; mkdir -p {remote_dir}")
-    push_module_start = time.time()
-    adb.push([module_vmfb], f"{remote_dir}/module.vmfb", timeout=timeout)
-    timings["push_module"] = time.time() - push_module_start
-    return remote_dir
+    flags = push_module(
+        module_vmfb=module_vmfb,
+        remote_module=f"{remote_dir}/module.vmfb",
+        parameters=parameters,
+        parameters_dir=deployment.parameters_dir,
+        timeout=timeout,
+        setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
+        timings=timings,
+    )
+    return remote_dir, flags
 
 
 def _run_module_argv(
@@ -293,8 +323,9 @@ def run_module_on_device(
     push_total_start = time.time()
     # A module with embedded weights can take a while to push, so the push
     # gets the same budget as the run.
-    remote_dir = _push_case(deployment, case_dir_name, module_vmfb, timeout, timings)
-    parameter_flags = _parameter_flags(deployment, parameters, timeout, timings)
+    remote_dir, parameter_flags = _push_case(
+        deployment, case_dir_name, module_vmfb, parameters, timeout, timings
+    )
     push_files = [path for call in calls for path in call.input_files]
     if push_files:
         adb.push(push_files, remote_dir + "/")
@@ -449,8 +480,9 @@ def run_llm_on_device(
     """
     timings: dict[str, float] = {}
     push_total_start = time.time()
-    remote_dir = _push_case(deployment, case_dir_name, module_vmfb, timeout, timings)
-    parameter_flags = _parameter_flags(deployment, parameters, timeout, timings)
+    remote_dir, parameter_flags = _push_case(
+        deployment, case_dir_name, module_vmfb, parameters, timeout, timings
+    )
     adb.push([generation.tokenizer_json, generation.prompt_file], remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from integration_tests.stages.artifacts import ParameterArchive
 from integration_tests.stages.compiling import CompilationError, linker_flags
 
 # The scope iree-turbine names the weights under at import, as in
@@ -110,3 +111,31 @@ def encode_parameters(
     encoder_vmfb.unlink()
     encoder_mlir.unlink()
     return output_archive
+
+
+def parameter_archive(
+    iree_compile: Path,
+    iree_encode_parameters: Path,
+    encoder_mlir: Path,
+    weights_archive: Path,
+    output_archive: Path,
+    linker: Path | None = None,
+) -> ParameterArchive:
+    """The archive a module compiled with external weights loads, hashed.
+
+    If the compile split off an encoder module into `encoder_mlir`, its output
+    (see `encode_parameters`), written to `output_archive`. Otherwise the
+    compile found nothing to encode, and the module loads the import's
+    `weights_archive` as it is.
+    """
+    if not encoder_mlir.exists():
+        return ParameterArchive.of(weights_archive, IMPORT_SCOPE)
+    encoded = encode_parameters(
+        iree_compile=iree_compile,
+        iree_encode_parameters=iree_encode_parameters,
+        encoder_mlir=encoder_mlir,
+        weights_archive=weights_archive,
+        output_archive=output_archive,
+        linker=linker,
+    )
+    return ParameterArchive.of(encoded, ENCODED_SCOPE)

@@ -128,9 +128,10 @@ class Deployment:
     def case_dir(self, case_dir_name: str) -> str:
         return f"{self.run_dir}/cases/{case_dir_name}"
 
-    def kept_parameters(self, sha256: str) -> str:
-        """Where a parameter archive lives across runs."""
-        return f"{self.root}/parameters/{sha256}.irpa"
+    @property
+    def parameters_dir(self) -> str:
+        """Where parameter archives live across runs, see `push_module`."""
+        return f"{self.root}/parameters"
 
 
 @dataclass(frozen=True)

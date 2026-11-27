@@ -21,12 +21,6 @@ tolerances:
   rtol: 5.0e-2
   relative_l2_percent: 1.0
 compile_cases: [hexagon, hexagon-vtcm-hmx]
-expected_outcomes:
-  - case: hexagon
-    status: ACCURACY_FAILURE
-    reason: "relative L2 error nan%"
-    comment: >-
-      All four outputs are NaN (2026-11-24). LLVM Hexagon bug, fix not merged yet: https://github.com/llvm/llvm-project/pull/244193
 # The weights go to a parameter archive kept on the phone, so a run only
 # pushes them when they change.
 weights: [external]

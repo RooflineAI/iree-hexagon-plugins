@@ -26,7 +26,7 @@ STAGING_ROOT="${REPO_ROOT}/tmp"
 mkdir -p "${STAGING_ROOT}"
 OUT_DIR="$(realpath "${1:-${REPO_ROOT}/build-artifacts-cmake}")"
 mkdir -p "${OUT_DIR}"
-# Test helpers (limit_lifetime, rsync) that are not part of the packages in
+# Test helpers (limit_lifetime) that are not part of the packages in
 # OUT_DIR, uploaded as a separate CI artifact.
 TEST_OUT_DIR="$(realpath "${2:-${REPO_ROOT}/test-tools-cmake}")"
 
@@ -263,14 +263,9 @@ package_zip "${OUT_DIR}/hexagon_runtime_aarch64_android_tracy.zip" \
   "bin/tracy-capture" "${TRACY_TOOLS_BUILD_DIR}/tracy-capture" \
   "bin/tracy-csvexport" "${TRACY_TOOLS_BUILD_DIR}/tracy-csvexport"
 
-RSYNC_DIR="$(find "${BUILD_ROOT}/android" -path '*/integration_tests/device/tools/rsync' -type d | head -n1)"
 mkdir -p "${TEST_OUT_DIR}"
 package_zip "${TEST_OUT_DIR}/device_tools_aarch64_android.zip" \
-  "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)" \
-  "bin/rsync" "${RSYNC_DIR}/build/rsync" \
-  "licenses/rsync/COPYING" "${RSYNC_DIR}/src/rsync/COPYING" \
-  "licenses/xxhash/LICENSE" "${RSYNC_DIR}/src/xxhash/LICENSE" \
-  "licenses/zstd/LICENSE" "${RSYNC_DIR}/src/zstd/LICENSE"
+  "bin/limit_lifetime" "$(find "${BUILD_ROOT}/android" -name limit_lifetime -type f | head -n1)"
 
 # --- Licenses and git revision ----------------------------------------------
 cp "${IREE_SRC}/LICENSE" "${OUT_DIR}/LICENSE.txt"

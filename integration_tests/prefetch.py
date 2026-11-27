@@ -49,12 +49,7 @@ import pytest
 from integration_tests.modeltree.spec import ModelSpec
 from integration_tests.stages.artifacts import ImportedModel, ParameterArchive
 from integration_tests.stages.compiling import CompileCase, compile_model
-from integration_tests.stages.encoding import (
-    ENCODED_SCOPE,
-    IMPORT_SCOPE,
-    encode_parameters,
-    encoder_output_flags,
-)
+from integration_tests.stages.encoding import encoder_output_flags, parameter_archive
 
 # import does not release some memory back to the os
 # memory held by the import process may conflict with the memory needed for iree-compile step
@@ -349,27 +344,19 @@ class Prefetcher:
             return Compiled(model, vmfb, seconds, log)
 
         start = time.time()
-        weights_archive = model.weights_archive
-        if encoder_mlir.exists():
-            if weights_archive is None:
+        if model.weights_archive is None:
+            if encoder_mlir.exists():
                 raise ModelImportError(
                     f"{spec.name}: the import for external weights wrote no archive"
                 )
-            parameters = ParameterArchive.of(
-                encode_parameters(
-                    iree_compile=self._iree_compile,
-                    iree_encode_parameters=self._iree_encode_parameters,
-                    encoder_mlir=encoder_mlir,
-                    weights_archive=weights_archive,
-                    output_archive=work_dir / "model.irpa",
-                    linker=self._lld,
-                ),
-                ENCODED_SCOPE,
-            )
-        elif weights_archive is not None:
-            # Nothing for an encoder to do: the module loads the import's
-            # archive as it is.
-            parameters = ParameterArchive.of(weights_archive, IMPORT_SCOPE)
-        else:
             parameters = None
+        else:
+            parameters = parameter_archive(
+                iree_compile=self._iree_compile,
+                iree_encode_parameters=self._iree_encode_parameters,
+                encoder_mlir=encoder_mlir,
+                weights_archive=model.weights_archive,
+                output_archive=work_dir / "model.irpa",
+                linker=self._lld,
+            )
         return Compiled(model, vmfb, seconds, log, parameters, time.time() - start)

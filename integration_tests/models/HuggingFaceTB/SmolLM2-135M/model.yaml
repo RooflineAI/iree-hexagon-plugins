@@ -19,3 +19,8 @@ tolerances:
   atol: 2.0e-1
   rtol: 5.0e-2
   relative_l2_percent: 0.2
+# The weights go to a parameter archive kept on the phone, so a run only
+# pushes them when they change. SmolLM2-135M-kv-cache keeps them embedded, to
+# cover embedded weights with iree-run-llm (the micro tests cover them with
+# iree-run-module).
+weights: [external]

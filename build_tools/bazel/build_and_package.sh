@@ -22,7 +22,7 @@ ZIP_TARGETS=(
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android
     //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 )
-# Test helpers (limit_lifetime, rsync) that must not end up in the release,
+# Test helpers (limit_lifetime) that must not end up in the release,
 # which publishes everything in build-artifacts-bazel: collected in their own
 # directory and uploaded as a separate CI artifact.
 TEST_ZIP_TARGETS=(

@@ -2,7 +2,10 @@
 # Usage: dev_tools/profile_on_device.sh [--serial] [--pmu-events=<list>] <path/to/model/dir>
 #        dev_tools/profile_on_device.sh --list-pmu-events
 # Import, compile and run an integration-test model (any number of inputs) on
-# the device under the Tracy runtime. iree-run-module runs with
+# the device under the Tracy runtime. A model whose model.yaml lists external
+# weights is compiled with them, as in the integration tests, and its parameter
+# archive is shared with them on the device ($DEVICE_ROOT/parameters), so it is
+# only pushed when no run has put it there yet. iree-run-module runs with
 # TRACY_NO_EXIT=1, so it does not exit until a Tracy profiler has connected and received the trace.
 set -euo pipefail
 
@@ -116,19 +119,16 @@ cd "$REPO"
 MODEL_NAME="$(basename "$MODEL_DIR")"
 WORK_DIR="${WORK_DIR:-/tmp/profile_on_device/$MODEL_NAME}" # local dir, where model is compiled
 REMOTE_DIR=/data/local/tmp/${USER}/profile_on_device/$MODEL_NAME # dir on the phone to upload model to
-
-# The integration tests' device root; their kept modules are reused below.
+# The integration tests' device root: parameter archives are shared with them.
 DEVICE_ROOT="${DEVICE_ROOT:-/data/local/tmp/hexagon_it}"
 
 COMPILE_FLAGS=()
 RUN_FLAGS="--module_mode=mmap" # parallel
-RUN_CASE=parallel # the integration-test run case with the same runtime flags
 if [[ "$SERIAL" == true ]]; then
   # Without async worker threads inside VTCM-tiled kernels, too. Passed after
   # the model's extra_compile_flags, so it overrides a thread count set there.
   COMPILE_FLAGS+=(--iree-hexagon-vtcm-tile-num-threads=1)
   RUN_FLAGS+=" --hexagon_max_concurrent_dispatches=1"
-  RUN_CASE=sequential
 fi
 if [[ ${#PMU_EVENT_IDS[@]} -gt 0 ]]; then
   RUN_FLAGS+=" --hexagon_pmu_events=$(IFS=,; echo "${PMU_EVENT_IDS[*]}")"
@@ -138,22 +138,21 @@ fi
 # --- Build ------------------------------------------------------------------
 bazel build \
   @iree//tools:iree-compile \
+  @iree//tools:iree-encode-parameters \
   @llvm-project//lld:ld.lld \
-  //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy \
-  //integration_tests/device/tools:device_tools_aarch64_android
+  //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 
 IREE_COMPILE="$REPO/$(bazel cquery --output=files @iree//tools:iree-compile 2>/dev/null | head -n1)"
+IREE_ENCODE_PARAMETERS="$REPO/$(bazel cquery --output=files @iree//tools:iree-encode-parameters 2>/dev/null | head -n1)"
 LLD="$REPO/$(bazel cquery --output=files @llvm-project//lld:ld.lld 2>/dev/null | head -n1)"
 RUNTIME_ZIP_TRACY="$REPO/$(bazel cquery --output=files \
   //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy 2>/dev/null | head -n1)"
-DEVICE_TOOLS_ZIP="$REPO/$(bazel cquery --output=files \
-  //integration_tests/device/tools:device_tools_aarch64_android 2>/dev/null | head -n1)"
 
 # --- Import: torch model -> model.mlirbc + input*.npy -----------------------
-# The import also writes io.txt, listing the imported MLIR file, the entry
-# function, the input and output file names, the model's extra_compile_flags from model.yaml and its
-# name in the model tree, so the compile, deploy and run below work for any
-# model.
+# The import also writes io.txt, listing the imported MLIR file, the archive of
+# external weights (if the model uses them), the entry function, the input and
+# output file names and the model's extra_compile_flags from model.yaml, so the
+# compile, deploy and run below work for any model.
 mkdir -p "$WORK_DIR"
 .venv/bin/python -c "
 from pathlib import Path
@@ -166,7 +165,9 @@ model_dir = Path('$MODEL_DIR')
 # back to the directory's own name.
 root = MODELS_DIR if model_dir.is_relative_to(MODELS_DIR) else model_dir.parent
 spec = load_model_spec(model_dir, root)
-imported = import_model(spec, Path('$WORK_DIR'))
+imported = import_model(
+    spec, Path('$WORK_DIR'), externalize='external' in spec.weights
+)
 # A plain model has exactly one call, main; a KvCacheLM has none (it runs
 # under iree-run-llm, which this script does not drive).
 if len(imported.calls) != 1:
@@ -175,15 +176,17 @@ if len(imported.calls) != 1:
 call = imported.calls[0]
 flags = COMPILE_CASES_BY_NAME['$COMPILE_CASE'].flags(tuple(spec.extra_compile_flags))
 lines = [f'mlir {imported.model_mlir.name}']
+if imported.weights_archive is not None:
+    lines += [f'weights {imported.weights_archive.name}']
 lines += [f'function {call.function}']
 lines += [f'input {p.name}' for p in call.input_files]
 lines += [f'output {name}' for name in call.output_names]
 lines += [f'flag {flag}' for flag in flags]
-lines += [f'name {spec.name}']
 Path('$WORK_DIR/io.txt').write_text('\\n'.join(lines) + '\\n')
 "
 
 MODEL_MLIR=
+WEIGHTS_ARCHIVE=
 FUNCTION=main
 INPUT_FILES=()
 IO_FLAGS=""
@@ -191,41 +194,66 @@ MODEL_COMPILE_FLAGS=()
 while read -r kind name; do
   case "$kind" in
     mlir) MODEL_MLIR="$WORK_DIR/$name" ;;
+    weights) WEIGHTS_ARCHIVE="$WORK_DIR/$name" ;;
     function) FUNCTION="$name" ;;
     input) INPUT_FILES+=("$WORK_DIR/$name"); IO_FLAGS+=" --input=@$name" ;;
     output) IO_FLAGS+=" --output=@$name" ;;
     flag) MODEL_COMPILE_FLAGS+=("$name") ;;
-    # as the integration tests name the case directory (test_models.py)
-    name) CASE_PREFIX="${name//\//_}" ;;
   esac
 done < "$WORK_DIR/io.txt"
 
 # --- Compile ----------------------------------------------------------------
+# With external weights, also split off the parameter encoder (see
+# integration_tests/stages/encoding.py).
+ENCODER_MLIR="$WORK_DIR/encoder.mlirbc"
+rm -f "$ENCODER_MLIR"
+ENCODER_FLAGS=()
+if [[ -n "$WEIGHTS_ARCHIVE" ]]; then
+  ENCODER_FLAGS+=("--iree-parameter-encoder-output-file=$ENCODER_MLIR")
+fi
 "$IREE_COMPILE" "$MODEL_MLIR" -o "$WORK_DIR/model.vmfb" \
   ${MODEL_COMPILE_FLAGS[@]+"${MODEL_COMPILE_FLAGS[@]}"} \
   --iree-hexagon-enable-profiler-markers \
   --iree-hexagon-linker-path="$LLD" \
   --iree-llvmcpu-embedded-linker-path="$LLD" \
-  ${COMPILE_FLAGS[@]+"${COMPILE_FLAGS[@]}"}
+  ${COMPILE_FLAGS[@]+"${COMPILE_FLAGS[@]}"} \
+  ${ENCODER_FLAGS[@]+"${ENCODER_FLAGS[@]}"}
 
 # --- Deploy -----------------------------------------------------------------
 adb push "$RUNTIME_ZIP_TRACY" "$REMOTE_DIR/runtime.zip"
-adb push "$DEVICE_TOOLS_ZIP" "$REMOTE_DIR/device_tools.zip"
-adb shell "cd $REMOTE_DIR && unzip -oq runtime.zip && unzip -oq device_tools.zip && rm runtime.zip device_tools.zip && chmod +x bin/iree-run-module bin/limit_lifetime bin/rsync"
-# Send the module with the integration tests' push_module: cache models on the phone
+adb shell "cd $REMOTE_DIR && unzip -oq runtime.zip && rm runtime.zip && chmod +x bin/iree-run-module"
+# The module, and its parameter archive with the integration tests' push_module:
+# the archive is encoded as in the tests and only pushed if no run has put it
+# on the device yet. Writes the flags that load it to parameters.txt.
 .venv/bin/python -c "
 from pathlib import Path
+from integration_tests.stages.encoding import parameter_archive
 from integration_tests.stages.running import push_module
-from integration_tests.tool_paths import resolve_host_tool
-push_module(
+weights_archive = '$WEIGHTS_ARCHIVE'
+parameters = None
+if weights_archive:
+    parameters = parameter_archive(
+        iree_compile=Path('$IREE_COMPILE'),
+        iree_encode_parameters=Path('$IREE_ENCODE_PARAMETERS'),
+        encoder_mlir=Path('$ENCODER_MLIR'),
+        weights_archive=Path(weights_archive),
+        output_archive=Path('$WORK_DIR/model.irpa'),
+        linker=Path('$LLD'),
+    )
+timings = {}
+flags = push_module(
     module_vmfb=Path('$WORK_DIR/model.vmfb'),
     remote_module='$REMOTE_DIR/model.vmfb',
-    kept_module='$DEVICE_ROOT/modules/${CASE_PREFIX}_${COMPILE_CASE}_$RUN_CASE/module.vmfb',
-    host_rsync=resolve_host_tool('rsync', None),
-    device_rsync='$REMOTE_DIR/bin/limit_lifetime $REMOTE_DIR/bin/rsync',
+    parameters=parameters,
+    parameters_dir='$DEVICE_ROOT/parameters',
     timeout=4 * 3600.0,
+    timings=timings,
 )
+for key, value in timings.items():
+    print(f'  {key}: {value:.3f}s')
+Path('$WORK_DIR/parameters.txt').write_text(' '.join(flags))
 "
+PARAMETER_FLAGS="$(cat "$WORK_DIR/parameters.txt")"
 if [[ ${#INPUT_FILES[@]} -gt 0 ]]; then
   adb push "${INPUT_FILES[@]}" "$REMOTE_DIR/"
 fi
@@ -247,4 +275,5 @@ adb shell "cd $REMOTE_DIR && \
     --function=$FUNCTION \
     --device=hexagon \
     $IO_FLAGS \
+    $PARAMETER_FLAGS \
     $RUN_FLAGS"

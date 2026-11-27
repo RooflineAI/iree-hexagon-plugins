@@ -42,7 +42,6 @@ from integration_tests.tool_paths import (
     RUNTIME_ZIP_TARGET,
     RUNTIME_ZIP_TRACY_TARGET,
     resolve_bazel_artifact,
-    resolve_host_tool,
 )
 
 
@@ -87,7 +86,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help=(
             f"path to the on-device test helpers ({DEVICE_TOOLS_TARGET}): "
-            "limit_lifetime and rsync. Resolved with 'bazel cquery' when omitted."
+            "limit_lifetime. Resolved with 'bazel cquery' when omitted."
         ),
     )
     group.addoption(
@@ -97,14 +96,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             f"path to ld.lld ({LLD_TARGET}), passed to iree-compile as the "
             "Hexagon and llvm-cpu linker. Omit to let iree-compile find one on "
             "PATH."
-        ),
-    )
-    group.addoption(
-        "--rsync",
-        default=None,
-        help=(
-            "path to the host's rsync, which sends modules to the device as "
-            "deltas. Taken from PATH when omitted."
         ),
     )
     group.addoption(
@@ -310,11 +301,6 @@ def lld(pytestconfig: pytest.Config) -> Path | None:
     """The linker to hand iree-compile, or None to let it search PATH."""
     given = pytestconfig.getoption("--lld")
     return Path(given).resolve() if given else None
-
-
-@pytest.fixture(scope="session")
-def host_rsync(pytestconfig: pytest.Config) -> Path:
-    return resolve_host_tool("rsync", pytestconfig.getoption("--rsync"))
 
 
 @pytest.fixture(scope="session")

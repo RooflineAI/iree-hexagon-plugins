@@ -21,16 +21,14 @@ Two packages are unpacked into one directory per host user and checkout:
         lib/libc++_shared.so         NDK C++ runtime
 
   * `//integration_tests/device/tools:device_tools_aarch64_android`,
-    which adds `bin/limit_lifetime` and `bin/rsync`. A separate CI artifact, so
-    that they stay out of the release.
+    which adds `bin/limit_lifetime`. A separate CI artifact, so that it stays
+    out of the release.
 
 Layout on the device, under one root (default `/data/local/tmp/hexagon_it`):
 
     runs/<id>/bin,lib/       the plain runtime and the helpers
     runs/<id>-tracy/         the same for the Tracy runtime
     runs/<id>*/cases/        one directory per (model, compile case)
-    modules/<case>/module.vmfb   the last large module sent for each (model,
-                             compile case), kept across runs
     parameters/<sha256>.irpa  the weights of a model compiled with external
                              weights, named after their sha256 and shared by
                              every module that uses them, kept across runs
@@ -40,13 +38,6 @@ checkout of each user has one directory per runtime. It is emptied when a run
 starts, which also removes what an aborted earlier run from the same checkout
 left behind, and removed at the end of the run. With `keep_device_dir`
 (`--keep-device-dir`), it is neither emptied nor removed.
-
-`modules/` is not removed: each module there is the basis that rsync diffs the
-next build of the same case against, so a rebuilt module only sends the bytes
-that changed. It holds one
-module per (model, compile case) that ever ran with a module large enough to be
-kept (`_KEEP_MODULE_MIN_BYTES` in `stages/running.py`), and can be deleted at
-any time, at the cost of one full transfer per case.
 
 A parameter archive is only ever written under its own sha256, so a run either
 finds the archive it needs in `parameters/` or pushes it. It is touched on every
@@ -131,23 +122,16 @@ class Deployment:
         return f"{self.run_dir}/bin/limit_lifetime"
 
     @property
-    def rsync(self) -> str:
-        return f"{self.run_dir}/bin/rsync"
-
-    @property
     def dsp_library_path(self) -> str:
         return f"{self.run_dir}/lib/hexagon"
 
     def case_dir(self, case_dir_name: str) -> str:
         return f"{self.run_dir}/cases/{case_dir_name}"
 
-    def kept_module(self, case_dir_name: str) -> str:
-        """Where the case's module lives across runs, see the module docstring."""
-        return f"{self.root}/modules/{case_dir_name}/module.vmfb"
-
-    def kept_parameters(self, sha256: str) -> str:
-        """Where a parameter archive lives across runs."""
-        return f"{self.root}/parameters/{sha256}.irpa"
+    @property
+    def parameters_dir(self) -> str:
+        """Where parameter archives live across runs, see `push_module`."""
+        return f"{self.root}/parameters"
 
 
 @dataclass(frozen=True)

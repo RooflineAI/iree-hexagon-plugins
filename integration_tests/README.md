@@ -46,8 +46,7 @@ the plain one.
 
 Options, all in `conftest.py`: `--model`, `--compile-case`, `--run-case` and
 `--weights` (all repeatable filters), `--run-skipped`, `--keep-device-dir`,
-`--device-root`, `--rsync`, `--tracy-port` (default 8086), and the six artifact
-paths.
+`--device-root`, `--tracy-port` (default 8086), and the six artifact paths.
 
 ## Requirements
 
@@ -57,10 +56,6 @@ paths.
 * With no usable phone the device tests **fail**.
 * Network, on first run: models come from the HuggingFace hub. Set `HF_HOME` to
   a persistent directory so weights are fetched once.
-* `rsync` 3.2 or newer on the host, with zstd and xxHash support (as in
-  Ubuntu's package), on PATH or given with `--rsync`. Large modules go to the
-  phone as rsync deltas; the phone's end ships in the device-tools zip, which is a
-  separate CI artifact and not part of the release.
 
 ## Layout
 
@@ -82,26 +77,15 @@ paths.
     runs/<id>[-tracy]/      hash of host user and repo root; emptied when
                             a run starts, removed when it ends
         bin/    iree-run-module, iree-benchmark-module, iree-run-llm,
-                limit_lifetime, rsync
+                limit_lifetime
         lib/    the DSP skel and libc++_shared
         cases/  one directory per (model, compile case)
-    modules/<case>/module.vmfb   kept across runs
     parameters/<sha256>.irpa  external weights, kept across runs
 ```
 
-Modules of 64 MiB and more are kept in `modules/` and sent with rsync, as a
-delta against the module the same (model, compile case) sent last time. A
-recompile usually leaves the weights - nearly all of a module - byte-identical,
-so it sends little more than the changed code. The first transfer of a case,
-with nothing in `modules/` yet, uses adb push, which is faster for sending a
-whole file. Each case's `module.vmfb` is then a copy of its entry in
-`modules/`, and the test fails unless that copy's sha256 matches the module
-built on the host - the sign that another execution sharing the device root
-replaced it. Deleting `modules/` is always safe; the next run of each case then
-sends the whole module once.
-
-Smaller modules go straight into the case directory with adb push: for them a
-delta saves less than rsync's own round trips to the phone cost.
+Each run pushes its module whole into the case directory with adb push. A
+module with embedded weights is pushed with them every time, so a large model
+should use [external weights](#external-weights).
 
 A model compiled with [external weights](#external-weights) keeps them in
 `parameters/`, in a parameter archive named after its sha256 and shared by
@@ -124,6 +108,7 @@ inputs:
   - {shape: [1, 128], dtype: int64, generator: uniform, low: 0, high: null, seed: 0}
   - {shape: [1, 128], dtype: int64, generator: ones}
 tolerances: {atol: 2.0e-1, rtol: 5.0e-2, relative_l2_percent: 0.2}
+weights: [external]   # see External weights; omit to embed them in the vmfb
 ```
 
 beside a `model.py` that pins what it fetches:
@@ -195,11 +180,10 @@ run_timeout: 3600
 ### External weights
 
 By default a model's weights are compiled into its vmfb, which is then pushed
-whole (as an rsync delta when large). A multi-GB model is better off with
-`external` weights: the vmfb shrinks to a few MB and the weights go to a
-parameter archive (`.irpa`) that stays on the phone (see
-[On the device](#on-the-device)), so a run only pushes the weights when they
-change.
+whole on every run. A large model is better off with `external` weights: the
+vmfb shrinks to a few MB and the weights go to a parameter archive (`.irpa`)
+that stays on the phone (see [On the device](#on-the-device)), so a run only
+pushes the weights when they change.
 
 ```yaml
 weights: [external]             # or [embedded, external] to test both

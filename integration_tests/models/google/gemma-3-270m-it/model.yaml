@@ -15,11 +15,13 @@ inputs:
   - shape: [1, 128]
     dtype: int64
     generator: ones
-# Measured 2026-09-30: max abs 0.75, relative L2 0.37%.
+# Measured 2026-11-27: max abs 1.81, relative L2 0.80% (0.37% before
+# attention was kept in f16, 2026-09-30). The f16 attention alone, run in
+# torch on the host, is 0.46% off the eager reference.
 tolerances:
   atol: 1.0
   rtol: 5.0e-2
-  relative_l2_percent: 0.75
+  relative_l2_percent: 1.0
 # The plain `hexagon` case runs ~10x slower on device for an LLM prefill,
 # so only the VTCM/HMX configuration is exercised.
 compile_cases: [hexagon-vtcm-hmx]

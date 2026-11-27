@@ -86,13 +86,13 @@ configuration above it finds the library through the rpath once it is packaged
 `build_tools/bazel/build_and_package.sh` builds everything and collects the
 results in `build-artifacts-bazel/`. The host tools (`iree-compile`, `iree-opt`,
 `ld.lld`, ...) and `libIREECompiler.so` are packaged as
-`hexagon_compiler_x86_64_linux.zip`, with the tools in `bin/` and the library
-in `lib/`. The tools locate the library through the rpath `$ORIGIN/../lib`, which
-the script sets, so the unpacked directory can be moved anywhere. The runtime ZIP files are placed next to it. The device-tools ZIP
-(`limit_lifetime` and rsync) used by the integration tests is not part of that
-directory, which is what gets released: it is collected in
-`test-tools-bazel/`. Staging directories are created in
-the git-ignored `tmp/` directory of the checkout.
+`hexagon_compiler_x86_64_linux.zip`, with the tools in `bin/` and the library in
+`lib/`. The tools locate the library through the rpath `$ORIGIN/../lib`, which
+the script sets, so the unpacked directory can be moved anywhere. The runtime
+ZIP files are placed next to it. The device-tools ZIP (`limit_lifetime`) used by
+the integration tests is not part of that directory, which is what gets
+released: it is collected in `test-tools-bazel/`. Staging directories are
+created in the git-ignored `tmp/` directory of the checkout.
 
 ### Runtime
 

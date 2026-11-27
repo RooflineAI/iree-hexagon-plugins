@@ -9,7 +9,6 @@ token generation with iree-run-llm."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import posixpath
 import re
@@ -122,57 +121,6 @@ def _filter_logcat_lines(logcat: str) -> str:
     return "\n".join(lines)
 
 
-# Modules at least this large are kept on the device across runs and sent as
-# rsync deltas. Below it a plain adb push is faster: in CI each adb round trip
-# to the phone rig costs ~1.5 s, and rsync plus the copy-and-check take a few of
-# them, while adb push sends a module this size in about one.
-_KEEP_MODULE_MIN_BYTES = 64 << 20
-
-
-class ModuleMismatchError(RuntimeError):
-    """The module the device would run is not the module that was built."""
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _check_module_after_rsync(
-    module_vmfb: Path, kept_module: str, remote_module: str
-) -> None:
-    """Copy the kept module into the case directory, and check it is the build.
-
-    A copy rather than a link, so the case directory keeps the module it ran
-    after a later run of this case has replaced kept_module. It is cheap on the
-    device (~0.3 s for 270 MB), and shares one adb round trip with the checksum.
-
-    The transfer to kept_module is itself verified, so a mismatch here means the
-    kept module changed between the transfer and the copy: another execution of
-    the integration tests, using the same device root, sent its own build of the
-    same case. The device root has no lock, so this is the point where that
-    sharing would otherwise go unnoticed and the test would run someone else's
-    module.
-    """
-    expected = _sha256(module_vmfb)
-    actual = adb.shell(
-        f"cp {kept_module} {remote_module} && sha256sum {remote_module}"
-    ).split()[0]
-    if actual != expected:
-        raise ModuleMismatchError(
-            f"{remote_module} on the device does not match the module built at "
-            f"{module_vmfb}:\n"
-            f"  device: sha256 {actual}\n"
-            f"  host:   sha256 {expected}\n"
-            "Another execution of the integration tests is probably using the "
-            "same device root concurrently. The device root has no lock - give "
-            "each execution its own --device-root, or run them one at a time."
-        )
-
-
 class ParameterMismatchError(RuntimeError):
     """A parameter archive arrived on the device with a different sha256."""
 
@@ -257,90 +205,22 @@ def _parameter_flags(
     return [f"--parameters={parameters.scope}={remote_path}"]
 
 
-def push_module(
-    module_vmfb: Path,
-    remote_module: str,
-    kept_module: str,
-    host_rsync: Path,
-    device_rsync: str,
-    timeout: float,
-    setup: str = "",
-    timings: dict[str, float] | None = None,
-) -> None:
-    """Make `remote_module` on the device a copy of the `module_vmfb` built.
-
-    A module of at least `_KEEP_MODULE_MIN_BYTES` goes to `kept_module` (see
-    `integration_tests/device/deploy.py`) with `host_rsync`, as a delta against
-    the module sent there last time, or with adb push if there is none yet.
-    `remote_module` then gets its own copy of it, and `ModuleMismatchError` is
-    raised unless that copy's checksum matches `module_vmfb`, defending against a different user doing this at teh same time.
-    A smaller module is pushed straight to `remote_module`.
-
-    `device_rsync` is the command that runs rsync on the device. `setup` is a
-    shell script run first, in the same adb shell that looks for a kept
-    module. `timeout` bounds the transfer. With `timings`, the durations of the
-    transfer and of the check are added to it.
-    """
-    if timings is None:
-        timings = {}
-    should_keep_module = module_vmfb.stat().st_size >= _KEEP_MODULE_MIN_BYTES
-    # One adb round trip runs the setup and, for a kept module, finds out
-    # whether an earlier run left one to diff against.
-    script = setup or "true"
-    if should_keep_module:
-        script += (
-            f"; mkdir -p {posixpath.dirname(kept_module)}"
-            f"; if [ -f {kept_module} ]; then echo kept; fi"
-        )
-    has_kept_module = adb.shell(script).strip() == "kept"
-    push_module_start = time.time()
-    if not should_keep_module:
-        adb.push([module_vmfb], remote_module, timeout=timeout)
-    elif has_kept_module:
-        # A delta against the module this case sent last time, so a rebuilt
-        # module only sends what changed. With `device_rsync` under
-        # limit_lifetime, the device side ends if the transfer times out.
-        adb.sync(
-            host_rsync=host_rsync,
-            device_rsync=device_rsync,
-            local_path=module_vmfb,
-            remote_path=kept_module,
-            timeout=timeout,
-        )
-    else:
-        # Nothing to diff against, and for a full transfer adb push is faster
-        # than rsync over `adb shell`.
-        adb.push([module_vmfb], kept_module, timeout=timeout)
-    timings["push_module"] = time.time() - push_module_start
-    if should_keep_module:
-        # otherwise, it is already pushed to the case dir, and no need to verify, that no one else overrides it in between
-        verify_module_start = time.time()
-        _check_module_after_rsync(module_vmfb, kept_module, remote_module)
-        timings["verify_module"] = time.time() - verify_module_start
-
-
 def _push_case(
     deployment: Deployment,
     case_dir_name: str,
     module_vmfb: Path,
-    host_rsync: Path,
     timeout: float,
     timings: dict[str, float],
 ) -> str:
     """Make a fresh case directory on the device holding `module_vmfb` as
-    module.vmfb, see `push_module`, and return its path.
+    module.vmfb, and return its path. `timeout` bounds the transfer, whose
+    duration is added to `timings`.
     """
     remote_dir = deployment.case_dir(case_dir_name)
-    push_module(
-        module_vmfb=module_vmfb,
-        remote_module=f"{remote_dir}/module.vmfb",
-        kept_module=deployment.kept_module(case_dir_name),
-        host_rsync=host_rsync,
-        device_rsync=f"{deployment.limit_lifetime} {deployment.rsync}",
-        timeout=timeout,
-        setup=f"rm -rf {remote_dir}; mkdir -p {remote_dir}",
-        timings=timings,
-    )
+    adb.shell(f"rm -rf {remote_dir}; mkdir -p {remote_dir}")
+    push_module_start = time.time()
+    adb.push([module_vmfb], f"{remote_dir}/module.vmfb", timeout=timeout)
+    timings["push_module"] = time.time() - push_module_start
     return remote_dir
 
 
@@ -372,7 +252,6 @@ def run_module_on_device(
     module_vmfb: Path,
     calls: list[ModuleCall],
     local_output_dir: Path,
-    host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
     tracy_port: int | None = None,
@@ -384,14 +263,6 @@ def run_module_on_device(
     Each of `calls` runs in its own iree-run-module, in order, in the same adb
     round trip. A call runs only if the previous one exited successfully. Their
     outputs are not compared here; that is up to the caller.
-
-    A module of at least `_KEEP_MODULE_MIN_BYTES` is kept on the device across
-    runs (see `integration_tests/device/deploy.py`) and goes over with
-    `host_rsync`, as a delta against the one this case sent last time, or with
-    adb push if there is none yet. The case directory then gets its own copy of
-    it, and `ModuleMismatchError` is raised unless that copy's checksum matches
-    the `module_vmfb` built on the host. A smaller module is pushed straight
-    into the case directory.
 
     `timeout` bounds both the module push and the run.
 
@@ -420,11 +291,9 @@ def run_module_on_device(
     timings: dict[str, float] = {}
 
     push_total_start = time.time()
-    # The first transfer of a large module takes a while, so it gets the same
-    # budget as the run.
-    remote_dir = _push_case(
-        deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
-    )
+    # A module with embedded weights can take a while to push, so the push
+    # gets the same budget as the run.
+    remote_dir = _push_case(deployment, case_dir_name, module_vmfb, timeout, timings)
     parameter_flags = _parameter_flags(deployment, parameters, timeout, timings)
     push_files = [path for call in calls for path in call.input_files]
     if push_files:
@@ -563,7 +432,6 @@ def run_llm_on_device(
     module_vmfb: Path,
     generation: GenerationReference,
     local_output_dir: Path,
-    host_rsync: Path,
     extra_flags: tuple[str, ...] = (),
     timeout: float = 900.0,
     parameters: ParameterArchive | None = None,
@@ -581,9 +449,7 @@ def run_llm_on_device(
     """
     timings: dict[str, float] = {}
     push_total_start = time.time()
-    remote_dir = _push_case(
-        deployment, case_dir_name, module_vmfb, host_rsync, timeout, timings
-    )
+    remote_dir = _push_case(deployment, case_dir_name, module_vmfb, timeout, timings)
     parameter_flags = _parameter_flags(deployment, parameters, timeout, timings)
     adb.push([generation.tokenizer_json, generation.prompt_file], remote_dir + "/")
     timings["push_total"] = time.time() - push_total_start

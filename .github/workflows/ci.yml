@@ -40,7 +40,7 @@ jobs:
           path: build-artifacts-cmake
           retention-days: 1
       # Not in build-artifacts-*, which the release publishes: the device tools
-      # (limit_lifetime, rsync) are test helpers.
+      # (limit_lifetime) are test helpers.
       - name: Upload test tools
         uses: actions/upload-artifact@v4
         with:
@@ -206,17 +206,6 @@ jobs:
         if: env.PHONE_ACCESS == 'true'
         run: |
           build_tools/create_test_venv.sh
-      - &install_rsync
-        name: Install rsync
-        if: env.PHONE_ACCESS == 'true'
-        run: |
-          # The tests send modules to the phone as rsync deltas. The phone's
-          # end ships in the device-tools zip; this is the host's end.
-          if ! command -v rsync >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y rsync
-          fi
-          rsync --version | head -n1
       - &integration_tests
         name: Integration tests
         if: env.PHONE_ACCESS == 'true'
@@ -338,7 +327,6 @@ jobs:
       - *clean_old_files_on_phone
       - *install_uv
       - *setup_test_env
-      - *install_rsync
       - *integration_tests
       - *leave_overlay
       - *performance_check

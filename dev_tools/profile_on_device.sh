@@ -117,18 +117,13 @@ MODEL_NAME="$(basename "$MODEL_DIR")"
 WORK_DIR="${WORK_DIR:-/tmp/profile_on_device/$MODEL_NAME}" # local dir, where model is compiled
 REMOTE_DIR=/data/local/tmp/${USER}/profile_on_device/$MODEL_NAME # dir on the phone to upload model to
 
-# The integration tests' device root; their kept modules are reused below.
-DEVICE_ROOT="${DEVICE_ROOT:-/data/local/tmp/hexagon_it}"
-
 COMPILE_FLAGS=()
 RUN_FLAGS="--module_mode=mmap" # parallel
-RUN_CASE=parallel # the integration-test run case with the same runtime flags
 if [[ "$SERIAL" == true ]]; then
   # Without async worker threads inside VTCM-tiled kernels, too. Passed after
   # the model's extra_compile_flags, so it overrides a thread count set there.
   COMPILE_FLAGS+=(--iree-hexagon-vtcm-tile-num-threads=1)
   RUN_FLAGS+=" --hexagon_max_concurrent_dispatches=1"
-  RUN_CASE=sequential
 fi
 if [[ ${#PMU_EVENT_IDS[@]} -gt 0 ]]; then
   RUN_FLAGS+=" --hexagon_pmu_events=$(IFS=,; echo "${PMU_EVENT_IDS[*]}")"
@@ -139,21 +134,17 @@ fi
 bazel build \
   @iree//tools:iree-compile \
   @llvm-project//lld:ld.lld \
-  //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy \
-  //integration_tests/device/tools:device_tools_aarch64_android
+  //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy
 
 IREE_COMPILE="$REPO/$(bazel cquery --output=files @iree//tools:iree-compile 2>/dev/null | head -n1)"
 LLD="$REPO/$(bazel cquery --output=files @llvm-project//lld:ld.lld 2>/dev/null | head -n1)"
 RUNTIME_ZIP_TRACY="$REPO/$(bazel cquery --output=files \
   //plugins/runtime/hexagon:hexagon_runtime_aarch64_android_tracy 2>/dev/null | head -n1)"
-DEVICE_TOOLS_ZIP="$REPO/$(bazel cquery --output=files \
-  //integration_tests/device/tools:device_tools_aarch64_android 2>/dev/null | head -n1)"
 
 # --- Import: torch model -> model.mlirbc + input*.npy -----------------------
 # The import also writes io.txt, listing the imported MLIR file, the entry
-# function, the input and output file names, the model's extra_compile_flags from model.yaml and its
-# name in the model tree, so the compile, deploy and run below work for any
-# model.
+# function, the input and output file names and the model's extra_compile_flags
+# from model.yaml, so the compile, deploy and run below work for any model.
 mkdir -p "$WORK_DIR"
 .venv/bin/python -c "
 from pathlib import Path
@@ -179,7 +170,6 @@ lines += [f'function {call.function}']
 lines += [f'input {p.name}' for p in call.input_files]
 lines += [f'output {name}' for name in call.output_names]
 lines += [f'flag {flag}' for flag in flags]
-lines += [f'name {spec.name}']
 Path('$WORK_DIR/io.txt').write_text('\\n'.join(lines) + '\\n')
 "
 
@@ -195,8 +185,6 @@ while read -r kind name; do
     input) INPUT_FILES+=("$WORK_DIR/$name"); IO_FLAGS+=" --input=@$name" ;;
     output) IO_FLAGS+=" --output=@$name" ;;
     flag) MODEL_COMPILE_FLAGS+=("$name") ;;
-    # as the integration tests name the case directory (test_models.py)
-    name) CASE_PREFIX="${name//\//_}" ;;
   esac
 done < "$WORK_DIR/io.txt"
 
@@ -210,22 +198,8 @@ done < "$WORK_DIR/io.txt"
 
 # --- Deploy -----------------------------------------------------------------
 adb push "$RUNTIME_ZIP_TRACY" "$REMOTE_DIR/runtime.zip"
-adb push "$DEVICE_TOOLS_ZIP" "$REMOTE_DIR/device_tools.zip"
-adb shell "cd $REMOTE_DIR && unzip -oq runtime.zip && unzip -oq device_tools.zip && rm runtime.zip device_tools.zip && chmod +x bin/iree-run-module bin/limit_lifetime bin/rsync"
-# Send the module with the integration tests' push_module: cache models on the phone
-.venv/bin/python -c "
-from pathlib import Path
-from integration_tests.stages.running import push_module
-from integration_tests.tool_paths import resolve_host_tool
-push_module(
-    module_vmfb=Path('$WORK_DIR/model.vmfb'),
-    remote_module='$REMOTE_DIR/model.vmfb',
-    kept_module='$DEVICE_ROOT/modules/${CASE_PREFIX}_${COMPILE_CASE}_$RUN_CASE/module.vmfb',
-    host_rsync=resolve_host_tool('rsync', None),
-    device_rsync='$REMOTE_DIR/bin/limit_lifetime $REMOTE_DIR/bin/rsync',
-    timeout=4 * 3600.0,
-)
-"
+adb shell "cd $REMOTE_DIR && unzip -oq runtime.zip && rm runtime.zip && chmod +x bin/iree-run-module"
+adb push "$WORK_DIR/model.vmfb" "$REMOTE_DIR/model.vmfb"
 if [[ ${#INPUT_FILES[@]} -gt 0 ]]; then
   adb push "${INPUT_FILES[@]}" "$REMOTE_DIR/"
 fi

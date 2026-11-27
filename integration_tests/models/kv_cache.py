@@ -55,7 +55,8 @@ def grouped_query_attention(
     """Folds the query heads that share a KV head into the M dim of one matmul.
 
     Query head `h` attends to KV head `h // group_size`, as with `repeat_kv`.
-    Matmuls stay in the model dtype; scaling, mask and softmax run in float32.
+    Matmuls stay in the model dtype, with the query scaled before QK^T so the
+    scores never exist unscaled; mask and softmax run in float32.
     """
     for ignored in ("position_ids", "sliding_window", "use_cache"):
         kwargs.pop(ignored, None)
@@ -68,7 +69,7 @@ def grouped_query_attention(
     scale = scaling if scaling is not None else float(head_dim) ** -0.5
 
     query = query.reshape(batch_size, num_kv_heads, group_size * q_len, head_dim)
-    scores = torch.matmul(query, key.transpose(2, 3)).float() * scale
+    scores = torch.matmul(query * scale, key.transpose(2, 3)).float()
     if attention_mask is not None:
         # Additive [batch, 1, q_len, kv_len], broadcast over heads and group.
         mask = attention_mask[..., :kv_len].unsqueeze(1)

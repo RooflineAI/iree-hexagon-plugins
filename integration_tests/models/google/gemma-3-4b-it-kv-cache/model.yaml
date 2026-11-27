@@ -1,0 +1,52 @@
+# Copyright 2026 RooflineAI GmbH
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# gemma-3-4b-it, image + text in, generated tokens out (see
+# models/gemma3_vlm.py): one module with the SigLIP encoder as `vision`, the
+# language model as `prefill`, which also takes the encoder's 256 image
+# embeddings, and `decode`. The device runs `vision` on the image first, end
+# to end. The image is resnet-50-keyboard's keyboard.png, which the import
+# resizes to 896x896 (bilinear, as HF's processor).
+dtype: float16
+inputs:
+  # The export's example prompt (random token ids): a multiple of 32 tokens
+  # (block_seq_stride), at least two blocks, shorter than max_seq_len (512).
+  # Ids from 255999 up are the image/audio special tokens; keep it text-only.
+  # The example image embeddings are model.py's.
+  - shape: [1, 128]
+    dtype: int64
+    generator: uniform
+    low: 0
+    high: 255999
+    seed: 0
+# Prefill logits fail them (see expected_outcomes).
+tolerances:
+  atol: 5.0
+  rtol: 5.0e-2
+  relative_l2_percent: 3.0
+# A ~4B-parameter model needs longer than the default to push and run.
+run_timeout: 3600
+compile_cases: [hexagon-vtcm-hmx]
+expected_outcomes:
+  - case: hexagon-vtcm-hmx
+    status: ACCURACY_FAILURE
+    reason: "prefill logits of the 275 prompt positions"
+    comment: >-
+      Prefill logits are 5.51% (relative L2) off, max abs diff 15.5 (2026-11-27). The 19 generated tokens match the host reference. Cause not known yet; this is the first run that gets past `vision`.
+# The user prompt. The import puts it into the chat template for one image
+# and expands <start_of_image> to 256 image tokens. The answer names the
+# object ("Certainly! The object in the picture is a **keyboard**. ..."),
+# lowest margin 0.69 at step 5 (host, f16, 2026-11-26).
+generation:
+  prompt: "Identify the object in the picture."
+  max_new_tokens: 19
+  image: ../../microsoft/resnet-50-keyboard/keyboard.png
+  # Measured 2026-11-27: relative L2 0.71%, max abs 0.36 (the default atol
+  # 0.2 is too tight).
+  vision_tolerances:
+    atol: 0.5
+    rtol: 5.0e-2
+    relative_l2_percent: 1.0

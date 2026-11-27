@@ -29,7 +29,6 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-import torch.nn.functional as F
 from transformers.models.qwen3_vl import modeling_qwen3_vl as mq
 from transformers.vision_utils import (
     get_vision_cu_seqlens,
@@ -37,6 +36,7 @@ from transformers.vision_utils import (
     get_vision_position_ids,
 )
 
+from integration_tests.models.f16_layers import F32LayerNorm
 from integration_tests.models.kv_cache import KvCacheLM
 
 # preprocessor_config.json of Qwen3-VL-2B/4B-Instruct.
@@ -82,28 +82,13 @@ def _single_segment_attention(
     return self.proj(out.reshape(seq_length, -1).contiguous())
 
 
-class _F32LayerNorm(torch.nn.LayerNorm):
-    # iree-compile lowers an f16 aten.layer_norm with f16 accumulation, which
-    # alone puts the merged embeddings 100% (relative L2) off. Computing it in
-    # f32 differs from torch's own f16 CPU kernel by at most one f16 ulp per
-    # norm (measured 2026-10-01); the single-segment attention is bit-identical.
-    def forward(self, x):
-        return F.layer_norm(
-            x.float(),
-            self.normalized_shape,
-            self.weight.float(),
-            self.bias.float(),
-            self.eps,
-        ).to(x.dtype)
-
-
 def patch_vision_tower(visual: torch.nn.Module) -> None:
     """Make the vision tower exportable and accurate in f16 (see above)."""
     for module in visual.modules():
         if isinstance(module, mq.Qwen3VLVisionAttention):
             module.forward = _single_segment_attention.__get__(module)
         elif type(module) is torch.nn.LayerNorm:
-            module.__class__ = _F32LayerNorm
+            module.__class__ = F32LayerNorm
 
 
 class VisionEncoder(torch.nn.Module):

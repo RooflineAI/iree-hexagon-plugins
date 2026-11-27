@@ -330,7 +330,7 @@ def import_model(
 
     ops = decompositions if decompositions is not None else DEFAULT_DECOMPOSITIONS
     # Non-strict:
-    # The strict export traces with Dynamo, which errors out on Python the graph
+    # The strict export traces with Dynamo, which errors out on Python if the graph
     # would not capture faithfully (globals, side effects, non-torch calls),
     # holds another copy of the weights while it runs (duplicating memory
     # usage). The non-strict export runs the Python as is and bakes plain Python
